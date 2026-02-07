@@ -1,0 +1,2356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CloudOS - Public Cloud Operating System</title>
+<style>
+/* === Reset & Variables === */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0d0d1a;--surface:#14142b;--surface2:#1c1c3a;--surface3:#252550;
+  --border:#2a2a4a;--border-active:#4a4a8a;--accent:#6c5ce7;--accent2:#a29bfe;
+  --red:#ff5f56;--yellow:#ffbd2e;--green:#27c93f;--blue:#4fc3f7;
+  --text:#e8e8f0;--text2:#9898b8;--text3:#585878;
+  --taskbar-h:44px;--titlebar-h:34px;--radius:8px;
+  --font:'SF Mono',Monaco,Consolas,'Courier New',monospace;
+  --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;font-family:var(--font-ui);color:var(--text);background:var(--bg)}
+
+/* === Boot Screen === */
+#boot{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;transition:opacity .6s}
+#boot.done{opacity:0;pointer-events:none}
+.boot-logo{font-size:48px;margin-bottom:8px}
+.boot-title{font-size:24px;font-weight:300;color:var(--text2);margin-bottom:32px}
+.boot-bar-wrap{width:200px;height:3px;background:var(--surface3);border-radius:2px;overflow:hidden}
+.boot-bar{width:0%;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s;border-radius:2px}
+.boot-status{margin-top:16px;font-size:12px;color:var(--text3)}
+
+/* === Desktop === */
+#desktop{position:fixed;inset:0;bottom:var(--taskbar-h);overflow:hidden;
+  background:linear-gradient(135deg,#0a0a1e 0%,#1a1040 30%,#0d2040 60%,#0a1628 100%)}
+#desktop-icons{position:absolute;inset:0;padding:16px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:8px}
+.desktop-icon{width:80px;padding:8px 4px;text-align:center;border-radius:8px;cursor:pointer;user-select:none;transition:.15s}
+.desktop-icon:hover{background:rgba(255,255,255,.08)}
+.desktop-icon:active{background:rgba(255,255,255,.12)}
+.desktop-icon .ico{font-size:32px;display:block;margin-bottom:4px}
+.desktop-icon .lbl{font-size:11px;color:var(--text);text-shadow:0 1px 3px rgba(0,0,0,.8);word-break:break-word;line-height:1.3}
+
+/* === Windows === */
+#win-container{position:absolute;inset:0;pointer-events:none}
+.window{pointer-events:auto}
+.window{position:absolute;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;min-width:240;min-height:160;transition:box-shadow .15s}
+.window.active{box-shadow:0 12px 48px rgba(0,0,0,.7);border-color:var(--border-active);z-index:auto}
+.window.minimized{display:none!important}
+.window.maximized{border-radius:0!important;left:0!important;top:0!important;width:100%!important;height:100%!important}
+.win-titlebar{display:flex;align-items:center;height:var(--titlebar-h);padding:0 10px;background:var(--surface2);user-select:none;cursor:default;flex-shrink:0;gap:8px}
+.window.active .win-titlebar{background:var(--surface3)}
+.win-icon{font-size:14px}
+.win-title{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)}
+.window.active .win-title{color:var(--text)}
+.win-btns{display:flex;gap:6px}
+.win-btn{width:13px;height:13px;border-radius:50%;border:none;cursor:pointer;font-size:0;transition:.15s;padding:0}
+.win-btn:hover{filter:brightness(1.2)}
+.win-close{background:var(--red)}.win-max{background:var(--green)}.win-min{background:var(--yellow)}
+.win-content{flex:1;overflow:auto;position:relative;background:var(--surface)}
+/* Resize handles */
+.wr{position:absolute;z-index:5}
+.wr-n{top:-4px;left:8px;right:8px;height:8px;cursor:n-resize}
+.wr-s{bottom:-4px;left:8px;right:8px;height:8px;cursor:s-resize}
+.wr-e{right:-4px;top:8px;bottom:8px;width:8px;cursor:e-resize}
+.wr-w{left:-4px;top:8px;bottom:8px;width:8px;cursor:w-resize}
+.wr-nw{top:-4px;left:-4px;width:14px;height:14px;cursor:nw-resize}
+.wr-ne{top:-4px;right:-4px;width:14px;height:14px;cursor:ne-resize}
+.wr-sw{bottom:-4px;left:-4px;width:14px;height:14px;cursor:sw-resize}
+.wr-se{bottom:-4px;right:-4px;width:14px;height:14px;cursor:se-resize}
+.window.maximized .wr{display:none}
+
+/* === Taskbar === */
+#taskbar{position:fixed;bottom:0;left:0;right:0;height:var(--taskbar-h);background:rgba(12,12,30,.9);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;padding:0 6px;z-index:10000;gap:2px}
+#start-btn{width:38px;height:34px;border:none;background:none;font-size:20px;cursor:pointer;border-radius:6px;transition:.15s;display:flex;align-items:center;justify-content:center}
+#start-btn:hover{background:rgba(255,255,255,.1)}
+#start-btn.open{background:rgba(108,92,231,.3)}
+#desk-switch{display:flex;gap:3px;margin:0 6px;padding:0 6px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
+.desk-pip{width:20px;height:12px;border-radius:3px;border:1px solid var(--border);cursor:pointer;transition:.15s;background:transparent}
+.desk-pip:hover{border-color:var(--text3)}
+.desk-pip.active{background:var(--accent);border-color:var(--accent)}
+#task-btns{flex:1;display:flex;gap:2px;overflow-x:auto;padding:0 4px}
+.task-btn{height:32px;padding:0 12px;border:none;background:rgba(255,255,255,.04);color:var(--text2);font-size:12px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;transition:.15s;display:flex;align-items:center;gap:6px;font-family:var(--font-ui)}
+.task-btn:hover{background:rgba(255,255,255,.08)}
+.task-btn.active{background:rgba(108,92,231,.2);color:var(--text)}
+#sys-tray{display:flex;align-items:center;gap:12px;padding:0 8px;font-size:12px;color:var(--text2)}
+#clock{font-variant-numeric:tabular-nums}
+
+/* === Start Menu === */
+#start-menu{position:fixed;bottom:calc(var(--taskbar-h) + 6px);left:6px;width:300px;max-height:460px;background:rgba(18,18,40,.96);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.08);border-radius:12px;z-index:10001;box-shadow:0 16px 64px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow:hidden}
+#start-menu.hidden{display:none}
+#start-search{border:none;background:rgba(255,255,255,.06);color:var(--text);padding:10px 14px;font-size:13px;outline:none;border-bottom:1px solid var(--border);font-family:var(--font-ui)}
+#start-search::placeholder{color:var(--text3)}
+#start-apps{flex:1;overflow-y:auto;padding:6px}
+.start-cat{font-size:10px;text-transform:uppercase;color:var(--text3);padding:8px 12px 4px;letter-spacing:1px}
+.start-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;cursor:pointer;transition:.1s}
+.start-item:hover{background:rgba(255,255,255,.08)}
+.start-item .si-icon{font-size:20px;width:28px;text-align:center}
+.start-item .si-name{font-size:13px}
+.start-item .si-desc{font-size:10px;color:var(--text3)}
+#start-footer{display:flex;border-top:1px solid var(--border);padding:6px}
+#start-footer button{flex:1;padding:8px;border:none;background:none;color:var(--text2);font-size:12px;cursor:pointer;border-radius:6px;font-family:var(--font-ui)}
+#start-footer button:hover{background:rgba(255,255,255,.06)}
+
+/* === Context Menu === */
+#ctx-menu{position:fixed;min-width:160px;background:rgba(18,18,40,.96);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.08);border-radius:8px;z-index:10002;box-shadow:0 8px 32px rgba(0,0,0,.5);padding:4px;font-size:13px}
+#ctx-menu.hidden{display:none}
+.ctx-item{padding:6px 12px;border-radius:4px;cursor:pointer;transition:.1s}
+.ctx-item:hover{background:rgba(255,255,255,.08)}
+.ctx-sep{height:1px;background:var(--border);margin:4px 8px}
+
+/* === Terminal === */
+.term{display:flex;flex-direction:column;height:100%;background:#0c0c14;font-family:var(--font);font-size:13px}
+.term-out{flex:1;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-all;line-height:1.5;color:#d4d4e8}
+.term-line-input{display:flex;padding:4px 10px 8px;align-items:center;background:#0c0c14}
+.term-prompt{color:var(--green);white-space:pre}
+.term-input{flex:1;background:none;border:none;color:var(--text);font:inherit;outline:none;caret-color:var(--accent2)}
+.t-dir{color:var(--blue)}.t-file{color:var(--text)}.t-err{color:var(--red)}.t-info{color:var(--accent2)}.t-ok{color:var(--green)}
+
+/* === CodePad === */
+.codepad{display:flex;flex-direction:column;height:100%;background:#0e0e18}
+.cp-toolbar{display:flex;gap:2px;padding:4px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.cp-toolbar button,.cp-toolbar select{padding:4px 10px;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:4px;color:var(--text2);font-size:11px;cursor:pointer;font-family:var(--font-ui)}
+.cp-toolbar button:hover{background:rgba(255,255,255,.1)}
+.cp-body{display:flex;flex:1;overflow:hidden}
+.cp-gutter{width:44px;background:#0a0a12;color:var(--text3);font:12px/1.6 var(--font);padding:8px 4px;text-align:right;overflow:hidden;user-select:none;flex-shrink:0}
+.cp-editor{flex:1;background:none;border:none;color:var(--text);font:13px/1.6 var(--font);padding:8px;outline:none;resize:none;tab-size:2;white-space:pre;overflow:auto}
+.cp-status{display:flex;justify-content:space-between;padding:2px 10px;background:var(--accent);font-size:11px;color:#fff}
+
+/* === Calculator === */
+.calc{display:flex;flex-direction:column;height:100%;background:var(--surface);padding:12px}
+.calc-display{background:#0a0a14;border-radius:8px;padding:16px;margin-bottom:12px;text-align:right;min-height:72px;display:flex;flex-direction:column;justify-content:flex-end}
+.calc-expr{font-size:13px;color:var(--text3);min-height:18px}
+.calc-val{font-size:32px;color:var(--text);font-family:var(--font);overflow:hidden;text-overflow:ellipsis}
+.calc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:1}
+.calc-btn{border:none;border-radius:8px;font-size:18px;cursor:pointer;transition:.1s;font-family:var(--font-ui);color:var(--text)}
+.calc-btn:hover{filter:brightness(1.15)}
+.calc-btn:active{transform:scale(.96)}
+.calc-btn.num{background:var(--surface3)}
+.calc-btn.op{background:var(--accent);color:#fff}
+.calc-btn.fn{background:var(--surface2);color:var(--text2)}
+
+/* === Paint === */
+.paint{display:flex;flex-direction:column;height:100%;background:#1a1a2e}
+.paint-toolbar{display:flex;gap:4px;padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap}
+.paint-tool{width:30px;height:30px;border:1px solid transparent;border-radius:4px;background:none;color:var(--text2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:.1s}
+.paint-tool:hover{background:rgba(255,255,255,.08)}
+.paint-tool.active{background:var(--accent);color:#fff;border-color:var(--accent2)}
+.paint-body{display:flex;flex:1;overflow:hidden}
+.paint-canvas-wrap{flex:1;position:relative;overflow:hidden;background:repeating-conic-gradient(#222 0% 25%,#2a2a2a 0% 50%) 0 0/20px 20px}
+.paint-canvas-wrap canvas{position:absolute;top:0;left:0}
+.paint-layers{width:140px;background:var(--surface);border-left:1px solid var(--border);padding:4px;font-size:11px;overflow-y:auto}
+.paint-layer-item{display:flex;align-items:center;gap:4px;padding:4px 6px;border-radius:4px;cursor:pointer;margin-bottom:2px}
+.paint-layer-item:hover{background:rgba(255,255,255,.04)}
+.paint-layer-item.active{background:rgba(108,92,231,.2)}
+.paint-layer-item input[type=checkbox]{margin:0}
+
+/* === File Manager === */
+.filemgr{display:flex;flex-direction:column;height:100%;background:var(--surface)}
+.fm-path{display:flex;align-items:center;gap:4px;padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:12px}
+.fm-path button{padding:2px 8px;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;font-size:14px}
+.fm-path button:hover{background:rgba(255,255,255,.1)}
+.fm-crumb{color:var(--text2);cursor:pointer;padding:2px 4px;border-radius:3px}
+.fm-crumb:hover{background:rgba(255,255,255,.06);color:var(--text)}
+.fm-grid{flex:1;overflow-y:auto;padding:12px;display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start}
+.fm-item{width:88px;padding:8px 4px;text-align:center;border-radius:6px;cursor:pointer;user-select:none;transition:.1s}
+.fm-item:hover{background:rgba(255,255,255,.06)}
+.fm-item.selected{background:rgba(108,92,231,.15)}
+.fm-item .fm-ico{font-size:32px;display:block;margin-bottom:4px}
+.fm-item .fm-name{font-size:11px;word-break:break-word;line-height:1.3}
+
+/* === CloudStore === */
+.cloudstore{display:flex;flex-direction:column;height:100%;background:var(--surface)}
+.cs-header{padding:12px 16px;background:linear-gradient(135deg,var(--surface3),var(--accent));border-bottom:1px solid var(--border)}
+.cs-header h2{font-size:16px;font-weight:600}
+.cs-header p{font-size:11px;color:var(--text2);margin-top:2px}
+.cs-repo{display:flex;gap:4px;padding:8px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.cs-repo input{flex:1;padding:6px 10px;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;outline:none;font-family:var(--font)}
+.cs-repo input:focus{border-color:var(--accent)}
+.cs-repo button{padding:6px 14px;background:var(--accent);border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;font-family:var(--font-ui)}
+.cs-tabs{display:flex;border-bottom:1px solid var(--border)}
+.cs-tab{flex:1;padding:8px;text-align:center;font-size:12px;color:var(--text2);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--font-ui)}
+.cs-tab.active{color:var(--accent2);border-bottom-color:var(--accent)}
+.cs-list{flex:1;overflow-y:auto;padding:8px}
+.cs-pkg{display:flex;align-items:center;gap:10px;padding:10px;border-radius:6px;margin-bottom:4px;transition:.1s}
+.cs-pkg:hover{background:rgba(255,255,255,.04)}
+.cs-pkg .cs-ico{font-size:28px}
+.cs-pkg .cs-info{flex:1}.cs-pkg .cs-name{font-size:13px;font-weight:500}.cs-pkg .cs-desc{font-size:11px;color:var(--text3)}
+.cs-pkg button{padding:4px 14px;border:1px solid var(--accent);background:none;color:var(--accent2);border-radius:4px;cursor:pointer;font-size:11px;font-family:var(--font-ui)}
+.cs-pkg button:hover{background:var(--accent);color:#fff}
+.cs-pkg button.installed{border-color:var(--green);color:var(--green)}
+
+/* === Settings === */
+.settings{display:flex;height:100%}
+.set-nav{width:140px;background:var(--surface2);border-right:1px solid var(--border);padding:8px}
+.set-nav-item{padding:8px 10px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text2);margin-bottom:2px}
+.set-nav-item:hover{background:rgba(255,255,255,.04)}
+.set-nav-item.active{background:rgba(108,92,231,.15);color:var(--text)}
+.set-panel{flex:1;padding:16px;overflow-y:auto}
+.set-section{margin-bottom:20px}
+.set-section h3{font-size:14px;margin-bottom:8px;color:var(--text2)}
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.set-row label{font-size:13px}
+.set-row input,.set-row select{padding:4px 8px;background:var(--surface3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px}
+.set-btn{padding:8px 20px;background:var(--accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;margin:4px;font-family:var(--font-ui)}
+.set-btn:hover{filter:brightness(1.1)}
+.set-btn.danger{background:var(--red)}
+
+/* === Broadcast === */
+.broadcast{display:flex;flex-direction:column;height:100%;background:var(--surface)}
+.bc-header{padding:12px 16px;background:linear-gradient(135deg,#1a0a2e,#2a1040);border-bottom:1px solid var(--border)}
+.bc-header h2{font-size:16px}.bc-header p{font-size:11px;color:var(--text2);margin-top:2px}
+.bc-compose{padding:10px;border-bottom:1px solid var(--border)}
+.bc-compose textarea{width:100%;height:60px;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font:13px var(--font-ui);resize:none;outline:none}
+.bc-compose textarea:focus{border-color:var(--accent)}
+.bc-compose-bar{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.bc-compose-bar span{font-size:11px;color:var(--text3)}
+.bc-feed{flex:1;overflow-y:auto;padding:8px}
+.bc-msg{padding:10px;border-radius:8px;background:rgba(255,255,255,.03);margin-bottom:6px;border:1px solid rgba(255,255,255,.04)}
+.bc-msg .bc-user{font-size:12px;font-weight:600;color:var(--accent2)}
+.bc-msg .bc-time{font-size:10px;color:var(--text3);margin-left:8px}
+.bc-msg .bc-text{font-size:13px;margin-top:4px;line-height:1.5}
+.bc-msg .bc-reactions{display:flex;gap:4px;margin-top:6px}
+.bc-msg .bc-react-btn{padding:2px 8px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;font-size:11px;cursor:pointer;color:var(--text2)}
+.bc-msg .bc-react-btn:hover{background:rgba(108,92,231,.15);border-color:var(--accent)}
+.bc-ch-btn{padding:3px 10px;background:none;border:1px solid var(--border);border-radius:12px;color:var(--text3);font-size:11px;cursor:pointer;font-family:var(--font-ui);transition:.1s}
+.bc-ch-btn:hover{background:rgba(255,255,255,.06);color:var(--text2)}
+.bc-ch-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* === Arcade === */
+.arcade{display:flex;flex-direction:column;height:100%;background:#0a0a14}
+.arc-top{display:flex;height:100%;overflow:hidden}
+.arc-sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.arc-sidebar-header{padding:10px 12px;background:linear-gradient(135deg,#1a0020,#200a30);border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+.arc-consoles{flex:1;overflow-y:auto;padding:4px}
+.arc-console-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;transition:.1s}
+.arc-console-item:hover{background:rgba(255,255,255,.06)}
+.arc-console-item.active{background:rgba(108,92,231,.2)}
+.arc-console-item .arc-ci-icon{font-size:20px}
+.arc-console-item .arc-ci-name{font-size:12px;flex:1}
+.arc-console-item .arc-ci-year{font-size:10px;color:var(--text3)}
+.arc-console-item .arc-ci-badge{font-size:9px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff}
+.arc-console-item .arc-ci-badge.soon{background:var(--surface3);color:var(--text3)}
+.arc-games{border-top:1px solid var(--border);padding:4px;max-height:200px;overflow-y:auto}
+.arc-game-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;transition:.1s}
+.arc-game-item:hover{background:rgba(255,255,255,.08)}
+.arc-game-item .arc-gi-icon{font-size:14px}
+.arc-game-item .arc-gi-name{flex:1}
+.arc-load-bar{padding:6px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px}
+.arc-load-bar button{padding:6px;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;font-size:11px;font-family:var(--font-ui);text-align:left}
+.arc-load-bar button:hover{background:rgba(255,255,255,.1)}
+.arc-main{flex:1;display:flex;flex-direction:column;position:relative;background:#000}
+.arc-iframe{width:100%;height:100%;border:none;background:#000}
+.arc-splash{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#0a0014,#100020,#0a0a1e);color:var(--text2)}
+.arc-splash .arc-big-icon{font-size:64px;margin-bottom:12px}
+.arc-splash h3{font-size:18px;color:var(--text);margin-bottom:4px}
+.arc-splash p{font-size:12px;max-width:300px;text-align:center;line-height:1.6}
+.arc-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.8);color:var(--accent2);font-size:14px;z-index:2}
+
+/* === Scrollbar === */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--border)}
+
+/* === Utility === */
+.hidden{display:none!important}
+.flex-1{flex:1}.gap-4{gap:4px}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</head>
+<body>
+<!-- Boot -->
+<div id="boot"><div class="boot-logo">&#9729;&#65039;</div><div class="boot-title">CloudOS</div><div class="boot-bar-wrap"><div class="boot-bar" id="boot-bar"></div></div><div class="boot-status" id="boot-status">Initializing...</div></div>
+<!-- Desktop -->
+<div id="desktop"><div id="desktop-icons"></div><div id="win-container"></div></div>
+<!-- Taskbar -->
+<div id="taskbar"><button id="start-btn">&#9729;&#65039;</button><div id="desk-switch"></div><div id="task-btns"></div><div id="sys-tray"><span id="tray-net">&#127760;</span><span id="clock"></span></div></div>
+<!-- Start Menu -->
+<div id="start-menu" class="hidden"><input id="start-search" placeholder="Search apps..." autocomplete="off"><div id="start-apps"></div><div id="start-footer"><button onclick="OS.exportState()">&#128230; Export</button><button onclick="OS.importState()">&#128229; Import</button><button onclick="location.reload()">&#9211; Reboot</button></div></div>
+<!-- Context Menu -->
+<div id="ctx-menu" class="hidden"></div>
+
+<script>
+'use strict';
+
+/* =======================================================
+   CloudOS - Public Cloud Operating System
+   A complete desktop OS in a single HTML file.
+   GitHub raw URLs power the CloudStore package manager.
+   ======================================================= */
+
+const OS = { bootTime: Date.now(), desktopCount: 4, currentDesktop: 0 };
+
+// ===================== FILE SYSTEM =====================
+class CloudFS {
+  constructor() {
+    const saved = localStorage.getItem('cloudos-fs');
+    this.root = saved ? JSON.parse(saved) : this._default();
+  }
+  save() { localStorage.setItem('cloudos-fs', JSON.stringify(this.root)); }
+  serialize() { return JSON.parse(JSON.stringify(this.root)); }
+  deserialize(data) { this.root = data; this.save(); }
+
+  _default() {
+    return { type:'d', children:{
+      home:{ type:'d', children:{
+        user:{ type:'d', children:{
+          Desktop:{ type:'d', children:{} },
+          Documents:{ type:'d', children:{
+            'readme.txt':{ type:'f', content:'Welcome to CloudOS!\nYour files are stored in localStorage.\nUse Export in Settings to back up your data.' }
+          }},
+          Pictures:{ type:'d', children:{} }
+        }}
+      }},
+      usr:{ type:'d', children:{
+        apps:{ type:'d', children:{} },
+        share:{ type:'d', children:{} }
+      }},
+      etc:{ type:'d', children:{
+        hostname:{ type:'f', content:'cloudos' },
+        'packages.json':{ type:'f', content:'[]' },
+        'repos.json':{ type:'f', content:'["https://raw.githubusercontent.com/kody-w/localFirstTools-main/main/cloudos-packages.json"]' },
+        'broadcasts.json':{ type:'f', content:'[]' }
+      }},
+      tmp:{ type:'d', children:{} }
+    }};
+  }
+
+  _norm(p) {
+    const parts = p.split('/').filter(Boolean);
+    const stack = [];
+    for (const s of parts) { if (s === '..') stack.pop(); else if (s !== '.') stack.push(s); }
+    return '/' + stack.join('/');
+  }
+
+  _walk(path) {
+    const p = this._norm(path);
+    if (p === '/') return this.root;
+    const parts = p.split('/').filter(Boolean);
+    let n = this.root;
+    for (const s of parts) {
+      if (!n || n.type !== 'd' || !n.children[s]) return null;
+      n = n.children[s];
+    }
+    return n;
+  }
+
+  _parent(path) {
+    const p = this._norm(path);
+    const i = p.lastIndexOf('/');
+    return i <= 0 ? '/' : p.substring(0, i);
+  }
+
+  _basename(path) {
+    const p = this._norm(path);
+    return p.split('/').filter(Boolean).pop() || '';
+  }
+
+  exists(path) { return this._walk(path) !== null; }
+  isDir(path) { const n = this._walk(path); return n && n.type === 'd'; }
+  isFile(path) { const n = this._walk(path); return n && n.type === 'f'; }
+
+  readFile(path) {
+    const n = this._walk(path);
+    return (n && n.type === 'f') ? (n.content || '') : null;
+  }
+
+  writeFile(path, content) {
+    const dir = this._walk(this._parent(path));
+    if (!dir || dir.type !== 'd') return false;
+    const name = this._basename(path);
+    dir.children[name] = { type:'f', content: content || '' };
+    this.save();
+    return true;
+  }
+
+  mkdir(path, recursive) {
+    if (recursive) {
+      const parts = this._norm(path).split('/').filter(Boolean);
+      let cur = '/';
+      for (const part of parts) {
+        cur += (cur === '/' ? '' : '/') + part;
+        if (!this.exists(cur)) this.mkdir(cur);
+      }
+      return true;
+    }
+    const dir = this._walk(this._parent(path));
+    if (!dir || dir.type !== 'd') return false;
+    const name = this._basename(path);
+    if (dir.children[name]) return false;
+    dir.children[name] = { type:'d', children:{} };
+    this.save();
+    return true;
+  }
+
+  readDir(path) {
+    const n = this._walk(path);
+    if (!n || n.type !== 'd') return null;
+    return Object.keys(n.children).map(name => ({
+      name, type: n.children[name].type,
+      size: n.children[name].type === 'f' ? (n.children[name].content || '').length : 0
+    }));
+  }
+
+  remove(path, recursive) {
+    const p = this._norm(path);
+    if (p === '/') return false;
+    const dir = this._walk(this._parent(p));
+    const name = this._basename(p);
+    if (!dir || !dir.children[name]) return false;
+    const target = dir.children[name];
+    if (target.type === 'd' && Object.keys(target.children).length > 0 && !recursive) return false;
+    delete dir.children[name];
+    this.save();
+    return true;
+  }
+
+  copy(src, dst) {
+    const n = this._walk(src);
+    if (!n) return false;
+    const clone = JSON.parse(JSON.stringify(n));
+    const dir = this._walk(this._parent(dst));
+    if (!dir || dir.type !== 'd') return false;
+    dir.children[this._basename(dst)] = clone;
+    this.save();
+    return true;
+  }
+
+  move(src, dst) {
+    if (!this.copy(src, dst)) return false;
+    return this.remove(src, true);
+  }
+
+  stat(path) {
+    const n = this._walk(path);
+    if (!n) return null;
+    return { type: n.type, size: n.type === 'f' ? (n.content || '').length : Object.keys(n.children || {}).length };
+  }
+}
+
+// ===================== WINDOW MANAGER =====================
+class WinManager {
+  constructor() {
+    this.wins = new Map();
+    this.zIdx = 100;
+    this.activeId = null;
+    this.nextId = 1;
+    this.container = document.getElementById('win-container');
+    this._dragging = null;
+    this._resizing = null;
+    this._setupGlobalHandlers();
+  }
+
+  create(opts) {
+    const id = 'w' + (this.nextId++);
+    const w = document.createElement('div');
+    w.className = 'window';
+    w.id = id;
+    w.style.cssText = `left:${opts.x ?? (80 + Math.random()*200)}px;top:${opts.y ?? (40 + Math.random()*120)}px;width:${opts.width || 640}px;height:${opts.height || 440}px;z-index:${++this.zIdx}`;
+    w.dataset.desktop = OS.currentDesktop;
+    w.innerHTML = `<div class="win-titlebar"><span class="win-icon">${opts.icon||''}</span><span class="win-title">${opts.title||'Window'}</span><div class="win-btns"><button class="win-btn win-min" title="Minimize">&#9472;</button><button class="win-btn win-max" title="Maximize">&#9633;</button><button class="win-btn win-close" title="Close">&#10005;</button></div></div><div class="win-content"></div><div class="wr wr-n"></div><div class="wr wr-s"></div><div class="wr wr-e"></div><div class="wr wr-w"></div><div class="wr wr-nw"></div><div class="wr wr-ne"></div><div class="wr wr-sw"></div><div class="wr wr-se"></div>`;
+
+    const content = w.querySelector('.win-content');
+    const titlebar = w.querySelector('.win-titlebar');
+    const info = { id, el: w, content, opts, minimized: false, maximized: false, prevRect: null };
+    this.wins.set(id, info);
+    this.container.appendChild(w);
+
+    // Title bar drag
+    titlebar.addEventListener('mousedown', e => {
+      if (e.target.closest('.win-btn')) return;
+      this.focus(id);
+      if (info.maximized) return;
+      this._dragging = { id, ox: e.clientX - w.offsetLeft, oy: e.clientY - w.offsetTop };
+      e.preventDefault();
+    });
+
+    // Title bar double-click to maximize
+    titlebar.addEventListener('dblclick', () => this.toggleMax(id));
+
+    // Buttons
+    w.querySelector('.win-close').onclick = () => this.close(id);
+    w.querySelector('.win-min').onclick = () => this.minimize(id);
+    w.querySelector('.win-max').onclick = () => this.toggleMax(id);
+
+    // Resize handles
+    w.querySelectorAll('.wr').forEach(handle => {
+      handle.addEventListener('mousedown', e => {
+        this.focus(id);
+        const dir = handle.className.replace('wr wr-', '');
+        const rect = { l: w.offsetLeft, t: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight };
+        this._resizing = { id, dir, startX: e.clientX, startY: e.clientY, rect };
+        e.preventDefault();
+      });
+    });
+
+    // Click to focus
+    w.addEventListener('mousedown', () => this.focus(id), true);
+
+    this.focus(id);
+    OS.updateTaskbar();
+    return info;
+  }
+
+  focus(id) {
+    if (this.activeId === id) return;
+    const prev = this.wins.get(this.activeId);
+    if (prev) prev.el.classList.remove('active');
+    this.activeId = id;
+    const win = this.wins.get(id);
+    if (win) { win.el.classList.add('active'); win.el.style.zIndex = ++this.zIdx; }
+    OS.updateTaskbar();
+  }
+
+  close(id) {
+    const win = this.wins.get(id);
+    if (!win) return;
+    if (win.onClose) win.onClose();
+    win.el.remove();
+    this.wins.delete(id);
+    if (this.activeId === id) {
+      this.activeId = null;
+      let topZ = 0, topId = null;
+      for (const [wid, w] of this.wins) {
+        if (!w.minimized && w.el.dataset.desktop == OS.currentDesktop) {
+          const z = parseInt(w.el.style.zIndex) || 0;
+          if (z > topZ) { topZ = z; topId = wid; }
+        }
+      }
+      if (topId) this.focus(topId);
+    }
+    OS.updateTaskbar();
+  }
+
+  minimize(id) {
+    const win = this.wins.get(id);
+    if (!win) return;
+    win.minimized = true;
+    win.el.classList.add('minimized');
+    if (this.activeId === id) this.activeId = null;
+    OS.updateTaskbar();
+  }
+
+  restore(id) {
+    const win = this.wins.get(id);
+    if (!win) return;
+    win.minimized = false;
+    win.el.classList.remove('minimized');
+    this.focus(id);
+    OS.updateTaskbar();
+  }
+
+  toggleMax(id) {
+    const win = this.wins.get(id);
+    if (!win) return;
+    if (win.maximized) {
+      win.maximized = false;
+      win.el.classList.remove('maximized');
+      if (win.prevRect) {
+        const r = win.prevRect;
+        win.el.style.cssText = `left:${r.l}px;top:${r.t}px;width:${r.w}px;height:${r.h}px;z-index:${win.el.style.zIndex}`;
+      }
+    } else {
+      win.prevRect = { l: win.el.offsetLeft, t: win.el.offsetTop, w: win.el.offsetWidth, h: win.el.offsetHeight };
+      win.maximized = true;
+      win.el.classList.add('maximized');
+    }
+    if (win.onResize) win.onResize();
+  }
+
+  _setupGlobalHandlers() {
+    document.addEventListener('mousemove', e => {
+      if (this._dragging) {
+        const d = this._dragging;
+        const win = this.wins.get(d.id);
+        if (!win) return;
+        win.el.style.left = Math.max(0, e.clientX - d.ox) + 'px';
+        win.el.style.top = Math.max(0, e.clientY - d.oy) + 'px';
+      }
+      if (this._resizing) {
+        const r = this._resizing;
+        const win = this.wins.get(r.id);
+        if (!win) return;
+        const dx = e.clientX - r.startX, dy = e.clientY - r.startY;
+        let { l, t, w, h } = r.rect;
+        const MIN_W = 240, MIN_H = 160;
+        if (r.dir.includes('e')) w = Math.max(MIN_W, r.rect.w + dx);
+        if (r.dir.includes('w')) { w = Math.max(MIN_W, r.rect.w - dx); l = r.rect.l + r.rect.w - w; }
+        if (r.dir.includes('s')) h = Math.max(MIN_H, r.rect.h + dy);
+        if (r.dir.includes('n')) { h = Math.max(MIN_H, r.rect.h - dy); t = r.rect.t + r.rect.h - h; }
+        win.el.style.cssText = `left:${l}px;top:${t}px;width:${w}px;height:${h}px;z-index:${win.el.style.zIndex}`;
+        if (win.onResize) win.onResize();
+      }
+    });
+    document.addEventListener('mouseup', () => { this._dragging = null; this._resizing = null; });
+  }
+
+  switchDesktop(idx) {
+    OS.currentDesktop = idx;
+    for (const [, win] of this.wins) {
+      if (win.el.dataset.desktop == idx) {
+        win.el.style.display = win.minimized ? 'none' : '';
+      } else {
+        win.el.style.display = 'none';
+      }
+    }
+    document.querySelectorAll('.desk-pip').forEach((p, i) => p.classList.toggle('active', i === idx));
+    OS.updateTaskbar();
+  }
+}
+
+// ===================== APP REGISTRY =====================
+const Apps = {
+  terminal:    { name:'Terminal',     icon:'\u2B1B', cat:'System',       w:680, h:420 },
+  files:       { name:'Files',        icon:'\uD83D\uDCC1', cat:'System', w:600, h:400 },
+  settings:    { name:'Settings',     icon:'\u2699\uFE0F', cat:'System', w:560, h:400 },
+  codepad:     { name:'CodePad',      icon:'\uD83D\uDCDD', cat:'Productivity', w:700, h:480 },
+  calculator:  { name:'Calculator',   icon:'\uD83D\uDD22', cat:'Productivity', w:280, h:420 },
+  paint:       { name:'PixelStudio',  icon:'\uD83C\uDFA8', cat:'Creative', w:720, h:500 },
+  cloudstore:  { name:'CloudStore',   icon:'\u2601\uFE0F', cat:'Cloud',  w:560, h:460 },
+  broadcast:   { name:'Broadcast',    icon:'\uD83D\uDCE1', cat:'Cloud',  w:480, h:520 },
+  arcade:      { name:'Arcade',       icon:'\uD83C\uDFAE', cat:'Games',  w:900, h:600 },
+};
+
+function openApp(appId) {
+  const app = Apps[appId];
+  if (!app) return;
+  const win = OS.wm.create({ title: app.name, icon: app.icon, width: app.w, height: app.h });
+  const builders = { terminal: buildTerminal, files: buildFiles, settings: buildSettings, codepad: buildCodePad, calculator: buildCalc, paint: buildPaint, cloudstore: buildCloudStore, broadcast: buildBroadcast, arcade: buildArcade };
+  if (builders[appId]) builders[appId](win);
+  return win;
+}
+
+// ===================== TERMINAL =====================
+function buildTerminal(win) {
+  const el = win.content;
+  el.innerHTML = '<div class="term"><div class="term-out"></div><div class="term-line-input"><span class="term-prompt"></span><input class="term-input" spellcheck="false" autocomplete="off"></div></div>';
+  const out = el.querySelector('.term-out');
+  const inp = el.querySelector('.term-input');
+  const promptEl = el.querySelector('.term-prompt');
+  let cwd = '/home/user';
+  let history = [], histIdx = -1;
+  const fs = OS.fs;
+
+  function prompt() { promptEl.textContent = `user@cloudos:${cwd === '/home/user' ? '~' : cwd}$ `; }
+  function print(text, cls) {
+    const span = document.createElement('span');
+    if (cls) span.className = cls;
+    span.textContent = text + '\n';
+    out.appendChild(span);
+    out.scrollTop = out.scrollHeight;
+  }
+  function resolve(p) {
+    if (p.startsWith('/')) return fs._norm(p);
+    return fs._norm(cwd + '/' + p);
+  }
+
+  function parseArgs(str) {
+    const args = []; let cur = '', q = false, qc = '';
+    for (const ch of str) {
+      if (q) { if (ch === qc) q = false; else cur += ch; }
+      else if (ch === '"' || ch === "'") { q = true; qc = ch; }
+      else if (ch === ' ') { if (cur) { args.push(cur); cur = ''; } }
+      else cur += ch;
+    }
+    if (cur) args.push(cur);
+    return args;
+  }
+
+  function exec(cmdStr, stdin) {
+    const parts = parseArgs(cmdStr.trim());
+    if (parts.length === 0) return '';
+    const cmd = parts[0], args = parts.slice(1);
+    switch (cmd) {
+      case 'cd': {
+        const target = args[0] ? resolve(args[0]) : '/home/user';
+        if (target === '~' || target === '/~') { cwd = '/home/user'; return ''; }
+        const actual = resolve(args[0] === '~' ? '/home/user' : (args[0] || '/home/user'));
+        if (!fs.isDir(actual)) return `cd: ${args[0]}: No such directory\n`;
+        cwd = actual;
+        return '';
+      }
+      case 'pwd': return cwd + '\n';
+      case 'ls': {
+        let path = cwd, long = false;
+        for (const a of args) { if (a === '-l' || a === '-la' || a === '-al') long = true; else path = resolve(a); }
+        const entries = fs.readDir(path);
+        if (!entries) return `ls: cannot access '${args.find(a=>!a.startsWith('-'))||path}': No such directory\n`;
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        if (long) return entries.map(e => `${e.type === 'd' ? 'drwxr-xr-x' : '-rw-r--r--'}  ${String(e.size).padStart(6)}  ${e.name}`).join('\n') + (entries.length ? '\n' : '');
+        return entries.map(e => e.name).join('  ') + (entries.length ? '\n' : '');
+      }
+      case 'cat': {
+        if (args.length === 0 && stdin) return stdin;
+        let result = '';
+        for (const a of args) {
+          const c = fs.readFile(resolve(a));
+          if (c === null) result += `cat: ${a}: No such file\n`;
+          else result += c + (c.endsWith('\n') ? '' : '\n');
+        }
+        return result;
+      }
+      case 'mkdir': {
+        let recursive = false;
+        const paths = [];
+        for (const a of args) { if (a === '-p') recursive = true; else paths.push(a); }
+        for (const p of paths) {
+          if (!fs.mkdir(resolve(p), recursive)) return `mkdir: cannot create '${p}'\n`;
+        }
+        return '';
+      }
+      case 'rmdir': {
+        for (const a of args) {
+          const p = resolve(a);
+          if (!fs.isDir(p)) return `rmdir: '${a}': Not a directory\n`;
+          if (!fs.remove(p, false)) return `rmdir: '${a}': Directory not empty\n`;
+        }
+        return '';
+      }
+      case 'rm': {
+        let recursive = false;
+        const paths = [];
+        for (const a of args) { if (a === '-r' || a === '-rf' || a === '-fr') recursive = true; else paths.push(a); }
+        for (const p of paths) {
+          if (!fs.remove(resolve(p), recursive)) return `rm: cannot remove '${p}'\n`;
+        }
+        return '';
+      }
+      case 'touch': {
+        for (const a of args) {
+          const p = resolve(a);
+          if (!fs.exists(p)) fs.writeFile(p, '');
+        }
+        return '';
+      }
+      case 'echo': {
+        const text = args.join(' ');
+        return text + '\n';
+      }
+      case 'cp': {
+        if (args.length < 2) return 'cp: missing operand\n';
+        if (!fs.copy(resolve(args[0]), resolve(args[1]))) return `cp: cannot copy\n`;
+        return '';
+      }
+      case 'mv': {
+        if (args.length < 2) return 'mv: missing operand\n';
+        if (!fs.move(resolve(args[0]), resolve(args[1]))) return `mv: cannot move\n`;
+        return '';
+      }
+      case 'grep': {
+        if (args.length < 2 && !stdin) return 'grep: usage: grep PATTERN [FILE]\n';
+        const pattern = args[0];
+        let text = stdin || '';
+        if (args[1]) { const c = fs.readFile(resolve(args[1])); if (c === null) return `grep: ${args[1]}: No such file\n`; text = c; }
+        try {
+          const re = new RegExp(pattern, 'gi');
+          return text.split('\n').filter(l => re.test(l)).join('\n') + '\n';
+        } catch { return `grep: invalid pattern\n`; }
+      }
+      case 'head': {
+        let n = 10;
+        const files = [];
+        for (let i = 0; i < args.length; i++) { if (args[i] === '-n' && args[i+1]) { n = parseInt(args[++i]); } else files.push(args[i]); }
+        const text = files.length ? (fs.readFile(resolve(files[0])) || '') : (stdin || '');
+        return text.split('\n').slice(0, n).join('\n') + '\n';
+      }
+      case 'tail': {
+        let n = 10;
+        const files = [];
+        for (let i = 0; i < args.length; i++) { if (args[i] === '-n' && args[i+1]) { n = parseInt(args[++i]); } else files.push(args[i]); }
+        const text = files.length ? (fs.readFile(resolve(files[0])) || '') : (stdin || '');
+        const lines = text.split('\n');
+        return lines.slice(Math.max(0, lines.length - n)).join('\n') + '\n';
+      }
+      case 'wc': {
+        const text = args[0] ? (fs.readFile(resolve(args[0])) || '') : (stdin || '');
+        const lines = text.split('\n').length;
+        const words = text.split(/\s+/).filter(Boolean).length;
+        const chars = text.length;
+        return `  ${lines}  ${words}  ${chars}\n`;
+      }
+      case 'whoami': return 'user\n';
+      case 'hostname': return (fs.readFile('/etc/hostname') || 'cloudos') + '\n';
+      case 'date': return new Date().toString() + '\n';
+      case 'uname': return args.includes('-a') ? 'CloudOS 1.0 Browser JavaScript LocalStorage\n' : 'CloudOS\n';
+      case 'clear': out.innerHTML = ''; return null;
+      case 'history': return history.map((h, i) => `  ${i+1}  ${h}`).join('\n') + '\n';
+      case 'export': OS.exportState(); return 'State exported to JSON file.\n';
+      case 'neofetch': return neofetch();
+      case 'help': return [
+        'CloudOS Shell - Available commands:',
+        '  cd, ls, cat, mkdir, rmdir, rm, touch, echo, pwd',
+        '  cp, mv, grep, head, tail, wc, clear, history',
+        '  whoami, hostname, date, uname, neofetch, help',
+        '  export - export OS state  |  Pipe: cmd1 | cmd2',
+        '  Redirect: echo text > file',
+      ].join('\n') + '\n';
+      default:
+        // Check installed packages
+        const installed = JSON.parse(fs.readFile('/etc/packages.json') || '[]');
+        const pkg = installed.find(p => p.id === cmd);
+        if (pkg) { openApp('_pkg_' + cmd); return `Launched ${pkg.name}\n`; }
+        return `${cmd}: command not found\n`;
+    }
+  }
+
+  function neofetch() {
+    const pkgs = JSON.parse(fs.readFile('/etc/packages.json') || '[]');
+    const uptime = Math.floor((Date.now() - OS.bootTime) / 1000);
+    const m = Math.floor(uptime / 60), s = uptime % 60;
+    return [
+      '   \u2601\uFE0F  CloudOS v1.0',
+      '   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500',
+      `   OS:       CloudOS 1.0`,
+      `   Host:     ${navigator.userAgent.split(' ').slice(-1)[0]||'Browser'}`,
+      `   Kernel:   JavaScript ES2024`,
+      `   Shell:    CloudSH`,
+      `   Uptime:   ${m}m ${s}s`,
+      `   Packages: ${pkgs.length} installed`,
+      `   Storage:  localStorage`,
+      `   Theme:    Dark Nebula`,
+      `   WM:       CloudWM`,
+      `   Desktops: ${OS.desktopCount}`,
+      ''
+    ].join('\n');
+  }
+
+  function runLine(line) {
+    // Handle redirect
+    const redirMatch = line.match(/^(.+?)\s*>\s*(\S+)\s*$/);
+    if (redirMatch) {
+      const output = runPipeline(redirMatch[1].trim());
+      if (output !== null) fs.writeFile(resolve(redirMatch[2]), output.replace(/\n$/, ''));
+      return;
+    }
+    const output = runPipeline(line);
+    if (output !== null && output) print(output.replace(/\n$/, ''));
+  }
+
+  function runPipeline(line) {
+    const cmds = line.split('|');
+    let result = '';
+    for (const c of cmds) {
+      result = exec(c.trim(), result);
+      if (result === null) return null;
+    }
+    return result;
+  }
+
+  print('CloudOS v1.0 - Type "help" for commands, "neofetch" for system info.\n', 't-info');
+  prompt();
+
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const line = inp.value.trim();
+      print(promptEl.textContent + line);
+      if (line) { history.push(line); histIdx = history.length; runLine(line); }
+      inp.value = '';
+      prompt();
+    } else if (e.key === 'ArrowUp') {
+      if (histIdx > 0) { histIdx--; inp.value = history[histIdx]; }
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown') {
+      if (histIdx < history.length - 1) { histIdx++; inp.value = history[histIdx]; } else { histIdx = history.length; inp.value = ''; }
+      e.preventDefault();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      // Simple tab completion for file/dir names
+      const partial = inp.value.split(/\s+/).pop();
+      if (partial) {
+        const dir = partial.includes('/') ? resolve(partial.substring(0, partial.lastIndexOf('/') + 1)) : cwd;
+        const prefix = partial.includes('/') ? partial.split('/').pop() : partial;
+        const entries = fs.readDir(dir) || [];
+        const matches = entries.filter(e => e.name.startsWith(prefix));
+        if (matches.length === 1) {
+          const base = inp.value.substring(0, inp.value.length - partial.length);
+          const pre = partial.includes('/') ? partial.substring(0, partial.lastIndexOf('/') + 1) : '';
+          inp.value = base + pre + matches[0].name + (matches[0].type === 'd' ? '/' : '');
+        }
+      }
+    } else if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault();
+      out.innerHTML = '';
+    }
+  });
+
+  // Focus input when terminal content is clicked
+  el.querySelector('.term').addEventListener('click', () => inp.focus());
+  setTimeout(() => inp.focus(), 100);
+}
+
+// ===================== CODEPAD (TEXT EDITOR) =====================
+function buildCodePad(win, filePath) {
+  const el = win.content;
+  let currentFile = filePath || null;
+  el.innerHTML = `<div class="codepad">
+    <div class="cp-toolbar">
+      <button data-act="new">\u2795 New</button>
+      <button data-act="open">\uD83D\uDCC2 Open</button>
+      <button data-act="save">\uD83D\uDCBE Save</button>
+      <button data-act="saveas">Save As</button>
+      <span style="flex:1"></span>
+      <button data-act="find">\uD83D\uDD0D Find</button>
+    </div>
+    <div class="cp-body">
+      <div class="cp-gutter"></div>
+      <textarea class="cp-editor" spellcheck="false" placeholder="Start typing..."></textarea>
+    </div>
+    <div class="cp-status"><span class="cp-file">untitled</span><span class="cp-pos">Ln 1, Col 1</span></div>
+  </div>`;
+
+  const editor = el.querySelector('.cp-editor');
+  const gutter = el.querySelector('.cp-gutter');
+  const fileLabel = el.querySelector('.cp-file');
+  const posLabel = el.querySelector('.cp-pos');
+
+  function updateGutter() {
+    const lines = editor.value.split('\n').length;
+    gutter.textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+  }
+
+  function updatePos() {
+    const text = editor.value.substring(0, editor.selectionStart);
+    const line = text.split('\n').length;
+    const col = text.split('\n').pop().length + 1;
+    posLabel.textContent = `Ln ${line}, Col ${col}`;
+  }
+
+  function setFile(path) {
+    currentFile = path;
+    fileLabel.textContent = path ? OS.fs._basename(path) : 'untitled';
+    OS.wm.wins.get(win.id).el.querySelector('.win-title').textContent = 'CodePad - ' + (path ? OS.fs._basename(path) : 'untitled');
+  }
+
+  if (filePath) {
+    const content = OS.fs.readFile(filePath);
+    if (content !== null) { editor.value = content; setFile(filePath); }
+  }
+
+  editor.addEventListener('input', updateGutter);
+  editor.addEventListener('scroll', () => { gutter.scrollTop = editor.scrollTop; });
+  editor.addEventListener('click', updatePos);
+  editor.addEventListener('keyup', updatePos);
+  editor.addEventListener('keydown', e => {
+    if (e.key === 'Tab') { e.preventDefault(); const s = editor.selectionStart; editor.value = editor.value.substring(0, s) + '  ' + editor.value.substring(editor.selectionEnd); editor.selectionStart = editor.selectionEnd = s + 2; updateGutter(); }
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveFile(); }
+  });
+
+  function saveFile() {
+    if (currentFile) {
+      OS.fs.writeFile(currentFile, editor.value);
+    } else {
+      const name = prompt('Save as (path):', '/home/user/Documents/untitled.txt');
+      if (name) { OS.fs.writeFile(name, editor.value); setFile(name); }
+    }
+  }
+
+  el.querySelector('[data-act="new"]').onclick = () => { editor.value = ''; setFile(null); updateGutter(); };
+  el.querySelector('[data-act="open"]').onclick = () => {
+    const path = prompt('Open file (path):', '/home/user/Documents/');
+    if (path) { const c = OS.fs.readFile(path); if (c !== null) { editor.value = c; setFile(path); updateGutter(); } else alert('File not found'); }
+  };
+  el.querySelector('[data-act="save"]').onclick = saveFile;
+  el.querySelector('[data-act="saveas"]').onclick = () => {
+    const name = prompt('Save as:', currentFile || '/home/user/Documents/untitled.txt');
+    if (name) { OS.fs.writeFile(name, editor.value); setFile(name); }
+  };
+  el.querySelector('[data-act="find"]').onclick = () => {
+    const q = prompt('Find:');
+    if (q) {
+      const idx = editor.value.indexOf(q, editor.selectionEnd);
+      if (idx >= 0) { editor.selectionStart = idx; editor.selectionEnd = idx + q.length; editor.focus(); }
+    }
+  };
+
+  updateGutter();
+}
+
+// ===================== CALCULATOR =====================
+function buildCalc(win) {
+  const el = win.content;
+  let expr = '', display = '0', pendingOp = null, acc = 0, fresh = true;
+
+  el.innerHTML = `<div class="calc">
+    <div class="calc-display"><div class="calc-expr"></div><div class="calc-val">0</div></div>
+    <div class="calc-grid"></div>
+  </div>`;
+
+  const exprEl = el.querySelector('.calc-expr');
+  const valEl = el.querySelector('.calc-val');
+  const grid = el.querySelector('.calc-grid');
+
+  const buttons = [
+    ['C','fn'],['±','fn'],['%','fn'],['÷','op'],
+    ['7','num'],['8','num'],['9','num'],['×','op'],
+    ['4','num'],['5','num'],['6','num'],['-','op'],
+    ['1','num'],['2','num'],['3','num'],['+','op'],
+    ['0','num'],['.','num'],['⌫','fn'],['=','op']
+  ];
+
+  buttons.forEach(([label, type]) => {
+    const btn = document.createElement('button');
+    btn.className = 'calc-btn ' + type;
+    btn.textContent = label;
+    if (label === '0') btn.style.gridColumn = 'span 1';
+    btn.onclick = () => pressKey(label);
+    grid.appendChild(btn);
+  });
+
+  function update() { valEl.textContent = display; exprEl.textContent = expr; }
+
+  function pressKey(key) {
+    if (key >= '0' && key <= '9') {
+      if (fresh) { display = key; fresh = false; } else { display = display === '0' ? key : display + key; }
+    } else if (key === '.') {
+      if (fresh) { display = '0.'; fresh = false; } else if (!display.includes('.')) display += '.';
+    } else if (key === 'C') {
+      display = '0'; expr = ''; pendingOp = null; acc = 0; fresh = true;
+    } else if (key === '⌫') {
+      display = display.length > 1 ? display.slice(0, -1) : '0';
+    } else if (key === '±') {
+      display = display.startsWith('-') ? display.substring(1) : '-' + display;
+    } else if (key === '%') {
+      display = String(parseFloat(display) / 100);
+    } else if (['+', '-', '×', '÷'].includes(key)) {
+      const val = parseFloat(display);
+      if (pendingOp && !fresh) {
+        acc = calc(acc, val, pendingOp);
+        display = format(acc);
+      } else {
+        acc = val;
+      }
+      pendingOp = key;
+      expr = format(acc) + ' ' + key;
+      fresh = true;
+    } else if (key === '=') {
+      if (pendingOp) {
+        const val = parseFloat(display);
+        expr = format(acc) + ' ' + pendingOp + ' ' + format(val) + ' =';
+        acc = calc(acc, val, pendingOp);
+        display = format(acc);
+        pendingOp = null;
+        fresh = true;
+      }
+    }
+    update();
+  }
+
+  function calc(a, b, op) {
+    switch (op) {
+      case '+': return a + b;
+      case '-': return a - b;
+      case '×': return a * b;
+      case '÷': return b !== 0 ? a / b : NaN;
+    }
+  }
+
+  function format(n) {
+    if (isNaN(n)) return 'Error';
+    if (!isFinite(n)) return '∞';
+    const s = parseFloat(n.toPrecision(12)).toString();
+    return s.length > 16 ? n.toExponential(6) : s;
+  }
+
+  update();
+}
+
+// ===================== PAINT (PIXELSTUDIO) =====================
+function buildPaint(win) {
+  const el = win.content;
+  el.innerHTML = `<div class="paint">
+    <div class="paint-toolbar">
+      <button class="paint-tool active" data-tool="brush" title="Brush">&#9999;&#65039;</button>
+      <button class="paint-tool" data-tool="eraser" title="Eraser">&#x1FAE7;</button>
+      <button class="paint-tool" data-tool="line" title="Line">&#x2571;</button>
+      <button class="paint-tool" data-tool="rect" title="Rectangle">&#9645;</button>
+      <button class="paint-tool" data-tool="circle" title="Circle">&#9711;</button>
+      <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+      <input type="color" value="#e94560" title="Color" style="width:30px;height:28px;border:none;background:none;cursor:pointer">
+      <input type="range" min="1" max="30" value="4" title="Size" style="width:80px">
+      <span class="size-label" style="font-size:11px;color:var(--text2);width:24px">4</span>
+      <span style="flex:1"></span>
+      <button class="paint-tool" data-act="clear" title="Clear Layer">&#128465;</button>
+      <button class="paint-tool" data-act="export" title="Export PNG">&#128190;</button>
+    </div>
+    <div class="paint-body">
+      <div class="paint-canvas-wrap"></div>
+      <div class="paint-layers">
+        <div style="font-weight:600;padding:4px 6px;color:var(--text2)">Layers</div>
+      </div>
+    </div>
+  </div>`;
+
+  const wrap = el.querySelector('.paint-canvas-wrap');
+  const layersPanel = el.querySelector('.paint-layers');
+  const colorInput = el.querySelector('input[type=color]');
+  const sizeInput = el.querySelector('input[type=range]');
+  const sizeLabel = el.querySelector('.size-label');
+  let tool = 'brush', color = '#e94560', brushSize = 4;
+  let drawing = false, startX, startY, lastX, lastY;
+  const cw = 800, ch = 600;
+
+  // Layers
+  const layers = [];
+  let activeLayer = 0;
+
+  function addLayer(name) {
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    canvas.style.cssText = `width:${cw}px;height:${ch}px;pointer-events:none`;
+    wrap.appendChild(canvas);
+    layers.push({ canvas, ctx: canvas.getContext('2d'), visible: true, name: name || `Layer ${layers.length + 1}` });
+    refreshLayerPanel();
+  }
+
+  // Overlay for shape preview
+  const overlay = document.createElement('canvas');
+  overlay.width = cw; overlay.height = ch;
+  overlay.style.cssText = `width:${cw}px;height:${ch}px;cursor:crosshair;position:absolute;top:0;left:0`;
+  wrap.appendChild(overlay);
+  const octx = overlay.getContext('2d');
+
+  addLayer('Background');
+  addLayer('Layer 1');
+  addLayer('Layer 2');
+  // Fill background white
+  layers[0].ctx.fillStyle = '#fff';
+  layers[0].ctx.fillRect(0, 0, cw, ch);
+
+  function refreshLayerPanel() {
+    const items = layersPanel.querySelectorAll('.paint-layer-item');
+    items.forEach(i => i.remove());
+    layers.forEach((l, i) => {
+      const div = document.createElement('div');
+      div.className = 'paint-layer-item' + (i === activeLayer ? ' active' : '');
+      div.innerHTML = `<input type="checkbox" ${l.visible ? 'checked' : ''}><span style="flex:1">${l.name}</span>`;
+      div.querySelector('input').onchange = e => { l.visible = e.target.checked; l.canvas.style.opacity = l.visible ? 1 : 0; };
+      div.onclick = e => { if (e.target.tagName !== 'INPUT') { activeLayer = i; refreshLayerPanel(); } };
+      layersPanel.appendChild(div);
+    });
+  }
+
+  function getPos(e) {
+    const r = overlay.getBoundingClientRect();
+    const scaleX = cw / r.width, scaleY = ch / r.height;
+    return [(e.clientX - r.left) * scaleX, (e.clientY - r.top) * scaleY];
+  }
+
+  overlay.addEventListener('mousedown', e => {
+    drawing = true;
+    [startX, startY] = getPos(e);
+    [lastX, lastY] = [startX, startY];
+    if (tool === 'brush' || tool === 'eraser') drawDot(startX, startY);
+  });
+
+  overlay.addEventListener('mousemove', e => {
+    if (!drawing) return;
+    const [x, y] = getPos(e);
+    if (tool === 'brush' || tool === 'eraser') {
+      drawLine(lastX, lastY, x, y);
+      [lastX, lastY] = [x, y];
+    } else {
+      // Preview shape on overlay
+      octx.clearRect(0, 0, cw, ch);
+      octx.strokeStyle = color;
+      octx.lineWidth = brushSize;
+      octx.beginPath();
+      if (tool === 'line') { octx.moveTo(startX, startY); octx.lineTo(x, y); }
+      else if (tool === 'rect') { octx.strokeRect(Math.min(startX, x), Math.min(startY, y), Math.abs(x - startX), Math.abs(y - startY)); return; }
+      else if (tool === 'circle') { const rx = Math.abs(x - startX) / 2, ry = Math.abs(y - startY) / 2; octx.ellipse(Math.min(startX, x) + rx, Math.min(startY, y) + ry, rx, ry, 0, 0, Math.PI * 2); }
+      octx.stroke();
+    }
+  });
+
+  overlay.addEventListener('mouseup', e => {
+    if (!drawing) return;
+    drawing = false;
+    const [x, y] = getPos(e);
+    const ctx = layers[activeLayer].ctx;
+    if (tool === 'line' || tool === 'rect' || tool === 'circle') {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      if (tool === 'line') { ctx.moveTo(startX, startY); ctx.lineTo(x, y); ctx.stroke(); }
+      else if (tool === 'rect') { ctx.strokeRect(Math.min(startX, x), Math.min(startY, y), Math.abs(x - startX), Math.abs(y - startY)); }
+      else if (tool === 'circle') { const rx = Math.abs(x - startX) / 2, ry = Math.abs(y - startY) / 2; ctx.ellipse(Math.min(startX, x) + rx, Math.min(startY, y) + ry, Math.max(rx, 1), Math.max(ry, 1), 0, 0, Math.PI * 2); ctx.stroke(); }
+      octx.clearRect(0, 0, cw, ch);
+    }
+  });
+
+  function drawDot(x, y) {
+    const ctx = layers[activeLayer].ctx;
+    if (tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; }
+    else { ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = color; }
+    ctx.beginPath();
+    ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawLine(x1, y1, x2, y2) {
+    const ctx = layers[activeLayer].ctx;
+    if (tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = 'rgba(0,0,0,1)'; }
+    else { ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = color; }
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  // Tool selection
+  el.querySelectorAll('.paint-tool[data-tool]').forEach(btn => {
+    btn.onclick = () => {
+      el.querySelectorAll('.paint-tool[data-tool]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      tool = btn.dataset.tool;
+    };
+  });
+
+  colorInput.oninput = () => { color = colorInput.value; };
+  sizeInput.oninput = () => { brushSize = parseInt(sizeInput.value); sizeLabel.textContent = brushSize; };
+
+  el.querySelector('[data-act="clear"]').onclick = () => {
+    layers[activeLayer].ctx.clearRect(0, 0, cw, ch);
+  };
+
+  el.querySelector('[data-act="export"]').onclick = () => {
+    const exp = document.createElement('canvas');
+    exp.width = cw; exp.height = ch;
+    const ectx = exp.getContext('2d');
+    layers.forEach(l => { if (l.visible) ectx.drawImage(l.canvas, 0, 0); });
+    const a = document.createElement('a');
+    a.href = exp.toDataURL('image/png');
+    a.download = 'pixelstudio-' + Date.now() + '.png';
+    a.click();
+  };
+
+  refreshLayerPanel();
+}
+
+// ===================== FILE MANAGER =====================
+function buildFiles(win) {
+  const el = win.content;
+  let cwd = '/home/user';
+
+  function render() {
+    const entries = OS.fs.readDir(cwd) || [];
+    entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'd' ? -1 : 1));
+    const parts = cwd.split('/').filter(Boolean);
+
+    el.innerHTML = `<div class="filemgr">
+      <div class="fm-path">
+        <button data-act="up" title="Up">\u2B06</button>
+        <button data-act="new" title="New Folder">&#10133;</button>
+        <span style="width:1px;height:16px;background:var(--border);margin:0 4px"></span>
+        <span class="fm-crumb" data-path="/">/</span>
+        ${parts.map((p, i) => `<span>/</span><span class="fm-crumb" data-path="/${parts.slice(0, i + 1).join('/')}">${p}</span>`).join('')}
+      </div>
+      <div class="fm-grid">
+        ${entries.map(e => `<div class="fm-item" data-name="${e.name}" data-type="${e.type}">
+          <span class="fm-ico">${e.type === 'd' ? '\uD83D\uDCC1' : getFileIcon(e.name)}</span>
+          <span class="fm-name">${e.name}</span>
+        </div>`).join('')}
+        ${entries.length === 0 ? '<div style="padding:20px;color:var(--text3);font-size:13px">Empty folder</div>' : ''}
+      </div>
+    </div>`;
+
+    // Breadcrumb navigation
+    el.querySelectorAll('.fm-crumb').forEach(c => {
+      c.onclick = () => { cwd = c.dataset.path; render(); };
+    });
+
+    // Item interactions
+    el.querySelectorAll('.fm-item').forEach(item => {
+      item.ondblclick = () => {
+        const name = item.dataset.name;
+        const path = cwd === '/' ? '/' + name : cwd + '/' + name;
+        if (item.dataset.type === 'd') { cwd = path; render(); }
+        else { openApp('codepad'); /* open in editor */ setTimeout(() => { const wins = Array.from(OS.wm.wins.values()); const last = wins[wins.length - 1]; if (last) buildCodePad(last, path); }, 50); }
+      };
+      item.onclick = () => {
+        el.querySelectorAll('.fm-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+      };
+      item.oncontextmenu = e => {
+        e.preventDefault();
+        const name = item.dataset.name;
+        const path = cwd === '/' ? '/' + name : cwd + '/' + name;
+        showCtxMenu(e.clientX, e.clientY, [
+          { label: 'Open', action: () => item.ondblclick() },
+          { label: 'Delete', action: () => { if (confirm(`Delete ${name}?`)) { OS.fs.remove(path, true); render(); } } },
+          { label: 'Rename', action: () => { const nn = prompt('New name:', name); if (nn && nn !== name) { OS.fs.move(path, (cwd === '/' ? '/' : cwd + '/') + nn); render(); } } },
+        ]);
+      };
+    });
+
+    el.querySelector('[data-act="up"]').onclick = () => { if (cwd !== '/') { cwd = OS.fs._parent(cwd); render(); } };
+    el.querySelector('[data-act="new"]').onclick = () => { const name = prompt('Folder name:'); if (name) { OS.fs.mkdir((cwd === '/' ? '/' : cwd + '/') + name); render(); } };
+  }
+
+  render();
+}
+
+function getFileIcon(name) {
+  if (name.endsWith('.txt') || name.endsWith('.md')) return '\uD83D\uDCC4';
+  if (name.endsWith('.json')) return '\uD83D\uDCCB';
+  if (name.endsWith('.html')) return '\uD83C\uDF10';
+  if (name.endsWith('.png') || name.endsWith('.jpg')) return '\uD83D\uDDBC\uFE0F';
+  return '\uD83D\uDCC4';
+}
+
+// ===================== CLOUDSTORE (PACKAGE MANAGER) =====================
+function buildCloudStore(win) {
+  const el = win.content;
+  let tab = 'browse', packages = [], installed = [];
+
+  function loadInstalled() {
+    installed = JSON.parse(OS.fs.readFile('/etc/packages.json') || '[]');
+  }
+  loadInstalled();
+
+  function render() {
+    const repos = JSON.parse(OS.fs.readFile('/etc/repos.json') || '[]');
+    el.innerHTML = `<div class="cloudstore">
+      <div class="cs-header"><h2>\u2601\uFE0F CloudStore</h2><p>Install apps from public GitHub repositories</p></div>
+      <div class="cs-repo">
+        <input type="text" placeholder="GitHub raw URL to packages.json..." value="${repos[0] || ''}" id="cs-url">
+        <button id="cs-fetch">Fetch</button>
+      </div>
+      <div class="cs-tabs">
+        <button class="cs-tab ${tab === 'browse' ? 'active' : ''}" data-tab="browse">Browse</button>
+        <button class="cs-tab ${tab === 'installed' ? 'active' : ''}" data-tab="installed">Installed (${installed.length})</button>
+        <button class="cs-tab ${tab === 'repos' ? 'active' : ''}" data-tab="repos">Repos</button>
+      </div>
+      <div class="cs-list" id="cs-list"></div>
+    </div>`;
+
+    const list = el.querySelector('#cs-list');
+
+    el.querySelectorAll('.cs-tab').forEach(t => {
+      t.onclick = () => { tab = t.dataset.tab; render(); };
+    });
+
+    el.querySelector('#cs-fetch').onclick = async () => {
+      const url = el.querySelector('#cs-url').value.trim();
+      if (!url) return;
+      list.innerHTML = '<div style="padding:20px;color:var(--text3)">Fetching packages...</div>';
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        packages = data.packages || [];
+        // Save repo URL
+        const currentRepos = JSON.parse(OS.fs.readFile('/etc/repos.json') || '[]');
+        if (!currentRepos.includes(url)) { currentRepos.push(url); OS.fs.writeFile('/etc/repos.json', JSON.stringify(currentRepos)); }
+        tab = 'browse';
+        render();
+      } catch (e) {
+        list.innerHTML = `<div style="padding:20px;color:var(--red)">Error: ${e.message}<br><br><span style="color:var(--text3);font-size:12px">Make sure the URL points to a valid JSON file.<br>Example: https://raw.githubusercontent.com/user/repo/main/packages.json</span></div>`;
+      }
+    };
+
+    if (tab === 'browse') {
+      if (packages.length === 0) {
+        list.innerHTML = `<div style="padding:20px;color:var(--text3)">No packages loaded. Enter a GitHub raw URL and click Fetch.<br><br>
+          <b>Package JSON format:</b><pre style="background:var(--surface2);padding:10px;border-radius:6px;margin-top:8px;font-size:11px;overflow-x:auto">{
+  "packages": [{
+    "id": "my-app",
+    "name": "My App",
+    "icon": "\uD83C\uDFAE",
+    "version": "1.0",
+    "description": "Description",
+    "author": "username",
+    "width": 600, "height": 400,
+    "app": {
+      "html": "&lt;div&gt;Hello World&lt;/div&gt;",
+      "css": "div { color: white; }",
+      "js": "console.log('loaded');"
+    }
+  }]
+}</pre></div>`;
+      } else {
+        packages.forEach(pkg => {
+          const isInstalled = installed.some(i => i.id === pkg.id);
+          const div = document.createElement('div');
+          div.className = 'cs-pkg';
+          div.innerHTML = `<span class="cs-ico">${pkg.icon || '\uD83D\uDCE6'}</span>
+            <div class="cs-info"><div class="cs-name">${pkg.name} <span style="color:var(--text3);font-size:11px">v${pkg.version || '1.0'}</span></div><div class="cs-desc">${pkg.description || ''}</div></div>
+            <button class="${isInstalled ? 'installed' : ''}">${isInstalled ? '\u2713 Installed' : 'Install'}</button>`;
+          div.querySelector('button').onclick = () => {
+            if (isInstalled) { uninstallPkg(pkg.id); } else { installPkg(pkg); }
+            loadInstalled();
+            render();
+          };
+          list.appendChild(div);
+        });
+      }
+    } else if (tab === 'installed') {
+      if (installed.length === 0) {
+        list.innerHTML = '<div style="padding:20px;color:var(--text3)">No packages installed yet.</div>';
+      } else {
+        installed.forEach(pkg => {
+          const div = document.createElement('div');
+          div.className = 'cs-pkg';
+          div.innerHTML = `<span class="cs-ico">${pkg.icon || '\uD83D\uDCE6'}</span>
+            <div class="cs-info"><div class="cs-name">${pkg.name}</div><div class="cs-desc">v${pkg.version || '1.0'}</div></div>
+            <button style="border-color:var(--red);color:var(--red)">Uninstall</button>`;
+          div.querySelector('button').onclick = () => { uninstallPkg(pkg.id); loadInstalled(); render(); };
+          list.appendChild(div);
+        });
+      }
+    } else if (tab === 'repos') {
+      const repoList = JSON.parse(OS.fs.readFile('/etc/repos.json') || '[]');
+      list.innerHTML = `<div style="padding:12px">
+        <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Saved repository URLs:</p>
+        ${repoList.map((r, i) => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="flex:1;font-size:11px;color:var(--text3);word-break:break-all;font-family:var(--font)">${r}</span>
+          <button onclick="OS.fs.writeFile('/etc/repos.json',JSON.stringify(JSON.parse(OS.fs.readFile('/etc/repos.json')||'[]').filter((_,j)=>j!==${i})));this.closest('.cloudstore').__render()" style="padding:2px 8px;background:none;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;font-size:11px">\u2715</button>
+        </div>`).join('')}
+        ${repoList.length === 0 ? '<p style="color:var(--text3);font-size:12px">No saved repos.</p>' : ''}
+      </div>`;
+    }
+  }
+
+  render();
+}
+
+function installPkg(pkg) {
+  const fs = OS.fs;
+  fs.mkdir('/usr/apps/' + pkg.id, true);
+  fs.writeFile('/usr/apps/' + pkg.id + '/manifest.json', JSON.stringify(pkg));
+  if (pkg.app) {
+    if (pkg.app.html) fs.writeFile('/usr/apps/' + pkg.id + '/app.html', pkg.app.html);
+    if (pkg.app.css) fs.writeFile('/usr/apps/' + pkg.id + '/app.css', pkg.app.css);
+    if (pkg.app.js) fs.writeFile('/usr/apps/' + pkg.id + '/app.js', pkg.app.js);
+  }
+  const installed = JSON.parse(fs.readFile('/etc/packages.json') || '[]');
+  installed.push({ id: pkg.id, name: pkg.name, icon: pkg.icon || '\uD83D\uDCE6', version: pkg.version || '1.0' });
+  fs.writeFile('/etc/packages.json', JSON.stringify(installed));
+  // Register as launchable app
+  Apps['_pkg_' + pkg.id] = { name: pkg.name, icon: pkg.icon || '\uD83D\uDCE6', cat: 'Installed', w: pkg.width || 600, h: pkg.height || 400 };
+}
+
+function uninstallPkg(id) {
+  const fs = OS.fs;
+  fs.remove('/usr/apps/' + id, true);
+  const installed = JSON.parse(fs.readFile('/etc/packages.json') || '[]').filter(p => p.id !== id);
+  fs.writeFile('/etc/packages.json', JSON.stringify(installed));
+  delete Apps['_pkg_' + id];
+}
+
+function openInstalledApp(id) {
+  const manifest = OS.fs.readFile('/usr/apps/' + id + '/manifest.json');
+  if (!manifest) return;
+  const pkg = JSON.parse(manifest);
+  const win = OS.wm.create({ title: pkg.name, icon: pkg.icon || '\uD83D\uDCE6', width: pkg.width || 600, height: pkg.height || 400 });
+  const html = OS.fs.readFile('/usr/apps/' + id + '/app.html') || '';
+  const css = OS.fs.readFile('/usr/apps/' + id + '/app.css') || '';
+  const js = OS.fs.readFile('/usr/apps/' + id + '/app.js') || '';
+  win.content.innerHTML = `<style>${css}</style>${html}`;
+  if (js) {
+    try { new Function('container', 'OS', js)(win.content, OS); }
+    catch (e) { win.content.innerHTML += `<pre style="color:var(--red);padding:10px">Error: ${e.message}</pre>`; }
+  }
+}
+
+// ===================== SETTINGS =====================
+function buildSettings(win) {
+  const el = win.content;
+  let page = 'general';
+
+  function render() {
+    const wallpapers = [
+      { name: 'Dark Nebula', val: 'linear-gradient(135deg,#0a0a1e 0%,#1a1040 30%,#0d2040 60%,#0a1628 100%)' },
+      { name: 'Ocean', val: 'linear-gradient(135deg,#0a1628 0%,#0d2d4a 40%,#061a2e 100%)' },
+      { name: 'Sunset', val: 'linear-gradient(135deg,#1a0a0a 0%,#3a1020 40%,#1a1040 100%)' },
+      { name: 'Forest', val: 'linear-gradient(135deg,#0a1a0a 0%,#0d2a1a 40%,#061a0e 100%)' },
+      { name: 'Midnight', val: 'linear-gradient(135deg,#080810 0%,#101020 50%,#080810 100%)' },
+    ];
+
+    el.innerHTML = `<div class="settings">
+      <div class="set-nav">
+        <div class="set-nav-item ${page === 'general' ? 'active' : ''}" data-p="general">\u2699 General</div>
+        <div class="set-nav-item ${page === 'appear' ? 'active' : ''}" data-p="appear">\uD83C\uDFA8 Appearance</div>
+        <div class="set-nav-item ${page === 'data' ? 'active' : ''}" data-p="data">\uD83D\uDCBE Data</div>
+        <div class="set-nav-item ${page === 'about' ? 'active' : ''}" data-p="about">\u2139\uFE0F About</div>
+      </div>
+      <div class="set-panel" id="set-panel"></div>
+    </div>`;
+
+    el.querySelectorAll('.set-nav-item').forEach(item => {
+      item.onclick = () => { page = item.dataset.p; render(); };
+    });
+
+    const panel = el.querySelector('#set-panel');
+
+    if (page === 'general') {
+      panel.innerHTML = `<div class="set-section"><h3>System</h3>
+        <div class="set-row"><label>Hostname</label><input id="s-hostname" value="${OS.fs.readFile('/etc/hostname') || 'cloudos'}"></div>
+        <div class="set-row"><label>Virtual Desktops</label><span>${OS.desktopCount}</span></div>
+      </div>`;
+      panel.querySelector('#s-hostname').onchange = e => OS.fs.writeFile('/etc/hostname', e.target.value);
+    } else if (page === 'appear') {
+      panel.innerHTML = `<div class="set-section"><h3>Wallpaper</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${wallpapers.map(w => `<div style="width:100px;height:60px;border-radius:8px;background:${w.val};cursor:pointer;border:2px solid var(--border);display:flex;align-items:end;justify-content:center;padding:4px" data-wall="${w.val}" class="wall-opt"><span style="font-size:10px;color:#fff;text-shadow:0 1px 3px #000">${w.name}</span></div>`).join('')}
+        </div>
+      </div>`;
+      panel.querySelectorAll('.wall-opt').forEach(opt => {
+        opt.onclick = () => {
+          document.getElementById('desktop').style.background = opt.dataset.wall;
+          localStorage.setItem('cloudos-wallpaper', opt.dataset.wall);
+        };
+      });
+    } else if (page === 'data') {
+      panel.innerHTML = `<div class="set-section"><h3>Backup & Restore</h3>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Export your entire OS state (file system, installed packages, settings) as a JSON file. Import to restore.</p>
+        <button class="set-btn" onclick="OS.exportState()">\uD83D\uDCE6 Export State</button>
+        <button class="set-btn" onclick="OS.importState()">\uD83D\uDCE5 Import State</button>
+      </div>
+      <div class="set-section"><h3>Reset</h3>
+        <button class="set-btn danger" onclick="if(confirm('This will delete ALL data. Are you sure?')){localStorage.clear();location.reload()}">\u26A0 Factory Reset</button>
+      </div>`;
+    } else if (page === 'about') {
+      panel.innerHTML = `<div style="text-align:center;padding:20px">
+        <div style="font-size:48px">\u2601\uFE0F</div>
+        <h2 style="margin:8px 0">CloudOS v1.0</h2>
+        <p style="color:var(--text2);font-size:13px">A public cloud operating system</p>
+        <p style="color:var(--text3);font-size:12px;margin-top:16px">
+          Built as a single HTML file.<br>
+          File system backed by localStorage.<br>
+          Packages from public GitHub repos.<br>
+          Broadcast network for public communication.<br><br>
+          Made with \u2764\uFE0F
+        </p>
+      </div>`;
+    }
+  }
+
+  render();
+}
+
+// ===================== BROADCAST NETWORK =====================
+function buildBroadcast(win) {
+  const el = win.content;
+  const bcKey = 'cloudos-broadcasts';
+  const BC_FEED_URL = REPO_RAW + '/broadcasts/feed.json';
+  const BC_CHANNELS_URL = REPO_RAW + '/broadcasts/channels.json';
+  let username = OS.fs.readFile('/etc/hostname') || 'cloudos';
+  let currentChannel = 'general';
+  let remoteMsgs = [];
+  let fetchStatus = '';
+
+  function loadLocal() {
+    try { return JSON.parse(localStorage.getItem(bcKey) || '[]'); } catch { return []; }
+  }
+  function saveLocal(msgs) {
+    localStorage.setItem(bcKey, JSON.stringify(msgs.slice(-500)));
+  }
+  function allMessages() {
+    const local = loadLocal();
+    const localIds = new Set(local.map(m => m.id));
+    const merged = [...local];
+    remoteMsgs.forEach(m => { if (!localIds.has(m.id)) merged.push(m); });
+    return merged.filter(m => !m.channel || m.channel === currentChannel)
+      .sort((a, b) => new Date(b.time) - new Date(a.time));
+  }
+
+  function render() {
+    el.innerHTML = `<div class="broadcast">
+      <div class="bc-header">
+        <h2>\uD83D\uDCE1 Broadcast Network</h2>
+        <p>Public feed from GitHub \u2022 Write locally, sync via export \u2022 Anyone can read the live feed</p>
+      </div>
+      <div style="display:flex;gap:4px;padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap">
+        <button class="bc-ch-btn ${currentChannel==='general'?'active':''}" data-ch="general"># general</button>
+        <button class="bc-ch-btn ${currentChannel==='dev'?'active':''}" data-ch="dev"># dev</button>
+        <button class="bc-ch-btn ${currentChannel==='showcase'?'active':''}" data-ch="showcase"># showcase</button>
+        <button class="bc-ch-btn ${currentChannel==='random'?'active':''}" data-ch="random"># random</button>
+        <span style="flex:1"></span>
+        <span id="bc-status" style="font-size:10px;color:var(--text3)">${fetchStatus}</span>
+        <button class="set-btn" style="padding:3px 10px;font-size:11px" id="bc-refresh">\uD83D\uDD04 Refresh</button>
+      </div>
+      <div class="bc-compose">
+        <textarea id="bc-input" placeholder="Write a broadcast to #${currentChannel}..." maxlength="500"></textarea>
+        <div class="bc-compose-bar">
+          <span id="bc-charcount">0/500</span>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button class="set-btn" style="padding:4px 10px;font-size:11px" id="bc-fetch-live">\uD83C\uDF10 Fetch Live Feed</button>
+            <button class="set-btn" style="padding:4px 10px;font-size:11px" id="bc-fetch-url">\uD83D\uDD17 Fetch URL</button>
+            <button class="set-btn" style="padding:4px 10px;font-size:11px" id="bc-export-btn">\uD83D\uDCE4 Export</button>
+            <button class="set-btn" style="padding:4px 10px;font-size:11px" id="bc-import-btn">\uD83D\uDCE5 Import</button>
+            <button class="set-btn" style="padding:4px 14px;font-size:12px" id="bc-send">\uD83D\uDCE1 Broadcast</button>
+          </div>
+        </div>
+      </div>
+      <div class="bc-feed" id="bc-feed"></div>
+    </div>`;
+
+    const feed = el.querySelector('#bc-feed');
+    const input = el.querySelector('#bc-input');
+    const charcount = el.querySelector('#bc-charcount');
+    const statusEl = el.querySelector('#bc-status');
+
+    // Channel switching
+    el.querySelectorAll('.bc-ch-btn').forEach(btn => {
+      btn.onclick = () => { currentChannel = btn.dataset.ch; render(); };
+    });
+
+    input.oninput = () => { charcount.textContent = input.value.length + '/500'; };
+
+    // Post a message locally
+    el.querySelector('#bc-send').onclick = () => {
+      const text = input.value.trim();
+      if (!text) return;
+      const msgs = loadLocal();
+      msgs.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        user: username,
+        text,
+        channel: currentChannel,
+        time: new Date().toISOString(),
+        reactions: {},
+        source: 'local'
+      });
+      saveLocal(msgs);
+      input.value = '';
+      charcount.textContent = '0/500';
+      renderFeed(feed);
+    };
+
+    // Fetch live feed from GitHub raw
+    el.querySelector('#bc-fetch-live').onclick = async () => {
+      statusEl.textContent = 'Fetching live feed...';
+      try {
+        const resp = await fetch(BC_FEED_URL + '?t=' + Date.now());
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const newMsgs = (data.messages || []).map(m => ({ ...m, source: 'github' }));
+        remoteMsgs = newMsgs;
+        // Merge into local
+        const local = loadLocal();
+        const localIds = new Set(local.map(m => m.id));
+        let added = 0;
+        newMsgs.forEach(m => { if (!localIds.has(m.id)) { local.push(m); added++; } });
+        saveLocal(local);
+        fetchStatus = 'Synced ' + newMsgs.length + ' msgs (' + added + ' new)';
+        statusEl.textContent = fetchStatus;
+        renderFeed(feed);
+      } catch (e) {
+        fetchStatus = 'Feed not found - be the first to export!';
+        statusEl.textContent = fetchStatus;
+      }
+    };
+
+    // Fetch from custom URL
+    el.querySelector('#bc-fetch-url').onclick = async () => {
+      const url = prompt('Enter raw GitHub URL to a broadcast feed JSON:', REPO_RAW + '/broadcasts/feed.json');
+      if (!url) return;
+      statusEl.textContent = 'Fetching...';
+      try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        const newMsgs = (data.messages || []).map(m => ({ ...m, source: 'remote' }));
+        const local = loadLocal();
+        const localIds = new Set(local.map(m => m.id));
+        let added = 0;
+        newMsgs.forEach(m => { if (!localIds.has(m.id)) { local.push(m); added++; } });
+        saveLocal(local);
+        remoteMsgs = [...remoteMsgs, ...newMsgs];
+        fetchStatus = 'Merged ' + added + ' new messages';
+        statusEl.textContent = fetchStatus;
+        renderFeed(feed);
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+      }
+    };
+
+    // Refresh
+    el.querySelector('#bc-refresh').onclick = () => renderFeed(feed);
+
+    // Export feed as JSON (user pushes this to their GitHub repo's broadcasts/ folder)
+    el.querySelector('#bc-export-btn').onclick = () => {
+      const msgs = loadLocal().filter(m => !m.channel || m.channel === currentChannel);
+      const data = {
+        type: 'cloudos-broadcast',
+        version: '1.0',
+        channel: currentChannel,
+        exported: new Date().toISOString(),
+        exportedBy: username,
+        repo: 'kody-w/localFirstTools-main',
+        instructions: 'Push this file to broadcasts/feed.json in the repo so others can fetch it via the Broadcast app.',
+        messages: msgs
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'feed.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+
+    // Import from file
+    el.querySelector('#bc-import-btn').onclick = () => {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = '.json';
+      inp.onchange = e => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            const newMsgs = data.messages || [];
+            const local = loadLocal();
+            const localIds = new Set(local.map(m => m.id));
+            let added = 0;
+            newMsgs.forEach(m => { if (!localIds.has(m.id)) { local.push(m); added++; } });
+            saveLocal(local);
+            statusEl.textContent = 'Imported ' + added + ' new messages';
+            renderFeed(feed);
+          } catch (err) { alert('Invalid broadcast file: ' + err.message); }
+        };
+        reader.readAsText(e.target.files[0]);
+      };
+      inp.click();
+    };
+
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.querySelector('#bc-send').click(); } });
+    renderFeed(feed);
+
+    // Auto-fetch live feed on open
+    el.querySelector('#bc-fetch-live').click();
+  }
+
+  function renderFeed(feed) {
+    const msgs = allMessages();
+    feed.innerHTML = msgs.length === 0
+      ? '<div style="padding:30px;text-align:center;color:var(--text3)"><div style="font-size:32px;margin-bottom:8px">\uD83D\uDCE1</div>No broadcasts in #' + currentChannel + ' yet.<br>Be the first! Or click "Fetch Live Feed" to pull from GitHub.</div>'
+      : msgs.map(m => {
+        const d = new Date(m.time);
+        const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const srcBadge = m.source === 'github' ? ' <span style="font-size:9px;background:var(--accent);color:#fff;padding:1px 5px;border-radius:8px">LIVE</span>'
+          : m.source === 'remote' ? ' <span style="font-size:9px;background:var(--surface3);color:var(--text2);padding:1px 5px;border-radius:8px">REMOTE</span>' : '';
+        const reactions = Object.entries(m.reactions || {}).map(([emoji, count]) =>
+          '<span class="bc-react-btn" data-id="' + m.id + '" data-emoji="' + emoji + '">' + emoji + ' ' + count + '</span>'
+        ).join('');
+        return '<div class="bc-msg">'
+          + '<span class="bc-user">@' + escapeHtml(m.user || 'anon') + '</span><span class="bc-time">' + timeStr + '</span>' + srcBadge
+          + '<div class="bc-text">' + escapeHtml(m.text) + '</div>'
+          + '<div class="bc-reactions">' + reactions
+          + '<span class="bc-react-btn bc-add-react" data-id="' + m.id + '">+</span></div></div>';
+      }).join('');
+
+    feed.querySelectorAll('.bc-react-btn').forEach(btn => {
+      btn.onclick = () => {
+        const msgId = btn.dataset.id;
+        const emoji = btn.dataset.emoji || prompt('Emoji reaction:');
+        if (!emoji) return;
+        const msgs = loadLocal();
+        const msg = msgs.find(m => m.id === msgId);
+        if (msg) {
+          if (!msg.reactions) msg.reactions = {};
+          msg.reactions[emoji] = (msg.reactions[emoji] || 0) + 1;
+          saveLocal(msgs);
+          renderFeed(feed);
+        }
+      };
+    });
+  }
+
+  function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
+
+  render();
+}
+
+// ===================== ARCADE (CONSOLE + CARTRIDGE LOADER) =====================
+const REPO_RAW = 'https://raw.githubusercontent.com/kody-w/localFirstTools-main/main';
+const REPO_PAGES = 'https://kody-w.github.io/localFirstTools-main';
+const CONSOLE_MAP = {
+  'retro-console':          { path: 'apps/games-puzzles/retro-console.html',             name: 'Retro Console',          desc: 'Universal cartridge player - Atari, NES, SNES, N64, PS1' },
+  'ecs-console':            { path: 'apps/games-puzzles/ecs-console.html',               name: 'ECS Console',            desc: 'Entity-Component-System game engine' },
+  'ecs-emulator':           { path: 'apps/games-puzzles/ecs-emulator-console.html',      name: 'ECS Emulator',           desc: 'ECS engine + CHIP-8 emulation' },
+  'ecs-3d':                 { path: 'apps/3d-immersive/ecs-console-3d.html',             name: 'ECS Console 3D',         desc: 'Three.js powered 3D game engine' },
+  'retroplay':              { path: 'apps/3d-immersive/complete-retroplay-console.html',  name: 'RetroPlay-8',            desc: 'Fantasy console with code, sprite & sound editors' },
+  'retroplay-ios':          { path: 'apps/games-puzzles/complete-retroplay-console-ios.html', name: 'RetroPlay-8 (iOS)', desc: 'Mobile-optimized RetroPlay' },
+  'p2p-arcade':             { path: 'apps/games-puzzles/p2p-arcade-console.html',        name: 'P2P Arcade',             desc: '10-game P2P arcade with WebRTC multiplayer' },
+  'n64-arcade':             { path: 'apps/games-puzzles/n64-arcade-console.html',        name: 'N64 Arcade',             desc: 'N64-style arcade console' },
+};
+
+function buildArcade(win) {
+  const el = win.content;
+  let consoleIndex = null;
+  let selectedConsole = null;
+  let loadedGames = [];
+  let iframeReady = false;
+
+  function render() {
+    el.innerHTML = `<div class="arcade"><div class="arc-top">
+      <div class="arc-sidebar">
+        <div class="arc-sidebar-header">\uD83C\uDFAE Console Library</div>
+        <div class="arc-consoles" id="arc-consoles"></div>
+        <div class="arc-games hidden" id="arc-games"><div style="padding:6px 10px;font-size:10px;text-transform:uppercase;color:var(--text3);letter-spacing:1px">Cartridges</div></div>
+        <div class="arc-load-bar">
+          <button id="arc-load-url">\uD83C\uDF10 Load Cartridge from URL...</button>
+          <button id="arc-load-file">\uD83D\uDCC2 Load Cartridge .json File</button>
+          <button id="arc-pick-console">\uD83D\uDD27 Load Console from URL...</button>
+        </div>
+      </div>
+      <div class="arc-main">
+        <iframe class="arc-iframe hidden" id="arc-iframe" sandbox="allow-scripts allow-same-origin allow-popups" allowfullscreen></iframe>
+        <div class="arc-splash" id="arc-splash">
+          <span class="arc-big-icon">\uD83C\uDFAE</span>
+          <h3>CloudOS Arcade</h3>
+          <p>Select a console from the sidebar, or load a cartridge.json to play.<br><br>Consoles & cartridges are fetched from the public GitHub repo via raw.githubusercontent.com</p>
+        </div>
+      </div>
+    </div></div>`;
+
+    const consolesEl = el.querySelector('#arc-consoles');
+    const gamesEl = el.querySelector('#arc-games');
+    const iframe = el.querySelector('#arc-iframe');
+    const splash = el.querySelector('#arc-splash');
+
+    // Render console hardware list
+    for (const [id, c] of Object.entries(CONSOLE_MAP)) {
+      const div = document.createElement('div');
+      div.className = 'arc-console-item';
+      div.innerHTML = `<span class="arc-ci-icon">\uD83D\uDCFA</span><div style="flex:1"><div class="arc-ci-name">${c.name}</div><div style="font-size:10px;color:var(--text3)">${c.desc}</div></div>`;
+      div.onclick = () => loadConsoleHTML(id);
+      consolesEl.appendChild(div);
+    }
+
+    // Separator + cartridge console index
+    const sep = document.createElement('div');
+    sep.innerHTML = '<div style="padding:8px 10px;font-size:10px;text-transform:uppercase;color:var(--text3);letter-spacing:1px;border-top:1px solid var(--border);margin-top:4px;padding-top:10px">\uD83D\uDCBF Cartridge Collections</div>';
+    consolesEl.appendChild(sep);
+
+    // Fetch cartridge index from GitHub
+    fetchCartridgeIndex(consolesEl, gamesEl);
+
+    // Load console from URL
+    el.querySelector('#arc-pick-console').onclick = () => {
+      const url = prompt('Enter raw GitHub URL to a console .html file:', REPO_RAW + '/apps/games-puzzles/retro-console.html');
+      if (url) loadConsoleFromURL(url);
+    };
+
+    // Load cartridge from URL
+    el.querySelector('#arc-load-url').onclick = () => {
+      const url = prompt('Enter raw GitHub URL to a cartridge .json file:', REPO_RAW + '/apps/games-puzzles/cartridges/nes.json');
+      if (url) loadCartridgeFromURL(url);
+    };
+
+    // Load cartridge from file
+    el.querySelector('#arc-load-file').onclick = () => {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = '.json';
+      inp.onchange = e => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            handleCartridgeData(data);
+          } catch (err) { alert('Invalid cartridge JSON: ' + err.message); }
+        };
+        reader.readAsText(e.target.files[0]);
+      };
+      inp.click();
+    };
+
+    // === Core functions ===
+
+    async function fetchCartridgeIndex(consolesContainer, gamesContainer) {
+      try {
+        const resp = await fetch(REPO_RAW + '/apps/games-puzzles/cartridges/index.json');
+        consoleIndex = await resp.json();
+        consoleIndex.consoles.forEach(c => {
+          const div = document.createElement('div');
+          div.className = 'arc-console-item';
+          const badge = c.status === 'available'
+            ? `<span class="arc-ci-badge">${c.games} games</span>`
+            : `<span class="arc-ci-badge soon">soon</span>`;
+          div.innerHTML = `<span class="arc-ci-icon">${c.icon}</span><div style="flex:1"><div class="arc-ci-name">${c.name}</div><div style="font-size:10px;color:var(--text3)">${c.year}</div></div>${badge}`;
+          if (c.status === 'available') {
+            div.onclick = () => loadCartridgeCollection(c, gamesContainer);
+          } else {
+            div.style.opacity = '0.5';
+            div.style.cursor = 'default';
+          }
+          consolesContainer.appendChild(div);
+        });
+      } catch (e) {
+        consolesContainer.innerHTML += `<div style="padding:10px;font-size:11px;color:var(--text3)">Could not fetch cartridge index. Check connection.</div>`;
+      }
+    }
+
+    async function loadCartridgeCollection(consoleInfo, gamesContainer) {
+      // Highlight selection
+      consolesEl.querySelectorAll('.arc-console-item').forEach(i => i.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+      selectedConsole = consoleInfo;
+
+      gamesContainer.classList.remove('hidden');
+      // Remove old game items
+      gamesContainer.querySelectorAll('.arc-game-item').forEach(g => g.remove());
+      gamesContainer.innerHTML = '<div style="padding:8px 10px;font-size:11px;color:var(--text3)">Loading cartridge...</div>';
+
+      try {
+        const url = REPO_RAW + '/apps/games-puzzles/cartridges/' + consoleInfo.file;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        loadedGames = data.games || [];
+
+        gamesContainer.innerHTML = `<div style="padding:6px 10px;font-size:10px;text-transform:uppercase;color:var(--text3);letter-spacing:1px">${consoleInfo.name} - ${loadedGames.length} Games</div>`;
+
+        loadedGames.forEach((game, idx) => {
+          const div = document.createElement('div');
+          div.className = 'arc-game-item';
+          div.innerHTML = `<span class="arc-gi-icon">${game.icon || '\uD83C\uDFAE'}</span><span class="arc-gi-name">${game.name}</span>`;
+          div.title = game.desc || '';
+          div.onclick = () => launchGameInConsole(data, idx);
+          gamesContainer.appendChild(div);
+        });
+      } catch (e) {
+        gamesContainer.innerHTML = `<div style="padding:10px;font-size:11px;color:var(--red)">Failed to load: ${e.message}</div>`;
+      }
+    }
+
+    async function loadConsoleHTML(consoleId) {
+      const c = CONSOLE_MAP[consoleId];
+      if (!c) return;
+      consolesEl.querySelectorAll('.arc-console-item').forEach(i => i.classList.remove('active'));
+      if (event && event.currentTarget) event.currentTarget.classList.add('active');
+      showLoading('Loading ' + c.name + '...');
+      try {
+        const url = REPO_RAW + '/' + c.path;
+        const resp = await fetch(url);
+        let html = await resp.text();
+        // Inject base URL so relative fetches (cartridges/) resolve to the repo
+        const baseDir = c.path.substring(0, c.path.lastIndexOf('/') + 1);
+        html = html.replace('<head>', `<head><base href="${REPO_RAW}/${baseDir}">`);
+        loadHTMLInIframe(html);
+      } catch (e) {
+        hideLoading();
+        alert('Failed to load console: ' + e.message);
+      }
+    }
+
+    async function loadConsoleFromURL(url) {
+      showLoading('Fetching console...');
+      try {
+        const resp = await fetch(url);
+        let html = await resp.text();
+        const baseDir = url.substring(0, url.lastIndexOf('/') + 1);
+        html = html.replace('<head>', `<head><base href="${baseDir}">`);
+        loadHTMLInIframe(html);
+      } catch (e) {
+        hideLoading();
+        alert('Failed to load: ' + e.message);
+      }
+    }
+
+    async function loadCartridgeFromURL(url) {
+      showLoading('Fetching cartridge...');
+      try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        handleCartridgeData(data);
+        hideLoading();
+      } catch (e) {
+        hideLoading();
+        alert('Failed to load cartridge: ' + e.message);
+      }
+    }
+
+    function handleCartridgeData(data) {
+      // If it has games array, it's a cartridge collection
+      if (data.games && data.games.length > 0) {
+        loadedGames = data.games;
+        const gamesContainer = el.querySelector('#arc-games');
+        gamesContainer.classList.remove('hidden');
+        gamesContainer.querySelectorAll('.arc-game-item').forEach(g => g.remove());
+        gamesContainer.innerHTML = `<div style="padding:6px 10px;font-size:10px;text-transform:uppercase;color:var(--text3);letter-spacing:1px">${data.name || 'Loaded Cartridge'} - ${data.games.length} Games</div>`;
+        data.games.forEach((game, idx) => {
+          const div = document.createElement('div');
+          div.className = 'arc-game-item';
+          div.innerHTML = `<span class="arc-gi-icon">${game.icon || '\uD83C\uDFAE'}</span><span class="arc-gi-name">${game.name}</span>`;
+          div.title = game.desc || '';
+          div.onclick = () => launchGameInConsole(data, idx);
+          gamesContainer.appendChild(div);
+        });
+        // Auto-launch first game if we have a console loaded
+        if (iframeReady && data.games.length > 0) {
+          launchGameInConsole(data, 0);
+        }
+      }
+    }
+
+    function launchGameInConsole(cartridgeData, gameIndex) {
+      // Build a self-contained HTML page that runs the game
+      const game = cartridgeData.games[gameIndex];
+      const render = cartridgeData.render || { width: 256, height: 240, scanlines: false };
+      const theme = cartridgeData.theme || { bg: '#1a1a2a', accent: '#cc0000' };
+      if (!game || !game.code) {
+        // If there's already a console loaded, try sending via postMessage
+        if (iframeReady) {
+          iframe.contentWindow.postMessage({ type: 'loadCartridge', cartridge: cartridgeData, gameIndex }, '*');
+          return;
+        }
+        alert('No game code found in this cartridge entry.');
+        return;
+      }
+
+      showLoading('Booting ' + game.name + '...');
+
+      // Build a standalone game runner HTML using string concat (no backticks - they break the outer template)
+      var rw = render.width || 256, rh = render.height || 240;
+      var scanCSS = render.scanlines ? 'canvas::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,' + (render.scanlineAlpha || .07) + ') 0px,rgba(0,0,0,' + (render.scanlineAlpha || .07) + ') 1px,transparent 1px,transparent 2px);pointer-events:none}' : '';
+      var gameHTML = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
+        + '<title>' + game.name + '</title><style>'
+        + '*{margin:0;padding:0;box-sizing:border-box}'
+        + 'html,body{width:100%;height:100%;background:' + (theme.bg || '#1a1a2a') + ';overflow:hidden;display:flex;align-items:center;justify-content:center}'
+        + 'canvas{image-rendering:pixelated;image-rendering:crisp-edges;background:#000;max-width:100%;max-height:100%}'
+        + '#ui{position:fixed;top:8px;left:8px;color:#fff;font:12px monospace;opacity:.7;z-index:10}'
+        + scanCSS
+        + '</style></head><body>'
+        + '<div id="ui">' + game.name + '</div>'
+        + '<canvas id="C" width="' + rw + '" height="' + rh + '"></canvas>'
+        + '<scr' + 'ipt>'
+        + 'try{'
+        + 'var C=document.getElementById("C"),O=C.getContext("2d"),W=' + rw + ',H=' + rh + ';'
+        + 'function resize(){var s=Math.min(window.innerWidth/W,window.innerHeight/H);C.style.width=(W*s)+"px";C.style.height=(H*s)+"px"}'
+        + 'resize();window.onresize=resize;'
+        + 'var keys={};document.onkeydown=function(e){keys[e.key]=true;keys[e.code]=true;e.preventDefault()};'
+        + 'document.onkeyup=function(e){keys[e.key]=false;keys[e.code]=false};'
+        + 'function K(k){return !!keys[k]}'
+        + 'function cls(c){O.fillStyle=c||"#000";O.fillRect(0,0,W,H)}'
+        + 'function rect(x,y,w,h,c){O.fillStyle=c;O.fillRect(x,y,w,h)}'
+        + 'function circ(x,y,r,c){O.fillStyle=c;O.beginPath();O.arc(x,y,r,0,6.283);O.fill()}'
+        + 'function txt(s,x,y,c,sz){O.fillStyle=c||"#fff";O.font=(sz||10)+"px monospace";O.fillText(s,x,y)}'
+        + 'function line(x1,y1,x2,y2,c,w){O.strokeStyle=c;O.lineWidth=w||1;O.beginPath();O.moveTo(x1,y1);O.lineTo(x2,y2);O.stroke()}'
+        + 'var actx;function snd(f,d,t){if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();var o=actx.createOscillator(),g=actx.createGain();o.type=t||"square";o.frequency.value=f;g.gain.setValueAtTime(.1,actx.currentTime);g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+(d||.1));o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+(d||.1))}'
+        + 'var G={};'
+        + game.code
+        + ';var _lt=0;function _loop(t){var dt=Math.min((t-_lt)/1e3,.05);_lt=t;if(typeof update==="function")update(dt);if(typeof draw==="function")draw();requestAnimationFrame(_loop)}'
+        + 'if(typeof init==="function")init();requestAnimationFrame(_loop)'
+        + '}catch(e){document.body.innerHTML="<pre style=color:red;padding:20px>"+e.message+"\\n"+e.stack+"</pre>"}'
+        + '</scr' + 'ipt></body></html>';
+
+      loadHTMLInIframe(gameHTML);
+      // Update window title
+      const winData = OS.wm.wins.get(win.id);
+      if (winData) winData.el.querySelector('.win-title').textContent = 'Arcade - ' + game.name;
+    }
+
+    function loadHTMLInIframe(html) {
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      splash.classList.add('hidden');
+      iframe.classList.remove('hidden');
+      iframe.src = url;
+      iframeReady = true;
+      iframe.onload = () => {
+        hideLoading();
+        // Clean up blob URL after load
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+    }
+
+    function showLoading(msg) {
+      let loader = el.querySelector('.arc-loading');
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.className = 'arc-loading';
+        el.querySelector('.arc-main').appendChild(loader);
+      }
+      loader.textContent = msg || 'Loading...';
+      loader.style.display = 'flex';
+    }
+
+    function hideLoading() {
+      const loader = el.querySelector('.arc-loading');
+      if (loader) loader.style.display = 'none';
+    }
+  }
+
+  render();
+}
+
+// ===================== CONTEXT MENU =====================
+function showCtxMenu(x, y, items) {
+  const menu = document.getElementById('ctx-menu');
+  menu.innerHTML = items.map(i =>
+    i.sep ? '<div class="ctx-sep"></div>' : `<div class="ctx-item">${i.label}</div>`
+  ).join('');
+  menu.classList.remove('hidden');
+  menu.style.left = Math.min(x, window.innerWidth - 180) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - items.length * 30) + 'px';
+  menu.querySelectorAll('.ctx-item').forEach((el, i) => {
+    const item = items.filter(it => !it.sep)[i];
+    if (item) el.onclick = () => { menu.classList.add('hidden'); item.action(); };
+  });
+}
+
+document.addEventListener('click', () => document.getElementById('ctx-menu').classList.add('hidden'));
+
+// ===================== TASKBAR & START MENU =====================
+OS.updateTaskbar = function() {
+  const btns = document.getElementById('task-btns');
+  btns.innerHTML = '';
+  for (const [id, win] of OS.wm.wins) {
+    if (win.el.dataset.desktop != OS.currentDesktop) continue;
+    const btn = document.createElement('button');
+    btn.className = 'task-btn' + (id === OS.wm.activeId ? ' active' : '');
+    btn.innerHTML = `<span>${win.opts.icon || ''}</span> ${win.opts.title || 'Window'}`;
+    btn.onclick = () => {
+      if (win.minimized) OS.wm.restore(id);
+      else if (id === OS.wm.activeId) OS.wm.minimize(id);
+      else OS.wm.focus(id);
+    };
+    btns.appendChild(btn);
+  }
+};
+
+function initStartMenu() {
+  const menu = document.getElementById('start-menu');
+  const search = document.getElementById('start-search');
+  const appsEl = document.getElementById('start-apps');
+
+  function renderApps(filter) {
+    appsEl.innerHTML = '';
+    const cats = {};
+    for (const [id, app] of Object.entries(Apps)) {
+      if (id.startsWith('_pkg_')) continue;
+      if (filter && !app.name.toLowerCase().includes(filter)) continue;
+      if (!cats[app.cat]) cats[app.cat] = [];
+      cats[app.cat].push({ id, ...app });
+    }
+    // Add installed packages
+    const installed = JSON.parse(OS.fs.readFile('/etc/packages.json') || '[]');
+    if (installed.length > 0) {
+      cats['Installed'] = installed.filter(p => !filter || p.name.toLowerCase().includes(filter))
+        .map(p => ({ id: '_pkg_' + p.id, name: p.name, icon: p.icon || '\uD83D\uDCE6', cat: 'Installed' }));
+      if (cats['Installed'].length === 0) delete cats['Installed'];
+    }
+    for (const [cat, apps] of Object.entries(cats)) {
+      appsEl.innerHTML += `<div class="start-cat">${cat}</div>`;
+      apps.forEach(app => {
+        appsEl.innerHTML += `<div class="start-item" data-app="${app.id}"><span class="si-icon">${app.icon}</span><div><div class="si-name">${app.name}</div></div></div>`;
+      });
+    }
+    appsEl.querySelectorAll('.start-item').forEach(item => {
+      item.onclick = () => {
+        const appId = item.dataset.app;
+        menu.classList.add('hidden');
+        document.getElementById('start-btn').classList.remove('open');
+        if (appId.startsWith('_pkg_')) openInstalledApp(appId.replace('_pkg_', ''));
+        else openApp(appId);
+      };
+    });
+  }
+
+  search.oninput = () => renderApps(search.value.toLowerCase());
+
+  document.getElementById('start-btn').onclick = () => {
+    const open = menu.classList.toggle('hidden');
+    document.getElementById('start-btn').classList.toggle('open', !open);
+    if (!open) { renderApps(''); search.value = ''; search.focus(); }
+  };
+
+  renderApps('');
+}
+
+// ===================== DESKTOP ICONS =====================
+function initDesktopIcons() {
+  const container = document.getElementById('desktop-icons');
+  const icons = [
+    { app: 'terminal', icon: '\u2B1B', label: 'Terminal' },
+    { app: 'files', icon: '\uD83D\uDCC1', label: 'Files' },
+    { app: 'codepad', icon: '\uD83D\uDCDD', label: 'CodePad' },
+    { app: 'cloudstore', icon: '\u2601\uFE0F', label: 'CloudStore' },
+    { app: 'broadcast', icon: '\uD83D\uDCE1', label: 'Broadcast' },
+    { app: 'arcade', icon: '\uD83C\uDFAE', label: 'Arcade' },
+  ];
+  icons.forEach(i => {
+    const div = document.createElement('div');
+    div.className = 'desktop-icon';
+    div.innerHTML = `<span class="ico">${i.icon}</span><span class="lbl">${i.label}</span>`;
+    div.onclick = () => openApp(i.app);
+    container.appendChild(div);
+  });
+
+  // Desktop context menu
+  document.getElementById('desktop').addEventListener('contextmenu', e => {
+    if (e.target.closest('.window') || e.target.closest('.desktop-icon')) return;
+    e.preventDefault();
+    showCtxMenu(e.clientX, e.clientY, [
+      { label: '\uD83D\uDCC1 New Folder', action: () => { const n = prompt('Folder name:'); if (n) OS.fs.mkdir('/home/user/Desktop/' + n); } },
+      { label: '\uD83D\uDCC4 New File', action: () => { const n = prompt('File name:'); if (n) OS.fs.writeFile('/home/user/Desktop/' + n, ''); } },
+      { sep: true },
+      { label: '\u2B1B Terminal', action: () => openApp('terminal') },
+      { label: '\u2699\uFE0F Settings', action: () => openApp('settings') },
+    ]);
+  });
+}
+
+// ===================== VIRTUAL DESKTOPS =====================
+function initDesktopSwitcher() {
+  const container = document.getElementById('desk-switch');
+  for (let i = 0; i < OS.desktopCount; i++) {
+    const pip = document.createElement('div');
+    pip.className = 'desk-pip' + (i === 0 ? ' active' : '');
+    pip.title = `Desktop ${i + 1}`;
+    pip.onclick = () => OS.wm.switchDesktop(i);
+    container.appendChild(pip);
+  }
+}
+
+// ===================== KEYBOARD SHORTCUTS =====================
+function initShortcuts() {
+  document.addEventListener('keydown', e => {
+    // Ctrl+Alt+T: Terminal
+    if (e.ctrlKey && e.altKey && e.key === 't') { e.preventDefault(); openApp('terminal'); }
+    // Super+D or Ctrl+Alt+D: Show desktop (minimize all)
+    if ((e.ctrlKey && e.altKey && e.key === 'd')) {
+      e.preventDefault();
+      for (const [id, win] of OS.wm.wins) { if (!win.minimized && win.el.dataset.desktop == OS.currentDesktop) OS.wm.minimize(id); }
+    }
+    // Ctrl+Alt+1-4: Switch desktop
+    if (e.ctrlKey && e.altKey && e.key >= '1' && e.key <= '4') {
+      e.preventDefault();
+      OS.wm.switchDesktop(parseInt(e.key) - 1);
+    }
+    // Alt+Tab: Cycle windows
+    if (e.altKey && e.key === 'Tab') {
+      e.preventDefault();
+      const wins = Array.from(OS.wm.wins.entries()).filter(([, w]) => w.el.dataset.desktop == OS.currentDesktop && !w.minimized);
+      if (wins.length < 2) return;
+      const idx = wins.findIndex(([id]) => id === OS.wm.activeId);
+      const next = wins[(idx + 1) % wins.length];
+      OS.wm.focus(next[0]);
+    }
+    // Alt+F4: Close active window
+    if (e.altKey && e.key === 'F4') {
+      e.preventDefault();
+      if (OS.wm.activeId) OS.wm.close(OS.wm.activeId);
+    }
+  });
+}
+
+// ===================== CLOCK =====================
+function initClock() {
+  const el = document.getElementById('clock');
+  function update() {
+    const d = new Date();
+    el.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  update();
+  setInterval(update, 10000);
+}
+
+// ===================== IMPORT/EXPORT STATE =====================
+OS.exportState = function() {
+  const state = {
+    type: 'cloudos-state',
+    version: '1.0',
+    exported: new Date().toISOString(),
+    fileSystem: OS.fs.serialize(),
+    wallpaper: localStorage.getItem('cloudos-wallpaper') || '',
+    broadcasts: localStorage.getItem('cloudos-broadcasts') || '[]'
+  };
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cloudos-state-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+OS.importState = function() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = e => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const state = JSON.parse(ev.target.result);
+        if (state.type !== 'cloudos-state') throw new Error('Not a CloudOS state file');
+        OS.fs.deserialize(state.fileSystem);
+        if (state.wallpaper) {
+          localStorage.setItem('cloudos-wallpaper', state.wallpaper);
+          document.getElementById('desktop').style.background = state.wallpaper;
+        }
+        if (state.broadcasts) localStorage.setItem('cloudos-broadcasts', state.broadcasts);
+        // Re-register installed packages
+        const installed = JSON.parse(OS.fs.readFile('/etc/packages.json') || '[]');
+        installed.forEach(pkg => {
+          Apps['_pkg_' + pkg.id] = { name: pkg.name, icon: pkg.icon || '\uD83D\uDCE6', cat: 'Installed', w: 600, h: 400 };
+        });
+        alert('State restored successfully! Some changes may require a reboot.');
+      } catch (err) { alert('Import failed: ' + err.message); }
+    };
+    reader.readAsText(e.target.files[0]);
+  };
+  input.click();
+};
+
+// ===================== BOOT SEQUENCE =====================
+function boot() {
+  OS.fs = new CloudFS();
+  OS.wm = new WinManager();
+
+  const bar = document.getElementById('boot-bar');
+  const status = document.getElementById('boot-status');
+  const bootEl = document.getElementById('boot');
+
+  const steps = [
+    [20, 'Loading file system...'],
+    [40, 'Initializing window manager...'],
+    [60, 'Starting services...'],
+    [80, 'Loading packages...'],
+    [100, 'Welcome to CloudOS']
+  ];
+
+  let i = 0;
+  const tick = setInterval(() => {
+    if (i >= steps.length) {
+      clearInterval(tick);
+      setTimeout(() => {
+        bootEl.classList.add('done');
+        setTimeout(() => bootEl.remove(), 600);
+      }, 400);
+      // Init UI
+      initDesktopSwitcher();
+      initStartMenu();
+      initDesktopIcons();
+      initShortcuts();
+      initClock();
+      // Restore wallpaper
+      const wp = localStorage.getItem('cloudos-wallpaper');
+      if (wp) document.getElementById('desktop').style.background = wp;
+      // Restore installed package registrations
+      const installed = JSON.parse(OS.fs.readFile('/etc/packages.json') || '[]');
+      installed.forEach(pkg => {
+        Apps['_pkg_' + pkg.id] = { name: pkg.name, icon: pkg.icon || '\uD83D\uDCE6', cat: 'Installed', w: 600, h: 400 };
+      });
+      return;
+    }
+    bar.style.width = steps[i][0] + '%';
+    status.textContent = steps[i][1];
+    i++;
+  }, 350);
+}
+
+// Start
+boot();
+</script>
+</body>
+</html>
