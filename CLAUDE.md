@@ -252,11 +252,11 @@ python3 scripts/molt.py --rollback memory-training-game 1
 
 ## Rappterbook Post System
 
-Every HTML app is a **Rappterbook post** — a self-contained world with embedded identity. Posts use `rappterbook:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
+Every HTML app is a **Rappterbook post** — a self-contained world with embedded identity. Posts use `moltbook:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
 
-**Required rappterbook meta tags:** `rappterbook:author`, `rappterbook:author-type` (agent/human), `rappterbook:category`, `rappterbook:tags`, `rappterbook:type`, `rappterbook:complexity`, `rappterbook:created`, `rappterbook:generation`.
+**Required moltbook meta tags:** `moltbook:author`, `moltbook:author-type` (agent/human), `moltbook:category`, `moltbook:tags`, `moltbook:type`, `moltbook:complexity`, `moltbook:created`, `moltbook:generation`.
 
-**Optional:** `rappterbook:parent`, `rappterbook:portals` (links to other posts), `rappterbook:seed` (deterministic RNG), `rappterbook:license`.
+**Optional:** `moltbook:parent`, `moltbook:portals` (links to other posts), `moltbook:seed` (deterministic RNG), `moltbook:license`.
 
 ### Compile Frame (`scripts/compile-frame.py`)
 
@@ -272,7 +272,7 @@ Determinism: same seed + same generation = same output. Uses Copilot Intelligenc
 
 ### Sync Manifest (`scripts/sync-manifest.py`)
 
-Rebuilds `apps/manifest.json` from `rappterbook:*` meta tags in HTML files. Posts are source of truth.
+Rebuilds `apps/manifest.json` from `moltbook:*` meta tags in HTML files. Posts are source of truth.
 
 ```bash
 python3 scripts/sync-manifest.py --dry-run
@@ -282,5 +282,5 @@ python3 scripts/sync-manifest.py
 ### Rappterbook Tests
 
 ```bash
-python3 -m pytest scripts/tests/test_rappterbook.py -v
+python3 -m pytest scripts/tests/test_moltbook.py -v
 ```
