@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="description" content="Universal retro console player — load cartridge JSON files for Atari, NES, SNES, N64, PS1, and more. WebRTC P2P multiplayer, all local-first.">
+<meta name="category" content="games_puzzles">
+<title>Retro Console — Cartridge Player</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bg:#0c0c14;--s1:#12121e;--s2:#1a1a2e;--bd:#2a2a44;--acc:#ff8833;--acc2:#ffaa55;
+--red:#ff3366;--blue:#44aaff;--grn:#44ff88;--txt:#d0ccdd;--dim:#6a6688;--rad:8px}
+body{font-family:'Courier New',monospace;background:var(--bg);color:var(--txt);overflow:hidden;height:100vh;touch-action:none}
+canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+button{cursor:pointer;font-family:inherit;border:none;outline:none}
+.hidden{display:none!important}
+::selection{background:var(--acc);color:#000}
+
+/* ── MAIN MENU ── */
+#mainMenu{height:100vh;overflow-y:auto;display:flex;flex-direction:column;align-items:center;
+  background:radial-gradient(ellipse at 50% 20%,#1a1430,var(--bg))}
+.logo{margin-top:clamp(16px,4vh,40px);text-align:center}
+.logo h1{font-size:clamp(1.4rem,5vw,2.6rem);font-weight:900;letter-spacing:-.01em;
+  background:linear-gradient(135deg,#ff4444,#ff8833,#ffcc33,#44ff88,#44aaff,#aa66ff);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo p{color:var(--dim);font-size:.7rem;margin-top:4px;letter-spacing:.15em;text-transform:uppercase}
+
+/* Public Library */
+.pub{width:90%;max-width:580px;margin:8px 0}
+.pub-hdr{font-size:.7rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;
+  display:flex;justify-content:space-between;align-items:center}
+.pub-hdr button{background:none;color:var(--acc);border:none;font-family:inherit;font-size:.6rem;
+  font-weight:700;text-transform:uppercase;cursor:pointer}
+.pub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.pub-card{background:var(--s1);border:2px solid var(--bd);padding:10px 8px;text-align:center;
+  cursor:pointer;transition:all .15s;position:relative}
+.pub-card:hover{border-color:var(--acc);transform:translateY(-2px);box-shadow:0 4px 16px #ff883315}
+.pub-card.soon{opacity:.5;cursor:default}
+.pub-card.soon:hover{transform:none;box-shadow:none;border-color:var(--bd)}
+.pub-card .p-icon{font-size:1.6rem}
+.pub-card .p-name{font-size:.6rem;font-weight:700;color:var(--acc);margin-top:3px;text-transform:uppercase}
+.pub-card .p-year{font-size:.5rem;color:var(--dim)}
+.pub-card .p-desc{font-size:.45rem;color:var(--dim);margin-top:2px;line-height:1.3}
+.pub-card .p-games{font-size:.5rem;color:var(--dim);margin-top:3px}
+.pub-badge{position:absolute;top:3px;right:4px;font-size:.42rem;padding:1px 5px;border-radius:3px;
+  font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.pub-badge.live{background:var(--grn);color:#000}
+.pub-badge.soon-b{background:var(--bd);color:var(--dim)}
+.pub-loading{text-align:center;padding:20px;font-size:.7rem;color:var(--dim)}
+.pub-err{text-align:center;padding:12px;font-size:.65rem;color:var(--red)}
+.pub-url{width:100%;padding:5px 8px;border:1px solid var(--bd);background:var(--bg);color:var(--dim);
+  font-family:monospace;font-size:.5rem;margin-top:6px;border-radius:4px}
+
+/* Cartridge Slot */
+.slot{margin:20px 0;padding:20px;border:3px dashed var(--bd);border-radius:var(--rad);
+  width:90%;max-width:480px;text-align:center;transition:all .2s;position:relative}
+.slot.hover{border-color:var(--acc);background:#ff883310}
+.slot-icon{font-size:2.5rem;margin-bottom:6px}
+.slot-txt{font-size:.75rem;color:var(--dim)}
+.slot-btn{display:inline-block;margin:10px 4px 0;padding:8px 18px;background:var(--s2);
+  border:2px solid var(--bd);color:var(--txt);font-family:inherit;font-size:.7rem;
+  font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.slot-btn:hover{border-color:var(--acc);color:var(--acc)}
+.slot-btn.primary{background:var(--acc);color:#000;border-color:var(--acc2)}
+
+/* Peer Bar */
+.peer{display:flex;align-items:center;gap:8px;margin:10px 0;padding:6px 16px;
+  background:var(--s1);border:1px solid var(--bd);border-radius:20px;font-size:.7rem}
+.peer-dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.peer-dot.on{background:var(--grn);box-shadow:0 0 6px var(--grn)}
+.peer button{padding:4px 10px;background:var(--s2);color:var(--dim);border:1px solid var(--bd);
+  font-family:inherit;font-size:.6rem;font-weight:700;text-transform:uppercase;margin:0 2px}
+.peer button:hover{color:var(--acc);border-color:var(--acc)}
+
+/* Cartridge Library */
+.lib{width:90%;max-width:580px;margin:10px 0 40px}
+.lib-hdr{font-size:.7rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;
+  display:flex;justify-content:space-between;align-items:center}
+.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.cart{background:var(--s1);border:2px solid var(--bd);padding:12px 8px;text-align:center;
+  cursor:pointer;transition:all .15s}
+.cart:hover{border-color:var(--acc);transform:translateY(-2px);box-shadow:0 4px 16px #ff883315}
+.cart .c-icon{font-size:1.8rem}
+.cart .c-name{font-size:.65rem;font-weight:700;color:var(--acc);margin-top:4px;text-transform:uppercase}
+.cart .c-year{font-size:.55rem;color:var(--dim)}
+.cart .c-games{font-size:.5rem;color:var(--dim);margin-top:2px}
+.cart-remove{position:absolute;top:2px;right:4px;font-size:.5rem;color:var(--dim);cursor:pointer;padding:2px}
+.cart{position:relative}
+
+/* ── CONSOLE SCREEN (when cart loaded) ── */
+#consoleScreen{position:fixed;inset:0;z-index:2}
+.cs-menu{height:100vh;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:16px}
+.cs-hdr{text-align:center;margin:12px 0}
+.cs-hdr h2{font-size:clamp(1.2rem,4vw,2rem);font-weight:900}
+.cs-hdr p{font-size:.7rem;color:var(--dim)}
+.cs-games{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;
+  width:100%;max-width:560px;margin:16px 0}
+.cs-game{padding:14px 10px;text-align:center;cursor:pointer;transition:all .15s;border:2px solid var(--bd)}
+.cs-game:hover{transform:translateY(-2px)}
+.cs-game .g-icon{font-size:2rem}
+.cs-game .g-name{font-size:.7rem;font-weight:700;margin-top:4px;text-transform:uppercase}
+.cs-game .g-desc{font-size:.55rem;color:var(--dim);margin-top:2px}
+.cs-back{position:fixed;top:8px;left:8px;z-index:10;background:#000a;color:var(--dim);
+  border:1px solid var(--bd);padding:5px 12px;font-family:inherit;font-size:.65rem;font-weight:700;text-transform:uppercase}
+.cs-back:hover{color:var(--acc);border-color:var(--acc)}
+.cs-export{margin:10px 0;padding:6px 16px;background:var(--s2);border:1px solid var(--bd);
+  color:var(--dim);font-family:inherit;font-size:.6rem;font-weight:700;text-transform:uppercase}
+.cs-export:hover{color:var(--acc);border-color:var(--acc)}
+
+/* ── GAME CANVAS ── */
+#gc{position:fixed;inset:0;z-index:4}
+#gameUI{position:fixed;inset:0;z-index:5;pointer-events:none}
+#gameUI>*{pointer-events:auto}
+#gBack{position:fixed;top:8px;left:8px;z-index:10;background:#000a;backdrop-filter:blur(4px);
+  color:var(--dim);border:1px solid var(--bd);padding:4px 12px;font-family:inherit;
+  font-size:.6rem;font-weight:700;text-transform:uppercase}
+#gBack:hover{color:var(--acc);border-color:var(--acc)}
+#gHUD{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:10;
+  background:#000b;backdrop-filter:blur(6px);border:1px solid var(--bd);
+  padding:4px 14px;font-size:.75rem;font-weight:700;pointer-events:none;font-variant-numeric:tabular-nums}
+#gControls{position:fixed;bottom:4px;left:50%;transform:translateX(-50%);z-index:10;
+  background:#0008;padding:2px 10px;font-size:.5rem;color:var(--dim);pointer-events:none;white-space:nowrap}
+#flash{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+  background:#000b;pointer-events:none}
+#flash .ft{font-size:clamp(1.5rem,6vw,3rem);font-weight:900;text-align:center;text-transform:uppercase;
+  letter-spacing:.05em;animation:zIn .3s}
+@keyframes zIn{from{transform:scale(2);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* Modal */
+.modal{position:fixed;inset:0;background:#000c;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
+.m-box{background:var(--s1);border:2px solid var(--bd);padding:20px;max-width:400px;width:100%}
+.m-box h2{font-size:.9rem;text-align:center;margin-bottom:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.1em}
+.m-box textarea{width:100%;padding:6px;border:1px solid var(--bd);background:var(--bg);color:var(--txt);
+  font-family:monospace;font-size:.55rem;resize:none;min-height:50px}
+.m-btn{display:block;width:100%;padding:8px;margin:5px 0;font-family:inherit;font-weight:700;
+  font-size:.7rem;text-transform:uppercase;text-align:center;letter-spacing:.06em}
+.m-btn.pri{background:var(--acc);color:#000}
+.m-btn.sec{background:var(--s2);color:var(--dim);border:1px solid var(--bd)}
+.m-status{text-align:center;font-size:.6rem;color:var(--dim);margin-top:6px}
+.m-status.ok{color:var(--grn)}
+</style>
+</head>
+<body>
+
+<!-- ═══ MAIN MENU ═══ -->
+<div id="mainMenu">
+  <div class="logo">
+    <h1>RETRO CONSOLE</h1>
+    <p>Universal Cartridge Player · WebRTC P2P</p>
+  </div>
+
+  <div class="peer">
+    <span class="peer-dot" id="pDot"></span>
+    <span id="pLabel">OFFLINE</span>
+    <button onclick="showModal('host')">HOST</button>
+    <button onclick="showModal('join')">JOIN</button>
+  </div>
+
+  <div class="slot" id="slot">
+    <div class="slot-icon">🎮</div>
+    <div class="slot-txt">Drag & drop a cartridge .json here<br>or click to import</div>
+    <button class="slot-btn primary" onclick="importCart()">📂 LOAD CARTRIDGE</button>
+    <button class="slot-btn" onclick="loadBuiltIn()">⬇️ LOAD BUILT-IN DEMO</button>
+  </div>
+
+  <div class="lib" id="lib">
+    <div class="lib-hdr">
+      <span>📚 MY CARTRIDGES</span>
+      <span id="libCount">0 carts</span>
+    </div>
+    <div class="lib-grid" id="libGrid"></div>
+  </div>
+
+  <div class="pub" id="pub">
+    <div class="pub-hdr">
+      <span>🌐 PUBLIC CARTRIDGE LIBRARY</span>
+      <button onclick="refreshPublicLib()">↻ REFRESH</button>
+    </div>
+    <div id="pubGrid" class="pub-grid"><div class="pub-loading">Loading public library...</div></div>
+    <input class="pub-url" id="pubUrl" value="cartridges/index.json" 
+      title="Change to load from a different repo/URL" onchange="refreshPublicLib()">
+  </div>
+</div>
+
+<!-- ═══ CONSOLE SCREEN (cart loaded, game select) ═══ -->
+<div id="consoleScreen" class="hidden">
+  <button class="cs-back" onclick="ejectCart()">◀ EJECT</button>
+  <div class="cs-menu" id="csMenu"></div>
+</div>
+
+<!-- ═══ GAME CANVAS ═══ -->
+<canvas id="gc" class="hidden"></canvas>
+<div id="gameUI" class="hidden">
+  <button id="gBack" onclick="exitGame()">◀ BACK</button>
+  <div id="gHUD"></div>
+  <div id="gControls"></div>
+</div>
+<div id="flash" class="hidden"><div class="ft" id="flashTxt"></div></div>
+
+<!-- Modal -->
+<div class="modal hidden" id="modal"><div class="m-box" id="mBox"></div></div>
+
+<!-- Hidden file input -->
+<input type="file" id="cartFile" accept=".json" style="display:none">
+
+<script>
+(()=>{
+'use strict';
+
+// ═══════════════════════════════════════════════════
+// STORAGE
+// ═══════════════════════════════════════════════════
+const LIB_KEY='retroConsoleLib';
+function loadLib(){try{return JSON.parse(localStorage.getItem(LIB_KEY))||[]}catch(e){return[]}}
+function saveLib(lib){localStorage.setItem(LIB_KEY,JSON.stringify(lib))}
+
+// ═══════════════════════════════════════════════════
+// RENDERING ENGINE
+// ═══════════════════════════════════════════════════
+const mainCanvas=document.getElementById('gc');
+const MC=mainCanvas.getContext('2d');
+MC.imageSmoothingEnabled=false;
+let screenW=0,screenH=0;
+
+// Offscreen render target
+const ofc=document.createElement('canvas');
+const O=ofc.getContext('2d');
+O.imageSmoothingEnabled=false;
+let RW=320,RH=240;
+
+function resizeScreen(){
+  screenW=mainCanvas.width=window.innerWidth;
+  screenH=mainCanvas.height=window.innerHeight;
+}
+resizeScreen();
+window.addEventListener('resize',resizeScreen);
+
+function setRenderSize(w,h){RW=ofc.width=w;RH=ofc.height=h;O.imageSmoothingEnabled=false}
+
+let scanlines=true, scanlineAlpha=0.08;
+
+function present(){
+  MC.imageSmoothingEnabled=false;
+  MC.drawImage(ofc,0,0,screenW,screenH);
+  if(scanlines){
+    MC.fillStyle=`rgba(0,0,0,${scanlineAlpha})`;
+    const step=Math.max(2,Math.floor(screenH/RH));
+    for(let y=0;y<screenH;y+=step)MC.fillRect(0,y,screenW,1);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// DRAW API (exposed to cartridge code)
+// ═══════════════════════════════════════════════════
+const drawAPI={
+  cls(c){O.fillStyle=c||'#000';O.fillRect(0,0,RW,RH)},
+  rect(x,y,w,h,c){O.fillStyle=c||'#fff';O.fillRect(x|0,y|0,w|0,h|0)},
+  circ(x,y,r,c){O.fillStyle=c||'#fff';O.beginPath();O.arc(x,y,r,0,Math.PI*2);O.fill()},
+  txt(s,x,y,sz,c,al){O.font=`bold ${sz||8}px monospace`;O.fillStyle=c||'#fff';O.textAlign=al||'center';O.textBaseline='middle';O.fillText(s,x,y)},
+  line(x1,y1,x2,y2,c,w){O.strokeStyle=c||'#fff';O.lineWidth=w||1;O.beginPath();O.moveTo(x1,y1);O.lineTo(x2,y2);O.stroke()},
+  spr(data,x,y,w,h){/* future: pixel data blitting */},
+  clip(x,y,w,h){if(x===undefined){O.restore()}else{O.save();O.beginPath();O.rect(x,y,w,h);O.clip()}},
+  RW,RH,O
+};
+
+// ═══════════════════════════════════════════════════
+// AUDIO ENGINE
+// ═══════════════════════════════════════════════════
+let actx;
+function initAudio(){
+  if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();
+  if(actx.state==='suspended')actx.resume();
+}
+
+const sndAPI={
+  tone(freq,dur,gain,type){
+    initAudio();const o=actx.createOscillator();o.type=type||'square';o.frequency.value=freq;
+    const g=actx.createGain();g.gain.setValueAtTime(gain||.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+dur);
+    o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+dur);
+  },
+  noise(dur,gain,freq){
+    initAudio();const n=actx.createBufferSource();
+    const b=actx.createBuffer(1,actx.sampleRate*dur,actx.sampleRate);
+    const d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    n.buffer=b;const f=actx.createBiquadFilter();f.type='lowpass';f.frequency.value=freq||2000;
+    const g=actx.createGain();g.gain.setValueAtTime(gain||.08,actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+dur);
+    n.connect(f);f.connect(g);g.connect(actx.destination);n.start();
+  },
+  // Prebuilt sounds
+  hit(){this.tone(300,.05,.1);this.noise(.03,.04,3000)},
+  explode(){this.noise(.35,.15,500);this.tone(60,.3,.1,'sawtooth')},
+  score(){this.tone(523,.08,.1);setTimeout(()=>this.tone(659,.08,.1),50);setTimeout(()=>this.tone(784,.12,.12),100)},
+  pickup(){this.tone(880,.04,.08);setTimeout(()=>this.tone(1100,.04,.08),30)},
+  jump(){this.tone(400,.06,.06);setTimeout(()=>this.tone(600,.04,.05),25)},
+  bounce(){this.tone(300,.03,.05)},
+  shoot(){this.tone(200,.06,.08,'sawtooth');this.noise(.03,.04,4000)},
+  die(){this.tone(200,.15,.1,'sawtooth');this.tone(150,.2,.08,'sawtooth')},
+  beep(){this.tone(800,.02,.04,'square')},
+  win(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>this.tone(f,.15,.1),i*90))}
+};
+
+// ═══════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════
+const keys={};
+let mx=0,my=0,mdown=false,_click=false;
+document.addEventListener('keydown',e=>{keys[e.key]=true;if(e.key===' ')e.preventDefault()});
+document.addEventListener('keyup',e=>{keys[e.key]=false});
+mainCanvas.addEventListener('pointermove',e=>{mx=e.clientX/screenW*RW;my=e.clientY/screenH*RH});
+mainCanvas.addEventListener('pointerdown',e=>{mdown=true;_click=true;mx=e.clientX/screenW*RW;my=e.clientY/screenH*RH;initAudio()});
+mainCanvas.addEventListener('pointerup',()=>{mdown=false});
+
+const inputAPI={
+  K(k){return!!keys[k]},
+  get mx(){return mx},get my(){return my},
+  get down(){return mdown},
+  click(){if(_click){_click=false;return true}return false}
+};
+
+// ═══════════════════════════════════════════════════
+// P2P
+// ═══════════════════════════════════════════════════
+let pc=null,dc=null,isHost=false,peerOn=false;
+const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+let onPeerMsg=null;
+
+function peerSend(o){if(dc&&dc.readyState==='open')dc.send(JSON.stringify(o))}
+
+function setupDC(ch){
+  dc=ch;
+  ch.onopen=()=>{peerOn=true;upPeer();closeModal();flash('CONNECTED','#44ff88')};
+  ch.onmessage=e=>{const m=JSON.parse(e.data);
+    if(m._t==='sel'&&activeCart)launchGame(m._g,false);
+    else if(m._t==='back')exitGame();
+    else if(onPeerMsg)onPeerMsg(m)};
+  ch.onclose=()=>{peerOn=false;upPeer()};
+}
+
+const peerAPI={
+  get connected(){return peerOn},
+  send(o){peerSend(o)},
+  _setHandler(fn){onPeerMsg=fn}
+};
+
+async function doHost(){
+  pc=new RTCPeerConnection(ICE);setupDC(pc.createDataChannel('g'));
+  pc.onicecandidate=e=>{if(!e.candidate){
+    document.getElementById('mO').value=btoa(JSON.stringify(pc.localDescription));
+    document.getElementById('mSt').textContent='CODE READY — COPY & SHARE';
+    document.getElementById('mSt').className='m-status ok'}};
+  await pc.setLocalDescription(await pc.createOffer());
+}
+async function doHostDone(){
+  try{await pc.setRemoteDescription(JSON.parse(atob(document.getElementById('mA').value.trim())))}
+  catch(e){document.getElementById('mSt').textContent='INVALID CODE'}}
+async function doJoin(){
+  try{pc=new RTCPeerConnection(ICE);pc.ondatachannel=e=>setupDC(e.channel);
+    await pc.setRemoteDescription(JSON.parse(atob(document.getElementById('mO2').value.trim())));
+    await pc.setLocalDescription(await pc.createAnswer());
+    pc.onicecandidate=e=>{if(!e.candidate){
+      document.getElementById('mA2').value=btoa(JSON.stringify(pc.localDescription));
+      document.getElementById('mS2').classList.remove('hidden');
+      document.getElementById('mSt2').textContent='ANSWER READY — COPY & SEND BACK';
+      document.getElementById('mSt2').className='m-status ok'}}}
+  catch(e){document.getElementById('mSt2').textContent='INVALID CODE'}}
+
+function upPeer(){
+  document.getElementById('pDot').classList.toggle('on',peerOn);
+  document.getElementById('pLabel').textContent=peerOn?'CONNECTED':'OFFLINE';
+}
+
+window.showModal=function(mode){
+  document.getElementById('modal').classList.remove('hidden');isHost=mode==='host';
+  const b=document.getElementById('mBox');
+  if(mode==='host')b.innerHTML=`<h2>📡 HOST</h2>
+    <textarea id="mO" readonly placeholder="Generating..."></textarea>
+    <button class="m-btn pri" onclick="navigator.clipboard.writeText(document.getElementById('mO').value)">COPY CODE</button>
+    <hr style="border-color:var(--bd);margin:8px 0"><p style="font-size:.6rem;color:var(--dim)">PASTE ANSWER:</p>
+    <textarea id="mA" placeholder="Paste answer..."></textarea>
+    <button class="m-btn pri" onclick="doHostDone()">CONNECT</button>
+    <div class="m-status" id="mSt">GENERATING...</div>
+    <button class="m-btn sec" onclick="closeModal()">CANCEL</button>`;
+  else b.innerHTML=`<h2>📱 JOIN</h2>
+    <textarea id="mO2" placeholder="Paste host code..."></textarea>
+    <button class="m-btn pri" onclick="doJoin()">GENERATE ANSWER</button>
+    <div id="mS2" class="hidden"><hr style="border-color:var(--bd);margin:8px 0">
+    <textarea id="mA2" readonly></textarea>
+    <button class="m-btn pri" onclick="navigator.clipboard.writeText(document.getElementById('mA2').value)">COPY ANSWER</button></div>
+    <div class="m-status" id="mSt2">PASTE HOST CODE ABOVE</div>
+    <button class="m-btn sec" onclick="closeModal()">CANCEL</button>`;
+  if(mode==='host')doHost();
+};
+window.closeModal=function(){document.getElementById('modal').classList.add('hidden')};
+window.doHostDone=doHostDone;window.doJoin=doJoin;
+
+// ═══════════════════════════════════════════════════
+// FLASH
+// ═══════════════════════════════════════════════════
+function flash(t,c){
+  const el=document.getElementById('flash'),tx=document.getElementById('flashTxt');
+  tx.innerHTML=`<span style="color:${c||'#fff'}">${t}</span>`;
+  el.classList.remove('hidden');
+  setTimeout(()=>el.classList.add('hidden'),1200);
+}
+
+// ═══════════════════════════════════════════════════
+// CARTRIDGE LOADER
+// ═══════════════════════════════════════════════════
+let activeCart=null; // the loaded cartridge JSON object
+let activeGame=null; // compiled game runner
+let amP1=true;
+let gameStates={}; // G object per game id
+
+function loadCartridge(json){
+  try{
+    const cart=typeof json==='string'?JSON.parse(json):json;
+    if(!cart.console||!cart.games||!cart.games.length)throw new Error('Invalid cartridge');
+    // Save to library
+    const lib=loadLib();
+    const existing=lib.findIndex(c=>c.console===cart.console);
+    if(existing>=0)lib[existing]=cart;else lib.push(cart);
+    saveLib(lib);
+    renderLibrary();
+    openCart(cart);
+    return true;
+  }catch(e){
+    alert('Invalid cartridge file: '+e.message);
+    return false;
+  }
+}
+
+function openCart(cart){
+  activeCart=cart;
+  // Apply theme
+  const theme=cart.theme||{};
+  const render=cart.render||{};
+  setRenderSize(render.width||320,render.height||240);
+  scanlines=render.scanlines!==false;
+  scanlineAlpha=render.scanlineAlpha||0.08;
+  drawAPI.RW=RW;drawAPI.RH=RH;
+
+  // Build console menu
+  const menu=document.getElementById('csMenu');
+  const bg=theme.bg||'var(--bg)';
+  const accent=theme.accent||'var(--acc)';
+  menu.innerHTML=`
+    <div class="cs-hdr">
+      <h2 style="color:${accent}">${cart.icon||'🎮'} ${cart.name||cart.console.toUpperCase()}</h2>
+      <p>${cart.year||''} · ${cart.games.length} Games</p>
+    </div>
+    <div class="cs-games" id="csGames"></div>
+    <button class="cs-export" onclick="exportCart()">📤 EXPORT CARTRIDGE</button>`;
+  menu.style.background=`radial-gradient(ellipse at 50% 30%,${bg},var(--bg))`;
+
+  const grid=document.getElementById('csGames');
+  cart.games.forEach((g,i)=>{
+    const el=document.createElement('div');
+    el.className='cs-game';
+    el.style.background=theme.bg||'var(--s1)';
+    el.style.borderColor=theme.accent||'var(--bd)';
+    el.innerHTML=`<div class="g-icon">${g.icon||'🎮'}</div>
+      <div class="g-name" style="color:${accent}">${g.name||'Game '+(i+1)}</div>
+      <div class="g-desc">${g.desc||''}</div>`;
+    el.onclick=()=>{
+      if(peerOn&&isHost)peerSend({_t:'sel',_g:g.id});
+      launchGame(g.id,true);
+    };
+    el.onmouseover=()=>{el.style.borderColor=accent;el.style.boxShadow=`0 4px 16px ${accent}22`};
+    el.onmouseout=()=>{el.style.borderColor=theme.accent||'var(--bd)';el.style.boxShadow='none'};
+    grid.appendChild(el);
+  });
+
+  document.getElementById('mainMenu').classList.add('hidden');
+  document.getElementById('consoleScreen').classList.remove('hidden');
+}
+
+function ejectCart(){
+  activeCart=null;activeGame=null;gameStates={};
+  document.getElementById('consoleScreen').classList.add('hidden');
+  mainCanvas.classList.add('hidden');
+  document.getElementById('gameUI').classList.add('hidden');
+  document.getElementById('mainMenu').classList.remove('hidden');
+}
+window.ejectCart=ejectCart;
+
+function exportCart(){
+  if(!activeCart)return;
+  const blob=new Blob([JSON.stringify(activeCart,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`${activeCart.console}-cartridge.json`;a.click();URL.revokeObjectURL(a.href);
+}
+window.exportCart=exportCart;
+
+// ═══════════════════════════════════════════════════
+// GAME RUNTIME — Compile & Execute Cartridge Code
+// ═══════════════════════════════════════════════════
+function compileGame(gameData){
+  // The code string is a function body that receives the standard API
+  // It should check `mode` to decide: 'init', 'update', 'draw'
+  const fn=new Function(
+    'mode','G','K','click','mx','my','down','rect','circ','txt','line','cls','clip',
+    'snd','RW','RH','dt','peer','flash','hud','controls','O',
+    gameData.code
+  );
+  return fn;
+}
+
+function launchGame(id,isInitiator){
+  if(!activeCart)return;
+  const gData=activeCart.games.find(g=>g.id===id);
+  if(!gData)return;
+
+  amP1=isInitiator||!peerOn;
+  if(!gameStates[id])gameStates[id]={};
+  const G=gameStates[id];
+
+  const runner=compileGame(gData);
+  activeGame={runner,G,id,data:gData};
+
+  // Set up peer handler
+  peerAPI._setHandler(msg=>{
+    if(activeGame&&activeGame.G)activeGame.G._peerMsg=msg;
+  });
+
+  // Init
+  try{
+    runner('init',G,inputAPI.K,inputAPI.click,mx,my,mdown,
+      drawAPI.rect,drawAPI.circ,drawAPI.txt,drawAPI.line,drawAPI.cls,drawAPI.clip,
+      sndAPI,RW,RH,16,peerAPI,flash,setHUD,setControls,O);
+  }catch(e){console.error('Game init error:',e)}
+
+  document.getElementById('consoleScreen').classList.add('hidden');
+  mainCanvas.classList.remove('hidden');
+  document.getElementById('gameUI').classList.remove('hidden');
+  resizeScreen();
+  sndAPI.beep();
+}
+
+function exitGame(){
+  if(peerOn)peerSend({_t:'back'});
+  activeGame=null;
+  mainCanvas.classList.add('hidden');
+  document.getElementById('gameUI').classList.add('hidden');
+  document.getElementById('gHUD').innerHTML='';
+  document.getElementById('gControls').textContent='';
+  document.getElementById('consoleScreen').classList.remove('hidden');
+}
+window.exitGame=exitGame;
+
+function setHUD(html){document.getElementById('gHUD').innerHTML=html}
+function setControls(text){document.getElementById('gControls').textContent=text}
+
+// ═══════════════════════════════════════════════════
+// CARTRIDGE LIBRARY RENDERING
+// ═══════════════════════════════════════════════════
+function renderLibrary(){
+  const lib=loadLib();
+  const grid=document.getElementById('libGrid');
+  document.getElementById('libCount').textContent=lib.length+' cart'+(lib.length!==1?'s':'');
+  grid.innerHTML='';
+  lib.forEach((cart,i)=>{
+    const el=document.createElement('div');el.className='cart';
+    el.innerHTML=`<span class="cart-remove" onclick="event.stopPropagation();removeCart(${i})">✕</span>
+      <div class="c-icon">${cart.icon||'🎮'}</div>
+      <div class="c-name">${cart.name||cart.console}</div>
+      <div class="c-year">${cart.year||''}</div>
+      <div class="c-games">${cart.games?cart.games.length+' games':''}</div>`;
+    el.onclick=()=>openCart(cart);
+    grid.appendChild(el);
+  });
+}
+window.removeCart=function(i){
+  const lib=loadLib();lib.splice(i,1);saveLib(lib);renderLibrary();
+};
+renderLibrary();
+
+// ═══════════════════════════════════════════════════
+// PUBLIC LIBRARY — Fetch from GitHub / repo
+// ═══════════════════════════════════════════════════
+let pubManifest=null;
+
+function getCartridgeUrl(indexUrl,file){
+  const base=indexUrl.substring(0,indexUrl.lastIndexOf('/')+1);
+  return base+file;
+}
+
+async function fetchPublicLib(){
+  const grid=document.getElementById('pubGrid');
+  grid.innerHTML='<div class="pub-loading">Loading public library...</div>';
+  try{
+    const url=document.getElementById('pubUrl').value.trim();
+    const resp=await fetch(url);
+    if(!resp.ok)throw new Error(resp.status+' '+resp.statusText);
+    pubManifest=await resp.json();
+    renderPublicLib(url);
+  }catch(e){
+    grid.innerHTML=`<div class="pub-err">Could not load library: ${e.message}<br>
+      <span style="font-size:.5rem;color:var(--dim)">Tip: serve locally (python3 -m http.server) or set a raw GitHub URL above</span></div>`;
+  }
+}
+
+function renderPublicLib(indexUrl){
+  const grid=document.getElementById('pubGrid');grid.innerHTML='';
+  if(!pubManifest||!pubManifest.consoles)return;
+  pubManifest.consoles.forEach(c=>{
+    const ok=c.status==='available';
+    const el=document.createElement('div');
+    el.className='pub-card'+(ok?'':' soon');
+    el.innerHTML=`<span class="pub-badge ${ok?'live':'soon-b'}">${ok?'PLAY':'SOON'}</span>
+      <div class="p-icon">${c.icon}</div><div class="p-name">${c.name}</div>
+      <div class="p-year">${c.year}</div><div class="p-desc">${c.description}</div>
+      <div class="p-games">${c.games} games</div>`;
+    if(ok)el.onclick=async()=>{
+      el.style.opacity='.5';el.style.pointerEvents='none';
+      try{
+        const r=await fetch(getCartridgeUrl(indexUrl,c.file));
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        loadCartridge(await r.json());
+      }catch(e){alert('Failed to load: '+e.message);el.style.opacity='1';el.style.pointerEvents='auto'}
+    };
+    grid.appendChild(el);
+  });
+}
+
+window.refreshPublicLib=fetchPublicLib;
+fetchPublicLib();
+
+// ═══════════════════════════════════════════════════
+// FILE IMPORT / DRAG-DROP
+// ═══════════════════════════════════════════════════
+const fileInput=document.getElementById('cartFile');
+window.importCart=function(){fileInput.click()};
+fileInput.addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();r.onload=ev=>{loadCartridge(ev.target.result)};r.readAsText(f);
+  e.target.value='';
+});
+
+const slot=document.getElementById('slot');
+slot.addEventListener('dragover',e=>{e.preventDefault();slot.classList.add('hover')});
+slot.addEventListener('dragleave',()=>slot.classList.remove('hover'));
+slot.addEventListener('drop',e=>{
+  e.preventDefault();slot.classList.remove('hover');
+  const f=e.dataTransfer.files[0];
+  if(f){const r=new FileReader();r.onload=ev=>loadCartridge(ev.target.result);r.readAsText(f)}
+});
+
+// ═══════════════════════════════════════════════════
+// BUILT-IN DEMO CARTRIDGE (tiny Pong to test system)
+// ═══════════════════════════════════════════════════
+window.loadBuiltIn=function(){
+  loadCartridge({
+    console:'demo',name:'Demo Cartridge',year:2024,icon:'🧪',
+    theme:{bg:'#0a0a2a',accent:'#44aaff'},
+    render:{width:320,height:240,scanlines:true,scanlineAlpha:0.06},
+    audio:{type:'square'},
+    games:[{
+      id:'pong-demo',name:'Pong Demo',icon:'🏓',desc:'Test the system',
+      code:`
+if(mode==='init'){
+  G.by=RH/2;G.bx=RW/2;G.bvx=2;G.bvy=1.5;G.p1=RH/2;G.p2=RH/2;G.s=[0,0];G.pw=6;G.ph=30;
+}
+if(mode==='update'){
+  G.p1+=(my-G.p1)*.12;
+  var t=G.bvy<0?G.by+G.bvy*((G.p2-10)/(Math.abs(G.bvy)||1)):RH/2;
+  G.p2+=(G.by-G.p2)*.04;
+  G.bx+=G.bvx;G.by+=G.bvy;
+  if(G.by<4||G.by>RH-4)G.bvy*=-1;
+  if(G.bx<16&&G.by>G.p1-G.ph/2&&G.by<G.p1+G.ph/2){G.bvx=Math.abs(G.bvx)*1.02;G.bvy+=(G.by-G.p1)*.15;snd.hit()}
+  if(G.bx>RW-16&&G.by>G.p2-G.ph/2&&G.by<G.p2+G.ph/2){G.bvx=-Math.abs(G.bvx)*1.02;G.bvy+=(G.by-G.p2)*.15;snd.hit()}
+  if(G.bx<0){G.s[1]++;snd.score();G.bx=RW/2;G.by=RH/2;G.bvx=2;G.bvy=1.5}
+  if(G.bx>RW){G.s[0]++;snd.score();G.bx=RW/2;G.by=RH/2;G.bvx=-2;G.bvy=1.5}
+  if(peer.connected)peer.send({p:G.p1});
+}
+if(mode==='draw'){
+  cls('#0a0a2a');
+  for(var i=0;i<RH;i+=8)rect(RW/2-1,i,2,4,'#224');
+  rect(8,G.p1-G.ph/2,G.pw,G.ph,'#ff4444');
+  rect(RW-14,G.p2-G.ph/2,G.pw,G.ph,'#44aaff');
+  circ(G.bx,G.by,4,'#fff');
+  txt(G.s[0],RW/2-30,20,14,'#ff4444');
+  txt(G.s[1],RW/2+30,20,14,'#44aaff');
+  hud('<span style=\"color:#ff4444\">'+G.s[0]+'</span> — <span style=\"color:#44aaff\">'+G.s[1]+'</span>');
+  controls('Move mouse to control paddle');
+}
+`
+    }]
+  });
+};
+
+// ═══════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════
+let lastT=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  if(!activeGame){lastT=t;return}
+  const dt=Math.min(t-lastT,33);lastT=t;
+  const g=activeGame;
+  const args=[g.G,inputAPI.K,inputAPI.click.bind(inputAPI),mx,my,mdown,
+    drawAPI.rect,drawAPI.circ,drawAPI.txt,drawAPI.line,drawAPI.cls,drawAPI.clip,
+    sndAPI,RW,RH,dt,peerAPI,flash,setHUD,setControls,O];
+  try{g.runner('update',...args)}catch(e){console.error('update:',e)}
+  O.clearRect(0,0,RW,RH);
+  try{g.runner('draw',...args)}catch(e){console.error('draw:',e)}
+  present();
+  _click=false;
+  // Clear peer message after consumption
+  if(g.G._peerMsg)g.G._peerMsg=null;
+}
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

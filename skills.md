@@ -74,7 +74,7 @@ git push origin main
 | Utilities, converters, productivity | `apps/creative-tools/` | `creative_tools` |
 | AI experiments, simulators, prototypes | `apps/experimental-ai/` | `experimental_ai` |
 | Tutorials, learning tools | `apps/educational/` | `educational_tools` |
-| Nothing fits | `apps/uncategorized/` | `uncategorized` |
+| Nothing else fits | `apps/experimental-ai/` | `experimental_ai` (catch-all) |
 
 When in doubt between two categories, pick the one with fewer apps to balance distribution.
 
@@ -217,6 +217,37 @@ print(f'Validation: {\"PASS\" if errors == 0 else f\"FAIL ({errors} errors}\"}')
 - Manifest entries pointing to files that don't exist
 - API keys or secrets in any file (GitHub push protection will block)
 - Adding directories to root (everything goes under `apps/`)
+
+---
+
+## Skill 10: Auto-Sort Pipeline
+
+A GitHub Action and Python script automatically catches files dropped in root (from the legacy workflow), analyzes their content, renames garbage filenames, categorizes them, moves them to the correct `apps/<category>/` folder, and updates the manifest.
+
+**Automatic:** Runs on every push to `main` that includes `.html` files in root. No manual intervention needed.
+
+**Manual commands:**
+```bash
+# Dry run — see what would happen without changing anything
+python3 scripts/autosort.py --dry-run
+
+# Sort root files into categories
+python3 scripts/autosort.py
+
+# Also rename garbage files already in apps/ (a.html -> real-name.html)
+python3 scripts/autosort.py --deep-clean
+```
+
+**What it does:**
+1. Scans root for any `.html` files that aren't `index.html`
+2. Reads each file's `<title>`, `<meta description>`, and body content
+3. If filename is garbage (`a.html`, `5.html`, `new.html`, etc.), generates a descriptive name from the title
+4. Scores content against 9 category keyword rulesets to pick the best category
+5. Moves file to `apps/<category>/<clean-name>.html`
+6. Adds entry to `apps/manifest.json` with extracted metadata
+7. Handles filename collisions by appending `-2`, `-3`, etc.
+
+**There is no "uncategorized" bucket.** Every file gets assigned a real category. If nothing else matches, it goes to `experimental-ai`.
 
 ---
 

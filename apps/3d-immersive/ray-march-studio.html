@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Real-time 3D ray marching studio with volumetric caves, floating islands, fractals, and a live GLSL shader editor">
+<meta name="category" content="3d_immersive">
+<title>Ray March Studio</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#000;font-family:'Fira Code','Cascadia Code',Consolas,monospace;color:#cdd6f4}
+#gl{position:fixed;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+#panel{position:fixed;top:0;right:0;width:440px;height:100%;background:rgba(18,18,32,.93);display:flex;flex-direction:column;border-left:1px solid rgba(100,100,160,.25);transform:translateX(0);transition:transform .3s ease;z-index:20;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#panel.shut{transform:translateX(100%)}
+#tb{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid rgba(100,100,160,.2);flex-wrap:wrap}
+#tb button,#tb select{background:rgba(70,70,110,.4);color:#bbc;border:1px solid rgba(100,100,160,.3);padding:3px 9px;font:11px inherit;border-radius:4px;cursor:pointer;white-space:nowrap}
+#tb button:hover,#tb select:hover{background:rgba(90,90,130,.5)}
+#fps{color:#a6e3a1;font-size:10px;margin-left:auto;min-width:50px;text-align:right}
+#err{color:#f38ba8;font-size:10px;padding:4px 10px;display:none;background:rgba(200,50,70,.12);border-bottom:1px solid rgba(200,50,70,.2);max-height:60px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+#code{flex:1;border:none;background:transparent;color:#cdd6f4;font:12px/1.55 inherit;padding:10px;resize:none;tab-size:4;outline:none;-moz-tab-size:4;white-space:pre;overflow:auto}
+#code::selection{background:rgba(130,100,220,.35)}
+#overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:15;pointer-events:none;transition:opacity .5s}
+#overlay.hide{opacity:0}
+#overlay h1{font-size:32px;color:#cba6f7;text-shadow:0 0 30px rgba(180,130,255,.5);margin-bottom:6px;letter-spacing:2px}
+#overlay .sub{color:#7f849c;font-size:12px;margin-bottom:18px}
+#overlay .keys{color:#585b70;font-size:11px;line-height:1.8}
+#overlay .keys kbd{background:rgba(80,80,120,.35);padding:2px 7px;border-radius:3px;border:1px solid rgba(100,100,140,.3);color:#9399b2}
+#badge{position:fixed;bottom:10px;left:10px;font-size:10px;color:#45475a;z-index:5;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="panel">
+<div id="tb">
+<button id="tog" title="Toggle editor [Tab]">◀ Hide</button>
+<select id="presets">
+<option value="0">🕳️ Crystal Caverns</option>
+<option value="1">🪐 Floating Islands</option>
+<option value="2">🐚 Alien Fractal</option>
+<option value="3">📦 SDF Playground</option>
+</select>
+<button id="fs" title="Fullscreen">⛶</button>
+<span id="fps">-- FPS</span>
+</div>
+<div id="err"></div>
+<textarea id="code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+</div>
+<div id="overlay">
+<h1>◈ RAY MARCH STUDIO</h1>
+<div class="sub">Full 3D procedural world renderer</div>
+<div class="keys">
+<kbd>Click</kbd> Fly camera &nbsp; <kbd>Tab</kbd> Toggle editor<br>
+<kbd>WASD</kbd> Move &nbsp; <kbd>Space</kbd>/<kbd>C</kbd> Up/Down &nbsp; <kbd>Shift</kbd> Fast<br>
+<kbd>Mouse</kbd> Look in any direction — full 6DOF flight
+</div>
+</div>
+<div id="badge">Ray March Studio · WebGL · Full 3D</div>
+
+<script>
+'use strict';
+
+// ===== WEBGL =====
+const cv = document.getElementById('gl');
+const gl = cv.getContext('webgl', {antialias: false});
+if (!gl) { document.body.innerHTML = '<h1 style="color:#f66;padding:40px">WebGL required</h1>'; throw 0; }
+
+const vb = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+
+const vsSrc = 'attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}';
+const vShader = gl.createShader(gl.VERTEX_SHADER);
+gl.shaderSource(vShader, vsSrc); gl.compileShader(vShader);
+
+let prog = null, locs = {};
+const scale = window.devicePixelRatio > 1.5 ? 0.55 : 0.75;
+
+function resize() {
+  cv.width = Math.floor(window.innerWidth * scale);
+  cv.height = Math.floor(window.innerHeight * scale);
+  gl.viewport(0, 0, cv.width, cv.height);
+}
+window.addEventListener('resize', resize);
+document.addEventListener('fullscreenchange', resize);
+resize();
+
+// ===== COMPILATION =====
+const errEl = document.getElementById('err');
+function showErr(m) { errEl.style.display = m ? 'block' : 'none'; errEl.textContent = m; }
+
+function compile(src) {
+  const fs = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs, src); gl.compileShader(fs);
+  if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) { showErr(gl.getShaderInfoLog(fs)); gl.deleteShader(fs); return false; }
+  const pg = gl.createProgram();
+  gl.attachShader(pg, vShader); gl.attachShader(pg, fs); gl.linkProgram(pg);
+  if (!gl.getProgramParameter(pg, gl.LINK_STATUS)) { showErr(gl.getProgramInfoLog(pg)); gl.deleteProgram(pg); gl.deleteShader(fs); return false; }
+  if (prog) gl.deleteProgram(prog);
+  prog = pg; showErr('');
+  gl.useProgram(prog);
+  const aP = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(aP);
+  gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0);
+  locs = {
+    res: gl.getUniformLocation(prog, 'uRes'),
+    time: gl.getUniformLocation(prog, 'uTime'),
+    cam: gl.getUniformLocation(prog, 'uCam'),
+    mat: gl.getUniformLocation(prog, 'uCamMat'),
+  };
+  return true;
+}
+
+// ===== SHARED GLSL =====
+// H goes BEFORE scene() — noise, utils, uniforms
+const H = `precision highp float;
+uniform vec2 uRes;
+uniform float uTime;
+uniform vec3 uCam;
+uniform mat3 uCamMat;
+
+#define PI 3.14159265
+#define MAX_DIST 120.0
+#define MAX_STEPS 128
+#define SURF_DIST .001
+
+float hash(float n){return fract(sin(n)*43758.5453);}
+float hash3(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+
+float noise(vec3 p){
+  vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  float n=i.x+i.y*57.+i.z*113.;
+  return mix(mix(mix(hash(n),hash(n+1.),f.x),mix(hash(n+57.),hash(n+58.),f.x),f.y),
+             mix(mix(hash(n+113.),hash(n+114.),f.x),mix(hash(n+170.),hash(n+171.),f.x),f.y),f.z);
+}
+float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*noise(p);p=p*2.07+.13;a*=.48;}return v;}
+float fbm3(vec3 p){float v=0.,a=.5;for(int i=0;i<3;i++){v+=a*noise(p);p=p*2.07+.13;a*=.48;}return v;}
+
+vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.,1.);}
+`;
+
+// M goes AFTER scene() — marching functions that call scene()
+const M = `
+vec3 calcNormal(vec3 p){
+  vec2 e=vec2(.002,0);
+  return normalize(vec3(
+    scene(p+e.xyy)-scene(p-e.xyy),
+    scene(p+e.yxy)-scene(p-e.yxy),
+    scene(p+e.yyx)-scene(p-e.yyx)
+  ));
+}
+float march(vec3 ro,vec3 rd){
+  float t=0.;
+  for(int i=0;i<MAX_STEPS;i++){
+    float d=scene(ro+rd*t);
+    if(d<SURF_DIST)return t;
+    t+=d;
+    if(t>MAX_DIST)break;
+  }
+  return -1.;
+}
+float softShadow(vec3 ro,vec3 rd,float tmax){
+  float r=1.,t=.05;
+  for(int i=0;i<48;i++){
+    float d=scene(ro+rd*t);
+    if(d<.001)return 0.;
+    r=min(r,8.*d/t);
+    t+=clamp(d,.02,.5);
+    if(t>tmax)break;
+  }
+  return clamp(r,0.,1.);
+}
+float calcAO(vec3 p,vec3 n){
+  float o=0.,s=1.;
+  for(int i=1;i<=5;i++){
+    float d=.08*float(i);
+    o+=(d-scene(p+n*d))*s;
+    s*=.7;
+  }
+  return clamp(1.-o*3.,0.,1.);
+}
+`;
+
+// ===== PRESETS =====
+const PRESETS = [
+
+// ===== 0: CRYSTAL CAVERNS =====
+// Full 3D cave system carved from solid rock using 3D noise.
+// Fly through tunnels, past stalactites, and crystal formations.
+H + `
+#define LIGHT_COL vec3(1.4,1.1,.85)
+
+float scene(vec3 p) {
+  // Start with solid rock, carve out cave with 3D noise
+  float cave = fbm(p * .18) - .45;
+
+  // Widen main passages with low-freq wave
+  cave -= .15 * sin(p.x * .2) * cos(p.z * .15);
+
+  // Stalactites hanging from ceiling
+  float stalY = mod(p.y + 3., 6.) - 3.;
+  float stalXZ = length(fract(p.xz * .5) - .5);
+  float stalactite = stalXZ * .8 + stalY * .3 - .25;
+  cave = max(cave, -stalactite * .4);
+
+  // Crystal formations — sharp geometric intrusions
+  vec3 cp = mod(p + 2.5, 5.) - 2.5;
+  float crystal = length(cp) - .3;
+  // Make them rare
+  crystal += step(.7, hash3(floor((p + 2.5) / 5.))) * 99.;
+  cave = min(cave, crystal);
+
+  return cave;
+}
+
+vec3 crystalGlow(vec3 p) {
+  vec3 cp = mod(p + 2.5, 5.) - 2.5;
+  float d = length(cp);
+  if (d > 1.5) return vec3(0);
+  float id = hash3(floor((p + 2.5) / 5.));
+  if (id < .7) return vec3(0);
+  vec3 col = .5 + .5 * cos(vec3(0, 2, 4) + id * 6.28);
+  return col * .4 * exp(-d * 2.);
+}
+` + M + `
+void main() {
+  vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+  vec3 rd = normalize(uCamMat * vec3(uv, 1.4));
+  vec3 ro = uCam;
+  vec3 col = vec3(.01, .01, .02);
+
+  float t = march(ro, rd);
+  if (t > 0.) {
+    vec3 p = ro + rd * t;
+    vec3 n = calcNormal(p);
+    float ao = calcAO(p, n);
+
+    // Point light follows camera (torch)
+    vec3 lp = ro;
+    vec3 ld = normalize(lp - p);
+    float dist = length(lp - p);
+    float atten = 1. / (1. + .04 * dist + .006 * dist * dist);
+    float diff = max(dot(n, ld), 0.);
+    float spec = pow(max(dot(n, normalize(ld - rd)), 0.), 48.) * .6;
+
+    // 🎨 Surface material
+    float nv = fbm3(p * 2.5);
+    vec3 rockCol = mix(
+      vec3(.22, .18, .15),
+      vec3(.35, .30, .25),
+      nv
+    );
+    // Moisture tint in crevices (low AO = crevice)
+    rockCol = mix(vec3(.08, .15, .12), rockCol, smoothstep(.2, .6, ao));
+    // Crystal coloring
+    rockCol += crystalGlow(p) * 3.;
+
+    col = rockCol * (diff * atten * LIGHT_COL + .03) * ao;
+    col += spec * atten * LIGHT_COL * ao;
+
+    // Fog
+    float fog = 1. - exp(-t * .025);
+    col = mix(col, vec3(.01, .01, .03), fog);
+
+    // Volumetric light shaft from torch
+    float vlum = 0.;
+    for (int i = 0; i < 12; i++) {
+      float vt = t * (float(i) + .5) / 12.;
+      vec3 vp = ro + rd * vt;
+      float vd = length(vp - ro);
+      vlum += exp(-vd * .08) / (1. + vd * .5);
+    }
+    col += LIGHT_COL * vlum * .008;
+  }
+
+  // Crystal glow in distance (ambient)
+  col += crystalGlow(ro + rd * 5.) * .15;
+
+  col = aces(col * 1.3);
+  col = pow(col, vec3(1. / 2.2));
+  gl_FragColor = vec4(col, 1);
+}`,
+
+// ===== 1: FLOATING ISLANDS =====
+// Fly between massive 3D floating rock formations in open sky.
+H + `
+#define SUN normalize(vec3(.6, .4, -.7))
+#define SUN_COL vec3(1.6, 1.2, .9)
+
+float scene(vec3 p) {
+  // Multiple floating island layers using 3D noise
+  float d = 1e9;
+
+  // Main archipelago — large blobs
+  float n1 = fbm(p * .08) - .35;
+  // Flatten into disc-like islands
+  n1 += abs(p.y - 10.) * .05;
+  d = min(d, n1);
+
+  // Lower island chain
+  float n2 = fbm((p - vec3(0, -15, 0)) * .12) - .3;
+  n2 += abs(p.y + 5.) * .06;
+  d = min(d, n2);
+
+  // Tiny floating rocks (debris)
+  vec3 rp = mod(p + 3., 6.) - 3.;
+  float rock = length(rp) - (.15 + .1 * noise(p * 3.));
+  rock += step(.6, hash3(floor((p + 3.) / 6.))) * 99.;
+  d = min(d, rock);
+
+  // Ground plane far below (ocean)
+  d = min(d, p.y + 40.);
+
+  return d;
+}
+
+vec3 sky(vec3 rd) {
+  float sun = max(dot(rd, SUN), 0.);
+  vec3 c = mix(vec3(.2, .35, .7), vec3(.05, .1, .3), max(rd.y, 0.));
+  c += SUN_COL * pow(sun, 6.) * .7;
+  c += vec3(1) * pow(sun, 256.) * 1.5;
+  // Sunset band
+  c = mix(c, SUN_COL * .5, pow(1. - abs(rd.y), 8.) * .3);
+  return max(c, 0.);
+}
+
+vec4 clouds(vec3 ro, vec3 rd) {
+  if (rd.y < .01) return vec4(0);
+  vec4 sum = vec4(0);
+  float t0 = max(0., (30. - ro.y) / rd.y);
+  float t1 = (50. - ro.y) / rd.y;
+  float dt = (t1 - t0) / 14.;
+  for (int i = 0; i < 14; i++) {
+    if (sum.a > .95) break;
+    vec3 p = ro + rd * (t0 + dt * (float(i) + .5));
+    float d = fbm3(p * vec3(.15, .3, .15) + vec3(uTime * .01, 0, uTime * .005));
+    d = smoothstep(.4, .7, d);
+    float h = (p.y - 30.) / 20.;
+    d *= smoothstep(0., .2, h) * smoothstep(1., .8, h);
+    if (d > .01) {
+      vec3 lc = mix(vec3(.5), SUN_COL * .8, exp(-fbm3((p + SUN * 2.) * .15) * 2.5));
+      sum += vec4(lc * d, d) * (1. - sum.a) * .45;
+    }
+  }
+  return sum;
+}
+` + M + `
+void main() {
+  vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+  vec3 rd = normalize(uCamMat * vec3(uv, 1.5));
+  vec3 ro = uCam;
+  vec3 col = sky(rd);
+
+  float t = march(ro, rd);
+  if (t > 0.) {
+    vec3 p = ro + rd * t;
+    vec3 n = calcNormal(p);
+    float sh = softShadow(p + n * .05, SUN, 30.);
+    float ao = calcAO(p, n);
+
+    float diff = max(dot(n, SUN), 0.);
+    float spec = pow(max(dot(n, normalize(SUN - rd)), 0.), 32.) * .4;
+    float fres = pow(1. - max(dot(n, -rd), 0.), 3.);
+
+    // Material
+    vec3 mat;
+    if (p.y < -38.) {
+      // Ocean floor
+      mat = vec3(.05, .15, .25);
+    } else {
+      float nv = noise(p * 4.);
+      mat = mix(vec3(.25, .22, .18), vec3(.15, .3, .1), smoothstep(.3, .7, n.y));
+      mat = mix(mat, vec3(.5, .45, .4), smoothstep(15., 18., p.y));
+      mat *= .75 + .5 * nv;
+    }
+
+    // Water surface
+    if (p.y < -38.5) {
+      vec3 rf = reflect(rd, vec3(0, 1, 0));
+      mat = mix(vec3(.02, .06, .12), sky(rf) * .3, fres * .7);
+    }
+
+    col = mat * (diff * sh * SUN_COL + .12 * vec3(.4, .5, .8)) * ao;
+    col += spec * sh * SUN_COL * ao;
+
+    float fog = 1. - exp(-t * .008);
+    col = mix(col, sky(rd) * .6, fog);
+  }
+
+  vec4 cld = clouds(ro, rd);
+  col = mix(col, cld.rgb, cld.a);
+
+  col = aces(col * 1.1);
+  col = pow(col, vec3(1. / 2.2));
+  gl_FragColor = vec4(col, 1);
+}`,
+
+// ===== 2: ALIEN FRACTAL =====
+// Mandelbulb-like fractal you can fly INTO and explore.
+H + `
+
+// Mandelbulb fractal SDF
+float scene(vec3 p) {
+  vec3 z = p;
+  float dr = 1., r = 0.;
+  float power = 7. + sin(uTime * .1) * .5;
+
+  for (int i = 0; i < 8; i++) {
+    r = length(z);
+    if (r > 2.) break;
+
+    float theta = acos(z.y / r);
+    float phi = atan(z.z, z.x);
+    dr = pow(r, power - 1.) * power * dr + 1.;
+
+    float zr = pow(r, power);
+    theta *= power;
+    phi *= power;
+
+    z = zr * vec3(
+      sin(theta) * cos(phi),
+      cos(theta),
+      sin(theta) * sin(phi)
+    ) + p;
+  }
+  return .5 * log(r) * r / dr;
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+  vec3 rd = normalize(uCamMat * vec3(uv, 1.8));
+  vec3 ro = uCam;
+
+  // Background
+  vec3 col = mix(vec3(.02, .01, .05), vec3(.08, .02, .12), max(rd.y, 0.));
+  col += .06 * noise(rd * 80.); // Stars
+
+  float t = march(ro, rd);
+  if (t > 0.) {
+    vec3 p = ro + rd * t;
+    vec3 n = calcNormal(p);
+    float ao = calcAO(p, n);
+
+    // Orbit trap coloring — color from iteration depth
+    vec3 z = p;
+    float trap = 1e9;
+    float r2;
+    float power = 7. + sin(uTime * .1) * .5;
+    for (int i = 0; i < 8; i++) {
+      r2 = length(z);
+      if (r2 > 2.) break;
+      trap = min(trap, length(z.xz));
+      float theta = acos(z.y / r2);
+      float phi = atan(z.z, z.x);
+      float zr = pow(r2, power);
+      theta *= power; phi *= power;
+      z = zr * vec3(sin(theta)*cos(phi), cos(theta), sin(theta)*sin(phi)) + p;
+    }
+
+    vec3 mat = .5 + .5 * cos(vec3(0, 2, 4) + trap * 4. + uTime * .15);
+    mat *= mat; // Boost saturation
+
+    // Two-point lighting
+    vec3 l1 = normalize(vec3(.5, .8, -.3));
+    vec3 l2 = normalize(vec3(-.6, -.2, .7));
+    float d1 = max(dot(n, l1), 0.);
+    float d2 = max(dot(n, l2), 0.) * .3;
+    float spec = pow(max(dot(n, normalize(l1 - rd)), 0.), 64.) * .5;
+
+    col = mat * (d1 * vec3(1, .9, .8) + d2 * vec3(.3, .4, 1.) + .05) * ao;
+    col += spec * vec3(1, .95, .9) * ao;
+
+    // Rim glow
+    float rim = pow(1. - max(dot(n, -rd), 0.), 3.);
+    col += mat * rim * .4;
+
+    float fog = 1. - exp(-t * .6);
+    col = mix(col, vec3(.02, .01, .05), fog);
+  }
+
+  col = aces(col * 1.4);
+  col = pow(col, vec3(1. / 2.2));
+  gl_FragColor = vec4(col, 1);
+}`,
+
+// ===== 3: SDF PLAYGROUND =====
+// Simple primitives — a great starting point for learning.
+H + `
+#define SUN normalize(vec3(.6, .8, .4))
+
+float sdSphere(vec3 p, float r) { return length(p) - r; }
+float sdBox(vec3 p, vec3 b) { vec3 d = abs(p) - b; return min(max(d.x, max(d.y, d.z)), 0.) + length(max(d, 0.)); }
+float sdTorus(vec3 p, vec2 t) { vec2 q = vec2(length(p.xz) - t.x, p.y); return length(q) - t.y; }
+float sdCyl(vec3 p, float r, float h) { vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(r, h); return min(max(d.x, d.y), 0.) + length(max(d, 0.)); }
+float opSmoothUnion(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
+
+// 🔧 Edit this function to build your own world!
+float scene(vec3 p) {
+  // Floor
+  float d = p.y;
+
+  // Sphere
+  d = opSmoothUnion(d, sdSphere(p - vec3(0, 2, 0), 2.), .5);
+
+  // Box
+  d = min(d, sdBox(p - vec3(5, 1.5, 0), vec3(1.5, 1.5, 1.5)));
+
+  // Torus
+  d = min(d, sdTorus(p - vec3(-5, 1.5, 0), vec2(1.5, .5)));
+
+  // Cylinder
+  d = min(d, sdCyl(p - vec3(0, 2, 6), .8, 2.));
+
+  // Infinite pillars
+  vec3 rp = p;
+  rp.xz = mod(p.xz + 8., 16.) - 8.;
+  d = min(d, sdCyl(rp - vec3(0, 4, 0), .4, 4.));
+
+  // Floating sphere that bobs
+  d = min(d, sdSphere(p - vec3(0, 5. + sin(uTime) * .5, -5), .8));
+
+  return d;
+}
+
+vec3 sky(vec3 rd) {
+  float sun = max(dot(rd, SUN), 0.);
+  return vec3(.4, .6, .9) - rd.y * .3 + vec3(1, .9, .7) * pow(sun, 32.);
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+  vec3 rd = normalize(uCamMat * vec3(uv, 2.));
+  vec3 ro = uCam;
+  vec3 col = sky(rd);
+
+  float t = march(ro, rd);
+  if (t > 0.) {
+    vec3 p = ro + rd * t;
+    vec3 n = calcNormal(p);
+    float ao = calcAO(p, n);
+    float sh = softShadow(p + n * .02, SUN, 20.);
+
+    float diff = max(dot(n, SUN), 0.);
+    float spec = pow(max(dot(n, normalize(SUN - rd)), 0.), 64.) * .5;
+
+    // Normal-based coloring
+    vec3 mat = vec3(.8) * (.5 + .5 * n);
+
+    // Checkerboard floor
+    if (p.y < .01) {
+      mat = vec3(.5 + .4 * mod(floor(p.x) + floor(p.z), 2.));
+    }
+
+    col = mat * (diff * sh * vec3(1, .95, .9) + .15 * vec3(.4, .5, .7)) * ao;
+    col += spec * sh * vec3(1, .95, .9) * ao;
+    col = mix(col, sky(rd), 1. - exp(-t * .005));
+  }
+
+  col = aces(col);
+  col = pow(col, vec3(1. / 2.2));
+  gl_FragColor = vec4(col, 1);
+}`
+];
+
+// ===== CAMERA — full 6DOF =====
+const cam = { x: 0, y: 5, z: -12, yaw: 0, pitch: 0 };
+let autoFly = true, time = 0;
+const keys = {};
+let mDX = 0, mDY = 0, ptrLock = false;
+
+function camMat() {
+  const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw);
+  const sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
+  // Column-major: right, up, forward
+  return new Float32Array([
+    cy,     0,  sy,
+    -sy*sp, cp, cy*sp,
+    sy*cp,  sp, -cy*cp
+  ]);
+}
+
+// Forward vector for movement
+function camFwd() {
+  const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw);
+  const sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
+  return { x: sy*cp, y: sp, z: -cy*cp };
+}
+function camRight() {
+  const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw);
+  return { x: cy, y: 0, z: sy };
+}
+
+function updateCam(dt) {
+  if (autoFly) {
+    time += dt;
+    // Preset-aware auto-fly paths
+    const preset = parseInt(document.getElementById('presets').value);
+    if (preset === 0) {
+      // Cave fly-through: winding path
+      cam.x = Math.sin(time * .08) * 12;
+      cam.y = 3 + Math.sin(time * .12) * 4;
+      cam.z = time * -4;
+      cam.yaw = Math.sin(time * .08) * .08 * 12 * Math.cos(time * .08) * .01;
+      cam.pitch = Math.sin(time * .1) * .15;
+    } else if (preset === 1) {
+      // Float between islands
+      cam.x = Math.sin(time * .04) * 30;
+      cam.y = 12 + Math.sin(time * .06) * 8;
+      cam.z = Math.cos(time * .04) * 30;
+      cam.yaw = -time * .04 + PI * .5;
+      cam.pitch = Math.sin(time * .08) * .1;
+    } else if (preset === 2) {
+      // Orbit the fractal
+      const r = 2.5 + Math.sin(time * .1) * .8;
+      cam.x = Math.sin(time * .15) * r;
+      cam.y = Math.cos(time * .12) * r * .5;
+      cam.z = Math.cos(time * .15) * r;
+      cam.yaw = time * .15 + PI;
+      cam.pitch = -cam.y * .15;
+    } else {
+      cam.x = Math.sin(time * .08) * 10;
+      cam.y = 4 + Math.sin(time * .1) * 2;
+      cam.z = Math.cos(time * .08) * 10;
+      cam.yaw = -time * .08 + PI * .5;
+      cam.pitch = -.1;
+    }
+    return;
+  }
+  time += dt;
+  cam.yaw += mDX * .002;
+  cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - mDY * .002));
+  mDX = mDY = 0;
+
+  const spd = (keys['ShiftLeft'] || keys['ShiftRight']) ? 24 : 8;
+  const f = camFwd(), r = camRight();
+
+  // Full 3D movement: forward moves in look direction (including up/down)
+  if (keys['KeyW']) { cam.x += f.x*spd*dt; cam.y += f.y*spd*dt; cam.z += f.z*spd*dt; }
+  if (keys['KeyS']) { cam.x -= f.x*spd*dt; cam.y -= f.y*spd*dt; cam.z -= f.z*spd*dt; }
+  if (keys['KeyA']) { cam.x -= r.x*spd*dt; cam.z -= r.z*spd*dt; }
+  if (keys['KeyD']) { cam.x += r.x*spd*dt; cam.z += r.z*spd*dt; }
+  if (keys['Space']) { cam.y += spd * dt; }
+  if (keys['KeyC']) { cam.y -= spd * dt; }
+}
+
+const PI = Math.PI;
+
+// ===== INPUT =====
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Tab') { e.preventDefault(); togglePanel(); }
+  if (e.code === 'Space') e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+document.addEventListener('mousemove', e => { if (ptrLock) { mDX += e.movementX; mDY += e.movementY; } });
+
+cv.addEventListener('click', () => {
+  if (!ptrLock) {
+    cv.requestPointerLock();
+    autoFly = false;
+    document.getElementById('overlay').classList.add('hide');
+  }
+});
+document.addEventListener('pointerlockchange', () => {
+  ptrLock = document.pointerLockElement === cv;
+  if (!ptrLock) { for (const k in keys) keys[k] = false; }
+  if (!ptrLock && !autoFly) document.getElementById('overlay').classList.remove('hide');
+});
+
+// ===== EDITOR =====
+const codeEl = document.getElementById('code');
+const panel = document.getElementById('panel');
+let recompileTimer = null;
+
+function loadPreset(i) {
+  codeEl.value = PRESETS[i];
+  compile(PRESETS[i]);
+  // Reset camera for each preset
+  autoFly = true;
+  time = 0;
+  if (i === 0) { cam.x = 0; cam.y = 3; cam.z = 0; }
+  else if (i === 1) { cam.x = 0; cam.y = 12; cam.z = -30; }
+  else if (i === 2) { cam.x = 0; cam.y = 0; cam.z = -3; }
+  else { cam.x = 0; cam.y = 5; cam.z = -12; }
+  document.getElementById('overlay').classList.remove('hide');
+}
+
+function togglePanel() {
+  panel.classList.toggle('shut');
+  document.getElementById('tog').textContent = panel.classList.contains('shut') ? '▶ Editor' : '◀ Hide';
+}
+
+codeEl.addEventListener('input', () => {
+  clearTimeout(recompileTimer);
+  recompileTimer = setTimeout(() => compile(codeEl.value), 400);
+});
+codeEl.addEventListener('keydown', e => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const s = codeEl.selectionStart, end = codeEl.selectionEnd;
+    codeEl.value = codeEl.value.substring(0, s) + '  ' + codeEl.value.substring(end);
+    codeEl.selectionStart = codeEl.selectionEnd = s + 2;
+    clearTimeout(recompileTimer);
+    recompileTimer = setTimeout(() => compile(codeEl.value), 400);
+  }
+});
+
+document.getElementById('presets').addEventListener('change', e => loadPreset(parseInt(e.target.value)));
+document.getElementById('tog').addEventListener('click', togglePanel);
+document.getElementById('fs').addEventListener('click', () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+});
+
+// ===== FPS =====
+const fpsEl = document.getElementById('fps');
+let frames = 0, fpsTime = 0;
+
+// ===== LOOP =====
+loadPreset(0);
+let last = 0;
+
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.05); last = now;
+  updateCam(dt);
+
+  if (prog) {
+    gl.useProgram(prog);
+    if (locs.res) gl.uniform2f(locs.res, cv.width, cv.height);
+    if (locs.time) gl.uniform1f(locs.time, time);
+    if (locs.cam) gl.uniform3f(locs.cam, cam.x, cam.y, cam.z);
+    if (locs.mat) gl.uniformMatrix3fv(locs.mat, false, camMat());
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  frames++; fpsTime += dt;
+  if (fpsTime >= .5) { fpsEl.textContent = Math.round(frames / fpsTime) + ' FPS'; frames = 0; fpsTime = 0; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(t => { last = t; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>

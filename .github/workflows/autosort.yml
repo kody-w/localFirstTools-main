@@ -1,0 +1,46 @@
+name: Auto-sort root files
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*.html"
+      - "*.htm"
+
+jobs:
+  autosort:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for misplaced files
+        id: check
+        run: |
+          count=$(ls -1 *.html *.htm 2>/dev/null | grep -v '^index\.html$' | wc -l)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -gt 0 ]; then
+            echo "Found $count misplaced file(s) in root"
+            ls -1 *.html *.htm 2>/dev/null | grep -v '^index\.html$'
+          else
+            echo "Root is clean"
+          fi
+
+      - name: Run autosort
+        if: steps.check.outputs.count != '0'
+        run: python3 scripts/autosort.py --verbose
+
+      - name: Commit and push
+        if: steps.check.outputs.count != '0'
+        run: |
+          git config user.name "autosort-bot"
+          git config user.email "autosort-bot@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet && exit 0
+          git commit -m "autosort: move $(git diff --staged --name-only | grep -c '^apps/') file(s) to category folders
+
+          Automatically sorted misplaced root files into apps/<category>/
+          based on content analysis. Renamed garbage filenames where needed."
+          git push

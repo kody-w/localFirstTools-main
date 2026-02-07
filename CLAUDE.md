@@ -25,8 +25,7 @@ A GitHub Pages site serving 450 self-contained HTML applications through a galle
     ├── games-puzzles/          # 85 apps - Games, puzzles, interactive play
     ├── generative-art/         # 27 apps - Algorithmic art, procedural generation
     ├── particle-physics/       # 18 apps - Physics sims, particle systems
-    ├── visual-art/             # 40 apps - Visual experiences, design tools
-    └── uncategorized/          #  2 apps
+    └── visual-art/             # 40 apps - Visual experiences, design tools
 ```
 
 **Root is sacred.** Only `index.html`, `README.md`, `CLAUDE.md`, and `.gitignore` live in root. All apps go under `apps/<category>/`.
@@ -120,7 +119,7 @@ Every HTML app MUST NOT:
 | `creative_tools` | `creative-tools` | Productivity, utilities, converters |
 | `experimental_ai` | `experimental-ai` | AI experiments, simulators, prototypes |
 | `educational_tools` | `educational` | Tutorials, learning tools |
-| `uncategorized` | `uncategorized` | Doesn't fit elsewhere (avoid if possible) |
+| `experimental_ai` is also the catch-all if nothing else fits. |
 
 ## Modifying the Gallery Frontend
 
