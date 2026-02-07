@@ -58,7 +58,6 @@ const cv = document.getElementById('gl');
 const gl = cv.getContext('webgl', {antialias: false, preserveDrawingBuffer: false});
 if (!gl) { document.body.innerHTML = '<h1 style="color:#f66;padding:40px">WebGL not supported</h1>'; throw 'No WebGL'; }
 
-// Fullscreen quad
 const vb = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
@@ -135,7 +134,6 @@ vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.,1.);}
 const PRESETS = [
 // ===== 0: SUNSET MOUNTAINS =====
 COMMON + `
-// ===== SCENE CONFIG =====
 #define SUN normalize(vec3(.8,.35,-.6))
 #define SUN_COL vec3(1.64,1.27,.99)
 #define WATER_Y -.5
@@ -143,8 +141,6 @@ COMMON + `
 #define CLD_LO 18.
 #define CLD_HI 28.
 
-// ===== TERRAIN =====
-// ♻️ Modify this function to reshape the world!
 float terrain(vec2 p){
   float h=fbm(vec3(p*.12,0.))*15.;
   h+=fbm(vec3(p*.35+3.,1.))*4.;
@@ -154,7 +150,6 @@ float terrain(vec2 p){
 
 vec3 tNml(vec2 p){float e=.03;return normalize(vec3(terrain(p-vec2(e,0))-terrain(p+vec2(e,0)),2.*e,terrain(p-vec2(0,e))-terrain(p+vec2(0,e))));}
 
-// 🎨 Modify colors here!
 vec3 tCol(vec3 p,vec3 n){
   float sl=1.-n.y;
   vec3 col=mix(vec3(.18,.32,.12),vec3(.45,.38,.32),smoothstep(.25,.6,sl));
@@ -164,7 +159,6 @@ vec3 tCol(vec3 p,vec3 n){
   return col;
 }
 
-// ===== RAY MARCH =====
 float castT(vec3 ro,vec3 rd){
   float t=.1;
   for(int i=0;i<128;i++){
@@ -189,7 +183,6 @@ float ao(vec3 p,vec3 n){
   return clamp(1.-o*2.,0.,1.);
 }
 
-// ===== SKY =====
 vec3 sky(vec3 rd){
   float sun=max(dot(rd,SUN),0.);
   vec3 c=vec3(.35,.55,.92)-rd.y*.4;
@@ -199,15 +192,12 @@ vec3 sky(vec3 rd){
   return max(c,0.);
 }
 
-// ===== WATER =====
 vec3 wNml(vec2 p){
   float e=.01,t=uTime*.8;
-  float h0=fbm3(vec3(p*3.,t));
   return normalize(vec3(fbm3(vec3((p-vec2(e,0))*3.,t))-fbm3(vec3((p+vec2(e,0))*3.,t)),2.*e,
     fbm3(vec3((p-vec2(0,e))*3.,t))-fbm3(vec3((p+vec2(0,e))*3.,t))));
 }
 
-// ===== CLOUDS =====
 vec4 clouds(vec3 ro,vec3 rd){
   if(rd.y<.01)return vec4(0);
   vec4 sum=vec4(0);
@@ -228,7 +218,6 @@ vec4 clouds(vec3 ro,vec3 rd){
   }return sum;
 }
 
-// ===== GOD RAYS =====
 float godRays(vec3 ro,vec3 rd,float mx){
   float s=0.;
   for(int i=0;i<10;i++){
@@ -244,7 +233,6 @@ void main(){
   vec3 rd=normalize(uCamMat*vec3(uv,1.5)),ro=uCam;
   vec3 col=sky(rd);float dist=MAX_T;
 
-  // Terrain
   float tT=castT(ro,rd);
   if(tT>0.){
     vec3 p=ro+rd*tT,n=tNml(p.xz);
@@ -255,7 +243,6 @@ void main(){
     dist=tT;
   }
 
-  // Water
   if(rd.y<-.001){
     float tW=(WATER_Y-ro.y)/rd.y;
     if(tW>0.&&tW<dist){
@@ -270,7 +257,6 @@ void main(){
     }
   }
 
-  // Fog + clouds + god rays
   col=mix(col,sky(rd)*.7,1.-exp(-dist*FOG_D));
   vec4 cld=clouds(ro,rd);col=mix(col,cld.rgb,cld.a);
   col+=godRays(ro,rd,min(dist,80.))*SUN_COL;
@@ -283,7 +269,6 @@ void main(){
 COMMON + `
 #define SUN normalize(vec3(.3,.2,-.8))
 #define SUN_COL vec3(1.8,1.1,.7)
-#define WATER_Y .0
 
 float terrain(vec2 p){
   float h=fbm(vec3(p*.08,0.))*20.-12.;
@@ -324,7 +309,7 @@ void main(){
     tc=mix(tc,vec3(.2,.5,.15),smoothstep(.5,2.,p.y)*n.y);
     col=tc*(max(dot(n,SUN),0.)*sh*SUN_COL+.2*vec3(.4,.5,.7));dist=tT;}
 
-  if(rd.y<-.001){float tW=(WATER_Y-ro.y)/rd.y;
+  if(rd.y<-.001){float tW=-ro.y/rd.y;
     if(tW>0.&&tW<dist){vec3 wp=ro+rd*tW,wn=wNml(wp.xz),rf=reflect(rd,wn);
       vec3 rc=sky(rf);float rT=castT(wp+rf*.2,rf);
       if(rT>0.){vec3 rp=wp+rf*(.2+rT),rn=tNml(rp.xz);rc=mix(vec3(.35,.32,.28),vec3(.2,.5,.15),rn.y)*(max(dot(rn,SUN),0.)*.5+.2);}
@@ -369,12 +354,10 @@ void main(){
   float tT=castT(ro,rd);
   if(tT>0.){
     vec3 p=ro+rd*tT,n=tNml(p.xz);float sh=shadow(p+n*.1,SUN);
-    // Psychedelic coloring
     vec3 tc=.5+.5*cos(vec3(0,2,4)+p.y*.3+noise(p*2.)*4.);
     tc*=mix(vec3(.3,.1,.4),vec3(.1,.4,.3),n.y);
     float diff=max(dot(n,SUN),0.);
     col=tc*(diff*sh*SUN_COL+.2*vec3(.3,.2,.5));
-    // Glow at peaks
     col+=vec3(.2,.6,.4)*smoothstep(5.,8.,p.y)*exp(-tT*.01);
     col=mix(col,sky(rd)*.5,1.-exp(-tT*.005));
   }
@@ -384,36 +367,27 @@ void main(){
 
 // ===== 3: MINIMAL SDF =====
 COMMON + `
-// A minimal starter template - edit freely!
 #define SUN normalize(vec3(.6,.8,.4))
 
 float sdSphere(vec3 p,float r){return length(p)-r;}
 float sdBox(vec3 p,vec3 b){vec3 d=abs(p)-b;return min(max(d.x,max(d.y,d.z)),0.)+length(max(d,0.));}
-float sdPlane(vec3 p){return p.y;}
 
 float scene(vec3 p){
-  float d=sdPlane(p);
+  float d=p.y;
   d=min(d,sdSphere(p-vec3(0,1.5,0),1.5));
   d=min(d,sdBox(p-vec3(3.5,1,0),vec3(1)));
-  // Add a torus
   vec2 q=vec2(length(p.xz-vec2(-3.5,0))-1.5,p.y-1.);
   d=min(d,length(q)-.4);
-  // Infinite pillars
   vec3 rep=p;rep.xz=mod(p.xz+5.,10.)-5.;
   d=min(d,sdBox(rep-vec3(0,3,0),vec3(.3,3,.3)));
   return d;
 }
 
 vec3 sceneNml(vec3 p){float e=.001;return normalize(vec3(scene(p+vec3(e,0,0))-scene(p-vec3(e,0,0)),scene(p+vec3(0,e,0))-scene(p-vec3(0,e,0)),scene(p+vec3(0,0,e))-scene(p-vec3(0,0,e))));}
-
 float castRay(vec3 ro,vec3 rd){float t=.001;for(int i=0;i<100;i++){float d=scene(ro+rd*t);if(d<.001)return t;t+=d;if(t>100.)break;}return-1.;}
-
 float calcAO(vec3 p,vec3 n){float o=0.,s=1.;for(int i=1;i<=5;i++){float d=.05*float(i);o+=(d-scene(p+n*d))*s;s*=.75;}return clamp(1.-o*4.,0.,1.);}
 
-vec3 sky(vec3 rd){
-  float sun=max(dot(rd,SUN),0.);
-  return vec3(.4,.6,.9)-rd.y*.3+vec3(1,.9,.7)*pow(sun,32.);
-}
+vec3 sky(vec3 rd){float sun=max(dot(rd,SUN),0.);return vec3(.4,.6,.9)-rd.y*.3+vec3(1,.9,.7)*pow(sun,32.);}
 
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*uRes)/uRes.y;
@@ -424,8 +398,8 @@ void main(){
     vec3 p=ro+rd*t,n=sceneNml(p);
     float diff=max(dot(n,SUN),0.),ao=calcAO(p,n);
     float spec=pow(max(dot(n,normalize(SUN-rd)),0.),64.)*.5;
-    vec3 mat=vec3(.8)*(.5+.5*n); // normal-based coloring
-    if(p.y<.01)mat=vec3(.5+.4*mod(floor(p.x)+floor(p.z),2.)); // checkerboard floor
+    vec3 mat=vec3(.8)*(.5+.5*n);
+    if(p.y<.01)mat=vec3(.5+.4*mod(floor(p.x)+floor(p.z),2.));
     col=mat*(diff*vec3(1,.95,.9)+.15*vec3(.4,.5,.7))*ao+spec*vec3(1,.95,.9);
     col=mix(col,sky(rd),1.-exp(-t*.008));
   }
@@ -440,10 +414,10 @@ let autoFly = true, time = 0;
 const keys = {};
 let mDX = 0, mDY = 0, ptrLock = false;
 
+// Fix #1: Correct camera matrix — column-major: right, up, forward
 function camMat() {
   const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw);
   const sp = Math.sin(cam.pitch), cp = Math.cos(cam.pitch);
-  // Column-major: col0=right, col1=up, col2=forward
   return new Float32Array([
     cy, 0, sy,
     -sy*sp, cp, cy*sp,
@@ -476,13 +450,13 @@ function updateCam(dt) {
 }
 
 // ===== INPUT =====
+// Fix #2: Clear stuck keys on blur/pointer-lock-loss. Fix #3: preventDefault Space
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Tab') { e.preventDefault(); togglePanel(); }
   if (e.code === 'Space') e.preventDefault();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
-// Clear all keys on focus loss to prevent stuck keys
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 document.addEventListener('mousemove', e => { if (ptrLock) { mDX += e.movementX; mDY += e.movementY; } });
 
@@ -533,6 +507,7 @@ codeEl.addEventListener('keydown', e => {
 
 document.getElementById('presets').addEventListener('change', e => loadPreset(parseInt(e.target.value)));
 document.getElementById('tog').addEventListener('click', togglePanel);
+// Fix #4: resize on fullscreen change
 document.getElementById('fs').addEventListener('click', () => {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen();
   else document.exitFullscreen();
@@ -560,7 +535,6 @@ function loop(now) {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  // FPS
   frames++;
   fpsTime += dt;
   if (fpsTime >= .5) { fpsEl.textContent = Math.round(frames / fpsTime) + ' FPS'; frames = 0; fpsTime = 0; }

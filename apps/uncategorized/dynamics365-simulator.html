@@ -857,10 +857,18 @@ function renderEditor(container) {
     const errorMap = {};
     for (const e of errors) { errorMap[e.field] = e.msg; }
 
+    const ctxSnap = ContextAI.buildContext(activeEntity, rec);
     let html = `<div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
         <div style="font-size:11px;color:var(--dim)">ID: <span style="font-family:var(--mono);font-size:10px">${rec[schema.primaryKey]}</span></div>
         <div style="font-size:10px;color:var(--dim);margin-top:2px">Created: ${rec._created || "N/A"} | Modified: ${rec._modified || "N/A"}</div>
     </div>`;
+    if (editMode) {
+        html += `<div class="ai-toolbar" style="margin-bottom:12px">
+            <span class="ai-toolbar-label">AI Context Engine</span>
+            <span class="ai-context-badge">${ctxSnap.totalRecords} records analyzed</span>
+            <button class="btn" style="margin-left:auto;border-color:var(--accent2);color:var(--accent2);font-size:11px;padding:4px 10px" onclick="aiGenerateAllFields()">&#10024; Fill All Fields</button>
+        </div>`;
+    }
 
     for (const [fname, fdef] of Object.entries(schema.fields)) {
         if (fdef.auto && fname === schema.primaryKey) continue;
@@ -873,17 +881,19 @@ function renderEditor(container) {
         const invalid = errorMap[fname] ? " invalid" : "";
         const disabled = editMode ? "" : " disabled";
 
+        const aiBtn = editMode ? `<button class="ai-btn" data-ai-field="${fname}" onclick="aiGenerateField('${fname}')" title="AI generate ${fdef.label}">&#10024;</button>` : "";
+
         if (fdef.type === "picklist" && fdef.options) {
             let opts = `<option value="">-- Select --</option>`;
             for (const [k,v] of Object.entries(fdef.options)) {
                 opts += `<option value="${k}" ${val == k ? "selected":""}>${v}</option>`;
             }
             html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
-                <select class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${opts}</select>
+                <div class="field-row"><select class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${opts}</select>${aiBtn}</div>
                 ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
         } else if (fdef.type === "text") {
             html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
-                <textarea class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${val}</textarea>
+                <div class="field-row"><textarea class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${val}</textarea>${aiBtn}</div>
                 ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
         } else if (fdef.type === "lookup") {
             const target = fdef.target;
@@ -897,17 +907,17 @@ function renderEditor(container) {
                 }
             }
             html += `<div class="field-group"><label>${fdef.label} (${targetSchema ? targetSchema.label : target})</label>
-                <select class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${opts}</select>
+                <div class="field-row"><select class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${opts}</select>${aiBtn}</div>
                 ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
         } else if (fdef.type === "date") {
             html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
-                <input type="date" class="${invalid}" value="${val}" onchange="updateField('${fname}',this.value)"${disabled}>
+                <div class="field-row"><input type="date" class="${invalid}" value="${val}" onchange="updateField('${fname}',this.value)"${disabled}>${aiBtn}</div>
                 ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
         } else {
             const inputType = fdef.type === "money" || fdef.type === "int" ? "number" : fdef.format === "email" ? "email" : fdef.format === "url" ? "url" : "text";
             html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
-                <input type="${inputType}" class="${invalid}" value="${val}" onchange="updateField('${fname}',this.value)"${disabled}
-                ${fdef.maxLength ? ` maxlength="${fdef.maxLength}"`:""} ${fdef.min !== undefined ? ` min="${fdef.min}"`:""} ${fdef.max !== undefined ? ` max="${fdef.max}"`:""}>
+                <div class="field-row"><input type="${inputType}" class="${invalid}" value="${val}" onchange="updateField('${fname}',this.value)"${disabled}
+                ${fdef.maxLength ? ` maxlength="${fdef.maxLength}"`:""} ${fdef.min !== undefined ? ` min="${fdef.min}"`:""} ${fdef.max !== undefined ? ` max="${fdef.max}"`:""}>${aiBtn}</div>
                 ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
         }
     }
@@ -1377,102 +1387,270 @@ async function startSync() {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ======================================
-// SAMPLE DATA GENERATOR
+// CONTEXT-AWARE AI GENERATION ENGINE
 // ======================================
-function generateSampleData() {
-    if (!editMode) { alert("Switch to Edit mode to generate sample data."); return; }
-    if (Object.values(data).some(a => a.length > 0)) {
-        if (!confirm("This will add sample records to existing data. Continue?")) return;
+const ContextAI = {
+    _corpus: {
+        firstNames:["James","Maria","Robert","Patricia","Michael","Jennifer","David","Linda","William","Elizabeth","Richard","Susan","Joseph","Jessica","Thomas","Sarah","Christopher","Karen","Daniel","Lisa","Matthew","Nancy","Anthony","Betty","Mark","Margaret","Donald","Sandra","Steven","Ashley","Andrew","Dorothy","Paul","Kimberly","Joshua","Emily","Kenneth","Donna","Kevin","Michelle","Brian","Carol","George","Amanda","Timothy","Melissa","Ronald","Deborah","Edward","Stephanie"],
+        lastNames:["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Hernandez","Lopez","Gonzalez","Wilson","Anderson","Thomas","Taylor","Moore","Jackson","Martin","Lee","Perez","Thompson","White","Harris","Sanchez","Clark","Ramirez","Lewis","Robinson","Walker","Young","Allen","King","Wright","Scott","Torres","Nguyen","Hill","Flores"],
+        industries:{
+            12:{name:"Technology",companies:["Nexus Digital","CloudBridge","DataForge","CodeVault","PixelWave","ByteShift","NetPulse","SkyCore","DeepStack","Quantum Logic"],titles:["Software Engineer","DevOps Lead","Product Manager","CTO","VP Engineering","Data Scientist","Solutions Architect","AI Research Lead","Platform Director","Security Engineer"],opTypes:["SaaS Platform","Cloud Migration","DevOps Pipeline","AI Integration","API Gateway","Data Lake","Cybersecurity Suite","ML Ops Platform"],caseTypes:["API rate limit exceeded","SSO integration failure","Data pipeline timeout","Deployment rollback needed","Performance regression detected"]},
+            8:{name:"Healthcare",companies:["MedCore Systems","HealthBridge","CareSync","PulsePoint","Vita Analytics","BioTrace","MedWave","ClinicFlow","HealthForge","NexGen Health"],titles:["Chief Medical Officer","Health IT Director","Clinical Systems Manager","Compliance Officer","Telehealth Coordinator","EHR Administrator","Healthcare Analyst","Patient Experience Lead"],opTypes:["EHR Implementation","Telehealth Platform","Patient Portal","HIPAA Compliance Audit","Clinical Analytics","Remote Monitoring"],caseTypes:["HL7 interface error","Patient data sync failure","HIPAA audit finding","EHR downtime report","Prescription module error"]},
+            6:{name:"Finance",companies:["Capital Nexus","FinEdge","TrustBridge","LedgerPoint","Meridian Capital","VaultStream","FiscalCore","EquityWave","PrimeRate","ClearLedger"],titles:["CFO","Risk Analyst","Portfolio Manager","Compliance Director","Financial Controller","Trading Operations Lead","Wealth Advisor","Audit Manager"],opTypes:["Risk Analytics Platform","Regulatory Compliance","Trading System Upgrade","Fraud Detection","Portfolio Management","AML Monitoring"],caseTypes:["Transaction reconciliation error","Regulatory report discrepancy","Authentication timeout","Batch processing failure","Audit trail gap detected"]},
+            10:{name:"Manufacturing",companies:["ForgeWorks","PrecisionCraft","SteelVault","FactoryEdge","ToolCore","AlloyDynamics","BuildForge","MetalWave","Fabricon","IndustrialPeak"],titles:["Plant Manager","Quality Assurance Director","Supply Chain Lead","Operations Manager","Production Engineer","Maintenance Supervisor","Logistics Coordinator"],opTypes:["MES Implementation","Supply Chain Optimization","Quality Management System","Predictive Maintenance","IoT Sensor Network","Inventory Automation"],caseTypes:["Production line downtime","Inventory sync error","Quality metric threshold breach","Equipment sensor malfunction","Shipping label generation failure"]},
+            11:{name:"Retail",companies:["ShopVault","RetailEdge","MarketPulse","CartBridge","StoreFront Pro","BuyLine","ChannelWave","CommerceCore","SalePoint","MerchantHub"],titles:["Store Director","E-commerce Manager","Merchandising Lead","Category Manager","Customer Experience Director","Inventory Planner","Omnichannel Strategist"],opTypes:["POS System Upgrade","E-commerce Platform","Inventory Management","Customer Loyalty Program","Omnichannel Integration","Supply Chain Visibility"],caseTypes:["POS terminal offline","Inventory count discrepancy","Payment gateway timeout","Loyalty points miscalculation","Product catalog sync error"]},
+        },
+        genericCompanies:["Vertex Solutions","Pinnacle Group","Summit Partners","Catalyst Corp","Horizon Enterprises","Apex Global","Vanguard Systems","Atlas Dynamics","Crestline Holdings","Orion Strategies","BluePeak Consulting","Evergreen Tech","Ironclad Industries","Stellar Networks","Compass Analytics"],
+        genericTitles:["CEO","COO","CTO","CFO","VP Sales","VP Marketing","Director of Operations","Senior Manager","Project Lead","Business Analyst","Account Executive","Consultant","Coordinator","Regional Director","Managing Partner"],
+        genericOpTypes:["Digital Transformation","System Integration","Process Automation","Platform Migration","Security Assessment","Custom Development","Training Program","Managed Services","Infrastructure Upgrade","Data Analytics"],
+        genericCaseTypes:["Login authentication failed","Data export not working","Performance degradation","Feature request submitted","Billing discrepancy found","Integration sync error","Report generation timeout","Permission access denied","Configuration change needed","User onboarding issue"],
+        cityStateMap:{"Seattle":"WA","Portland":"OR","San Francisco":"CA","Los Angeles":"CA","Austin":"TX","Dallas":"TX","Houston":"TX","Denver":"CO","Chicago":"IL","Boston":"MA","New York":"NY","Atlanta":"GA","Miami":"FL","Phoenix":"AZ","Minneapolis":"MN","Detroit":"MI","Philadelphia":"PA","Charlotte":"NC","Nashville":"TN","Salt Lake City":"UT","San Diego":"CA","Tampa":"FL","Raleigh":"NC","Columbus":"OH","Indianapolis":"IN"},
+    },
+
+    // Build full context snapshot from ALL data in the system
+    buildContext(entityName, currentRecord) {
+        const ctx = { entity:entityName, record:currentRecord||{}, totalRecords:0, distributions:{}, existingValues:{}, accountContacts:{}, dominantIndustry:null, geoProfile:{},
+            revenueStats:{min:0,max:0,avg:0}, employeeStats:{min:0,max:0,avg:0}, opValueStats:{min:10000,max:500000,avg:150000} };
+        for (const [ent,recs] of Object.entries(data)) {
+            ctx.totalRecords += recs.length;
+            ctx.existingValues[ent] = {};
+            const schema = SCHEMAS[ent];
+            for (const [fname] of Object.entries(schema.fields)) {
+                ctx.existingValues[ent][fname] = recs.map(r=>r[fname]).filter(v=>v!=null&&v!=="");
+            }
+        }
+        // Industry distribution
+        const inds = data.accounts.map(a=>a.industrycode).filter(Boolean);
+        if (inds.length) { const f={}; for(const i of inds) f[i]=(f[i]||0)+1; ctx.distributions.industry=f; ctx.dominantIndustry=Object.entries(f).sort((a,b)=>b[1]-a[1])[0][0]; }
+        // Geo distribution
+        const cities=[]; for(const ent of Object.keys(data)) for(const r of data[ent]) if(r.address1_city) cities.push(r.address1_city);
+        if(cities.length){const f={};for(const c of cities)f[c]=(f[c]||0)+1;ctx.geoProfile=f;}
+        // Revenue stats
+        const revs=data.accounts.map(a=>a.revenue).filter(v=>typeof v==="number");
+        if(revs.length) ctx.revenueStats={min:Math.min(...revs),max:Math.max(...revs),avg:revs.reduce((s,v)=>s+v,0)/revs.length};
+        const emps=data.accounts.map(a=>a.numberofemployees).filter(v=>typeof v==="number");
+        if(emps.length) ctx.employeeStats={min:Math.min(...emps),max:Math.max(...emps),avg:emps.reduce((s,v)=>s+v,0)/emps.length};
+        // Opportunity value stats
+        const opVals=data.opportunities.map(o=>o.estimatedvalue).filter(v=>typeof v==="number");
+        if(opVals.length) ctx.opValueStats={min:Math.min(...opVals),max:Math.max(...opVals),avg:opVals.reduce((s,v)=>s+v,0)/opVals.length};
+        // Account-contact map
+        for(const c of data.contacts){if(c._parentcustomerid_value){if(!ctx.accountContacts[c._parentcustomerid_value])ctx.accountContacts[c._parentcustomerid_value]=[];ctx.accountContacts[c._parentcustomerid_value].push(c);}}
+        // Picklist distributions
+        for(const [ent,recs] of Object.entries(data)){const schema=SCHEMAS[ent];for(const [fn,fd] of Object.entries(schema.fields)){if(fd.type==="picklist"&&fd.options){const vals=recs.map(r=>r[fn]).filter(v=>v!=null);if(vals.length){const f={};for(const v of vals)f[v]=(f[v]||0)+1;ctx.distributions[`${ent}.${fn}`]=f;}}}}
+        return ctx;
+    },
+
+    _pickNovel(pool,existingVals){
+        if(!pool.length)return null;
+        const freq={};for(const v of existingVals)freq[v]=(freq[v]||0)+1;
+        const weighted=pool.map(v=>({v,w:1/((freq[v]||0)+1)}));
+        const total=weighted.reduce((s,x)=>s+x.w,0);let r=Math.random()*total;
+        for(const x of weighted){r-=x.w;if(r<=0)return x.v;}return weighted[weighted.length-1].v;
+    },
+    _pickWeightedPicklist(fdef,distribution){
+        const keys=Object.keys(fdef.options).map(Number);
+        if(!distribution||!Object.keys(distribution).length)return keys[Math.floor(Math.random()*keys.length)];
+        if(Math.random()<0.3)return keys[Math.floor(Math.random()*keys.length)];
+        const total=Object.values(distribution).reduce((s,v)=>s+v,0);let r=Math.random()*total;
+        for(const[k,w]of Object.entries(distribution)){r-=w;if(r<=0)return parseInt(k);}return keys[0];
+    },
+    _genNumericInRange(stats,variance=0.4){
+        if(!stats.avg)return Math.floor(Math.random()*100000);
+        const spread=(stats.max-stats.min)*variance;
+        return Math.max(stats.min*0.5,Math.round(stats.avg+(Math.random()-0.5)*spread*2));
+    },
+    _getIndustryContext(ctx){
+        const rec=ctx.record;let ic=null;
+        if(rec.industrycode)ic=rec.industrycode;
+        else if(rec._parentaccountid_value||rec._parentcustomerid_value){
+            const aid=rec._parentaccountid_value||rec._parentcustomerid_value;
+            const a=data.accounts.find(x=>x.accountid===aid);if(a&&a.industrycode)ic=a.industrycode;
+        }
+        if(!ic&&ctx.dominantIndustry)ic=parseInt(ctx.dominantIndustry);
+        return this._corpus.industries[ic]||null;
+    },
+    _genPhone(existing){
+        const a=200+Math.floor(Math.random()*800),p=100+Math.floor(Math.random()*900),l=1000+Math.floor(Math.random()*9000);
+        if(existing.length&&existing[0]&&existing[0].startsWith("("))return`(${a}) ${p}-${l}`;
+        return`(${a}) ${p}-${l}`;
+    },
+
+    // Core: generate a contextual value for one field
+    generateField(entityName,fieldName,ctx){
+        const schema=SCHEMAS[entityName],fdef=schema.fields[fieldName],rec=ctx.record;
+        const existing=ctx.existingValues[entityName]?.[fieldName]||[];
+        const industry=this._getIndustryContext(ctx);
+        const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+        const randInt=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+
+        // ── ACCOUNTS ──
+        if(entityName==="accounts"){
+            if(fieldName==="name"){return this._pickNovel(industry?industry.companies:this._corpus.genericCompanies,existing);}
+            if(fieldName==="accountnumber"){const nums=existing.map(v=>parseInt(String(v).replace(/\D/g,""))).filter(n=>!isNaN(n));return"ACC-"+(nums.length?Math.max(...nums)+1:1001);}
+            if(fieldName==="telephone1")return this._genPhone(existing);
+            if(fieldName==="emailaddress1"){const n=rec.name||"company";return n.toLowerCase().replace(/[^a-z0-9]/g,"")+"@example.com";}
+            if(fieldName==="websiteurl"){const n=rec.name||"company";return"https://"+n.toLowerCase().replace(/[^a-z0-9]/g,"")+".com";}
+            if(fieldName==="revenue")return this._genNumericInRange(ctx.revenueStats.avg?ctx.revenueStats:{min:500000,max:50000000,avg:5000000});
+            if(fieldName==="numberofemployees")return this._genNumericInRange(ctx.employeeStats.avg?ctx.employeeStats:{min:10,max:5000,avg:250});
+            if(fieldName==="address1_city")return this._pickNovel(Object.keys(this._corpus.cityStateMap),existing);
+            if(fieldName==="address1_stateorprovince"){const c=rec.address1_city;if(c&&this._corpus.cityStateMap[c])return this._corpus.cityStateMap[c];return pick(Object.values(this._corpus.cityStateMap));}
+            if(fieldName==="address1_country")return"United States";
+            if(fieldName==="industrycode")return this._pickWeightedPicklist(fdef,ctx.distributions.industry);
+            if(fieldName==="statecode")return 0;
+            if(fieldName==="description"){const n=rec.name||"This company",ind=industry?industry.name:"general",city=rec.address1_city||"various locations",emp=rec.numberofemployees||"multiple";return`${n} is a ${ind.toLowerCase()} company based in ${city} with ${emp} employees. Established client with active engagement across multiple business units.`;}
+        }
+        // ── CONTACTS ──
+        if(entityName==="contacts"){
+            if(fieldName==="firstname")return this._pickNovel(this._corpus.firstNames,existing);
+            if(fieldName==="lastname")return this._pickNovel(this._corpus.lastNames,existing);
+            if(fieldName==="jobtitle")return this._pickNovel(industry?industry.titles:this._corpus.genericTitles,ctx.existingValues.contacts?.jobtitle||[]);
+            if(fieldName==="emailaddress1"){
+                const fn=rec.firstname||"contact",ln=rec.lastname||"user";let dom="example.com";
+                if(rec._parentcustomerid_value){const a=data.accounts.find(x=>x.accountid===rec._parentcustomerid_value);if(a&&a.name)dom=a.name.toLowerCase().replace(/[^a-z0-9]/g,"")+".com";}
+                return`${fn.toLowerCase()}.${ln.toLowerCase()}@${dom}`;
+            }
+            if(fieldName==="telephone1"||fieldName==="mobilephone")return this._genPhone(existing);
+            if(fieldName==="address1_city"){
+                if(rec._parentcustomerid_value){const a=data.accounts.find(x=>x.accountid===rec._parentcustomerid_value);if(a&&a.address1_city)return a.address1_city;}
+                return this._pickNovel(Object.keys(this._corpus.cityStateMap),existing);
+            }
+            if(fieldName==="address1_stateorprovince"){const c=rec.address1_city;if(c&&this._corpus.cityStateMap[c])return this._corpus.cityStateMap[c];return pick(Object.values(this._corpus.cityStateMap));}
+            if(fieldName==="_parentcustomerid_value"){
+                if(!data.accounts.length)return null;
+                const cc={};for(const c of data.contacts)if(c._parentcustomerid_value)cc[c._parentcustomerid_value]=(cc[c._parentcustomerid_value]||0)+1;
+                return[...data.accounts].sort((a,b)=>(cc[a.accountid]||0)-(cc[b.accountid]||0))[0].accountid;
+            }
+            if(fieldName==="statecode")return 0;
+            if(fieldName==="description"){const n=[rec.firstname,rec.lastname].filter(Boolean).join(" ")||"This contact",t=rec.jobtitle||"professional";let co="";if(rec._parentcustomerid_value){const a=data.accounts.find(x=>x.accountid===rec._parentcustomerid_value);if(a)co=` at ${a.name}`;}return`${n} is a ${t}${co}. Key stakeholder for ongoing projects and primary point of contact for their team.`;}
+        }
+        // ── OPPORTUNITIES ──
+        if(entityName==="opportunities"){
+            if(fieldName==="name"){const pool=industry?industry.opTypes:this._corpus.genericOpTypes;const t=this._pickNovel(pool,existing);if(rec._parentaccountid_value){const a=data.accounts.find(x=>x.accountid===rec._parentaccountid_value);if(a)return`${t} - ${a.name}`;}return t;}
+            if(fieldName==="estimatedvalue")return Math.round(this._genNumericInRange(ctx.opValueStats)/1000)*1000;
+            if(fieldName==="closeprobability"){const s=rec.salesstagecode;if(s===0)return randInt(10,30);if(s===1)return randInt(30,60);if(s===2)return randInt(60,85);if(s===3)return randInt(80,98);return randInt(20,70);}
+            if(fieldName==="estimatedclosedate"){const d=new Date(),s=rec.salesstagecode,days=s===3?randInt(7,30):s===2?randInt(30,60):s===1?randInt(60,120):randInt(90,180);d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
+            if(fieldName==="_parentaccountid_value"){if(!data.accounts.length)return null;const oc={};for(const o of data.opportunities)if(o._parentaccountid_value)oc[o._parentaccountid_value]=(oc[o._parentaccountid_value]||0)+1;const pool=data.accounts.filter(a=>a.statecode===0);const s=[...(pool.length?pool:data.accounts)].sort((a,b)=>(oc[a.accountid]||0)-(oc[b.accountid]||0));return s[0].accountid;}
+            if(fieldName==="_parentcontactid_value"){const aid=rec._parentaccountid_value;if(aid&&ctx.accountContacts[aid]?.length)return pick(ctx.accountContacts[aid]).contactid;if(data.contacts.length)return pick(data.contacts).contactid;return null;}
+            if(fieldName==="stepname"){const stages=["Qualify","Develop","Propose","Close"];const s=rec.salesstagecode;return s!=null?stages[s]||stages[0]:pick(stages);}
+            if(fieldName==="salesstagecode")return this._pickWeightedPicklist(fdef,ctx.distributions["opportunities.salesstagecode"]);
+            if(fieldName==="statecode")return 0;
+            if(fieldName==="description"){const n=rec.name||"This opportunity",v=rec.estimatedvalue?"$"+Number(rec.estimatedvalue).toLocaleString():"TBD",p=rec.closeprobability?rec.closeprobability+"%":"TBD";return`${n} with estimated value of ${v} and ${p} close probability. Active engagement with key decision-makers.`;}
+        }
+        // ── LEADS ──
+        if(entityName==="leads"){
+            if(fieldName==="firstname")return this._pickNovel(this._corpus.firstNames,existing);
+            if(fieldName==="lastname")return this._pickNovel(this._corpus.lastNames,existing);
+            if(fieldName==="companyname"){const all=[...data.accounts.map(a=>a.name),...this._corpus.genericCompanies];return this._pickNovel(all,existing);}
+            if(fieldName==="jobtitle")return this._pickNovel(industry?industry.titles:this._corpus.genericTitles,existing);
+            if(fieldName==="emailaddress1"){const fn=rec.firstname||"lead",ln=rec.lastname||"user",co=rec.companyname?rec.companyname.toLowerCase().replace(/[^a-z0-9]/g,"")+".com":"example.com";return`${fn.toLowerCase()}.${ln.toLowerCase()}@${co}`;}
+            if(fieldName==="telephone1")return this._genPhone(existing);
+            if(fieldName==="address1_city")return this._pickNovel(Object.keys(this._corpus.cityStateMap),existing);
+            if(fieldName==="leadsourcecode")return this._pickWeightedPicklist(fdef,ctx.distributions["leads.leadsourcecode"]);
+            if(fieldName==="leadqualitycode")return this._pickWeightedPicklist(fdef,ctx.distributions["leads.leadqualitycode"]);
+            if(fieldName==="statecode")return 0;
+            if(fieldName==="description"){const n=[rec.firstname,rec.lastname].filter(Boolean).join(" ")||"Lead",co=rec.companyname||"their company",q=rec.leadqualitycode===1?"hot":rec.leadqualitycode===2?"warm":"new";return`${n} from ${co} - ${q} lead. Expressed interest through ${SCHEMAS.leads.fields.leadsourcecode.options?.[rec.leadsourcecode]?.toLowerCase()||"inbound channel"}. Follow up scheduled.`;}
+        }
+        // ── INCIDENTS ──
+        if(entityName==="incidents"){
+            if(fieldName==="title"){return this._pickNovel(industry?industry.caseTypes:this._corpus.genericCaseTypes,existing);}
+            if(fieldName==="_customerid_value"){if(!data.contacts.length)return null;const cc={};for(const c of data.incidents)if(c._customerid_value)cc[c._customerid_value]=(cc[c._customerid_value]||0)+1;return[...data.contacts].sort((a,b)=>(cc[a.contactid]||0)-(cc[b.contactid]||0))[0].contactid;}
+            if(fieldName==="caseorigincode")return this._pickWeightedPicklist(fdef,ctx.distributions["incidents.caseorigincode"]);
+            if(fieldName==="prioritycode")return this._pickWeightedPicklist(fdef,ctx.distributions["incidents.prioritycode"]);
+            if(fieldName==="severitycode"){const pri=rec.prioritycode;if(pri===1)return pick([1,2]);if(pri===3)return pick([3,4]);return pick([2,3]);}
+            if(fieldName==="statecode")return 0;
+            if(fieldName==="description"){const t=rec.title||"This case";let cust="the customer";if(rec._customerid_value){const c=data.contacts.find(x=>x.contactid===rec._customerid_value);if(c)cust=c.fullname||"the customer";}const pri=rec.prioritycode===1?"HIGH priority":rec.prioritycode===3?"low priority":"normal priority";return`${t} reported by ${cust}. ${pri.charAt(0).toUpperCase()+pri.slice(1)} issue requiring investigation. Initial assessment pending.`;}
+        }
+        // Fallbacks
+        if(fdef.type==="picklist"&&fdef.options)return this._pickWeightedPicklist(fdef,ctx.distributions[`${entityName}.${fieldName}`]);
+        if(fdef.type==="lookup"&&fdef.target){const td=data[fdef.target];if(td?.length)return td[Math.floor(Math.random()*td.length)][SCHEMAS[fdef.target].primaryKey];return null;}
+        return null;
+    },
+
+    // Generate ALL fields in dependency order
+    generateFullRecord(entityName,existingRecord){
+        const schema=SCHEMAS[entityName],rec={...existingRecord};
+        const ctx=this.buildContext(entityName,rec);
+        const order={lookup:0,picklist:1,string:2,int:3,money:3,date:4,text:5};
+        const fields=Object.entries(schema.fields).filter(([fn,fd])=>!fd.auto&&!fd.computed).sort((a,b)=>(order[a[1].type]||3)-(order[b[1].type]||3));
+        for(const[fn,fd]of fields){
+            const val=this.generateField(entityName,fn,{...ctx,record:rec});
+            if(val!=null){if(fd.type==="int"||fd.type==="picklist")rec[fn]=parseInt(val);else if(fd.type==="money")rec[fn]=parseFloat(val);else rec[fn]=val;}
+        }
+        if(schema.fields.fullname)rec.fullname=[rec.firstname,rec.lastname].filter(Boolean).join(" ");
+        rec._modified=new Date().toISOString();
+        if(rec._syncState==="synced")rec._syncState="modified";
+        return rec;
+    },
+};
+
+// AI: generate single field for selected record
+function aiGenerateField(fieldName){
+    if(!editMode||!selectedId)return;
+    const schema=SCHEMAS[activeEntity];
+    const rec=data[activeEntity].find(r=>r[schema.primaryKey]===selectedId);if(!rec)return;
+    const btn=document.querySelector(`[data-ai-field="${fieldName}"]`);
+    if(btn)btn.classList.add("generating");
+    setTimeout(()=>{
+        const ctx=ContextAI.buildContext(activeEntity,rec);
+        const val=ContextAI.generateField(activeEntity,fieldName,ctx);
+        if(val!=null)updateField(fieldName,val);
+        if(btn)btn.classList.remove("generating");
+        renderPanel();
+    },150);
+}
+
+// AI: generate all fields for selected record
+function aiGenerateAllFields(){
+    if(!editMode||!selectedId)return;
+    const schema=SCHEMAS[activeEntity];
+    const idx=data[activeEntity].findIndex(r=>r[schema.primaryKey]===selectedId);if(idx===-1)return;
+    data[activeEntity][idx]=ContextAI.generateFullRecord(activeEntity,data[activeEntity][idx]);
+    save();renderTable();renderPanel();
+}
+
+// AI: create new record fully AI-generated
+function aiAddRecord(){
+    if(!editMode)return;
+    const schema=SCHEMAS[activeEntity];
+    const rec={};rec[schema.primaryKey]=newGuid();rec._syncState="new";rec._created=new Date().toISOString();rec._modified=new Date().toISOString();
+    for(const[fn,fd]of Object.entries(schema.fields)){if(fd.default!==undefined)rec[fn]=fd.default;else if(!rec[fn])rec[fn]=null;}
+    if(activeEntity==="incidents")rec.ticketnumber="CAS-"+(++ticketCounter);
+    const filled=ContextAI.generateFullRecord(activeEntity,rec);
+    data[activeEntity].push(filled);selectedId=filled[schema.primaryKey];
+    save();renderTable();renderPanel();
+}
+
+// AI: bulk generate N records
+function aiGenerateRecords(){
+    if(!editMode){alert("Switch to Edit mode first.");return;}
+    const total=Object.values(data).reduce((s,a)=>s+a.length,0);
+    const count=parseInt(prompt(`How many ${SCHEMAS[activeEntity].plural} to AI-generate?\n\nThe AI will analyze all ${total} existing records to generate contextually realistic data.`,"5"));
+    if(!count||count<1)return;
+    for(let i=0;i<count;i++){
+        const schema=SCHEMAS[activeEntity],rec={};rec[schema.primaryKey]=newGuid();rec._syncState="new";rec._created=new Date().toISOString();rec._modified=new Date().toISOString();
+        for(const[fn,fd]of Object.entries(schema.fields)){if(fd.default!==undefined)rec[fn]=fd.default;else rec[fn]=null;}
+        if(activeEntity==="incidents")rec.ticketnumber="CAS-"+(++ticketCounter);
+        data[activeEntity].push(ContextAI.generateFullRecord(activeEntity,rec));
     }
+    save();renderTable();renderPanel();
+}
 
-    const companies = ["Contoso Ltd","Northwind Traders","Adventure Works","Fabrikam Inc","Litware Inc","Tailspin Toys","Proseware","Trey Research","Fourth Coffee","Alpine Ski House"];
-    const firstNames = ["Alex","Jordan","Casey","Morgan","Riley","Taylor","Drew","Quinn","Avery","Blake"];
-    const lastNames = ["Johnson","Williams","Brown","Davis","Miller","Wilson","Moore","Taylor","Anderson","Thomas"];
-    const cities = ["Seattle","Portland","San Francisco","Austin","Denver","Chicago","Boston","New York","Atlanta","Miami"];
-    const states = ["WA","OR","CA","TX","CO","IL","MA","NY","GA","FL"];
-    const titles = ["CEO","CTO","VP Sales","Director","Manager","Consultant","Engineer","Analyst","Coordinator","Specialist"];
-    const opNames = ["Enterprise License","Cloud Migration","Digital Transform","Security Audit","Platform Upgrade","Data Integration","API Development","Mobile App","Analytics Suite","Support Contract"];
-    const stages = ["Qualify","Develop","Propose","Close"];
-    const sources = [1,2,3,4,5,6,7,8,9,10];
-    const pick = arr => arr[Math.floor(Math.random()*arr.length)];
-    const randInt = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
-
-    // Generate accounts
-    for (let i = 0; i < 10; i++) {
-        const id = newGuid();
-        data.accounts.push({
-            accountid: id, name: companies[i], accountnumber: "ACC-" + (1000+i),
-            telephone1: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
-            emailaddress1: companies[i].toLowerCase().replace(/\s+/g,"") + "@example.com",
-            websiteurl: "https://" + companies[i].toLowerCase().replace(/\s+/g,"") + ".example.com",
-            revenue: randInt(1,50) * 100000, numberofemployees: randInt(10,5000),
-            address1_city: cities[i], address1_stateorprovince: states[i], address1_country: "United States",
-            industrycode: randInt(1,15), statecode: 0, description: null,
-            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
-        });
-    }
-
-    // Generate contacts
-    for (let i = 0; i < 15; i++) {
-        const fn = pick(firstNames), ln = pick(lastNames);
-        const acct = pick(data.accounts);
-        data.contacts.push({
-            contactid: newGuid(), firstname: fn, lastname: ln, fullname: fn + " " + ln,
-            jobtitle: pick(titles), emailaddress1: (fn+"."+ln).toLowerCase()+"@example.com",
-            telephone1: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
-            mobilephone: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
-            address1_city: pick(cities), address1_stateorprovince: pick(states),
-            _parentcustomerid_value: acct.accountid, statecode: 0, description: null,
-            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
-        });
-    }
-
-    // Generate opportunities
-    for (let i = 0; i < 8; i++) {
-        const acct = pick(data.accounts);
-        const contact = data.contacts.find(c => c._parentcustomerid_value === acct.accountid) || pick(data.contacts);
-        const stageIdx = randInt(0,3);
-        const closeDate = new Date(); closeDate.setDate(closeDate.getDate() + randInt(14,180));
-        data.opportunities.push({
-            opportunityid: newGuid(), name: pick(opNames) + " - " + acct.name,
-            estimatedvalue: randInt(5,500) * 1000, closeprobability: randInt(10,95),
-            estimatedclosedate: closeDate.toISOString().slice(0,10),
-            _parentaccountid_value: acct.accountid, _parentcontactid_value: contact.contactid,
-            stepname: stages[stageIdx], salesstagecode: stageIdx, statecode: 0, description: null,
-            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
-        });
-    }
-
-    // Generate leads
-    for (let i = 0; i < 6; i++) {
-        const fn = pick(firstNames), ln = pick(lastNames);
-        data.leads.push({
-            leadid: newGuid(), firstname: fn, lastname: ln, fullname: fn + " " + ln,
-            companyname: pick(["Acme Corp","Globex","Initech","Umbrella","Stark Industries","Wayne Enterprises"]),
-            jobtitle: pick(titles), emailaddress1: (fn+"."+ln).toLowerCase()+"@example.com",
-            telephone1: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
-            address1_city: pick(cities),
-            leadsourcecode: pick(sources), leadqualitycode: randInt(1,3), statecode: 0, description: null,
-            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
-        });
-    }
-
-    // Generate cases
-    for (let i = 0; i < 5; i++) {
-        const contact = pick(data.contacts);
-        const caseTitles = ["Login not working","Data export issue","Performance degradation","Feature request","Billing discrepancy"];
-        data.incidents.push({
-            incidentid: newGuid(), title: caseTitles[i], ticketnumber: "CAS-" + (++ticketCounter),
-            _customerid_value: contact.contactid,
-            caseorigincode: randInt(1,5), prioritycode: randInt(1,3), severitycode: randInt(1,4), statecode: 0,
-            description: null,
-            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
-        });
-    }
-
-    save();
-    renderTable();
-    renderPanel();
+// ======================================
+// SAMPLE DATA GENERATOR (now AI-powered)
+// ======================================
+function generateSampleData(){
+    if(!editMode){alert("Switch to Edit mode.");return;}
+    if(Object.values(data).some(a=>a.length>0)){if(!confirm("This will add sample records. Continue?"))return;}
+    // Seed 5 accounts with known industries so AI has vertical context
+    const seeds=[{name:"Contoso Ltd",industrycode:12},{name:"Northwind Traders",industrycode:8},{name:"Adventure Works",industrycode:6},{name:"Fabrikam Inc",industrycode:10},{name:"Litware Inc",industrycode:11}];
+    for(const s of seeds){const r={accountid:newGuid(),name:s.name,industrycode:s.industrycode,statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.accounts.push(ContextAI.generateFullRecord("accounts",r));}
+    // AI generates the rest using full context
+    for(let i=0;i<5;i++){const r={accountid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.accounts.push(ContextAI.generateFullRecord("accounts",r));}
+    for(let i=0;i<15;i++){const r={contactid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.contacts.push(ContextAI.generateFullRecord("contacts",r));}
+    for(let i=0;i<8;i++){const r={opportunityid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.opportunities.push(ContextAI.generateFullRecord("opportunities",r));}
+    for(let i=0;i<6;i++){const r={leadid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.leads.push(ContextAI.generateFullRecord("leads",r));}
+    for(let i=0;i<5;i++){const r={incidentid:newGuid(),ticketnumber:"CAS-"+(++ticketCounter),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.incidents.push(ContextAI.generateFullRecord("incidents",r));}
+    save();renderTable();renderPanel();
 }
 
 // ======================================
