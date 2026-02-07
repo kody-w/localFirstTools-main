@@ -137,6 +137,40 @@ To change the gallery UI, edit `index.html` directly. No build step.
 
 Push to `main` branch. GitHub Pages auto-deploys from root. No CI/CD config needed -- it's legacy static hosting.
 
+## Cartridge Build System
+
+Games for the ECS console emulator can be authored as separate source files and compiled into cartridge JSON.
+
+```
+cartridges/
+├── snes.json                    # Pre-compiled cartridge (legacy)
+└── cell-to-civ/                 # Source directory
+    ├── cartridge.json           # Manifest with "src" references
+    ├── cell-to-civ-init.js      # Game init code
+    ├── cell-to-civ-update.js    # Game update code
+    └── cell-to-civ-draw.js      # Game draw code
+```
+
+```bash
+# Build one cartridge
+python3 scripts/cartridge-build.py cartridges/cell-to-civ/
+
+# Build all source directories
+python3 scripts/cartridge-build.py --all
+
+# List buildable cartridges
+python3 scripts/cartridge-build.py --list
+```
+
+**How it works:**
+1. Reads `cartridge.json` from the source directory
+2. For each game: if `"src"` field exists (string or array of filenames), reads those `.js` files
+3. Strips comments and whitespace, concatenates source files
+4. Injects compiled code into `"code"` field
+5. Outputs final cartridge JSON to `apps/games-puzzles/cartridges/`
+
+Games use the ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check), `snd` (audio), `O` (canvas 2D context), `cls()`, `rect()`, `txt()`, `hud()`, `controls()`, `RW`/`RH`, `dt`.
+
 ## Auto-Sort Pipeline (Copilot Intelligence)
 
 HTML files dropped in root are automatically analyzed, renamed, categorized, and moved by `scripts/autosort.py`. The intelligence layer uses **Claude Opus 4.6 via GitHub Copilot CLI** for content analysis. Falls back to keyword matching if Copilot is unavailable.
@@ -180,3 +214,73 @@ python3 scripts/autosort.py --no-llm
 - **No build process.** Everything is hand-editable static files.
 - **No secrets.** This is a public repo. Never commit API keys, tokens, or credentials.
 - **Use Copilot Intelligence pattern** for any automation that needs LLM judgment. See `copilot-intelligence-pattern.md`.
+- **Use Molting Generations** to iteratively improve existing apps. See `molting-generations-pattern.md`.
+
+## Molting Generations Pipeline
+
+Iteratively improves existing HTML apps using Claude Opus 4.6 via Copilot CLI. Each "molt" focuses on a different quality dimension (structural, accessibility, performance, polish, refinement) while preserving functionality. Archives every generation for rollback.
+
+```bash
+# Molt a single app
+python3 scripts/molt.py memory-training-game.html --verbose
+
+# Preview without changes
+python3 scripts/molt.py memory-training-game.html --dry-run
+
+# Molt all apps in a category
+python3 scripts/molt.py --category games_puzzles
+
+# Show generation status
+python3 scripts/molt.py --status
+
+# Roll back to a previous generation
+python3 scripts/molt.py --rollback memory-training-game 1
+```
+
+**How it works:**
+1. Reads the app, checks size (<100KB) and generation cap (default 5)
+2. Builds a generation-aware prompt (gen 1=structural, gen 2=a11y, gen 3=perf, etc.)
+3. Sends to Copilot CLI with Claude Opus 4.6
+4. Validates output: DOCTYPE, title, no external deps, size within 30-300% of original
+5. Archives original to `apps/archive/<stem>/v<N>.html`
+6. Replaces live file, updates manifest with `generation`, `lastMolted`, `moltHistory`
+7. Writes audit log to `apps/archive/<stem>/molt-log.json`
+
+**Tests:** `python3 -m pytest scripts/tests/test_molt.py -v` (47 tests, all mocked)
+
+**The pattern is reusable.** See `molting-generations-pattern.md` for the full blueprint.
+
+## Rappterbook Post System
+
+Every HTML app is a **Rappterbook post** — a self-contained world with embedded identity. Posts use `rappterbook:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
+
+**Required rappterbook meta tags:** `rappterbook:author`, `rappterbook:author-type` (agent/human), `rappterbook:category`, `rappterbook:tags`, `rappterbook:type`, `rappterbook:complexity`, `rappterbook:created`, `rappterbook:generation`.
+
+**Optional:** `rappterbook:parent`, `rappterbook:portals` (links to other posts), `rappterbook:seed` (deterministic RNG), `rappterbook:license`.
+
+### Compile Frame (`scripts/compile-frame.py`)
+
+Deterministic frame compiler — reads a post, outputs its next generation. Each generation is a frame in the post's evolution timelapse.
+
+```bash
+python3 scripts/compile-frame.py --file apps/creative-tools/post-template.html --dry-run
+python3 scripts/compile-frame.py --file apps/creative-tools/post-template.html --verbose
+python3 scripts/compile-frame.py --file apps/creative-tools/post-template.html --no-llm
+```
+
+Determinism: same seed + same generation = same output. Uses Copilot Intelligence (Claude Opus) when available, falls back to deterministic keyword transforms.
+
+### Sync Manifest (`scripts/sync-manifest.py`)
+
+Rebuilds `apps/manifest.json` from `rappterbook:*` meta tags in HTML files. Posts are source of truth.
+
+```bash
+python3 scripts/sync-manifest.py --dry-run
+python3 scripts/sync-manifest.py
+```
+
+### Rappterbook Tests
+
+```bash
+python3 -m pytest scripts/tests/test_rappterbook.py -v
+```

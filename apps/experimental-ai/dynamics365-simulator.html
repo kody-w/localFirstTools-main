@@ -130,6 +130,32 @@ tr{cursor:pointer}
 .modal h3{margin-bottom:16px;font-size:16px}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
 .empty-state{text-align:center;padding:60px 20px;color:var(--dim)}.empty-state h3{margin-bottom:8px;color:var(--text)}
+/* Growth Toast */
+.growth-toast{position:fixed;bottom:20px;right:20px;width:340px;background:var(--surface);border:1px solid var(--accent2);border-radius:12px;padding:0;z-index:200;transform:translateY(120%);opacity:0;transition:transform .3s ease,opacity .3s ease;overflow:hidden;box-shadow:0 8px 32px #0008}
+.growth-toast.show{transform:translateY(0);opacity:1}
+.growth-toast-header{padding:10px 14px;background:var(--accent2)18;border-bottom:1px solid var(--accent2)44;font-size:12px;font-weight:700;color:var(--accent2);display:flex;align-items:center;gap:8px;letter-spacing:.5px;text-transform:uppercase}
+.growth-toast-header::before{content:"✨";font-size:14px}
+.growth-toast-stats{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.gt-stat{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
+.gt-stat.created{background:var(--green)22;color:var(--green)}
+.gt-stat.linked{background:var(--cyan)22;color:var(--cyan)}
+.gt-stat.enriched{background:var(--orange)22;color:var(--orange)}
+.gt-stat.deepened{background:var(--accent)22;color:var(--accent)}
+.growth-toast-log{max-height:200px;overflow-y:auto;padding:6px 10px;font-size:11px}
+.gt-entry{display:flex;align-items:center;gap:6px;padding:3px 4px;border-radius:4px}
+.gt-entry:hover{background:var(--surface2)}
+.gt-icon{width:16px;text-align:center;font-size:12px;flex-shrink:0}
+.gt-action{width:12px;text-align:center;font-weight:700;flex-shrink:0}
+.gt-created .gt-action{color:var(--green)}
+.gt-linked .gt-action{color:var(--cyan)}
+.gt-enriched .gt-action{color:var(--orange)}
+.gt-deepened .gt-action{color:var(--accent)}
+.gt-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.gt-detail{color:var(--dim);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.growth-toast-total{padding:8px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--dim);font-family:var(--mono);text-align:right}
+.grow-btn{background:linear-gradient(135deg,var(--accent2)22,var(--accent)22);border:1px solid var(--accent2)66;color:var(--accent2);transition:.2s}
+.grow-btn:hover{background:linear-gradient(135deg,var(--accent2)44,var(--accent)44);border-color:var(--accent2);box-shadow:0 0 16px var(--accent2)33;transform:translateY(-1px)}
+.grow-btn.growing{animation:sparkle .6s ease infinite;pointer-events:none}
 @media(max-width:900px){.main{grid-template-columns:1fr}.sidebar,.right-panel{display:none}}
 </style>
 </head>
@@ -158,12 +184,15 @@ tr{cursor:pointer}
         <button class="entity-btn" onclick="validateAll()"><span class="entity-icon">&#10003;</span>Validate Schema</button>
         <button class="entity-btn" onclick="generateSampleData()"><span class="entity-icon">&#9881;</span>Generate Sample</button>
         <button class="entity-btn" style="color:var(--accent2)" onclick="aiGenerateRecords()"><span class="entity-icon">&#10024;</span>AI Generate</button>
+        <button class="entity-btn grow-btn" onclick="RelEngine.grow()" id="growBtn"><span class="entity-icon">&#127793;</span>Grow CRM Tree</button>
+        <button class="entity-btn" style="color:var(--red)" onclick="resetAll()"><span class="entity-icon">&#128465;</span>Reset All Data</button>
     </nav>
     <div class="content">
         <div class="toolbar">
             <button class="btn primary" id="addBtn" onclick="addRecord()">+ New</button>
             <button class="btn danger" id="deleteBtn" onclick="deleteSelected()" disabled>Delete</button>
             <button class="btn" style="border-color:var(--accent2);color:var(--accent2)" onclick="aiAddRecord()">&#10024; AI New</button>
+            <button class="btn grow-btn" onclick="RelEngine.grow()" id="growBtnToolbar">&#127793; Grow Tree</button>
             <input type="text" class="search-box" placeholder="Search records..." oninput="filterRecords(this.value)" id="searchInput">
             <span style="font-size:11px;color:var(--dim)" id="recordInfo">0 records</span>
         </div>
@@ -376,6 +405,7 @@ function load(){
     try{const s=localStorage.getItem(SYNC_KEY);if(s)syncConfig=JSON.parse(s);}catch(e){}
 }
 function saveSyncConfig(){localStorage.setItem(SYNC_KEY,JSON.stringify(syncConfig));}
+function resetAll(){if(!confirm("Delete ALL simulation data and sync config? This cannot be undone."))return;localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(SYNC_KEY);data={accounts:[],contacts:[],opportunities:[],leads:[],incidents:[]};syncConfig={};ticketCounter=1000;selectedId=null;navStack=[];renderTable();renderPanel();renderBreadcrumb();updateCounts();}
 function newGuid(){return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)});}
 
 // =====================================================================
@@ -819,20 +849,30 @@ function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 // =====================================================================
 const ContextAI={
     _corpus:{
-        firstNames:["James","Maria","Robert","Patricia","Michael","Jennifer","David","Linda","William","Elizabeth","Richard","Susan","Joseph","Jessica","Thomas","Sarah","Christopher","Karen","Daniel","Lisa","Matthew","Nancy","Anthony","Betty","Mark","Margaret","Donald","Sandra","Steven","Ashley"],
-        lastNames:["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Hernandez","Lopez","Wilson","Anderson","Thomas","Taylor","Moore","Jackson","Martin","Lee","Thompson","White","Harris","Clark","Lewis","Robinson","Walker","Young","King","Wright"],
+        firstNames:["James","Maria","Robert","Patricia","Michael","Jennifer","David","Linda","William","Elizabeth","Richard","Susan","Joseph","Jessica","Thomas","Sarah","Christopher","Karen","Daniel","Lisa","Matthew","Nancy","Anthony","Betty","Mark","Margaret","Donald","Sandra","Steven","Ashley","Andrew","Stephanie","Joshua","Nicole","Kenneth","Samantha","Kevin","Rachel","Brian","Laura","George","Andrea","Timothy","Kimberly","Jason","Michelle","Ryan","Amber","Jacob","Megan","Gary","Rebecca","Nicholas","Catherine","Eric","Heather","Jonathan","Diana","Aaron","Olivia"],
+        lastNames:["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Hernandez","Lopez","Wilson","Anderson","Thomas","Taylor","Moore","Jackson","Martin","Lee","Thompson","White","Harris","Clark","Lewis","Robinson","Walker","Young","King","Wright","Allen","Scott","Green","Baker","Adams","Nelson","Hill","Ramirez","Campbell","Mitchell","Roberts","Carter","Phillips","Evans","Turner","Torres","Parker","Collins","Edwards","Stewart","Flores","Morris","Nguyen","Murphy","Rivera","Cook","Rogers","Morgan","Peterson","Cooper"],
         industries:{
             12:{name:"Technology",companies:["Nexus Digital","CloudBridge","DataForge","CodeVault","PixelWave","ByteShift","NetPulse","SkyCore","DeepStack","Quantum Logic"],titles:["Software Engineer","DevOps Lead","Product Manager","CTO","VP Engineering","Data Scientist","Solutions Architect"],opTypes:["SaaS Platform","Cloud Migration","DevOps Pipeline","AI Integration","API Gateway","Cybersecurity Suite"],caseTypes:["API rate limit exceeded","SSO integration failure","Data pipeline timeout","Deployment rollback needed"]},
             8:{name:"Healthcare",companies:["MedCore Systems","HealthBridge","CareSync","PulsePoint","Vita Analytics","BioTrace","MedWave","ClinicFlow"],titles:["Chief Medical Officer","Health IT Director","Clinical Systems Manager","Compliance Officer","EHR Administrator"],opTypes:["EHR Implementation","Telehealth Platform","HIPAA Compliance","Clinical Analytics"],caseTypes:["HL7 interface error","Patient data sync failure","HIPAA audit finding"]},
             6:{name:"Finance",companies:["Capital Nexus","FinEdge","TrustBridge","LedgerPoint","Meridian Capital","VaultStream"],titles:["CFO","Risk Analyst","Portfolio Manager","Compliance Director","Financial Controller"],opTypes:["Risk Analytics","Regulatory Compliance","Fraud Detection","Portfolio Management"],caseTypes:["Transaction reconciliation error","Regulatory report discrepancy","Batch processing failure"]},
             10:{name:"Manufacturing",companies:["ForgeWorks","PrecisionCraft","SteelVault","FactoryEdge","ToolCore","AlloyDynamics"],titles:["Plant Manager","QA Director","Supply Chain Lead","Operations Manager","Production Engineer"],opTypes:["MES Implementation","Supply Chain Optimization","Predictive Maintenance","IoT Sensor Network"],caseTypes:["Production line downtime","Inventory sync error","Equipment sensor malfunction"]},
             11:{name:"Retail",companies:["ShopVault","RetailEdge","MarketPulse","CartBridge","StoreFront Pro","CommerceCore"],titles:["Store Director","E-commerce Manager","Category Manager","Omnichannel Strategist"],opTypes:["POS Upgrade","E-commerce Platform","Loyalty Program","Omnichannel Integration"],caseTypes:["POS terminal offline","Inventory discrepancy","Payment gateway timeout"]},
+            1:{name:"Accounting",companies:["Ledger & Associates","ClearBooks","AuditPro","TaxVantage","FiscalPoint","NumericEdge"],titles:["Managing Partner","Senior Auditor","Tax Director","Controller","Forensic Accountant"],opTypes:["Audit Automation","Tax Platform","ERP Integration","Compliance Suite"],caseTypes:["Journal entry mismatch","Tax calculation error","Audit trail gap"]},
+            2:{name:"Agriculture",companies:["GreenField Ag","HarvestLink","TerraNova Farms","CropWatch","AgriVault","SeedBridge"],titles:["Farm Operations Manager","Agronomist","Supply Chain Director","Field Systems Lead"],opTypes:["Precision Agriculture Platform","Crop Analytics","Supply Chain Tracking","IoT Sensor Deployment"],caseTypes:["Sensor data gap","Yield forecast discrepancy","Irrigation system fault"]},
+            3:{name:"Construction",companies:["BuildCore","SiteForge","Ironworks Construction","PillarPoint","StructurEdge","CraneField"],titles:["Project Manager","Site Superintendent","Safety Director","Estimator","BIM Coordinator"],opTypes:["Project Management Suite","BIM Implementation","Safety Compliance","Fleet Tracking"],caseTypes:["Schedule overrun alert","Safety inspection failure","Permit delay"]},
+            4:{name:"Consulting",companies:["Stratton Advisory","InsightBridge","ClearPath Consulting","Keystone Group","Meridian Advisors","PivotPoint"],titles:["Managing Director","Principal Consultant","Strategy Lead","Engagement Manager","Senior Analyst"],opTypes:["Strategy Engagement","Digital Advisory","M&A Due Diligence","Operating Model Redesign"],caseTypes:["Deliverable revision request","Scope creep dispute","Resource staffing gap"]},
+            5:{name:"Education",companies:["EduCore Systems","CampusBridge","LearnVault","Scholastic Tech","AcademyEdge","BrightPath"],titles:["Dean of Technology","Registrar","Academic Director","EdTech Coordinator","Curriculum Lead"],opTypes:["LMS Implementation","Student Information System","Virtual Classroom","Assessment Platform"],caseTypes:["LMS login failure","Grade sync error","Enrollment data mismatch"]},
+            7:{name:"Government",companies:["CivicPulse","GovBridge","PublicWorks Digital","CitizenCore","FedVault","MunicipalEdge"],titles:["IT Director","Program Manager","Policy Analyst","Chief Data Officer","Digital Services Lead"],opTypes:["Citizen Portal","Case Management System","Open Data Platform","Permitting System"],caseTypes:["Portal downtime","Data FOIA request","System authorization lapse"]},
+            9:{name:"Hospitality",companies:["StayBridge","GuestVault","HospitalityCore","ResorTech","BookingEdge","LodgePulse"],titles:["General Manager","Revenue Manager","Guest Experience Director","Hotel Operations VP"],opTypes:["Property Management System","Revenue Optimization","Guest Experience Platform","Channel Manager"],caseTypes:["Booking system outage","Rate parity violation","Guest complaint escalation"]},
+            13:{name:"Telecom",companies:["SignalBridge","TeleVault","SpectrumCore","WaveLink","FiberEdge","CommPulse"],titles:["Network Director","NOC Manager","Provisioning Lead","Telecom Analyst","Infrastructure VP"],opTypes:["5G Rollout","Network Monitoring","OSS/BSS Integration","Customer Portal"],caseTypes:["Network outage report","SLA breach","Provisioning failure"]},
+            14:{name:"Transportation",companies:["RouteForge","TransitCore","FleetVault","CargoLink","LogiPulse","FreightBridge"],titles:["Fleet Manager","Logistics Director","Route Planner","Safety Compliance Officer","Operations VP"],opTypes:["Fleet Management System","Route Optimization","Warehouse Automation","Last-Mile Tracking"],caseTypes:["Shipment tracking error","Route deviation alert","Vehicle maintenance overdue"]},
+            15:{name:"Utilities",companies:["GridVault","PowerEdge","MeterBridge","EnergyCore","FlowPulse","UtiliTech"],titles:["Grid Operations Manager","Utility Director","Meter Data Analyst","Energy Efficiency Lead"],opTypes:["Smart Grid Platform","Meter Data Management","Outage Management","Energy Analytics"],caseTypes:["Meter reading discrepancy","Outage response delay","Billing calculation error"]},
         },
-        genericCompanies:["Vertex Solutions","Pinnacle Group","Summit Partners","Catalyst Corp","Horizon Enterprises","Apex Global","Vanguard Systems","Atlas Dynamics","Crestline Holdings","Orion Strategies"],
+        genericCompanies:["Vertex Solutions","Pinnacle Group","Summit Partners","Catalyst Corp","Horizon Enterprises","Apex Global","Vanguard Systems","Atlas Dynamics","Crestline Holdings","Orion Strategies","Silverline Consulting","Beacon Analytics","Ironclad Systems","Frostbyte Technologies","Redwood Partners","Zenith Group","Evergreen Capital","Trident Solutions","Obsidian Corp","Luminary Holdings","Prism Digital","Cascade Ventures","Ember Technologies","Polaris Group","Ironbridge Capital","Nexgen Systems","Sapphire Consulting","Stonewall Industries","Titanium Corp","Aether Solutions"],
         genericTitles:["CEO","COO","CTO","CFO","VP Sales","VP Marketing","Director of Operations","Senior Manager","Project Lead","Business Analyst","Account Executive"],
         genericOpTypes:["Digital Transformation","System Integration","Process Automation","Platform Migration","Security Assessment","Custom Development","Managed Services"],
         genericCaseTypes:["Login failed","Data export issue","Performance degradation","Feature request","Billing discrepancy","Integration sync error","Report timeout"],
-        cityStateMap:{"Seattle":"WA","Portland":"OR","San Francisco":"CA","Los Angeles":"CA","Austin":"TX","Dallas":"TX","Denver":"CO","Chicago":"IL","Boston":"MA","New York":"NY","Atlanta":"GA","Miami":"FL","Phoenix":"AZ","Nashville":"TN","San Diego":"CA","Raleigh":"NC"},
+        cityStateMap:{"Seattle":"WA","Portland":"OR","San Francisco":"CA","Los Angeles":"CA","Austin":"TX","Dallas":"TX","Denver":"CO","Chicago":"IL","Boston":"MA","New York":"NY","Atlanta":"GA","Miami":"FL","Phoenix":"AZ","Nashville":"TN","San Diego":"CA","Raleigh":"NC","Minneapolis":"MN","Detroit":"MI","Charlotte":"NC","Indianapolis":"IN","Columbus":"OH","Salt Lake City":"UT","Kansas City":"MO","Tampa":"FL","Pittsburgh":"PA","Cincinnati":"OH","Orlando":"FL","Sacramento":"CA","Las Vegas":"NV","Milwaukee":"WI","Richmond":"VA","Boise":"ID"},
     },
     buildContext(entityName,currentRecord){
         const ctx={entity:entityName,record:currentRecord||{},totalRecords:0,distributions:{},existingValues:{},accountContacts:{},dominantIndustry:null,
@@ -846,9 +886,9 @@ const ContextAI={
         for(const[e,recs]of Object.entries(data)){for(const[fn,fd]of Object.entries(SCHEMAS[e].fields)){if(fd.type==="picklist"&&fd.options){const vs=recs.map(r=>r[fn]).filter(v=>v!=null);if(vs.length){const f={};for(const v of vs)f[v]=(f[v]||0)+1;ctx.distributions[`${e}.${fn}`]=f;}}}}
         return ctx;
     },
-    _pickNovel(pool,existing){if(!pool.length)return null;const f={};for(const v of existing)f[v]=(f[v]||0)+1;const w=pool.map(v=>({v,w:1/((f[v]||0)+1)}));const t=w.reduce((s,x)=>s+x.w,0);let r=Math.random()*t;for(const x of w){r-=x.w;if(r<=0)return x.v;}return w[w.length-1].v;},
-    _pickWPL(fd,dist){const k=Object.keys(fd.options).map(Number);if(!dist||!Object.keys(dist).length)return k[Math.floor(Math.random()*k.length)];if(Math.random()<0.3)return k[Math.floor(Math.random()*k.length)];const t=Object.values(dist).reduce((s,v)=>s+v,0);let r=Math.random()*t;for(const[i,w]of Object.entries(dist)){r-=w;if(r<=0)return parseInt(i);}return k[0];},
-    _genNum(stats){if(!stats.avg)return Math.floor(Math.random()*100000);const s=(stats.max-stats.min)*0.4;return Math.max(stats.min*0.5,Math.round(stats.avg+(Math.random()-0.5)*s*2));},
+    _pickNovel(pool,existing){if(!pool.length)return null;const f={};for(const v of existing)f[v]=(f[v]||0)+1;const unused=pool.filter(v=>!f[v]);if(unused.length)return unused[Math.floor(Math.random()*unused.length)];const sfx=[" Group"," International"," Plus"," Pro"," Global"," Technologies"," Dynamics"," Partners"," Networks"," Labs"," Digital"," Industries"," Collective"," Works"," Ventures"," Capital"," Associates"," Consulting"];const base=pool[Math.floor(Math.random()*pool.length)];const s=sfx[Math.floor(Math.random()*sfx.length)];const v=base+s;if(!f[v])return v;return base+" "+String.fromCharCode(65+Math.floor(Math.random()*26))+String.fromCharCode(65+Math.floor(Math.random()*26));},
+    _pickWPL(fd,dist){const k=Object.keys(fd.options).map(Number);if(!dist||!Object.keys(dist).length)return k[Math.floor(Math.random()*k.length)];if(Math.random()<0.5)return k[Math.floor(Math.random()*k.length)];const maxC=Math.max(...Object.values(dist),1);const w=k.map(v=>({v,w:maxC-(dist[v]||0)+1}));const t=w.reduce((s,x)=>s+x.w,0);let r=Math.random()*t;for(const x of w){r-=x.w;if(r<=0)return x.v;}return k[0];},
+    _genNum(stats){if(!stats.avg)return Math.floor(Math.random()*100000);const range=Math.max(stats.max-stats.min,stats.avg*0.8);const spread=range*0.5;const base=stats.avg+(Math.random()-0.5)*spread*2;const jitter=0.85+Math.random()*0.3;return Math.max(1000,Math.round(base*jitter));},
     _getInd(ctx){const r=ctx.record;let ic=r.industrycode;if(!ic&&(r._parentaccountid_value||r._parentcustomerid_value)){const a=data.accounts.find(x=>x.accountid===(r._parentaccountid_value||r._parentcustomerid_value));if(a)ic=a.industrycode;}if(!ic&&ctx.dominantIndustry)ic=parseInt(ctx.dominantIndustry);return this._corpus.industries[ic]||null;},
     _phone(){return`(${200+Math.floor(Math.random()*800)}) ${100+Math.floor(Math.random()*900)}-${1000+Math.floor(Math.random()*9000)}`;},
 
@@ -937,6 +977,281 @@ function aiGenerateRecords(){if(!editMode){alert("Switch to Edit mode.");return;
 function generateSampleData(){if(!editMode)return;if(Object.values(data).some(a=>a.length>0)){if(!confirm("Add sample records to existing data?"))return;}const seeds=[{name:"Contoso Ltd",industrycode:12},{name:"Northwind Traders",industrycode:8},{name:"Adventure Works",industrycode:6},{name:"Fabrikam Inc",industrycode:10},{name:"Litware Inc",industrycode:11}];for(const s of seeds){const r={accountid:newGuid(),name:s.name,industrycode:s.industrycode,statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.accounts.push(ContextAI.generateFullRecord("accounts",r));}for(let i=0;i<5;i++){const r={accountid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.accounts.push(ContextAI.generateFullRecord("accounts",r));}for(let i=0;i<15;i++){const r={contactid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.contacts.push(ContextAI.generateFullRecord("contacts",r));}for(let i=0;i<8;i++){const r={opportunityid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.opportunities.push(ContextAI.generateFullRecord("opportunities",r));}for(let i=0;i<6;i++){const r={leadid:newGuid(),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.leads.push(ContextAI.generateFullRecord("leads",r));}for(let i=0;i<5;i++){const r={incidentid:newGuid(),ticketnumber:"CAS-"+(++ticketCounter),statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};data.incidents.push(ContextAI.generateFullRecord("incidents",r));}save();renderTable();renderPanel();}
 
 // =====================================================================
+// RELATIONSHIP ENGINE - Autonomous CRM Tree Builder
+// Uses ContextAI sparkle pattern to grow interconnected record clusters.
+// Each press: creates a relationship cluster, links orphans, enriches
+// existing records (data sloshing), and deepens shallow relationships.
+// =====================================================================
+const RelEngine={
+    growthLog:[],
+    _toastTimer:null,
+
+    // Create a fully AI-filled record with optional field overrides
+    _create(entity,overrides={}){
+        const s=SCHEMAS[entity],rec={};
+        rec[s.primaryKey]=newGuid();rec._syncState="new";
+        rec._created=new Date().toISOString();rec._modified=new Date().toISOString();
+        for(const[fn,fd]of Object.entries(s.fields)){if(fd.default!==undefined)rec[fn]=fd.default;else if(!rec[fn])rec[fn]=null;}
+        if(entity==="incidents")rec.ticketnumber="CAS-"+(++ticketCounter);
+        // Apply overrides BEFORE AI generation so it uses them as relationship context
+        Object.assign(rec,overrides);
+        const filled=ContextAI.generateFullRecord(entity,rec);
+        data[entity].push(filled);
+        return filled;
+    },
+
+    // Analyze current data for gaps, orphans, imbalances
+    _analyze(){
+        const counts={};for(const e of Object.keys(SCHEMAS))counts[e]=data[e].length;
+        // Orphans: records missing their parent lookup
+        const orphanContacts=data.contacts.filter(c=>!c._parentcustomerid_value||!data.accounts.find(a=>a.accountid===c._parentcustomerid_value));
+        const orphanOpps=data.opportunities.filter(o=>!o._parentaccountid_value||!data.accounts.find(a=>a.accountid===o._parentaccountid_value));
+        const orphanCases=data.incidents.filter(i=>!i._customerid_value||!data.contacts.find(c=>c.contactid===i._customerid_value));
+        // Per-account connection density
+        const acctConn={};
+        for(const a of data.accounts){
+            const id=a.accountid;
+            const contacts=data.contacts.filter(c=>c._parentcustomerid_value===id);
+            const opps=data.opportunities.filter(o=>o._parentaccountid_value===id);
+            const contactIds=contacts.map(c=>c.contactid);
+            const cases=data.incidents.filter(i=>contactIds.includes(i._customerid_value));
+            acctConn[id]={contacts:contacts.length,opportunities:opps.length,cases:cases.length,total:contacts.length+opps.length+cases.length};
+        }
+        // Find accounts with zero or very few connections
+        const sparse=data.accounts.filter(a=>(acctConn[a.accountid]?.total||0)<3).sort((a,b)=>(acctConn[a.accountid]?.total||0)-(acctConn[b.accountid]?.total||0));
+        // Entity balance ratios (ideal: ~3 contacts per account, ~1.5 opps, ~1 case, ~0.5 leads)
+        const ideal={contacts:3,opportunities:1.5,incidents:1,leads:0.5};
+        const gaps={};
+        const base=Math.max(counts.accounts,1);
+        for(const[e,ratio]of Object.entries(ideal)){
+            const target=Math.round(base*ratio);
+            gaps[e]=Math.max(0,target-counts[e]);
+        }
+        return{counts,orphanContacts,orphanOpps,orphanCases,acctConn,sparse,gaps};
+    },
+
+    // DATA SLOSHING - fix orphans, enrich empties, cross-pollinate
+    _slosh(analysis){
+        const pick=a=>a[Math.floor(Math.random()*a.length)];
+        const log=(action,entity,name,detail)=>this.growthLog.push({action,entity,name,detail});
+
+        // 1. Link orphaned contacts to least-connected accounts
+        for(const c of analysis.orphanContacts.slice(0,3)){
+            if(!data.accounts.length)break;
+            const sorted=[...data.accounts].sort((a,b)=>(analysis.acctConn[a.accountid]?.contacts||0)-(analysis.acctConn[b.accountid]?.contacts||0));
+            const acct=sorted[0];
+            c._parentcustomerid_value=acct.accountid;
+            c._modified=new Date().toISOString();
+            if(c._syncState==="synced")c._syncState="modified";
+            // Re-derive email + location from parent account
+            c.emailaddress1=`${(c.firstname||"c").toLowerCase()}.${(c.lastname||"u").toLowerCase()}@${acct.name.toLowerCase().replace(/[^a-z0-9]/g,"")}.com`;
+            if(acct.address1_city){c.address1_city=acct.address1_city;c.address1_stateorprovince=acct.address1_stateorprovince;}
+            analysis.acctConn[acct.accountid].contacts++;analysis.acctConn[acct.accountid].total++;
+            log("linked","contacts",c.fullname||"Contact",`→ ${acct.name}`);
+        }
+
+        // 2. Link orphaned opportunities
+        for(const o of analysis.orphanOpps.slice(0,2)){
+            if(!data.accounts.length)break;
+            const sorted=[...data.accounts].sort((a,b)=>(analysis.acctConn[a.accountid]?.opportunities||0)-(analysis.acctConn[b.accountid]?.opportunities||0));
+            const acct=sorted[0];
+            o._parentaccountid_value=acct.accountid;
+            const acctContacts=data.contacts.filter(c=>c._parentcustomerid_value===acct.accountid);
+            if(acctContacts.length)o._parentcontactid_value=pick(acctContacts).contactid;
+            o._modified=new Date().toISOString();
+            if(o._syncState==="synced")o._syncState="modified";
+            analysis.acctConn[acct.accountid].opportunities++;analysis.acctConn[acct.accountid].total++;
+            log("linked","opportunities",o.name||"Opportunity",`→ ${acct.name}`);
+        }
+
+        // 3. Link orphaned cases
+        for(const i of analysis.orphanCases.slice(0,2)){
+            if(!data.contacts.length)break;
+            // Prefer contacts that have an account (deeper tree)
+            const withAcct=data.contacts.filter(c=>c._parentcustomerid_value&&data.accounts.find(a=>a.accountid===c._parentcustomerid_value));
+            const pool=withAcct.length?withAcct:data.contacts;
+            const sorted=[...pool].sort((a,b)=>{
+                const ca=data.incidents.filter(x=>x._customerid_value===a.contactid).length;
+                const cb=data.incidents.filter(x=>x._customerid_value===b.contactid).length;
+                return ca-cb;
+            });
+            i._customerid_value=sorted[0].contactid;
+            i._modified=new Date().toISOString();
+            if(i._syncState==="synced")i._syncState="modified";
+            log("linked","incidents",i.title||"Case",`→ ${sorted[0].fullname||"Contact"}`);
+        }
+
+        // 4. Enrich existing records with empty fields (fill gaps)
+        const allEnts=Object.keys(SCHEMAS);
+        for(let n=0;n<5;n++){
+            const ent=allEnts[Math.floor(Math.random()*allEnts.length)];
+            if(!data[ent].length)continue;
+            const rec=data[ent][Math.floor(Math.random()*data[ent].length)];
+            const s=SCHEMAS[ent];let filled=false;
+            const ctx=ContextAI.buildContext(ent,rec);
+            for(const[fn,fd]of Object.entries(s.fields)){
+                if(fd.auto||fd.computed)continue;
+                if(rec[fn]===null||rec[fn]===undefined||rec[fn]===""){
+                    const v=ContextAI.generateField(ent,fn,{...ctx,record:rec});
+                    if(v!=null){
+                        if(fd.type==="int"||fd.type==="picklist")rec[fn]=parseInt(v);
+                        else if(fd.type==="money")rec[fn]=parseFloat(v);
+                        else rec[fn]=v;filled=true;
+                    }
+                }
+            }
+            if(filled){
+                if(s.fields.fullname)rec.fullname=[rec.firstname,rec.lastname].filter(Boolean).join(" ");
+                rec._modified=new Date().toISOString();
+                if(rec._syncState==="synced")rec._syncState="modified";
+                log("enriched",ent,rec[s.primaryName]||"record","filled empty fields");
+            }
+        }
+
+        // 5. Deepen shallow relationships: accounts with contacts but no opps/cases
+        for(const acct of analysis.sparse.slice(0,2)){
+            const id=acct.accountid,conn=analysis.acctConn[id];if(!conn)continue;
+            const acctContacts=data.contacts.filter(c=>c._parentcustomerid_value===id);
+            // If has contacts but no opportunities, create one
+            if(conn.contacts>0&&conn.opportunities===0){
+                const contact=pick(acctContacts);
+                const opp=this._create("opportunities",{_parentaccountid_value:id,_parentcontactid_value:contact?.contactid||null});
+                log("deepened","opportunities",opp.name,`depth → ${acct.name}`);
+            }
+            // If has contacts but no cases, create one
+            if(acctContacts.length>0&&conn.cases===0&&Math.random()<0.6){
+                const contact=pick(acctContacts);
+                const inc=this._create("incidents",{_customerid_value:contact.contactid});
+                log("deepened","incidents",inc.title,`depth → ${contact.fullname||"Contact"}`);
+            }
+        }
+    },
+
+    // Grow a full relationship cluster around an account hub
+    _growCluster(analysis){
+        const{counts,acctConn}=analysis;
+        const ri=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+        const pick=a=>a[Math.floor(Math.random()*a.length)];
+        const log=(action,entity,name,detail)=>this.growthLog.push({action,entity,name,detail});
+
+        // Pick or create an account as the hub
+        let hub;
+        // 40% chance to create new, or if no accounts exist
+        if(!counts.accounts||Math.random()<0.4){
+            hub=this._create("accounts");
+            log("created","accounts",hub.name,"new hub");
+        } else {
+            // Pick a sparse account to expand
+            const active=data.accounts.filter(a=>a.statecode===0);
+            if(active.length){
+                const sorted=[...active].sort((a,b)=>(acctConn[a.accountid]?.total||0)-(acctConn[b.accountid]?.total||0));
+                const pool=sorted.slice(0,Math.max(1,Math.ceil(sorted.length/2)));
+                hub=pick(pool);
+                log("selected","accounts",hub.name,"expanding hub");
+            } else {
+                hub=this._create("accounts");
+                log("created","accounts",hub.name,"new hub");
+            }
+        }
+
+        const hubId=hub.accountid;
+        const existingContacts=data.contacts.filter(c=>c._parentcustomerid_value===hubId);
+
+        // Create 1-4 contacts at this account
+        const numContacts=ri(1,4);
+        const newContacts=[];
+        for(let i=0;i<numContacts;i++){
+            const c=this._create("contacts",{_parentcustomerid_value:hubId});
+            newContacts.push(c);
+            log("created","contacts",c.fullname||"Contact",`@ ${hub.name}`);
+        }
+        const allContacts=[...existingContacts,...newContacts];
+
+        // Create 1-2 opportunities linked to hub + a contact
+        const numOpps=ri(1,2);
+        for(let i=0;i<numOpps;i++){
+            const contact=pick(allContacts);
+            const opp=this._create("opportunities",{
+                _parentaccountid_value:hubId,
+                _parentcontactid_value:contact?.contactid||null
+            });
+            log("created","opportunities",opp.name,`@ ${hub.name}`);
+        }
+
+        // Create 0-2 cases linked to contacts at this account
+        const numCases=ri(0,2);
+        for(let i=0;i<numCases;i++){
+            const contact=pick(allContacts);
+            if(contact){
+                const inc=this._create("incidents",{_customerid_value:contact.contactid});
+                log("created","incidents",inc.title,`for ${contact.fullname||"Contact"}`);
+            }
+        }
+
+        // Create 0-2 leads related to this company's industry/region
+        const numLeads=ri(0,2);
+        for(let i=0;i<numLeads;i++){
+            // Sometimes use the hub's company name (warm lead), sometimes novel
+            const companyName=Math.random()<0.3?hub.name:null;
+            const overrides={};
+            if(companyName)overrides.companyname=companyName;
+            if(hub.address1_city)overrides.address1_city=hub.address1_city;
+            const lead=this._create("leads",overrides);
+            log("created","leads",lead.fullname||"Lead",`@ ${lead.companyname||"company"}`);
+        }
+    },
+
+    // MAIN: called on button press
+    grow(){
+        if(!editMode){alert("Switch to Edit mode first.");return;}
+        const btn=document.getElementById("growBtn");
+        if(btn)btn.classList.add("growing");
+
+        this.growthLog=[];
+        const analysis=this._analyze();
+
+        // Phase 1: Data sloshing (fix + enrich existing data)
+        this._slosh(analysis);
+
+        // Phase 2: Grow a new relationship cluster
+        this._growCluster(analysis);
+
+        save();renderTable();renderPanel();updateCounts();
+
+        if(btn)setTimeout(()=>btn.classList.remove("growing"),600);
+        this._showToast();
+    },
+
+    _showToast(){
+        let toast=document.getElementById("growthToast");
+        if(!toast){toast=document.createElement("div");toast.id="growthToast";document.body.appendChild(toast);}
+
+        const created=this.growthLog.filter(l=>l.action==="created").length;
+        const linked=this.growthLog.filter(l=>l.action==="linked").length;
+        const enriched=this.growthLog.filter(l=>l.action==="enriched").length;
+        const deepened=this.growthLog.filter(l=>l.action==="deepened").length;
+        const total=Object.values(data).reduce((s,a)=>s+a.length,0);
+        const eIcons={accounts:"\u26C3",contacts:"\u263B",opportunities:"\u2605",leads:"\u25B6",incidents:"\u26A0"};
+        const aIcons={created:"+",linked:"\u2192",enriched:"\u2191",deepened:"\u21F3",selected:"\u25CB"};
+
+        let html=`<div class="growth-toast-header">CRM Tree Growth</div><div class="growth-toast-stats">`;
+        if(created)html+=`<span class="gt-stat created">+${created} created</span>`;
+        if(linked)html+=`<span class="gt-stat linked">${linked} linked</span>`;
+        if(enriched)html+=`<span class="gt-stat enriched">${enriched} enriched</span>`;
+        if(deepened)html+=`<span class="gt-stat deepened">${deepened} deepened</span>`;
+        html+=`</div><div class="growth-toast-log">`;
+        for(const e of this.growthLog){
+            html+=`<div class="gt-entry gt-${e.action}"><span class="gt-icon">${eIcons[e.entity]||"\u2022"}</span><span class="gt-action">${aIcons[e.action]||"\u2022"}</span><span class="gt-name">${e.name||""}</span><span class="gt-detail">${e.detail||""}</span></div>`;
+        }
+        html+=`</div><div class="growth-toast-total">Total: ${total} records across ${Object.keys(SCHEMAS).length} entities</div>`;
+
+        toast.innerHTML=html;toast.className="growth-toast show";
+        clearTimeout(this._toastTimer);
+        this._toastTimer=setTimeout(()=>{toast.className="growth-toast";},6000);
+    },
+};
+
+// =====================================================================
 // SCHEMA COMPLIANCE TESTS
 // =====================================================================
 function runTests(){
@@ -1017,6 +1332,70 @@ function runTests(){
     assert("AI fills account city",!!filled.address1_city);
     const aiErrs=validateRecord("accounts",filled);
     assert("AI-generated account passes validation",aiErrs.length===0,aiErrs.map(e=>e.msg).join(", "));
+
+    // T13: Relationship Engine tests
+    // Save current data, use isolated data for testing
+    const savedData=JSON.parse(JSON.stringify(data));
+    data={accounts:[],contacts:[],opportunities:[],leads:[],incidents:[]};
+
+    // T13a: _create makes valid records
+    const testAcc=RelEngine._create("accounts");
+    assert("RelEngine._create produces account with name",!!testAcc.name);
+    assert("RelEngine._create account has guid",!!testAcc.accountid&&testAcc.accountid.includes("-"));
+    assert("RelEngine._create account in data array",data.accounts.length===1);
+
+    // T13b: _create applies overrides before AI fill
+    const testCon=RelEngine._create("contacts",{_parentcustomerid_value:testAcc.accountid});
+    assert("RelEngine._create contact linked to account",testCon._parentcustomerid_value===testAcc.accountid);
+    assert("RelEngine._create contact has fullname",!!testCon.fullname);
+
+    // T13c: _growCluster creates multi-entity cluster
+    data={accounts:[],contacts:[],opportunities:[],leads:[],incidents:[]};
+    const analysis=RelEngine._analyze();
+    RelEngine.growthLog=[];
+    RelEngine._growCluster(analysis);
+    assert("Cluster creates at least 1 account",data.accounts.length>=1);
+    assert("Cluster creates contacts",data.contacts.length>=1);
+    assert("Cluster creates opportunities",data.opportunities.length>=1);
+    // All contacts should be linked to an account
+    const unlinkedContacts=data.contacts.filter(c=>!c._parentcustomerid_value||!data.accounts.find(a=>a.accountid===c._parentcustomerid_value));
+    assert("Cluster contacts all linked to valid account",unlinkedContacts.length===0,`${unlinkedContacts.length} unlinked contacts`);
+    // All opportunities should be linked to an account
+    const unlinkedOpps=data.opportunities.filter(o=>!o._parentaccountid_value||!data.accounts.find(a=>a.accountid===o._parentaccountid_value));
+    assert("Cluster opportunities linked to valid account",unlinkedOpps.length===0,`${unlinkedOpps.length} unlinked opps`);
+
+    // T13d: _slosh links orphans
+    data={accounts:[],contacts:[],opportunities:[],leads:[],incidents:[]};
+    const sloshAcct=RelEngine._create("accounts");
+    // Create orphan contact (no parent)
+    const orphan={contactid:newGuid(),firstname:"Orphan",lastname:"Test",fullname:"Orphan Test",_parentcustomerid_value:null,statecode:0,_syncState:"new",_created:new Date().toISOString(),_modified:new Date().toISOString()};
+    data.contacts.push(orphan);
+    const sloshAnalysis=RelEngine._analyze();
+    RelEngine.growthLog=[];
+    RelEngine._slosh(sloshAnalysis);
+    assert("Slosh links orphan contact",orphan._parentcustomerid_value===sloshAcct.accountid,`got: ${orphan._parentcustomerid_value}`);
+
+    // T13e: Multiple grows keep expanding
+    data={accounts:[],contacts:[],opportunities:[],leads:[],incidents:[]};
+    for(let i=0;i<3;i++){
+        const a=RelEngine._analyze();
+        RelEngine.growthLog=[];
+        RelEngine._growCluster(a);
+    }
+    const totalAfter3=Object.values(data).reduce((s,a)=>s+a.length,0);
+    assert("3 grows produce 10+ records",totalAfter3>=10,`only ${totalAfter3}`);
+    assert("3 grows produce records in 3+ entities",Object.values(data).filter(a=>a.length>0).length>=3);
+
+    // T13f: Growth log tracks actions
+    RelEngine.growthLog=[];
+    data={accounts:[],contacts:[],opportunities:[],leads:[],incidents:[]};
+    const gAnalysis=RelEngine._analyze();
+    RelEngine._growCluster(gAnalysis);
+    assert("Growth log has entries",RelEngine.growthLog.length>0);
+    assert("Growth log entries have required fields",RelEngine.growthLog.every(e=>e.action&&e.entity&&e.name!==undefined));
+
+    // Restore original data
+    data=savedData;
 
     // Show results
     let html=`<div style="margin-bottom:12px;font-size:14px"><span style="color:var(--green);font-weight:700">${pass} passed</span> &nbsp; <span style="color:${fail?"var(--red)":"var(--dim)"};font-weight:700">${fail} failed</span> &nbsp; of ${pass+fail} tests</div>`;

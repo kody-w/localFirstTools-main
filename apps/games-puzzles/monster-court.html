@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monster Court - Courtroom Drama RPG</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a0a00;color:#f0e6d2;font-family:'Courier New',monospace;overflow:hidden;height:100vh;width:100vw;user-select:none}
+#game{width:100%;height:100%;position:relative;overflow:hidden}
+#title-screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(180deg,#0a0005 0%,#1a0a2e 40%,#2d1b4e 100%);z-index:100}
+#title-screen h1{font-size:clamp(2rem,6vw,4.5rem);color:#ffd700;text-shadow:0 0 30px #ffd700,0 0 60px #ff8c00;letter-spacing:4px;margin-bottom:10px;animation:pulse 2s infinite}
+#title-screen h2{font-size:clamp(0.9rem,2.5vw,1.5rem);color:#c0a0ff;margin-bottom:40px;letter-spacing:6px}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
+.menu-btn{background:linear-gradient(135deg,#4a2800,#7a4400);border:2px solid #ffd700;color:#ffd700;padding:15px 50px;font-size:1.2rem;font-family:inherit;cursor:pointer;margin:8px;letter-spacing:2px;transition:all .2s;min-width:250px}
+.menu-btn:hover,.menu-btn:focus{background:linear-gradient(135deg,#7a4400,#aa6600);transform:scale(1.05);box-shadow:0 0 20px rgba(255,215,0,.4)}
+#court-screen{position:absolute;inset:0;display:none;flex-direction:column;background:#2c1810}
+#judge-bar{height:50px;background:linear-gradient(90deg,#1a0a00,#2c1810);display:flex;align-items:center;padding:0 20px;border-bottom:2px solid #4a3020;z-index:10}
+#judge-meter-container{flex:1;height:24px;background:#1a0a00;border:2px solid #4a3020;border-radius:12px;margin:0 15px;position:relative;overflow:hidden}
+#judge-meter{height:100%;width:50%;background:linear-gradient(90deg,#cc3333,#cccc33,#33cc33);transition:width .5s;border-radius:10px}
+#judge-label{color:#ffd700;font-size:.8rem;white-space:nowrap}
+#strikes-display{color:#ff4444;font-size:1rem;white-space:nowrap}
+#case-label{color:#c0a0ff;font-size:.8rem;white-space:nowrap;margin-right:10px}
+#courtroom{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column}
+#court-bg{position:absolute;inset:0;z-index:0}
+#scene-area{flex:1;position:relative;z-index:1;display:flex;justify-content:space-around;align-items:flex-end;padding:10px 20px}
+.portrait-box{width:clamp(100px,18vw,200px);height:clamp(140px,25vw,280px);position:relative;display:flex;flex-direction:column;align-items:center}
+.portrait-canvas{border:3px solid #4a3020;border-radius:4px;background:#1a1a2e;image-rendering:pixelated}
+.portrait-label{color:#ffd700;font-size:.7rem;margin-top:4px;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dialogue-area{height:clamp(150px,25vh,220px);background:linear-gradient(180deg,#1a0a00,#0d0500);border-top:3px solid #ffd700;padding:15px 20px;z-index:10;display:flex;flex-direction:column;position:relative}
+#speaker-name{color:#ffd700;font-size:1rem;font-weight:bold;margin-bottom:8px;min-height:1.2em}
+#dialogue-text{color:#f0e6d2;font-size:clamp(.85rem,1.8vw,1.05rem);line-height:1.6;flex:1;overflow-y:auto;white-space:pre-wrap}
+#action-buttons{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.action-btn{background:linear-gradient(135deg,#3a1800,#5a2800);border:2px solid #aa7733;color:#ffd700;padding:8px 16px;font-family:inherit;font-size:.8rem;cursor:pointer;letter-spacing:1px;transition:all .15s}
+.action-btn:hover,.action-btn.selected{background:linear-gradient(135deg,#6a3800,#8a5800);transform:scale(1.05)}
+.action-btn.objection{border-color:#ff4444;color:#ff4444}
+.action-btn.objection:hover{background:#3a0000;box-shadow:0 0 15px rgba(255,68,68,.4)}
+.action-btn:disabled{opacity:.4;cursor:default;transform:none}
+#evidence-panel{position:absolute;right:0;top:0;bottom:0;width:clamp(250px,30vw,350px);background:rgba(10,5,0,.95);border-left:3px solid #ffd700;z-index:20;display:none;flex-direction:column;padding:15px;overflow-y:auto}
+#evidence-panel h3{color:#ffd700;margin-bottom:15px;text-align:center}
+.evidence-item{background:linear-gradient(135deg,#2a1800,#1a0a00);border:2px solid #4a3020;padding:12px;margin-bottom:10px;cursor:pointer;transition:all .15s}
+.evidence-item:hover,.evidence-item.selected{border-color:#ffd700;background:linear-gradient(135deg,#3a2800,#2a1a00)}
+.evidence-icon{font-size:1.5rem;float:left;margin-right:10px}
+.evidence-name{color:#ffd700;font-size:.9rem;font-weight:bold}
+.evidence-desc{color:#c0a0a0;font-size:.75rem;margin-top:5px;clear:both}
+#testimony-lines{position:absolute;left:0;right:0;top:0;bottom:0;background:rgba(10,5,0,.97);z-index:25;display:none;flex-direction:column;padding:15px;overflow-y:auto}
+#testimony-lines h3{color:#ffd700;margin-bottom:10px;text-align:center}
+.testimony-line{background:#1a0a00;border:2px solid #3a2010;padding:10px 15px;margin-bottom:6px;cursor:pointer;transition:all .15s;font-size:.85rem;line-height:1.4;position:relative}
+.testimony-line:hover,.testimony-line.active{border-color:#ffd700;background:#2a1a10}
+.testimony-line .line-num{color:#aa7733;margin-right:10px;font-weight:bold}
+.testimony-line.pressed{border-color:#44aaff}
+.testimony-line.broken{border-color:#ff4444;background:#2a0a0a}
+#objection-overlay{position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;background:rgba(255,0,0,.15)}
+#objection-overlay .objection-text{font-size:clamp(3rem,10vw,7rem);color:#ff4444;font-weight:bold;letter-spacing:8px;text-shadow:0 0 30px #ff0000,0 0 60px #ff0000,4px 4px 0 #000;animation:objectionSlam .4s ease-out}
+@keyframes objectionSlam{0%{transform:scale(3);opacity:0}60%{transform:scale(.9)}100%{transform:scale(1);opacity:1}}
+#flash-overlay{position:fixed;inset:0;z-index:999;background:#fff;opacity:0;pointer-events:none;transition:opacity .05s}
+#verdict-screen{position:absolute;inset:0;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,5,0,.95)}
+#verdict-screen h2{font-size:clamp(2rem,5vw,4rem);margin-bottom:20px}
+#verdict-screen p{font-size:1.1rem;margin-bottom:10px;text-align:center;max-width:600px;line-height:1.6}
+.verdict-guilty h2{color:#ff4444;text-shadow:0 0 30px #ff0000}
+.verdict-not-guilty h2{color:#44ff44;text-shadow:0 0 30px #00ff00}
+#case-intro{position:absolute;inset:0;z-index:40;display:none;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(180deg,#0a0005,#1a0a2e);padding:30px}
+#case-intro h2{color:#ffd700;font-size:clamp(1.5rem,4vw,2.5rem);margin-bottom:20px}
+#case-intro .case-details{max-width:600px;text-align:center;line-height:1.8;font-size:1rem;color:#c0a0ff}
+.shake{animation:shake .3s ease-out}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+#mobile-controls{display:none;position:fixed;bottom:0;left:0;right:0;z-index:30;padding:8px;background:rgba(10,5,0,.9);border-top:2px solid #4a3020}
+@media(hover:none)and(pointer:coarse){#mobile-controls{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}}
+.mobile-btn{background:#2a1800;border:2px solid #aa7733;color:#ffd700;padding:10px 18px;font-family:inherit;font-size:.9rem;cursor:pointer;border-radius:4px;min-width:60px;text-align:center}
+.mobile-btn.obj{border-color:#ff4444;color:#ff4444}
+#continue-hint{position:absolute;bottom:5px;right:15px;color:#665533;font-size:.7rem;animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#1a0a00}
+::-webkit-scrollbar-thumb{background:#4a3020;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="game">
+<div id="title-screen">
+<h1>⚖️ MONSTER COURT</h1>
+<h2>COURTROOM DRAMA RPG</h2>
+<button class="menu-btn" onclick="startNewGame()">NEW GAME</button>
+<button class="menu-btn" onclick="continueGame()">CONTINUE</button>
+<p style="color:#665533;margin-top:30px;font-size:.75rem">Arrow Keys / Tap to navigate • Enter to select • O to object</p>
+</div>
+<div id="case-intro">
+<h2 id="case-intro-title"></h2>
+<div class="case-details" id="case-intro-details"></div>
+<button class="menu-btn" style="margin-top:30px" onclick="beginTrial()">ENTER COURTROOM</button>
+</div>
+<div id="court-screen">
+<div id="judge-bar">
+<span id="case-label">Case 1/5</span>
+<span id="judge-label">Judge's Opinion:</span>
+<div id="judge-meter-container"><div id="judge-meter"></div></div>
+<span id="strikes-display">⚠️ ⚠️ ⚠️</span>
+</div>
+<div id="courtroom">
+<canvas id="court-bg"></canvas>
+<div id="scene-area">
+<div class="portrait-box" id="left-portrait"><canvas class="portrait-canvas" width="120" height="160"></canvas><div class="portrait-label" id="left-label"></div></div>
+<div class="portrait-box" id="center-portrait" style="display:none"><canvas class="portrait-canvas" width="120" height="160"></canvas><div class="portrait-label" id="center-label"></div></div>
+<div class="portrait-box" id="right-portrait"><canvas class="portrait-canvas" width="120" height="160"></canvas><div class="portrait-label" id="right-label"></div></div>
+</div>
+<div id="dialogue-area">
+<div id="speaker-name"></div>
+<div id="dialogue-text"></div>
+<div id="action-buttons"></div>
+<div id="continue-hint">▼ ENTER / TAP</div>
+</div>
+<div id="evidence-panel"><h3>📋 EVIDENCE</h3><div id="evidence-list"></div><button class="action-btn" style="width:100%;margin-top:10px" onclick="closeEvidence()">BACK</button></div>
+<div id="testimony-lines"><h3>📝 TESTIMONY</h3><div id="testimony-list"></div><div id="testimony-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"></div></div>
+</div>
+</div>
+<div id="objection-overlay"><div class="objection-text">OBJECTION!</div></div>
+<div id="flash-overlay"></div>
+<div id="verdict-screen"><h2 id="verdict-title"></h2><p id="verdict-text"></p><button class="menu-btn" id="verdict-btn" style="margin-top:20px"></button></div>
+<div id="mobile-controls">
+<button class="mobile-btn" onclick="handleKey('ArrowLeft')">◀</button>
+<button class="mobile-btn" onclick="handleKey('ArrowRight')">▶</button>
+<button class="mobile-btn" onclick="handleKey('Enter')">OK</button>
+<button class="mobile-btn" onclick="handleKey('KeyE')">Evidence</button>
+<button class="mobile-btn obj" onclick="handleKey('KeyO')">OBJECT!</button>
+</div>
+</div>
+<script>
+// ======================== GAME STATE ========================
+const GS = {
+  phase: 'title', caseNum: 0, totalCases: 5, judgeMeter: 50, strikes: 0, maxStrikes: 3,
+  currentCase: null, witnessIndex: 0, statementIndex: 0, typewriterTimer: null,
+  textComplete: false, dialogueQueue: [], crossExamMode: false, evidenceOpen: false,
+  testimonyOpen: false, selectedEvidence: -1, foundContradictions: new Set(),
+  casesWon: 0, usedMonsters: [], awaitingChoice: false, choiceCallback: null, choiceIndex: 0
+};
+
+// ======================== MONSTER DEFINITIONS ========================
+const MONSTERS = [
+  { type:'dragon', name:'Ignis the Ember Dragon', emoji:'🐉', color:'#cc4400',
+    personality:'proud', bodyColor:'#2d8a2d', headColor:'#3aaa3a', eyeColor:'#ff6600', accentColor:'#ffaa00',
+    greet:"I am Ignis, of the Northern Peaks. These charges are an insult to dragonkind.",
+    worried:"Even the mightiest flame can be extinguished by injustice...",
+    happy:"HA! As expected. The truth burns brighter than any fire.",
+    sad:"Imprisoned... The skies will remember my name." },
+  { type:'kraken', name:'Tethys the Deep Kraken', emoji:'🦑', color:'#4466aa',
+    personality:'mysterious', bodyColor:'#2244aa', headColor:'#3355cc', eyeColor:'#00ffcc', accentColor:'#66aaff',
+    greet:"The depths sent me to answer these... curious accusations.",
+    worried:"The currents of justice run deeper than mortals know...",
+    happy:"The ocean's truth cannot be contained. I am free.",
+    sad:"Back to the depths... but not by choice this time." },
+  { type:'werewolf', name:'Fenris the Reluctant', emoji:'🐺', color:'#886644',
+    personality:'apologetic', bodyColor:'#7a6644', headColor:'#8a7654', eyeColor:'#ffcc00', accentColor:'#aa8866',
+    greet:"I-I'm sorry you have to defend me. I really didn't do it, I swear!",
+    worried:"Oh no, oh no... they're going to lock me in a silver cage...",
+    happy:"Thank you! THANK YOU! *wags tail involuntarily* ...sorry about that.",
+    sad:"I... I understand. The moon was full. It always looks bad for my kind." },
+  { type:'ghost', name:'Lady Elara the Specter', emoji:'👻', color:'#aabbcc',
+    personality:'melancholic', bodyColor:'#8899bb', headColor:'#aabbdd', eyeColor:'#ccddff', accentColor:'#ffffff',
+    greet:"I have been accused... even in death, there is no peace.",
+    worried:"Will they exorcise me? I've only just found a place to rest...",
+    happy:"Perhaps the living can understand us after all. Thank you.",
+    sad:"Another century of wandering, then..." },
+  { type:'troll', name:'Grundle the Bridge Keeper', emoji:'🧌', color:'#558844',
+    personality:'gruff', bodyColor:'#557744', headColor:'#668855', eyeColor:'#eedd00', accentColor:'#88aa66',
+    greet:"Grundle pays taxes! Grundle has LICENSE! This is outrage!",
+    worried:"If Grundle loses bridge, where Grundle sleep? UNDER bridge?!",
+    happy:"HA! Grundle KNEW it! Justice system not totally broken!",
+    sad:"Fine. Grundle go. But who maintain bridge NOW, huh?!" },
+  { type:'basilisk', name:'Petra the Shy Basilisk', emoji:'🐍', color:'#88aa44',
+    personality:'shy', bodyColor:'#6a8833', headColor:'#7a9944', eyeColor:'#ff3366', accentColor:'#aacc55',
+    greet:"*averts gaze* P-please don't look directly at me... I mean, I HAVE been wearing my safety goggles!",
+    worried:"*curls up* Everyone always blames the basilisk...",
+    happy:"*peeks out* R-really? I can go? Thank you so much! *quickly looks away*",
+    sad:"*stone-cold silence* ...I suppose that's fitting." },
+  { type:'phoenix', name:'Solara the Reborn', emoji:'🔥', color:'#ff6633',
+    personality:'dramatic', bodyColor:'#ff4400', headColor:'#ff6622', eyeColor:'#ffee00', accentColor:'#ffaa33',
+    greet:"FROM THE ASHES OF INJUSTICE, I SHALL RISE! ...ahem. Hello, attorney.",
+    worried:"Even my eternal flame flickers in the face of such falsehood!",
+    happy:"JUSTICE BLAZES ETERNAL! *accidentally sets podium on fire* ...sorry.",
+    sad:"I shall be reborn again... but the sting of injustice lingers." },
+  { type:'mimic', name:'Chester the Mimic', emoji:'📦', color:'#aa8844',
+    personality:'shifty', bodyColor:'#8a6633', headColor:'#aa8844', eyeColor:'#ff4444', accentColor:'#ccaa55',
+    greet:"*opens lid slightly* Psst! Thanks for taking my case. I'm totally NOT a regular chest. I mean—I AM a regular... wait.",
+    worried:"*lid chattering nervously* They're gonna lock me in a vault forever!",
+    happy:"*happy lid flapping* YES! I mean— *ahem* —thank you for your services. *normal chest noises*",
+    sad:"*closes lid slowly* ...click." }
+];
+
+// ======================== CASE TEMPLATES ========================
+const CASE_TEMPLATES = [
+{ monsterType:'dragon', crime:'Arson of the Riverside Market',
+  crimeDesc:"The Riverside Market was engulfed in flames on the night of the Harvest Moon. Witnesses claim a dragon was seen near the scene.",
+  witnesses:[
+    { name:'Marta the Baker', occupation:'Baker', emoji:'👩‍🍳',
+      statements:[
+        "I was closing my bakery at around 9 PM when I saw bright flames outside.",
+        "The fire was an unusual BLUE color — definitely magical dragon fire!",
+        "I heard a tremendous roar just before the flames erupted, shaking my windows.",
+        "I saw a large shadow with wings fly over the market right before the fire started.",
+        "The fire started on the EAST side of the market, near the fish stalls."
+      ],
+      contradiction:{ index:1, evidenceId:'fire_report',
+        pressTip:"The witness seems very certain about the color...",
+        breakText:"W-wait... now that I think about it, it was dark and smoky. Maybe it was more orange? I... I might have been confused by the smoke.",
+        explanation:"Dragon fire burns ORANGE with traces of sulfur. Blue flames indicate alchemical accelerant — someone PLANTED this fire!" }
+    },
+    { name:'Guard Captain Hendricks', occupation:'City Guard', emoji:'💂',
+      statements:[
+        "I arrived at the scene approximately 15 minutes after the first alarm.",
+        "My guards found large claw marks on the cobblestones near the market entrance.",
+        "We recovered traces of sulfur — a clear indicator of dragon involvement.",
+        "The defendant was spotted at the Gilded Goblet tavern, but that's ACROSS TOWN from the market.",
+        "No other suspects were identified during our investigation."
+      ],
+      contradiction:{ index:3, evidenceId:'tavern_receipt',
+        pressTip:"Interesting — the guard mentions the tavern is across town...",
+        breakText:"Well... yes, the tavern IS across town. About a 30-minute flight for a dragon. But—wait, the fire was already burning when I arrived 15 minutes later...",
+        explanation:"If the dragon was at the tavern across town, they couldn't have started the fire AND been at the tavern within the timeline!" }
+    },
+    { name:'Pip the Street Urchin', occupation:'Street kid', emoji:'👦',
+      statements:[
+        "I was sleeping behind the barrels near the market that night.",
+        "I saw someone in a DARK CLOAK carrying bottles before the fire started.",
+        "There was a funny chemical smell, not like normal fire — kinda sweet and sharp.",
+        "I ran away when the flames started, but I looked back and saw NO dragon at all.",
+        "The cloaked figure ran toward the merchant guild after the fire started."
+      ],
+      contradiction:{ index:3, evidenceId:'claw_marks',
+        pressTip:"Wait — Pip was RIGHT THERE and saw no dragon?",
+        breakText:"I'm telling you, mister, there was no dragon! Just that person in the cloak! I know what I saw!",
+        explanation:"An eyewitness AT the scene saw no dragon — only a cloaked arsonist. The 'claw marks' were likely planted!" }
+    }
+  ],
+  evidence:[
+    { id:'fire_report', name:'Fire Analysis Report', icon:'📋', desc:'Lab results: residue is consistent with ALCHEMICAL ACCELERANT, not dragon fire. Dragon fire leaves crystallized carbon — none found. Blue flame residue matches common firestarter compounds.' },
+    { id:'tavern_receipt', name:'Tavern Receipt', icon:'🧾', desc:'A receipt from The Gilded Goblet tavern dated the night of the fire at 8:45 PM, with Ignis\'s claw mark. The tavern is 30 minutes across town.' },
+    { id:'claw_marks', name:'Claw Mark Analysis', icon:'🔍', desc:'Forensic analysis of the claw marks: scratches are UNIFORM and EVENLY SPACED — consistent with a tool, not actual dragon claws which are irregular.' },
+    { id:'guild_ledger', name:'Merchant Guild Ledger', icon:'📒', desc:'Shows the market was heavily insured. The guild master recently increased the policy — suspicious timing.' }
+  ]
+},
+{ monsterType:'kraken', crime:'Sinking of the Trading Vessel "Prosperity"',
+  crimeDesc:"The merchant ship Prosperity sank in calm waters near Port Azure. The crew claims a kraken attacked. Cargo worth 50,000 gold was lost.",
+  witnesses:[
+    { name:'Captain Redbeard', occupation:'Ship Captain', emoji:'🧑‍✈️',
+      statements:[
+        "We were sailing through calm waters when tentacles burst from the deep!",
+        "The beast wrapped around the hull and crushed it like kindling.",
+        "I saw the creature clearly — it had EIGHT massive tentacles.",
+        "The attack lasted about ten minutes before we abandoned ship.",
+        "We lost ALL cargo — every last crate went to the bottom."
+      ],
+      contradiction:{ index:2, evidenceId:'kraken_anatomy',
+        pressTip:"The captain seems confident about the tentacle count...",
+        breakText:"Eight... or was it ten? There were tentacles EVERYWHERE! It was chaos! I— maybe I miscounted in the panic!",
+        explanation:"Krakens have TEN tentacles, not eight. Eight tentacles is a common OCTOPUS. If the captain can't tell the difference, his whole identification is suspect!" }
+    },
+    { name:'First Mate Jenkins', occupation:'Sailor', emoji:'⚓',
+      statements:[
+        "I was below deck when I heard the captain screaming about a sea monster.",
+        "When I came up, I saw massive tentacles gripping the port side.",
+        "The water was churning with a DARK INK-LIKE substance.",
+        "I noticed the hull had ALREADY been taking on water before the attack.",
+        "We managed to save the crew but not a single crate of cargo."
+      ],
+      contradiction:{ index:3, evidenceId:'hull_fragment',
+        pressTip:"Wait — the hull was ALREADY taking on water BEFORE the attack?",
+        breakText:"I... well... there might have been a small leak. But the tentacles made it WAY worse! That's the point!",
+        explanation:"The hull was compromised BEFORE any alleged kraken attack! This suggests the ship was DELIBERATELY scuttled — insurance fraud!" }
+    },
+    { name:'Harbor Inspector Walsh', occupation:'Inspector', emoji:'🔎',
+      statements:[
+        "I inspected the Prosperity just three days before its final voyage.",
+        "The ship passed all safety checks with flying colors — perfect condition.",
+        "I found no evidence of kraken activity in the shipping lanes that month.",
+        "The captain filed an insurance claim within HOURS of being rescued.",
+        "The cargo manifest listed standard trade goods — nothing unusual."
+      ],
+      contradiction:{ index:1, evidenceId:'inspection_log',
+        pressTip:"Perfect condition, you say? Let's verify that...",
+        breakText:"Well... I mean, there were some minor issues in the lower hull, but nothing that would... oh. You have the actual report?",
+        explanation:"The REAL inspection report shows SEVENTEEN hull violations! The inspector falsified records — he's in on the insurance scam!" }
+    }
+  ],
+  evidence:[
+    { id:'kraken_anatomy', name:'Marine Biology Textbook', icon:'📚', desc:'Standard reference: Krakens possess TEN primary tentacles, distinct from octopi which have EIGHT. This is a fundamental taxonomic difference.' },
+    { id:'hull_fragment', name:'Recovered Hull Fragment', icon:'🪵', desc:'Fragment from the Prosperity shows damage patterns consistent with INTERNAL pressure (explosive scuttling charges), not external tentacle crushing.' },
+    { id:'inspection_log', name:'Original Inspection Report', icon:'📝', desc:'The ORIGINAL report (not the filed copy) lists 17 hull violations and a recommendation to GROUND the vessel. Someone replaced this with a clean report.' },
+    { id:'insurance_docs', name:'Insurance Documents', icon:'💰', desc:'Captain Redbeard tripled the cargo insurance ONE WEEK before the voyage. The beneficiary is a shell company linked to the harbor inspector.' }
+  ]
+},
+{ monsterType:'werewolf', crime:'Livestock Attacks in Millfield Village',
+  crimeDesc:"Twelve sheep have been killed in Millfield Village over the past month. Bite marks match a large canine. A werewolf was seen near the pastures.",
+  witnesses:[
+    { name:'Farmer Gregory', occupation:'Sheep Farmer', emoji:'🧑‍🌾',
+      statements:[
+        "I've lost twelve of my best sheep this month! Something's been tearing them apart!",
+        "The attacks always happen on FULL MOON nights — classic werewolf behavior.",
+        "I found huge paw prints near the sheep pen — much bigger than any normal wolf.",
+        "I saw the beast myself last Tuesday — it was standing upright like a man-wolf!",
+        "The creature had SILVER-GREY fur, just like that werewolf sitting right there!"
+      ],
+      contradiction:{ index:1, evidenceId:'lunar_calendar',
+        pressTip:"EVERY attack on a full moon? Let's check that...",
+        breakText:"Well... most of them! At least the worst ones! ...Fine, SOME were on regular nights too. But the full moon ones were DEFINITELY worse!",
+        explanation:"The lunar calendar shows attacks occurred on SEVEN different nights — only TWO were full moons! Werewolves ONLY transform during full moons. This is a regular predator!" }
+    },
+    { name:'Dr. Helena Marsh', occupation:'Veterinarian', emoji:'👩‍⚕️',
+      statements:[
+        "I examined the remains of several sheep. The bite patterns are from a very large canine.",
+        "The wounds are consistent with a SINGLE predator — one animal, not a pack.",
+        "I found traces of a SEDATIVE in the sheep's blood — they were drugged before being attacked.",
+        "The bite radius suggests jaws approximately 8 inches wide — werewolf-sized.",
+        "In my professional opinion, this is clearly the work of a supernatural predator."
+      ],
+      contradiction:{ index:2, evidenceId:'sedative_report',
+        pressTip:"A sedative? Why would a werewolf need to drug its prey?",
+        breakText:"I... that IS unusual for a werewolf attack. Werewolves don't typically use... I mean, they CAN'T use drugs. They're in a feral state...",
+        explanation:"Werewolves in transformed state operate on PURE INSTINCT — they cannot prepare and administer sedatives! Someone is drugging the sheep and staging attacks!" }
+    },
+    { name:'Night Watchman Boris', occupation:'Village Watch', emoji:'🏮',
+      statements:[
+        "I patrol the village every night from dusk till dawn.",
+        "I saw a large wolf-like creature near the pastures on three separate occasions.",
+        "Each time, it fled toward the WESTERN woods when it spotted my lantern.",
+        "On the night of the worst attack, I was called away to the EASTERN bridge for a disturbance.",
+        "When I returned, six sheep were dead and I found the werewolf's tracks."
+      ],
+      contradiction:{ index:3, evidenceId:'disturbance_log',
+        pressTip:"A conveniently timed disturbance pulling the guard away...",
+        breakText:"Now that you mention it... the disturbance at the bridge was just some knocked-over barrels. Nobody was there when I arrived. Almost like... a diversion?",
+        explanation:"Someone created a DIVERSION to lure the watchman away from the pastures! This was a coordinated attack — not a mindless werewolf!" }
+    }
+  ],
+  evidence:[
+    { id:'lunar_calendar', name:'Lunar Calendar', icon:'🌙', desc:'Official astronomical calendar showing moon phases for the past month. Attacks occurred on 7 different nights — only 2 were full moons. Werewolves can ONLY transform during full moon phases.' },
+    { id:'sedative_report', name:'Alchemist\'s Report', icon:'⚗️', desc:'Analysis of sheep blood: contains Moonsbane, a powerful animal sedative available at any apothecary. Werewolves in transformed state cannot handle, measure, or administer drugs.' },
+    { id:'disturbance_log', name:'Watch Log Book', icon:'📓', desc:'The "disturbance" that called Boris away was just toppled barrels — no perpetrator found. Every major attack coincides with Boris being called to a false alarm elsewhere.' },
+    { id:'rival_farm', name:'Land Deed Records', icon:'📜', desc:'Farmer Gregory\'s neighbor, Lord Ashworth, has been trying to buy Gregory\'s land for years. His gamekeeper owns several large hunting dogs.' }
+  ]
+},
+{ monsterType:'ghost', crime:'Haunting and Property Damage at Thornfield Manor',
+  crimeDesc:"The new owners of Thornfield Manor report violent ghostly activity — flying objects, broken furniture, and terrifying apparitions driving away guests.",
+  witnesses:[
+    { name:'Lord Pemberton', occupation:'Manor Owner', emoji:'🎩',
+      statements:[
+        "I purchased Thornfield Manor six months ago as a luxury inn.",
+        "The haunting began IMMEDIATELY — the very first night, furniture flew across rooms!",
+        "My guests have been terrorized! China smashing, doors slamming, ghostly wailing!",
+        "I've lost THOUSANDS in refunds and repairs. This ghost is ruining my business!",
+        "The ghost appears every night WITHOUT FAIL, always between 10 PM and midnight."
+      ],
+      contradiction:{ index:4, evidenceId:'ghost_theory',
+        pressTip:"Every night without fail? That's unusually regular for a haunting...",
+        breakText:"Well, yes, it's very predictable! Almost like clockwork! Which is... actually rather unusual for a ghost, isn't it?",
+        explanation:"Real hauntings are IRREGULAR and tied to emotional anchors, not schedules! Clockwork 'haunting' suggests a MECHANICAL setup — someone is faking it!" }
+    },
+    { name:'Maid Rosa', occupation:'Servant', emoji:'🧹',
+      statements:[
+        "I've worked at Thornfield for three years — through two previous owners.",
+        "Lady Elara's ghost has been here long before Lord Pemberton bought the place.",
+        "The ghost was always PEACEFUL before — just cold spots and a sad melody at night.",
+        "The VIOLENT activity only started after Lord Pemberton's renovation of the east wing.",
+        "I've seen wires and pulleys hidden behind the new wallpaper in the east wing."
+      ],
+      contradiction:{ index:4, evidenceId:'renovation_plans',
+        pressTip:"Wires and pulleys? That's very specific...",
+        breakText:"I tried to tell Lord Pemberton but he dismissed me! Those wires aren't part of any normal renovation — they're attached to furniture and wall panels!",
+        explanation:"Hidden MECHANICAL DEVICES are rigged to create fake 'haunting' effects! Lord Pemberton is STAGING the haunting — likely for an insurance claim!" }
+    },
+    { name:'Paranormal Investigator Drake', occupation:'Ghost Hunter', emoji:'🔮',
+      statements:[
+        "I was hired by Lord Pemberton to document the haunting for his insurance claim.",
+        "My equipment detected genuine spectral energy in the manor — level 3 on the Ecto-Scale.",
+        "However, the VIOLENT phenomena registered ZERO on my spectral sensors.",
+        "The flying furniture showed no ectoplasmic residue — ghosts ALWAYS leave residue.",
+        "In my professional opinion, there are TWO phenomena: a real gentle ghost and a fake poltergeist."
+      ],
+      contradiction:{ index:0, evidenceId:'insurance_claim',
+        pressTip:"Wait — he was hired specifically for an INSURANCE CLAIM?",
+        breakText:"Yes, Lord Pemberton specifically asked me to document 'evidence of supernatural damage' for his insurer. He was very insistent on getting dramatic footage...",
+        explanation:"Lord Pemberton hired the investigator specifically to BUILD AN INSURANCE CASE! He's using the real ghost as cover for staged property damage!" }
+    }
+  ],
+  evidence:[
+    { id:'ghost_theory', name:'Paranormal Studies Handbook', icon:'📖', desc:'Chapter 7: "Genuine hauntings are triggered by emotional resonance, never following regular schedules. Regular timed events indicate mechanical or human intervention."' },
+    { id:'renovation_plans', name:'Renovation Blueprints', icon:'📐', desc:'East wing renovation plans show hidden channels in walls marked "special effects rigging." The architect confirms these are NOT standard construction features.' },
+    { id:'insurance_claim', name:'Insurance Claim Filing', icon:'💼', desc:'Lord Pemberton filed a massive insurance claim for "supernatural property damage" — but the policy was taken out just ONE MONTH before the "violent haunting" began.' },
+    { id:'elara_diary', name:'Lady Elara\'s Diary', icon:'📔', desc:'Found in the manor library. Last entry: "I only wish to watch over my beloved garden. I would never harm this house — it is all I have left."' }
+  ]
+},

@@ -1,0 +1,1548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Collaborative Whiteboard</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;touch-action:none}
+
+#app{display:flex;height:100vh;width:100vw}
+
+/* Toolbar */
+#toolbar{width:56px;background:#16213e;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px;z-index:100;border-right:1px solid #0f3460;flex-shrink:0}
+.tool-btn{width:42px;height:42px;border:none;background:transparent;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#8892b0;transition:all .15s}
+.tool-btn:hover{background:#1a2744;color:#ccd6f6}
+.tool-btn.active{background:#0f3460;color:#64ffda;box-shadow:inset 0 0 0 1.5px #64ffda40}
+.tool-btn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tool-divider{width:32px;height:1px;background:#0f3460;margin:4px 0}
+
+/* Top bar */
+#topbar{position:fixed;top:0;left:56px;right:0;height:44px;background:#16213e;border-bottom:1px solid #0f3460;display:flex;align-items:center;padding:0 12px;gap:12px;z-index:90}
+#topbar label{font-size:12px;color:#8892b0}
+#color-picker{width:32px;height:28px;border:none;border-radius:6px;cursor:pointer;background:transparent;padding:0}
+#stroke-width{width:80px;accent-color:#64ffda}
+#stroke-width-val{font-size:11px;color:#64ffda;min-width:20px}
+.topbar-btn{background:#1a2744;border:1px solid #0f3460;color:#ccd6f6;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.topbar-btn:hover{background:#0f3460;border-color:#64ffda40}
+.topbar-btn.on{background:#064e3b;border-color:#64ffda60;color:#64ffda}
+#zoom-display{font-size:11px;color:#64ffda;min-width:48px;text-align:center}
+.spacer{flex:1}
+
+/* Canvas area */
+#canvas-wrap{flex:1;position:relative;overflow:hidden}
+canvas{position:absolute;top:0;left:0;cursor:crosshair}
+canvas.panning{cursor:grab}
+canvas.panning:active{cursor:grabbing}
+
+/* Minimap */
+#minimap{position:fixed;bottom:12px;right:12px;width:180px;height:120px;background:#16213e;border:1px solid #0f3460;border-radius:8px;z-index:80;overflow:hidden}
+#minimap canvas{width:100%;height:100%}
+#minimap-viewport{position:absolute;border:1.5px solid #64ffda;pointer-events:none;border-radius:2px}
+
+/* Connection panel */
+#conn-panel{position:fixed;top:50px;right:12px;width:340px;background:#16213e;border:1px solid #0f3460;border-radius:10px;z-index:100;display:none;box-shadow:0 8px 32px #00000060}
+#conn-panel.open{display:block}
+#conn-panel h3{padding:12px 16px 8px;font-size:14px;color:#64ffda;border-bottom:1px solid #0f3460}
+#conn-panel .panel-body{padding:12px 16px 16px}
+#conn-panel textarea{width:100%;height:70px;background:#0d1b30;border:1px solid #0f3460;color:#ccd6f6;border-radius:6px;padding:8px;font-size:11px;font-family:monospace;resize:none}
+#conn-panel button{background:#064e3b;border:1px solid #64ffda40;color:#64ffda;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;margin-top:6px;margin-right:6px}
+#conn-panel button:hover{background:#065f46}
+#conn-status{font-size:11px;padding:4px 0;color:#8892b0}
+.peer-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.peer-dot.connected{background:#64ffda}
+.peer-dot.disconnected{background:#ef4444}
+
+/* Shape recognition indicator */
+#shape-indicator{position:fixed;bottom:12px;left:68px;background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:6px 12px;font-size:12px;color:#64ffda;z-index:80;opacity:0;transition:opacity .3s;pointer-events:none}
+#shape-indicator.show{opacity:1}
+
+/* Cursor labels for peers */
+.peer-cursor{position:fixed;pointer-events:none;z-index:70;transition:left .08s linear,top .08s linear}
+.peer-cursor .cursor-arrow{width:16px;height:20px}
+.peer-cursor .cursor-label{position:absolute;top:18px;left:10px;background:#7c3aed;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap}
+
+/* Layers panel */
+#layers-panel{position:fixed;bottom:12px;left:68px;width:200px;background:#16213e;border:1px solid #0f3460;border-radius:10px;z-index:80;display:none;max-height:250px;overflow-y:auto}
+#layers-panel.open{display:block}
+#layers-panel h4{padding:8px 12px;font-size:12px;color:#64ffda;border-bottom:1px solid #0f3460;position:sticky;top:0;background:#16213e}
+
+/* Toast */
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#064e3b;color:#64ffda;padding:8px 20px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+
+@media(max-width:768px){
+  #toolbar{width:48px}
+  .tool-btn{width:36px;height:36px}
+  .tool-btn svg{width:18px;height:18px}
+  #topbar{left:48px;gap:8px;padding:0 8px;overflow-x:auto}
+  #minimap{width:140px;height:90px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <button class="tool-btn active" data-tool="pen" title="Pen (P)">
+      <svg viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="highlighter" title="Highlighter (H)">
+      <svg viewBox="0 0 24 24"><path d="M15.5 4.5l4 4L7 21H3v-4L15.5 4.5z" opacity=".5"/><path d="M15.5 4.5l4 4"/><path d="M13.5 6.5l4 4"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="eraser" title="Eraser (E)">
+      <svg viewBox="0 0 24 24"><path d="M20 20H7L3 16l8-8 9 9-4 4"/><path d="M6.5 13.5l5-5"/></svg>
+    </button>
+    <div class="tool-divider"></div>
+    <button class="tool-btn" data-tool="line" title="Line (L)">
+      <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="rect" title="Rectangle (R)">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="ellipse" title="Ellipse (O)">
+      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="arrow" title="Arrow (A)">
+      <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="12,5 19,5 19,12"/></svg>
+    </button>
+    <div class="tool-divider"></div>
+    <button class="tool-btn" data-tool="select" title="Select (V)">
+      <svg viewBox="0 0 24 24"><path d="M4 4l7 19 2.5-7.5L21 13z"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="pan" title="Pan (Space)">
+      <svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v3"/><path d="M14 10V4a2 2 0 0 0-4 0v7"/><path d="M10 10.5V5a2 2 0 0 0-4 0v9"/><path d="M22 10v1a10 10 0 0 1-10 10 10 10 0 0 1-6-2L2 15"/><path d="M22 10a2 2 0 0 0-4 0"/></svg>
+    </button>
+    <button class="tool-btn" data-tool="text" title="Text (T)">
+      <svg viewBox="0 0 24 24"><polyline points="4,7 4,4 20,4 20,7"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="8" y1="20" x2="16" y2="20"/></svg>
+    </button>
+    <div class="tool-divider"></div>
+    <button class="tool-btn" id="btn-undo" title="Undo (Ctrl+Z)">
+      <svg viewBox="0 0 24 24"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    </button>
+    <button class="tool-btn" id="btn-redo" title="Redo (Ctrl+Y)">
+      <svg viewBox="0 0 24 24"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+    </button>
+    <div class="spacer" style="flex:1"></div>
+    <button class="tool-btn" id="btn-connect" title="Connect Peer">
+      <svg viewBox="0 0 24 24"><path d="M16 16v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h4"/><path d="M14 4h6v6"/><line x1="20" y1="4" x2="10" y2="14"/></svg>
+    </button>
+  </div>
+
+  <!-- Top bar -->
+  <div id="topbar">
+    <label>Color</label>
+    <input type="color" id="color-picker" value="#e0e0e0">
+    <label>Width</label>
+    <input type="range" id="stroke-width" min="1" max="40" value="3">
+    <span id="stroke-width-val">3</span>
+    <button class="topbar-btn" id="btn-shape-detect">Shape Detect: ON</button>
+    <button class="topbar-btn" id="btn-fill">Fill: OFF</button>
+    <div class="spacer"></div>
+    <span id="zoom-display">100%</span>
+    <button class="topbar-btn" id="btn-zoom-fit" title="Fit to content">Fit</button>
+    <button class="topbar-btn" id="btn-clear">Clear</button>
+    <button class="topbar-btn" id="btn-export">Export</button>
+    <button class="topbar-btn" id="btn-save">Save</button>
+    <button class="topbar-btn" id="btn-load">Load</button>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+</div>
+
+<!-- Minimap -->
+<div id="minimap">
+  <canvas id="minimap-canvas"></canvas>
+  <div id="minimap-viewport"></div>
+</div>
+
+<!-- Shape indicator -->
+<div id="shape-indicator"></div>
+
+<!-- Connection panel -->
+<div id="conn-panel">
+  <h3>Peer-to-Peer Connection</h3>
+  <div class="panel-body">
+    <div id="conn-status"><span class="peer-dot disconnected"></span> Not connected</div>
+    <div id="conn-step-1">
+      <p style="font-size:12px;margin:6px 0">Create or join a session:</p>
+      <button id="conn-create">Create Room</button>
+      <button id="conn-join">Join Room</button>
+    </div>
+    <div id="conn-step-2" style="display:none">
+      <p style="font-size:12px;margin:6px 0" id="conn-instruction"></p>
+      <textarea id="conn-offer" readonly placeholder="Connection offer..."></textarea>
+      <button id="conn-copy">Copy</button>
+    </div>
+    <div id="conn-step-3" style="display:none">
+      <p style="font-size:12px;margin:6px 0">Paste the other peer's response:</p>
+      <textarea id="conn-answer" placeholder="Paste response here..."></textarea>
+      <button id="conn-accept">Connect</button>
+    </div>
+    <div id="conn-step-join" style="display:none">
+      <p style="font-size:12px;margin:6px 0">Paste the room offer:</p>
+      <textarea id="conn-paste-offer" placeholder="Paste offer here..."></textarea>
+      <button id="conn-gen-answer">Generate Response</button>
+    </div>
+    <div id="conn-step-join2" style="display:none">
+      <p style="font-size:12px;margin:6px 0">Send this response back to the host:</p>
+      <textarea id="conn-my-answer" readonly placeholder="Your response..."></textarea>
+      <button id="conn-copy-answer">Copy Response</button>
+    </div>
+    <p style="font-size:10px;color:#556;margin-top:8px">Also syncs across tabs in same browser automatically.</p>
+  </div>
+</div>
+
+<script>
+// ===== Constants =====
+const GRID_SIZE = 40;
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 10;
+const SHAPE_DETECT_THRESHOLD = 0.92;
+const PEER_CURSOR_THROTTLE = 50;
+
+// ===== State =====
+const state = {
+  tool: 'pen',
+  color: '#e0e0e0',
+  strokeWidth: 3,
+  shapeDetect: true,
+  fill: false,
+  camera: { x: 0, y: 0, zoom: 1 },
+  strokes: [],       // All completed strokes
+  currentStroke: null,
+  undoStack: [],
+  redoStack: [],
+  selectedIds: new Set(),
+  dragStart: null,
+  isPanning: false,
+  spaceDown: false,
+  peerId: crypto.randomUUID().slice(0, 8),
+  peers: new Map(),   // peerId -> { cursor, color }
+  peerCursors: {},
+};
+
+// ===== Canvas Setup =====
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('canvas-wrap');
+const minimapCanvas = document.getElementById('minimap-canvas');
+const minimapCtx = minimapCanvas.getContext('2d');
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = wrap.clientWidth * dpr;
+  canvas.height = wrap.clientHeight * dpr;
+  canvas.style.width = wrap.clientWidth + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  minimapCanvas.width = 180 * dpr;
+  minimapCanvas.height = 120 * dpr;
+  render();
+}
+window.addEventListener('resize', resize);
+
+// ===== Coordinate Transforms =====
+function screenToWorld(sx, sy) {
+  const { x, y, zoom } = state.camera;
+  return {
+    x: (sx - wrap.clientWidth / 2) / zoom + x,
+    y: (sy - wrap.clientHeight / 2 - 44) / zoom + y
+  };
+}
+
+function worldToScreen(wx, wy) {
+  const { x, y, zoom } = state.camera;
+  return {
+    x: (wx - x) * zoom + wrap.clientWidth / 2,
+    y: (wy - y) * zoom + wrap.clientHeight / 2
+  };
+}
+
+// ===== Grid =====
+function drawGrid() {
+  const { x, y, zoom } = state.camera;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+
+  let gridStep = GRID_SIZE;
+  while (gridStep * zoom < 20) gridStep *= 5;
+  while (gridStep * zoom > 200) gridStep /= 5;
+
+  const startX = Math.floor((x - w / 2 / zoom) / gridStep) * gridStep;
+  const startY = Math.floor((y - h / 2 / zoom) / gridStep) * gridStep;
+  const endX = x + w / 2 / zoom;
+  const endY = y + h / 2 / zoom;
+
+  ctx.strokeStyle = '#ffffff08';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let gx = startX; gx <= endX; gx += gridStep) {
+    const sx = (gx - x) * zoom + w / 2;
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, h);
+  }
+  for (let gy = startY; gy <= endY; gy += gridStep) {
+    const sy = (gy - y) * zoom + h / 2;
+    ctx.moveTo(0, sy);
+    ctx.lineTo(w, sy);
+  }
+  ctx.stroke();
+
+  // Origin crosshair
+  const ox = (0 - x) * zoom + w / 2;
+  const oy = (0 - y) * zoom + h / 2;
+  ctx.strokeStyle = '#ffffff15';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(ox, 0); ctx.lineTo(ox, h);
+  ctx.moveTo(0, oy); ctx.lineTo(w, oy);
+  ctx.stroke();
+}
+
+// ===== Stroke Rendering =====
+function renderStroke(stroke, context, zoom = 1) {
+  if (!stroke || !stroke.points || stroke.points.length === 0) return;
+  const c = context;
+  const z = zoom;
+
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+
+  if (stroke.type === 'eraser') {
+    c.globalCompositeOperation = 'destination-out';
+  } else {
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  if (stroke.type === 'highlighter') {
+    c.globalAlpha = 0.35;
+  }
+
+  c.strokeStyle = stroke.color || '#e0e0e0';
+  c.fillStyle = stroke.color || '#e0e0e0';
+
+  const baseWidth = (stroke.width || 3) * z;
+
+  // Geometric shapes
+  if (stroke.shape) {
+    c.lineWidth = baseWidth;
+    const s = stroke.shape;
+    c.beginPath();
+    if (s.type === 'line') {
+      c.moveTo(s.x1 * z, s.y1 * z);
+      c.lineTo(s.x2 * z, s.y2 * z);
+      c.stroke();
+    } else if (s.type === 'arrow') {
+      c.moveTo(s.x1 * z, s.y1 * z);
+      c.lineTo(s.x2 * z, s.y2 * z);
+      c.stroke();
+      // Arrowhead
+      const angle = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
+      const headLen = Math.max(12 * z, baseWidth * 3);
+      c.beginPath();
+      c.moveTo(s.x2 * z, s.y2 * z);
+      c.lineTo(s.x2 * z - headLen * Math.cos(angle - 0.4), s.y2 * z - headLen * Math.sin(angle - 0.4));
+      c.moveTo(s.x2 * z, s.y2 * z);
+      c.lineTo(s.x2 * z - headLen * Math.cos(angle + 0.4), s.y2 * z - headLen * Math.sin(angle + 0.4));
+      c.stroke();
+    } else if (s.type === 'rect') {
+      if (stroke.fill) {
+        c.fillRect(s.x * z, s.y * z, s.w * z, s.h * z);
+      }
+      c.strokeRect(s.x * z, s.y * z, s.w * z, s.h * z);
+    } else if (s.type === 'ellipse') {
+      c.beginPath();
+      c.ellipse(s.cx * z, s.cy * z, Math.abs(s.rx) * z, Math.abs(s.ry) * z, 0, 0, Math.PI * 2);
+      if (stroke.fill) c.fill();
+      c.stroke();
+    } else if (s.type === 'triangle') {
+      c.beginPath();
+      c.moveTo(s.points[0].x * z, s.points[0].y * z);
+      c.lineTo(s.points[1].x * z, s.points[1].y * z);
+      c.lineTo(s.points[2].x * z, s.points[2].y * z);
+      c.closePath();
+      if (stroke.fill) c.fill();
+      c.stroke();
+    }
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = 'source-over';
+    return;
+  }
+
+  // Text
+  if (stroke.type === 'text') {
+    c.font = `${(stroke.width || 16) * z}px sans-serif`;
+    c.fillStyle = stroke.color;
+    c.fillText(stroke.text, stroke.points[0].x * z, stroke.points[0].y * z);
+    c.globalAlpha = 1;
+    return;
+  }
+
+  // Freehand with pressure
+  const pts = stroke.points;
+  if (pts.length === 1) {
+    const p = pts[0];
+    const r = baseWidth * (p.pressure || 0.5) / 2;
+    c.beginPath();
+    c.arc(p.x * z, p.y * z, Math.max(r, 0.5), 0, Math.PI * 2);
+    c.fill();
+  } else if (pts.length === 2) {
+    c.lineWidth = baseWidth * ((pts[0].pressure + pts[1].pressure) / 2 || 0.5);
+    c.beginPath();
+    c.moveTo(pts[0].x * z, pts[0].y * z);
+    c.lineTo(pts[1].x * z, pts[1].y * z);
+    c.stroke();
+  } else {
+    // Variable-width stroke using segments
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i];
+      const p1 = pts[i + 1];
+      const pressure = (p0.pressure + p1.pressure) / 2 || 0.5;
+      c.lineWidth = baseWidth * pressure;
+      c.beginPath();
+      c.moveTo(p0.x * z, p0.y * z);
+      // Quadratic smooth
+      if (i < pts.length - 2) {
+        const p2 = pts[i + 2];
+        const mx = (p1.x + p2.x) / 2;
+        const my = (p1.y + p2.y) / 2;
+        c.quadraticCurveTo(p1.x * z, p1.y * z, mx * z, my * z);
+      } else {
+        c.lineTo(p1.x * z, p1.y * z);
+      }
+      c.stroke();
+    }
+  }
+
+  c.globalAlpha = 1;
+  c.globalCompositeOperation = 'source-over';
+}
+
+// ===== Selection Rendering =====
+function renderSelection() {
+  if (state.selectedIds.size === 0) return;
+  const { x, y, zoom } = state.camera;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+
+  state.strokes.forEach(s => {
+    if (!state.selectedIds.has(s.id)) return;
+    const bb = getStrokeBounds(s);
+    if (!bb) return;
+    const sx = (bb.x - x) * zoom + w / 2;
+    const sy = (bb.y - y) * zoom + h / 2;
+    const sw = bb.w * zoom;
+    const sh = bb.h * zoom;
+    ctx.strokeStyle = '#64ffda';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(sx - 6, sy - 6, sw + 12, sh + 12);
+    ctx.setLineDash([]);
+  });
+}
+
+function getStrokeBounds(stroke) {
+  if (stroke.shape) {
+    const s = stroke.shape;
+    if (s.type === 'line' || s.type === 'arrow') {
+      const minX = Math.min(s.x1, s.x2), minY = Math.min(s.y1, s.y2);
+      return { x: minX, y: minY, w: Math.abs(s.x2 - s.x1), h: Math.abs(s.y2 - s.y1) };
+    }
+    if (s.type === 'rect') return { x: s.x, y: s.y, w: s.w, h: s.h };
+    if (s.type === 'ellipse') return { x: s.cx - Math.abs(s.rx), y: s.cy - Math.abs(s.ry), w: Math.abs(s.rx) * 2, h: Math.abs(s.ry) * 2 };
+    if (s.type === 'triangle') {
+      const xs = s.points.map(p => p.x), ys = s.points.map(p => p.y);
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      return { x: minX, y: minY, w: Math.max(...xs) - minX, h: Math.max(...ys) - minY };
+    }
+  }
+  if (!stroke.points || stroke.points.length === 0) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of stroke.points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+// ===== Live Preview for Shape Tools =====
+function renderLivePreview() {
+  if (!state.currentStroke) return;
+  const s = state.currentStroke;
+  const { x, y, zoom } = state.camera;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+
+  ctx.save();
+  ctx.translate(w / 2 - x * zoom, h / 2 - y * zoom);
+
+  if (['line', 'rect', 'ellipse', 'arrow'].includes(s.type) && s.points.length >= 2) {
+    const p0 = s.points[0];
+    const p1 = s.points[s.points.length - 1];
+    const preview = { ...s, shape: null };
+
+    if (s.type === 'line') {
+      preview.shape = { type: 'line', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y };
+    } else if (s.type === 'arrow') {
+      preview.shape = { type: 'arrow', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y };
+    } else if (s.type === 'rect') {
+      const rx = Math.min(p0.x, p1.x), ry = Math.min(p0.y, p1.y);
+      preview.shape = { type: 'rect', x: rx, y: ry, w: Math.abs(p1.x - p0.x), h: Math.abs(p1.y - p0.y) };
+    } else if (s.type === 'ellipse') {
+      const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+      preview.shape = { type: 'ellipse', cx, cy, rx: Math.abs(p1.x - p0.x) / 2, ry: Math.abs(p1.y - p0.y) / 2 };
+    }
+    renderStroke(preview, ctx, zoom);
+  } else {
+    renderStroke(s, ctx, zoom);
+  }
+  ctx.restore();
+}
+
+// ===== Peer Cursors =====
+function renderPeerCursors() {
+  // Remove old cursor elements
+  document.querySelectorAll('.peer-cursor').forEach(el => el.remove());
+
+  for (const [pid, peer] of state.peers) {
+    if (!peer.cursor) continue;
+    const sp = worldToScreen(peer.cursor.x, peer.cursor.y);
+    const el = document.createElement('div');
+    el.className = 'peer-cursor';
+    el.style.left = sp.x + 'px';
+    el.style.top = (sp.y + 44) + 'px';
+    el.innerHTML = `<svg class="cursor-arrow" viewBox="0 0 16 20" fill="${peer.color}" stroke="#000" stroke-width="1"><path d="M0 0l5 18 3-7 7-3z"/></svg><span class="cursor-label" style="background:${peer.color}">${pid}</span>`;
+    document.body.appendChild(el);
+  }
+}
+
+// ===== Main Render =====
+function render() {
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  const { x, y, zoom } = state.camera;
+
+  // Clear
+  ctx.clearRect(0, 0, w, h);
+
+  // Background
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, w, h);
+
+  // Grid
+  drawGrid();
+
+  // Transform for strokes
+  ctx.save();
+  ctx.translate(w / 2 - x * zoom, h / 2 - y * zoom);
+
+  // Render all strokes
+  for (const stroke of state.strokes) {
+    renderStroke(stroke, ctx, zoom);
+  }
+
+  ctx.restore();
+
+  // Live preview
+  renderLivePreview();
+
+  // Selection
+  renderSelection();
+
+  // Peer cursors
+  renderPeerCursors();
+
+  // Update zoom display
+  document.getElementById('zoom-display').textContent = Math.round(zoom * 100) + '%';
+
+  // Minimap
+  renderMinimap();
+}
+
+// ===== Minimap =====
+function renderMinimap() {
+  const dpr = window.devicePixelRatio || 1;
+  const mw = 180, mh = 120;
+  minimapCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  minimapCtx.clearRect(0, 0, mw, mh);
+  minimapCtx.fillStyle = '#0d1b30';
+  minimapCtx.fillRect(0, 0, mw, mh);
+
+  if (state.strokes.length === 0) return;
+
+  // Compute bounds of all strokes
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const s of state.strokes) {
+    const bb = getStrokeBounds(s);
+    if (!bb) continue;
+    if (bb.x < minX) minX = bb.x;
+    if (bb.y < minY) minY = bb.y;
+    if (bb.x + bb.w > maxX) maxX = bb.x + bb.w;
+    if (bb.y + bb.h > maxY) maxY = bb.y + bb.h;
+  }
+
+  if (!isFinite(minX)) return;
+
+  const padding = 100;
+  minX -= padding; minY -= padding; maxX += padding; maxY += padding;
+  const contentW = maxX - minX || 1;
+  const contentH = maxY - minY || 1;
+  const scale = Math.min(mw / contentW, mh / contentH);
+
+  minimapCtx.save();
+  minimapCtx.translate(mw / 2 - (minX + contentW / 2) * scale, mh / 2 - (minY + contentH / 2) * scale);
+
+  for (const stroke of state.strokes) {
+    renderStroke(stroke, minimapCtx, scale);
+  }
+  minimapCtx.restore();
+
+  // Viewport rect
+  const { x, y, zoom } = state.camera;
+  const vw = wrap.clientWidth / zoom;
+  const vh = (wrap.clientHeight - 44) / zoom;
+  const vx = x - vw / 2;
+  const vy = y - vh / 2;
+
+  const svx = (vx - minX) * scale + (mw - contentW * scale) / 2;
+  const svy = (vy - minY) * scale + (mh - contentH * scale) / 2;
+  const svw = vw * scale;
+  const svh = vh * scale;
+
+  const vpEl = document.getElementById('minimap-viewport');
+  vpEl.style.left = Math.max(0, svx) + 'px';
+  vpEl.style.top = Math.max(0, svy) + 'px';
+  vpEl.style.width = Math.min(svw, mw) + 'px';
+  vpEl.style.height = Math.min(svh, mh) + 'px';
+}
+
+// ===== Shape Recognition =====
+function recognizeShape(points) {
+  if (points.length < 5) return null;
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const closedDist = Math.hypot(last.x - first.x, last.y - first.y);
+
+  // Path length
+  let pathLen = 0;
+  for (let i = 1; i < points.length; i++) {
+    pathLen += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  if (pathLen < 10) return null;
+
+  const directDist = Math.hypot(last.x - first.x, last.y - first.y);
+  const isClosed = closedDist < pathLen * 0.15;
+
+  // === Line Detection ===
+  if (!isClosed && directDist / pathLen > SHAPE_DETECT_THRESHOLD) {
+    return { type: 'line', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+  }
+
+  // === Arrow Detection ===
+  if (!isClosed && directDist / pathLen > 0.85) {
+    // Check if there's a direction change near the end (fork)
+    const tailLen = Math.floor(points.length * 0.2);
+    const tail = points.slice(-tailLen);
+    if (tail.length >= 3) {
+      const stemDir = Math.atan2(last.y - first.y, last.x - first.x);
+      let maxDeviation = 0;
+      for (const p of tail) {
+        const d = Math.abs(Math.atan2(p.y - last.y, p.x - last.x) - stemDir);
+        if (d > maxDeviation) maxDeviation = d;
+      }
+      if (maxDeviation > 0.3) {
+        return { type: 'arrow', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+      }
+    }
+  }
+
+  if (!isClosed) return null;
+
+  // === Circle Detection ===
+  let cx = 0, cy = 0;
+  for (const p of points) { cx += p.x; cy += p.y; }
+  cx /= points.length;
+  cy /= points.length;
+
+  let totalR = 0;
+  const radii = [];
+  for (const p of points) {
+    const r = Math.hypot(p.x - cx, p.y - cy);
+    radii.push(r);
+    totalR += r;
+  }
+  const avgR = totalR / points.length;
+  let variance = 0;
+  for (const r of radii) variance += (r - avgR) ** 2;
+  variance = Math.sqrt(variance / points.length) / avgR;
+
+  if (variance < 0.15) {
+    return { type: 'ellipse', cx, cy, rx: avgR, ry: avgR };
+  }
+
+  // === Rectangle Detection ===
+  const corners = findCorners(points);
+  if (corners.length === 4) {
+    // Check if angles are roughly 90 degrees
+    let allRight = true;
+    for (let i = 0; i < 4; i++) {
+      const a = corners[i];
+      const b = corners[(i + 1) % 4];
+      const c = corners[(i + 2) % 4];
+      const angle = angleBetween(a, b, c);
+      if (Math.abs(angle - Math.PI / 2) > 0.4) allRight = false;
+    }
+    if (allRight) {
+      const xs = corners.map(c => c.x);
+      const ys = corners.map(c => c.y);
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      const maxX = Math.max(...xs), maxY = Math.max(...ys);
+      return { type: 'rect', x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+  }
+
+  // === Triangle Detection ===
+  if (corners.length === 3) {
+    return { type: 'triangle', points: corners.map(c => ({ x: c.x, y: c.y })) };
+  }
+
+  // === Ellipse fallback for closed shapes ===
+  if (variance < 0.3) {
+    // Compute axis-aligned bounding box for better ellipse fit
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { type: 'ellipse', cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, rx: (maxX - minX) / 2, ry: (maxY - minY) / 2 };
+  }
+
+  return null;
+}
+
+function findCorners(points) {
+  // Find points with high curvature
+  const step = Math.max(1, Math.floor(points.length / 30));
+  const curvatures = [];
+
+  for (let i = step; i < points.length - step; i++) {
+    const prev = points[i - step];
+    const curr = points[i];
+    const next = points[i + step];
+    const angle = angleBetween(prev, curr, next);
+    curvatures.push({ index: i, angle, point: curr });
+  }
+
+  // Sort by sharpness (deviation from straight = PI)
+  curvatures.sort((a, b) => a.angle - b.angle);
+
+  // Pick top corners with minimum distance between them
+  const corners = [];
+  const minDist = Math.hypot(
+    Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)),
+    Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y))
+  ) * 0.15;
+
+  for (const c of curvatures) {
+    if (c.angle > Math.PI * 0.7) break; // Not sharp enough
+    let tooClose = false;
+    for (const existing of corners) {
+      if (Math.hypot(c.point.x - existing.x, c.point.y - existing.y) < minDist) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (!tooClose) {
+      corners.push(c.point);
+      if (corners.length >= 4) break;
+    }
+  }
+
+  return corners;
+}
+
+function angleBetween(a, b, c) {
+  const v1 = { x: a.x - b.x, y: a.y - b.y };
+  const v2 = { x: c.x - b.x, y: c.y - b.y };
+  const dot = v1.x * v2.x + v1.y * v2.y;
+  const cross = v1.x * v2.y - v1.y * v2.x;
+  return Math.abs(Math.atan2(cross, dot));
+}
+
+// ===== Pointer Events =====
+let pointerDown = false;
+let lastPanPos = null;
+
+canvas.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const world = screenToWorld(sx, sy);
+  const pressure = e.pressure || 0.5;
+
+  if (state.spaceDown || state.tool === 'pan' || e.button === 1) {
+    state.isPanning = true;
+    lastPanPos = { x: e.clientX, y: e.clientY };
+    canvas.classList.add('panning');
+    return;
+  }
+
+  pointerDown = true;
+  canvas.setPointerCapture(e.pointerId);
+
+  if (state.tool === 'select') {
+    // Hit test
+    const hit = hitTest(world.x, world.y);
+    if (hit) {
+      if (!e.shiftKey) state.selectedIds.clear();
+      state.selectedIds.add(hit.id);
+      state.dragStart = { x: world.x, y: world.y, ids: new Set(state.selectedIds) };
+    } else {
+      state.selectedIds.clear();
+    }
+    render();
+    return;
+  }
+
+  if (state.tool === 'text') {
+    const text = prompt('Enter text:');
+    if (text) {
+      const stroke = {
+        id: crypto.randomUUID(),
+        type: 'text',
+        text,
+        color: state.color,
+        width: Math.max(16, state.strokeWidth * 4),
+        points: [{ x: world.x, y: world.y }],
+        peerId: state.peerId,
+        timestamp: Date.now()
+      };
+      addStroke(stroke);
+      broadcast({ type: 'stroke', stroke });
+    }
+    return;
+  }
+
+  state.currentStroke = {
+    id: crypto.randomUUID(),
+    type: state.tool,
+    color: state.tool === 'eraser' ? '#000' : state.color,
+    width: state.tool === 'highlighter' ? state.strokeWidth * 3 : state.strokeWidth,
+    fill: state.fill,
+    points: [{ x: world.x, y: world.y, pressure }],
+    peerId: state.peerId,
+    timestamp: Date.now()
+  };
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const world = screenToWorld(sx, sy);
+
+  // Broadcast cursor position
+  throttledBroadcastCursor(world);
+
+  if (state.isPanning && lastPanPos) {
+    const dx = e.clientX - lastPanPos.x;
+    const dy = e.clientY - lastPanPos.y;
+    state.camera.x -= dx / state.camera.zoom;
+    state.camera.y -= dy / state.camera.zoom;
+    lastPanPos = { x: e.clientX, y: e.clientY };
+    render();
+    return;
+  }
+
+  if (!pointerDown || !state.currentStroke) {
+    if (state.tool === 'select' && state.dragStart && pointerDown) {
+      // Move selected strokes
+      const dx = world.x - state.dragStart.x;
+      const dy = world.y - state.dragStart.y;
+      moveSelectedStrokes(dx, dy);
+      state.dragStart.x = world.x;
+      state.dragStart.y = world.y;
+      render();
+    }
+    return;
+  }
+
+  const pressure = e.pressure || 0.5;
+
+  if (['line', 'rect', 'ellipse', 'arrow'].includes(state.tool)) {
+    // For shape tools, only keep first and current point
+    if (state.currentStroke.points.length < 2) {
+      state.currentStroke.points.push({ x: world.x, y: world.y, pressure });
+    } else {
+      state.currentStroke.points[1] = { x: world.x, y: world.y, pressure };
+    }
+  } else {
+    // Freehand: add point with distance threshold
+    const pts = state.currentStroke.points;
+    const last = pts[pts.length - 1];
+    const dist = Math.hypot(world.x - last.x, world.y - last.y);
+    if (dist > 1 / state.camera.zoom) {
+      pts.push({ x: world.x, y: world.y, pressure });
+    }
+  }
+
+  render();
+});
+
+canvas.addEventListener('pointerup', (e) => {
+  if (state.isPanning) {
+    state.isPanning = false;
+    lastPanPos = null;
+    canvas.classList.remove('panning');
+    return;
+  }
+
+  if (state.dragStart) {
+    state.dragStart = null;
+  }
+
+  if (!pointerDown || !state.currentStroke) {
+    pointerDown = false;
+    return;
+  }
+
+  pointerDown = false;
+  let stroke = state.currentStroke;
+  state.currentStroke = null;
+
+  // Shape tool finalization
+  if (['line', 'rect', 'ellipse', 'arrow'].includes(stroke.type) && stroke.points.length >= 2) {
+    const p0 = stroke.points[0];
+    const p1 = stroke.points[stroke.points.length - 1];
+    if (stroke.type === 'line') {
+      stroke.shape = { type: 'line', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y };
+    } else if (stroke.type === 'arrow') {
+      stroke.shape = { type: 'arrow', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y };
+    } else if (stroke.type === 'rect') {
+      const rx = Math.min(p0.x, p1.x), ry = Math.min(p0.y, p1.y);
+      stroke.shape = { type: 'rect', x: rx, y: ry, w: Math.abs(p1.x - p0.x), h: Math.abs(p1.y - p0.y) };
+    } else if (stroke.type === 'ellipse') {
+      const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+      stroke.shape = { type: 'ellipse', cx, cy, rx: Math.abs(p1.x - p0.x) / 2, ry: Math.abs(p1.y - p0.y) / 2 };
+    }
+  }
+  // Shape recognition for freehand
+  else if ((stroke.type === 'pen' || stroke.type === 'highlighter') && state.shapeDetect) {
+    const shape = recognizeShape(stroke.points);
+    if (shape) {
+      stroke.shape = shape;
+      showShapeIndicator(shape.type);
+    }
+  }
+
+  addStroke(stroke);
+  broadcast({ type: 'stroke', stroke });
+  render();
+});
+
+// ===== Zoom =====
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const worldBefore = screenToWorld(sx, sy);
+
+  const factor = e.deltaY > 0 ? 0.92 : 1.08;
+  state.camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.camera.zoom * factor));
+
+  // Zoom toward cursor
+  const worldAfter = screenToWorld(sx, sy);
+  state.camera.x -= worldAfter.x - worldBefore.x;
+  state.camera.y -= worldAfter.y - worldBefore.y;
+
+  render();
+}, { passive: false });
+
+// Touch pinch zoom
+let lastTouchDist = 0;
+let lastTouchCenter = null;
+canvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    const dx = e.touches[1].clientX - e.touches[0].clientX;
+    const dy = e.touches[1].clientY - e.touches[0].clientY;
+    lastTouchDist = Math.hypot(dx, dy);
+    lastTouchCenter = {
+      x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+      y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+    };
+  }
+}, { passive: true });
+
+canvas.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const dx = e.touches[1].clientX - e.touches[0].clientX;
+    const dy = e.touches[1].clientY - e.touches[0].clientY;
+    const dist = Math.hypot(dx, dy);
+    const center = {
+      x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+      y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+    };
+
+    if (lastTouchDist > 0) {
+      const factor = dist / lastTouchDist;
+      const rect = canvas.getBoundingClientRect();
+      const sx = center.x - rect.left;
+      const sy = center.y - rect.top;
+      const worldBefore = screenToWorld(sx, sy);
+      state.camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.camera.zoom * factor));
+      const worldAfter = screenToWorld(sx, sy);
+      state.camera.x -= worldAfter.x - worldBefore.x;
+      state.camera.y -= worldAfter.y - worldBefore.y;
+    }
+    if (lastTouchCenter) {
+      state.camera.x -= (center.x - lastTouchCenter.x) / state.camera.zoom;
+      state.camera.y -= (center.y - lastTouchCenter.y) / state.camera.zoom;
+    }
+
+    lastTouchDist = dist;
+    lastTouchCenter = center;
+    render();
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+  lastTouchDist = 0;
+  lastTouchCenter = null;
+});
+
+// ===== Hit Test =====
+function hitTest(wx, wy) {
+  for (let i = state.strokes.length - 1; i >= 0; i--) {
+    const s = state.strokes[i];
+    const bb = getStrokeBounds(s);
+    if (!bb) continue;
+    const margin = Math.max(10, (s.width || 3) * 2);
+    if (wx >= bb.x - margin && wx <= bb.x + bb.w + margin &&
+        wy >= bb.y - margin && wy <= bb.y + bb.h + margin) {
+      return s;
+    }
+  }
+  return null;
+}
+
+function moveSelectedStrokes(dx, dy) {
+  for (const s of state.strokes) {
+    if (!state.selectedIds.has(s.id)) continue;
+    if (s.shape) {
+      const sh = s.shape;
+      if (sh.type === 'line' || sh.type === 'arrow') {
+        sh.x1 += dx; sh.y1 += dy; sh.x2 += dx; sh.y2 += dy;
+      } else if (sh.type === 'rect') {
+        sh.x += dx; sh.y += dy;
+      } else if (sh.type === 'ellipse') {
+        sh.cx += dx; sh.cy += dy;
+      } else if (sh.type === 'triangle') {
+        sh.points.forEach(p => { p.x += dx; p.y += dy; });
+      }
+    }
+    if (s.points) {
+      s.points.forEach(p => { p.x += dx; p.y += dy; });
+    }
+  }
+}
+
+// ===== Undo/Redo =====
+function addStroke(stroke) {
+  state.strokes.push(stroke);
+  state.undoStack.push({ action: 'add', strokeId: stroke.id });
+  state.redoStack = [];
+}
+
+function undo() {
+  const entry = state.undoStack.pop();
+  if (!entry) return;
+  if (entry.action === 'add') {
+    const idx = state.strokes.findIndex(s => s.id === entry.strokeId);
+    if (idx !== -1) {
+      const removed = state.strokes.splice(idx, 1)[0];
+      state.redoStack.push({ action: 'add', stroke: removed });
+      broadcast({ type: 'remove', strokeId: removed.id });
+    }
+  } else if (entry.action === 'remove') {
+    state.strokes.push(entry.stroke);
+    state.redoStack.push({ action: 'remove', strokeId: entry.stroke.id });
+    broadcast({ type: 'stroke', stroke: entry.stroke });
+  }
+  render();
+}
+
+function redo() {
+  const entry = state.redoStack.pop();
+  if (!entry) return;
+  if (entry.action === 'add') {
+    state.strokes.push(entry.stroke);
+    state.undoStack.push({ action: 'add', strokeId: entry.stroke.id });
+    broadcast({ type: 'stroke', stroke: entry.stroke });
+  } else if (entry.action === 'remove') {
+    const idx = state.strokes.findIndex(s => s.id === entry.strokeId);
+    if (idx !== -1) {
+      const removed = state.strokes.splice(idx, 1)[0];
+      state.undoStack.push({ action: 'remove', stroke: removed });
+      broadcast({ type: 'remove', strokeId: removed.id });
+    }
+  }
+  render();
+}
+
+// ===== Toolbar Events =====
+document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.tool = btn.dataset.tool;
+    canvas.classList.toggle('panning', state.tool === 'pan');
+  });
+});
+
+document.getElementById('color-picker').addEventListener('input', (e) => {
+  state.color = e.target.value;
+});
+
+document.getElementById('stroke-width').addEventListener('input', (e) => {
+  state.strokeWidth = parseInt(e.target.value);
+  document.getElementById('stroke-width-val').textContent = e.target.value;
+});
+
+document.getElementById('btn-shape-detect').addEventListener('click', (e) => {
+  state.shapeDetect = !state.shapeDetect;
+  e.target.textContent = 'Shape Detect: ' + (state.shapeDetect ? 'ON' : 'OFF');
+  e.target.classList.toggle('on', state.shapeDetect);
+});
+
+document.getElementById('btn-fill').addEventListener('click', (e) => {
+  state.fill = !state.fill;
+  e.target.textContent = 'Fill: ' + (state.fill ? 'ON' : 'OFF');
+  e.target.classList.toggle('on', state.fill);
+});
+
+document.getElementById('btn-undo').addEventListener('click', undo);
+document.getElementById('btn-redo').addEventListener('click', redo);
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  if (state.strokes.length === 0) return;
+  if (!confirm('Clear all strokes?')) return;
+  state.strokes = [];
+  state.undoStack = [];
+  state.redoStack = [];
+  broadcast({ type: 'clear' });
+  render();
+});
+
+document.getElementById('btn-zoom-fit').addEventListener('click', () => {
+  if (state.strokes.length === 0) {
+    state.camera = { x: 0, y: 0, zoom: 1 };
+    render();
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const s of state.strokes) {
+    const bb = getStrokeBounds(s);
+    if (!bb) continue;
+    if (bb.x < minX) minX = bb.x;
+    if (bb.y < minY) minY = bb.y;
+    if (bb.x + bb.w > maxX) maxX = bb.x + bb.w;
+    if (bb.y + bb.h > maxY) maxY = bb.y + bb.h;
+  }
+  if (!isFinite(minX)) return;
+  const cw = maxX - minX || 1;
+  const ch = maxY - minY || 1;
+  const padding = 80;
+  state.camera.zoom = Math.min(
+    (wrap.clientWidth - padding * 2) / cw,
+    (wrap.clientHeight - 44 - padding * 2) / ch,
+    5
+  );
+  state.camera.x = minX + cw / 2;
+  state.camera.y = minY + ch / 2;
+  render();
+});
+
+// Export as PNG
+document.getElementById('btn-export').addEventListener('click', () => {
+  if (state.strokes.length === 0) { toast('Nothing to export'); return; }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const s of state.strokes) {
+    const bb = getStrokeBounds(s);
+    if (!bb) continue;
+    minX = Math.min(minX, bb.x);
+    minY = Math.min(minY, bb.y);
+    maxX = Math.max(maxX, bb.x + bb.w);
+    maxY = Math.max(maxY, bb.y + bb.h);
+  }
+  const pad = 40;
+  const w = (maxX - minX) + pad * 2;
+  const h = (maxY - minY) + pad * 2;
+  const expCanvas = document.createElement('canvas');
+  expCanvas.width = w * 2;
+  expCanvas.height = h * 2;
+  const expCtx = expCanvas.getContext('2d');
+  expCtx.scale(2, 2);
+  expCtx.fillStyle = '#1a1a2e';
+  expCtx.fillRect(0, 0, w, h);
+  expCtx.translate(pad - minX, pad - minY);
+  for (const s of state.strokes) renderStroke(s, expCtx, 1);
+  const link = document.createElement('a');
+  link.download = 'whiteboard-' + Date.now() + '.png';
+  link.href = expCanvas.toDataURL('image/png');
+  link.click();
+  toast('Exported PNG');
+});
+
+// Save/Load JSON
+document.getElementById('btn-save').addEventListener('click', () => {
+  const data = JSON.stringify({ strokes: state.strokes, camera: state.camera }, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.download = 'whiteboard-' + Date.now() + '.json';
+  link.href = URL.createObjectURL(blob);
+  link.click();
+  toast('Saved');
+});
+
+document.getElementById('btn-load').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.strokes) {
+          state.strokes = data.strokes;
+          if (data.camera) state.camera = data.camera;
+          state.undoStack = [];
+          state.redoStack = [];
+          broadcast({ type: 'sync', strokes: state.strokes });
+          render();
+          toast('Loaded ' + state.strokes.length + ' strokes');
+        }
+      } catch { toast('Invalid file'); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+// ===== Keyboard Shortcuts =====
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+  if (e.code === 'Space' && !state.spaceDown) {
+    e.preventDefault();
+    state.spaceDown = true;
+    canvas.classList.add('panning');
+  }
+
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'z') { e.preventDefault(); undo(); }
+    if (e.key === 'y' || (e.shiftKey && e.key === 'z')) { e.preventDefault(); redo(); }
+    if (e.key === 's') { e.preventDefault(); document.getElementById('btn-save').click(); }
+    return;
+  }
+
+  const toolKeys = { p: 'pen', h: 'highlighter', e: 'eraser', l: 'line', r: 'rect', o: 'ellipse', a: 'arrow', v: 'select', t: 'text' };
+  if (toolKeys[e.key]) {
+    document.querySelector(`.tool-btn[data-tool="${toolKeys[e.key]}"]`)?.click();
+  }
+
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (state.selectedIds.size > 0) {
+      for (const id of state.selectedIds) {
+        const idx = state.strokes.findIndex(s => s.id === id);
+        if (idx !== -1) {
+          const removed = state.strokes.splice(idx, 1)[0];
+          state.undoStack.push({ action: 'remove', stroke: removed });
+          broadcast({ type: 'remove', strokeId: id });
+        }
+      }
+      state.selectedIds.clear();
+      state.redoStack = [];
+      render();
+    }
+  }
+
+  if (e.key === '+' || e.key === '=') {
+    state.camera.zoom = Math.min(MAX_ZOOM, state.camera.zoom * 1.15);
+    render();
+  }
+  if (e.key === '-') {
+    state.camera.zoom = Math.max(MIN_ZOOM, state.camera.zoom / 1.15);
+    render();
+  }
+  if (e.key === '0') {
+    state.camera = { x: 0, y: 0, zoom: 1 };
+    render();
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') {
+    state.spaceDown = false;
+    if (state.tool !== 'pan') canvas.classList.remove('panning');
+  }
+});
+
+// ===== Shape Indicator =====
+function showShapeIndicator(type) {
+  const el = document.getElementById('shape-indicator');
+  const names = { line: 'Line', arrow: 'Arrow', rect: 'Rectangle', ellipse: 'Ellipse', triangle: 'Triangle' };
+  el.textContent = 'Recognized: ' + (names[type] || type);
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 1200);
+}
+
+// ===== Toast =====
+function toast(msg) {
+  let el = document.querySelector('.toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ===== P2P Sync =====
+// --- BroadcastChannel (same browser, cross-tab) ---
+const bc = new BroadcastChannel('whiteboard-sync');
+bc.onmessage = (e) => handlePeerMessage(e.data, 'broadcast');
+
+// --- WebRTC ---
+let peerConnection = null;
+let dataChannel = null;
+const peerColors = ['#7c3aed', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899'];
+
+function broadcast(msg) {
+  msg.peerId = state.peerId;
+  // BroadcastChannel
+  try { bc.postMessage(msg); } catch {}
+  // WebRTC DataChannel
+  if (dataChannel && dataChannel.readyState === 'open') {
+    try { dataChannel.send(JSON.stringify(msg)); } catch {}
+  }
+}
+
+let cursorThrottleTimer = 0;
+function throttledBroadcastCursor(pos) {
+  const now = Date.now();
+  if (now - cursorThrottleTimer < PEER_CURSOR_THROTTLE) return;
+  cursorThrottleTimer = now;
+  broadcast({ type: 'cursor', x: pos.x, y: pos.y });
+}
+
+function handlePeerMessage(msg, source) {
+  if (msg.peerId === state.peerId) return;
+
+  // Track peer
+  if (!state.peers.has(msg.peerId)) {
+    state.peers.set(msg.peerId, {
+      color: peerColors[state.peers.size % peerColors.length],
+      cursor: null
+    });
+  }
+
+  switch (msg.type) {
+    case 'stroke':
+      if (!state.strokes.find(s => s.id === msg.stroke.id)) {
+        state.strokes.push(msg.stroke);
+        render();
+      }
+      break;
+    case 'remove':
+      const idx = state.strokes.findIndex(s => s.id === msg.strokeId);
+      if (idx !== -1) { state.strokes.splice(idx, 1); render(); }
+      break;
+    case 'clear':
+      state.strokes = [];
+      state.undoStack = [];
+      state.redoStack = [];
+      render();
+      break;
+    case 'sync':
+      // Merge: keep strokes we have that peer doesn't know about, add theirs
+      const existingIds = new Set(state.strokes.map(s => s.id));
+      for (const s of msg.strokes) {
+        if (!existingIds.has(s.id)) state.strokes.push(s);
+      }
+      render();
+      break;
+    case 'cursor':
+      const peer = state.peers.get(msg.peerId);
+      if (peer) {
+        peer.cursor = { x: msg.x, y: msg.y };
+        renderPeerCursors();
+      }
+      break;
+    case 'request-sync':
+      broadcast({ type: 'sync', strokes: state.strokes });
+      break;
+  }
+}
+
+// Connection panel
+document.getElementById('btn-connect').addEventListener('click', () => {
+  document.getElementById('conn-panel').classList.toggle('open');
+});
+
+document.getElementById('conn-create').addEventListener('click', async () => {
+  try {
+    peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    dataChannel = peerConnection.createDataChannel('whiteboard');
+    setupDataChannel(dataChannel);
+
+    peerConnection.onicecandidate = (e) => {
+      if (!e.candidate) {
+        // ICE gathering complete
+        const offer = btoa(JSON.stringify(peerConnection.localDescription));
+        document.getElementById('conn-offer').value = offer;
+      }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    document.getElementById('conn-step-1').style.display = 'none';
+    document.getElementById('conn-step-2').style.display = 'block';
+    document.getElementById('conn-step-3').style.display = 'block';
+    document.getElementById('conn-instruction').textContent = 'Send this offer to the other peer:';
+  } catch (err) {
+    toast('WebRTC error: ' + err.message);
+  }
+});
+
+document.getElementById('conn-copy').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('conn-offer').value);
+  toast('Copied to clipboard');
+});
+
+document.getElementById('conn-accept').addEventListener('click', async () => {
+  try {
+    const answerStr = document.getElementById('conn-answer').value.trim();
+    const answer = JSON.parse(atob(answerStr));
+    await peerConnection.setRemoteDescription(answer);
+    toast('Connecting...');
+  } catch (err) {
+    toast('Invalid response: ' + err.message);
+  }
+});
+
+document.getElementById('conn-join').addEventListener('click', () => {
+  document.getElementById('conn-step-1').style.display = 'none';
+  document.getElementById('conn-step-join').style.display = 'block';
+});
+
+document.getElementById('conn-gen-answer').addEventListener('click', async () => {
+  try {
+    const offerStr = document.getElementById('conn-paste-offer').value.trim();
+    const offer = JSON.parse(atob(offerStr));
+
+    peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    peerConnection.ondatachannel = (e) => {
+      dataChannel = e.channel;
+      setupDataChannel(dataChannel);
+    };
+
+    peerConnection.onicecandidate = (e) => {
+      if (!e.candidate) {
+        const answer = btoa(JSON.stringify(peerConnection.localDescription));
+        document.getElementById('conn-my-answer').value = answer;
+      }
+    };
+
+    await peerConnection.setRemoteDescription(offer);
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    document.getElementById('conn-step-join').style.display = 'none';
+    document.getElementById('conn-step-join2').style.display = 'block';
+  } catch (err) {
+    toast('Invalid offer: ' + err.message);
+  }
+});
+
+document.getElementById('conn-copy-answer').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('conn-my-answer').value);
+  toast('Copied response');
+});
+
+function setupDataChannel(ch) {
+  ch.onopen = () => {
+    document.getElementById('conn-status').innerHTML = '<span class="peer-dot connected"></span> Connected';
+    toast('Peer connected!');
+    // Request sync
+    broadcast({ type: 'request-sync' });
+  };
+  ch.onclose = () => {
+    document.getElementById('conn-status').innerHTML = '<span class="peer-dot disconnected"></span> Disconnected';
+    toast('Peer disconnected');
+  };
+  ch.onmessage = (e) => {
+    try {
+      handlePeerMessage(JSON.parse(e.data), 'webrtc');
+    } catch {}
+  };
+}
+
+// ===== LocalStorage Auto-save =====
+function autoSave() {
+  try {
+    const data = { strokes: state.strokes, camera: state.camera };
+    localStorage.setItem('whiteboard-state', JSON.stringify(data));
+  } catch {}
+}
+
+function autoLoad() {
+  try {
+    const raw = localStorage.getItem('whiteboard-state');
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data.strokes) state.strokes = data.strokes;
+      if (data.camera) state.camera = data.camera;
+    }
+  } catch {}
+}
+
+// Auto-save every 5 seconds
+setInterval(autoSave, 5000);
+
+// ===== Init =====
+autoLoad();
+resize();
+
+// Request sync from other tabs
+broadcast({ type: 'request-sync' });
+
+// Initial shape detect button state
+document.getElementById('btn-shape-detect').classList.add('on');
+</script>
+</body>
+</html>

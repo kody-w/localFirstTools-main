@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landmark Art Studio — Face & Hand Detection</title>
+    <meta name="description" content="Real-time face and hand landmark detection art tool with particle swarms, neon skull wireframe, hand paint trails, kaleidoscope, and digital mask effects">
+    <!-- webcam, face, hand, mediapipe, landmarks, art, interactive, detection -->
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a12; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        #canvas-wrap { position: relative; border-radius: 12px; overflow: hidden; box-shadow: 0 0 60px rgba(100,100,255,0.15); }
+        canvas { display: block; background: #000; }
+        video { display: none; }
+        #loading {
+            position: fixed; inset: 0; background: #0a0a12; z-index: 200;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        }
+        #loading h1 { color: #fff; font-size: 28px; font-weight: 200; letter-spacing: 4px; }
+        #load-status { color: rgba(255,255,255,0.5); font-size: 14px; }
+        .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #7c6aff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #toolbar {
+            position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 6px; z-index: 50; padding: 6px 10px;
+            background: rgba(10,10,18,0.8); backdrop-filter: blur(12px);
+            border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);
+        }
+        .filter-btn {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.6); padding: 7px 14px; border-radius: 8px;
+            font-size: 12px; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+        }
+        .filter-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+        .filter-btn.active { background: rgba(120,100,255,0.3); border-color: rgba(120,100,255,0.5); color: #fff; }
+
+        #bottom-bar {
+            position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 12px; align-items: center; z-index: 50; padding: 6px 14px;
+            background: rgba(10,10,18,0.8); backdrop-filter: blur(12px);
+            border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);
+        }
+        #record-btn {
+            background: rgba(255,60,60,0.15); border: 1px solid rgba(255,60,60,0.3);
+            color: #ff6666; padding: 7px 16px; border-radius: 8px; font-size: 12px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        #record-btn:hover { background: rgba(255,60,60,0.3); }
+        #record-btn.recording { background: rgba(255,30,30,0.5); border-color: #ff3333; color: #fff; animation: pulse 1s ease infinite; }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+        #snap-btn {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.6); padding: 7px 16px; border-radius: 8px;
+            font-size: 12px; cursor: pointer; transition: all 0.2s;
+        }
+        #snap-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+        .status { color: rgba(255,255,255,0.4); font-size: 11px; }
+        #fps { color: rgba(255,255,255,0.3); font-size: 11px; font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <h1>LANDMARK ART STUDIO</h1>
+        <div class="spinner"></div>
+        <div id="load-status">Initializing…</div>
+    </div>
+
+    <video id="video" playsinline></video>
+
+    <div id="canvas-wrap"><canvas id="canvas"></canvas></div>
+
+    <div id="toolbar">
+        <button class="filter-btn active" data-filter="particles">✨ Particles</button>
+        <button class="filter-btn" data-filter="neon">💀 Neon Skull</button>
+        <button class="filter-btn" data-filter="paint">🎨 Hand Paint</button>
+        <button class="filter-btn" data-filter="kaleidoscope">🔮 Kaleidoscope</button>
+        <button class="filter-btn" data-filter="mask">🎭 Digital Mask</button>
+        <button class="filter-btn" data-filter="landmarks">👁 Landmarks</button>
+    </div>
+
+    <div id="bottom-bar">
+        <button id="record-btn">⏺ Record</button>
+        <button id="snap-btn">📷 Snapshot</button>
+        <span class="status" id="face-status">—</span>
+        <span class="status" id="hand-status">—</span>
+        <span id="fps">— FPS</span>
+    </div>
+
+    <script type="module">
+    import {
+        FaceLandmarker, HandLandmarker, FilesetResolver
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+    // ─── CONFIG ─────────────────────────────────────────────
+    const W = 640, H = 480;
+    const PARTICLE_COUNT = 600;
+    const TRAIL_LEN = 60;
+    const HAND_CONNS = [
+        [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+        [5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+        [13,17],[0,17],[17,18],[18,19],[19,20]
+    ];
+
+    // ─── ELEMENTS ───────────────────────────────────────────
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = W; canvas.height = H;
+
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = W; offCanvas.height = H;
+    const offCtx = offCanvas.getContext('2d');
+    offCtx.fillStyle = '#000';
+    offCtx.fillRect(0, 0, W, H);
+
+    // ─── STATE ──────────────────────────────────────────────
+    let faceLM, handLM;
+    let currentFilter = 'particles';
+    let videoReady = false;
+    let maskTime = 0;
+    const handTrails = new Map();
+
+    // Mirror helper: MediaPipe gives un-mirrored coords; display is mirrored
+    function lx(lm) { return (1 - lm.x) * W; }
+    function ly(lm) { return lm.y * H; }
+
+    // ─── PARTICLES ──────────────────────────────────────────
+    const particles = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        particles.push({
+            x: Math.random() * W, y: Math.random() * H,
+            vx: 0, vy: 0,
+            target: Math.floor(Math.random() * 468),
+            hue: Math.random() * 360,
+            size: 1 + Math.random() * 2.5
+        });
+    }
+
+    // ─── WEBCAM ─────────────────────────────────────────────
+    async function startWebcam() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: W }, height: { ideal: H }, facingMode: 'user' }
+        });
+        video.srcObject = stream;
+        await video.play();
+        videoReady = true;
+    }
+
+    // ─── LOAD MODELS ────────────────────────────────────────
+    async function loadModels() {
+        const wasm = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+        const fs = await FilesetResolver.forVisionTasks(wasm);
+
+        document.getElementById('load-status').textContent = 'Loading face model…';
+        faceLM = await FaceLandmarker.createFromOptions(fs, {
+            baseOptions: {
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task',
+                delegate: 'GPU'
+            },
+            runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: false
+        });
+
+        document.getElementById('load-status').textContent = 'Loading hand model…';
+        handLM = await HandLandmarker.createFromOptions(fs, {
+            baseOptions: {
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task',
+                delegate: 'GPU'
+            },
+            runningMode: 'VIDEO', numHands: 2
+        });
+    }
+
+    // ─── DRAW HELPERS ───────────────────────────────────────
+    function drawVideo(target = ctx) {
+        target.save();
+        target.scale(-1, 1);
+        target.drawImage(video, -W, 0, W, H);
+        target.restore();
+    }
+
+    function drawConn(c, lms, strokeStyle, lineWidth, shadowBlur, shadowColor) {
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        if (shadowBlur) { ctx.shadowBlur = shadowBlur; ctx.shadowColor = shadowColor || strokeStyle; }
+        ctx.beginPath();
+        ctx.moveTo(lx(lms[c.start]), ly(lms[c.start]));
+        ctx.lineTo(lx(lms[c.end]), ly(lms[c.end]));
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    // ─── FILTER: PARTICLES ──────────────────────────────────
+    function renderParticles(faceLms) {
+        // Dim video background
+        ctx.globalAlpha = 0.15;
+        drawVideo();
+        ctx.globalAlpha = 1;
+
+        // Fade trail
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillRect(0, 0, W, H);
+
+        if (!faceLms || !faceLms.length) return;
+        const lms = faceLms[0];
+
+        for (const p of particles) {
+            const t = lms[p.target];
+            const tx = lx(t), ty = ly(t);
+            const dx = tx - p.x, dy = ty - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            p.vx += dx * 0.015 + (Math.random() - 0.5) * 1.5;
+            p.vy += dy * 0.015 + (Math.random() - 0.5) * 1.5;
+            p.vx *= 0.93; p.vy *= 0.93;
+            p.x += p.vx; p.y += p.vy;
+            p.hue = (p.hue + 0.6) % 360;
+
+            if (Math.random() < 0.006) p.target = Math.floor(Math.random() * Math.min(lms.length, 468));
+
+            const alpha = Math.max(0.15, 1 - dist / 180);
+            ctx.fillStyle = `hsla(${p.hue},100%,65%,${alpha})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // ─── FILTER: NEON SKULL ─────────────────────────────────
+    function renderNeon(faceLms) {
+        drawVideo();
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, W, H);
+
+        if (!faceLms || !faceLms.length) return;
+        const lms = faceLms[0];
+        const t = performance.now() * 0.001;
+
+        ctx.save();
+        // Tesselation mesh
+        const tess = FaceLandmarker.FACE_LANDMARKS_TESSELATION;
+        if (tess) {
+            ctx.lineWidth = 0.6;
+            for (const c of tess) {
+                const hue = ((c.start + c.end) * 0.35 + t * 40) % 360;
+                drawConn(c, lms, `hsla(${hue},100%,65%,0.45)`, 0.6, 6, `hsl(${hue},100%,50%)`);
+            }
+        }
+
+        // Feature highlights
+        const feats = [
+            [FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, '#00ffff'],
+            [FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, '#00ffff'],
+            [FaceLandmarker.FACE_LANDMARKS_LIPS, '#ff00cc'],
+            [FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, '#00ff88'],
+            [FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, '#ffaa00'],
+            [FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, '#ffaa00'],
+        ];
+        for (const [conns, color] of feats) {
+            if (!conns) continue;
+            for (const c of conns) drawConn(c, lms, color, 1.8, 18, color);
+        }
+
+        // Iris glow
+        const irises = [FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS];
+        ctx.fillStyle = '#ff0044';
+        ctx.shadowBlur = 22;
+        ctx.shadowColor = '#ff0044';
+        for (const iris of irises) {
+            if (!iris) continue;
+            for (const c of iris) {
+                ctx.beginPath();
+                ctx.arc(lx(lms[c.start]), ly(lms[c.start]), 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+
+    // ─── FILTER: HAND PAINT ─────────────────────────────────
+    function renderPaint(handLms) {
+        // Slow fade on offscreen canvas
+        offCtx.fillStyle = 'rgba(0,0,0,0.012)';
+        offCtx.fillRect(0, 0, W, H);
+
+        if (handLms && handLms.length) {
+            const t = performance.now() * 0.001;
+            for (let hi = 0; hi < handLms.length; hi++) {
+                const hand = handLms[hi];
+                const tips = [4, 8, 12, 16, 20];
+                for (const idx of tips) {
+                    const key = `${hi}_${idx}`;
+                    if (!handTrails.has(key)) handTrails.set(key, []);
+                    const trail = handTrails.get(key);
+                    trail.push({ x: lx(hand[idx]), y: ly(hand[idx]) });
+                    while (trail.length > TRAIL_LEN) trail.shift();
+
+                    offCtx.lineCap = 'round';
+                    for (let i = 1; i < trail.length; i++) {
+                        const a = i / trail.length;
+                        const hue = (idx * 55 + t * 50 + i * 4) % 360;
+                        offCtx.strokeStyle = `hsla(${hue},100%,60%,${a})`;
+                        offCtx.lineWidth = 1.5 + a * 7;
+                        offCtx.beginPath();
+                        offCtx.moveTo(trail[i - 1].x, trail[i - 1].y);
+                        offCtx.lineTo(trail[i].x, trail[i].y);
+                        offCtx.stroke();
+                    }
+
+                    // Fingertip glow
+                    const tip = trail[trail.length - 1];
+                    if (tip) {
+                        offCtx.save();
+                        offCtx.shadowBlur = 18;
+                        offCtx.shadowColor = `hsl(${(idx * 55 + t * 50) % 360},100%,60%)`;
+                        offCtx.fillStyle = '#fff';
+                        offCtx.beginPath();
+                        offCtx.arc(tip.x, tip.y, 4, 0, Math.PI * 2);
+                        offCtx.fill();
+                        offCtx.restore();
+                    }
+                }
+
+                // Hand skeleton
+                offCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+                offCtx.lineWidth = 1;
+                for (const [a, b] of HAND_CONNS) {
+                    offCtx.beginPath();
+                    offCtx.moveTo(lx(hand[a]), ly(hand[a]));
+                    offCtx.lineTo(lx(hand[b]), ly(hand[b]));
+                    offCtx.stroke();
+                }
+            }
+        }
+
+        drawVideo();
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(offCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+    }
+
+    // ─── FILTER: KALEIDOSCOPE ───────────────────────────────
+    function renderKaleidoscope(faceLms) {
+        // Render mirrored video to offscreen
+        drawVideo(offCtx);
+
+        let cx = W / 2, cy = H / 2;
+        if (faceLms && faceLms.length) {
+            const nose = faceLms[0][1];
+            cx = lx(nose); cy = ly(nose);
+        }
+
+        const segments = 8;
+        const step = (Math.PI * 2) / segments;
+
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+
+        for (let i = 0; i < segments; i++) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(i * step + performance.now() * 0.0001);
+            if (i % 2) ctx.scale(1, -1);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            const r = Math.max(W, H);
+            ctx.lineTo(r, 0);
+            ctx.lineTo(r * Math.cos(step), r * Math.sin(step));
+            ctx.closePath();
+            ctx.clip();
+            ctx.translate(-cx, -cy);
+            ctx.drawImage(offCanvas, 0, 0);
+            ctx.restore();
+        }
+    }
+
+    // ─── FILTER: DIGITAL MASK ───────────────────────────────
+    function renderMask(faceLms) {
+        drawVideo();
+        if (!faceLms || !faceLms.length) return;
+        const lms = faceLms[0];
+        maskTime += 0.018;
+
+        const oval = FaceLandmarker.FACE_LANDMARKS_FACE_OVAL;
+        if (!oval || !oval.length) return;
+
+        // Clip to face oval
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(lx(lms[oval[0].start]), ly(lms[oval[0].start]));
+        for (const c of oval) ctx.lineTo(lx(lms[c.end]), ly(lms[c.end]));
+        ctx.closePath();
+        ctx.clip();
+
+        // Plasma pattern via overlapping radial gradients
+        ctx.globalAlpha = 0.7;
+        ctx.globalCompositeOperation = 'screen';
+        for (let i = 0; i < 7; i++) {
+            const px = W / 2 + Math.sin(maskTime * 0.8 + i * 1.3) * W / 3;
+            const py = H / 2 + Math.cos(maskTime * 0.6 + i * 1.9) * H / 3;
+            const rad = 80 + Math.sin(maskTime + i * 0.9) * 40;
+            const hue = (i * 52 + maskTime * 45) % 360;
+            const grad = ctx.createRadialGradient(px, py, 0, px, py, rad);
+            grad.addColorStop(0, `hsla(${hue},100%,60%,0.7)`);
+            grad.addColorStop(0.6, `hsla(${hue + 40},100%,40%,0.3)`);
+            grad.addColorStop(1, `hsla(${hue + 80},100%,20%,0)`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        // Scan lines
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `hsla(${maskTime * 60 % 360},100%,70%,0.2)`;
+        ctx.lineWidth = 0.8;
+        for (let y = 0; y < H; y += 6) {
+            const off = Math.sin(y * 0.04 + maskTime * 3) * 4;
+            ctx.beginPath();
+            ctx.moveTo(off, y);
+            ctx.lineTo(W + off, y);
+            ctx.stroke();
+        }
+
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+
+        // Glowing face oval border
+        ctx.save();
+        ctx.shadowBlur = 16;
+        const hBorder = maskTime * 45 % 360;
+        ctx.shadowColor = `hsl(${hBorder},100%,55%)`;
+        ctx.strokeStyle = `hsla(${hBorder},100%,65%,0.85)`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(lx(lms[oval[0].start]), ly(lms[oval[0].start]));
+        for (const c of oval) ctx.lineTo(lx(lms[c.end]), ly(lms[c.end]));
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // ─── FILTER: LANDMARKS ──────────────────────────────────
+    function renderLandmarks(faceLms, handLms) {
+        drawVideo();
+        if (faceLms && faceLms.length) {
+            ctx.fillStyle = 'rgba(0,255,140,0.65)';
+            for (const lm of faceLms[0]) {
+                ctx.beginPath();
+                ctx.arc(lx(lm), ly(lm), 1.4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        if (handLms && handLms.length) {
+            for (const hand of handLms) {
+                ctx.fillStyle = 'rgba(255,100,100,0.8)';
+                for (const lm of hand) {
+                    ctx.beginPath();
+                    ctx.arc(lx(lm), ly(lm), 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.strokeStyle = 'rgba(255,200,100,0.5)';
+                ctx.lineWidth = 2;
+                for (const [a, b] of HAND_CONNS) {
+                    ctx.beginPath();
+                    ctx.moveTo(lx(hand[a]), ly(hand[a]));
+                    ctx.lineTo(lx(hand[b]), ly(hand[b]));
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    // ─── RECORDING ──────────────────────────────────────────
+    let mediaRec = null, recChunks = [];
+
+    function startRec() {
+        recChunks = [];
+        const stream = canvas.captureStream(30);
+        const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+        let mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+        mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+        mediaRec.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
+        mediaRec.onstop = () => {
+            const blob = new Blob(recChunks, { type: mediaRec.mimeType || 'video/webm' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `landmark-art-${Date.now()}.webm`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        };
+        mediaRec.start(100);
+    }
+    function stopRec() { if (mediaRec && mediaRec.state === 'recording') mediaRec.stop(); mediaRec = null; }
+
+    // ─── SNAPSHOT ───────────────────────────────────────────
+    function snapshot() {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = `landmark-art-${Date.now()}.png`;
+        a.click();
+    }
+
+    // ─── MAIN LOOP ──────────────────────────────────────────
+    let fpsCt = 0, fpsT = 0, fps = 0;
+
+    function render(ts) {
+        requestAnimationFrame(render);
+        if (!videoReady) return;
+
+        // FPS
+        fpsCt++;
+        if (ts - fpsT > 1000) { fps = fpsCt; fpsCt = 0; fpsT = ts; document.getElementById('fps').textContent = fps + ' FPS'; }
+
+        // Detection
+        const now = performance.now();
+        let faceLms = null, handLms = null;
+        try { faceLms = faceLM.detectForVideo(video, now).faceLandmarks; } catch (e) {}
+        try { handLms = handLM.detectForVideo(video, now).landmarks; } catch (e) {}
+
+        // Status
+        document.getElementById('face-status').textContent = faceLms?.length ? '😊 Face' : '— No face';
+        document.getElementById('hand-status').textContent = handLms?.length ? `✋ ${handLms.length} hand(s)` : '— No hands';
+
+        switch (currentFilter) {
+            case 'particles': renderParticles(faceLms); break;
+            case 'neon': renderNeon(faceLms); break;
+            case 'paint': renderPaint(handLms); break;
+            case 'kaleidoscope': renderKaleidoscope(faceLms); break;
+            case 'mask': renderMask(faceLms); break;
+            case 'landmarks': renderLandmarks(faceLms, handLms); break;
+        }
+    }
+
+    // ─── EVENTS ─────────────────────────────────────────────
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentFilter = btn.dataset.filter;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (currentFilter === 'paint') {
+                handTrails.clear();
+                offCtx.fillStyle = '#000';
+                offCtx.fillRect(0, 0, W, H);
+            }
+        });
+    });
+
+    document.getElementById('record-btn').addEventListener('click', function () {
+        if (!mediaRec || mediaRec.state !== 'recording') {
+            startRec(); this.classList.add('recording'); this.textContent = '⏹ Stop';
+        } else {
+            stopRec(); this.classList.remove('recording'); this.textContent = '⏺ Record';
+        }
+    });
+
+    document.getElementById('snap-btn').addEventListener('click', snapshot);
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', e => {
+        const map = { '1': 'particles', '2': 'neon', '3': 'paint', '4': 'kaleidoscope', '5': 'mask', '6': 'landmarks' };
+        if (map[e.key]) {
+            document.querySelector(`.filter-btn[data-filter="${map[e.key]}"]`).click();
+        }
+        if (e.key === 'r') document.getElementById('record-btn').click();
+        if (e.key === 's') snapshot();
+    });
+
+    // ─── INIT ───────────────────────────────────────────────
+    async function init() {
+        try {
+            document.getElementById('load-status').textContent = 'Requesting webcam…';
+            await startWebcam();
+            await loadModels();
+            document.getElementById('load-status').textContent = 'Ready!';
+            setTimeout(() => document.getElementById('loading').style.display = 'none', 400);
+            requestAnimationFrame(render);
+        } catch (e) {
+            document.getElementById('load-status').textContent = '❌ ' + e.message;
+            console.error(e);
+        }
+    }
+    init();
+    </script>
+</body>
+</html>

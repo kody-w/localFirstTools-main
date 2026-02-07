@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural City Generator — Infinite Explorable 3D City</title>
+    <meta name="description" content="Infinite procedural 3D city with buildings, roads, parks, traffic, day/night cycle, and first-person exploration">
+    <!-- procedural, city, 3d, threejs, infinite, generation, exploration, webgl -->
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        canvas { display: block; }
+        #hud {
+            position: fixed; top: 16px; left: 16px; color: #fff;
+            font-size: 13px; pointer-events: none; z-index: 10;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+            line-height: 1.6;
+        }
+        #hud .label { opacity: 0.6; font-size: 11px; }
+        #clock {
+            position: fixed; top: 16px; right: 16px; color: #fff;
+            font-size: 28px; font-weight: 300; letter-spacing: 2px; z-index: 10;
+            pointer-events: none; text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+        }
+        #minimap {
+            position: fixed; bottom: 16px; right: 16px; width: 160px; height: 160px;
+            border: 2px solid rgba(255,255,255,0.3); border-radius: 8px;
+            background: rgba(0,0,0,0.5); z-index: 10; pointer-events: none;
+        }
+        #crosshair {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            width: 20px; height: 20px; z-index: 10; pointer-events: none; opacity: 0.5;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: #fff;
+        }
+        #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+        #crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+        #controls {
+            position: fixed; bottom: 16px; left: 16px; color: rgba(255,255,255,0.5);
+            font-size: 11px; z-index: 10; pointer-events: none; line-height: 1.8;
+        }
+        #splash {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 100; cursor: pointer; flex-direction: column; gap: 20px;
+        }
+        #splash h1 { color: #fff; font-size: 36px; font-weight: 200; letter-spacing: 4px; }
+        #splash p { color: rgba(255,255,255,0.5); font-size: 14px; }
+        #splash .keys { color: rgba(255,255,255,0.35); font-size: 12px; margin-top: 10px; line-height: 2; }
+        #daybar {
+            position: fixed; top: 50px; right: 16px; width: 180px; height: 6px;
+            background: rgba(255,255,255,0.1); border-radius: 3px; z-index: 10;
+            pointer-events: none; overflow: hidden;
+        }
+        #daybar-fill {
+            height: 100%; border-radius: 3px;
+            transition: width 0.5s linear, background 0.5s;
+        }
+    </style>
+</head>
+<body>
+    <div id="splash">
+        <h1>PROCEDURAL CITY</h1>
+        <p>Click to explore an infinite generated city</p>
+        <div class="keys">
+            WASD — Move &nbsp;|&nbsp; Mouse — Look &nbsp;|&nbsp; Shift — Sprint<br>
+            Space — Jump &nbsp;|&nbsp; T — Toggle time speed &nbsp;|&nbsp; F — Toggle fog
+        </div>
+    </div>
+    <div id="hud">
+        <div class="label">POSITION</div>
+        <div id="pos">0, 0</div>
+        <div class="label" style="margin-top:6px">CHUNK</div>
+        <div id="chunk">0, 0</div>
+        <div class="label" style="margin-top:6px">LOADED</div>
+        <div id="loaded">0 chunks</div>
+    </div>
+    <div id="clock">12:00</div>
+    <div id="daybar"><div id="daybar-fill"></div></div>
+    <canvas id="minimap"></canvas>
+    <div id="crosshair"></div>
+    <div id="controls">
+        WASD Move · Mouse Look · Shift Sprint · Space Jump · T Time · F Fog
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    (() => {
+    'use strict';
+
+    // ─── CONFIGURATION ──────────────────────────────────────────
+    const CHUNK_SIZE = 80;
+    const RENDER_DIST = 3;
+    const BLOCK_SIZE = 16;
+    const ROAD_WIDTH = 6;
+    const SIDEWALK_WIDTH = 1.2;
+    const PLAYER_HEIGHT = 2.5;
+    const PLAYER_SPEED = 12;
+    const SPRINT_MULT = 2.2;
+    const JUMP_VEL = 8;
+    const GRAVITY = -22;
+    const DAY_DURATION = 180; // seconds per full day cycle
+    const MAX_CARS_PER_CHUNK = 6;
+    const BUILDING_MIN_H = 4;
+    const BUILDING_MAX_H = 55;
+
+    // ─── SEEDED RANDOM ──────────────────────────────────────────
+    function mulberry32(a) {
+        return function() {
+            a |= 0; a = a + 0x6D2B79F5 | 0;
+            let t = Math.imul(a ^ a >>> 15, 1 | a);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+            return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+    }
+    function chunkSeed(cx, cz) {
+        return cx * 73856093 ^ cz * 19349663 ^ 0xDEADBEEF;
+    }
+
+    // ─── COLOR PALETTES ─────────────────────────────────────────
+    const BUILDING_COLORS = [
+        0x8899aa, 0x667788, 0x556677, 0x99aabb, 0x778899,
+        0xaabbcc, 0x445566, 0x6b7b8b, 0x5a6a7a, 0x7a8a9a,
+        0xb0b8c0, 0x9aa0a8, 0x606870, 0x484f58, 0x707880,
+        0xc8b8a0, 0xb0a090, 0xa09080, 0xd0c0a8, 0x887868
+    ];
+    const CAR_COLORS = [
+        0xff3333, 0x3366ff, 0xffcc00, 0x33cc33, 0xffffff,
+        0x222222, 0xff6600, 0x9933ff, 0x00cccc, 0xcc3366
+    ];
+    const PARK_TREE_COLOR = 0x2d5a27;
+    const PARK_GRASS_COLOR = 0x3a7a34;
+
+    // ─── SCENE SETUP ────────────────────────────────────────────
+    let scene, camera, renderer, listener;
+    const clock = new THREE.Clock();
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x88aacc, 0.006);
+
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 500);
+    camera.position.set(0, PLAYER_HEIGHT, 0);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.appendChild(renderer.domElement);
+
+    // ─── LIGHTING ───────────────────────────────────────────────
+    const ambientLight = new THREE.AmbientLight(0x404060, 0.4);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.camera.left = -80;
+    sunLight.shadow.camera.right = 80;
+    sunLight.shadow.camera.top = 80;
+    sunLight.shadow.camera.bottom = -80;
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 300;
+    sunLight.shadow.bias = -0.001;
+    scene.add(sunLight);
+    scene.add(sunLight.target);
+
+    const moonLight = new THREE.DirectionalLight(0x4466aa, 0.15);
+    scene.add(moonLight);
+
+    const hemiLight = new THREE.HemisphereLight(0x88aacc, 0x444422, 0.3);
+    scene.add(hemiLight);
+
+    // ─── SUN / MOON SPHERES ─────────────────────────────────────
+    const sunGeo = new THREE.SphereGeometry(5, 16, 16);
+    const sunMat = new THREE.MeshBasicMaterial({ color: 0xffee88 });
+    const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+    scene.add(sunMesh);
+
+    const moonGeo = new THREE.SphereGeometry(3, 16, 16);
+    const moonMat = new THREE.MeshBasicMaterial({ color: 0xccddff });
+    const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+    scene.add(moonMesh);
+
+    // ─── STARS ──────────────────────────────────────────────────
+    const starGeo = new THREE.BufferGeometry();
+    const starVerts = [];
+    for (let i = 0; i < 2000; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = 400;
+        starVerts.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+    }
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, sizeAttenuation: true });
+    const stars = new THREE.Points(starGeo, starMat);
+    scene.add(stars);
+
+    // ─── TEXTURE GENERATORS ─────────────────────────────────────
+    function createBuildingTexture(rng, floors, tint) {
+        const cv = document.createElement('canvas');
+        const cols = 4 + Math.floor(rng() * 4);
+        cv.width = cols * 16;
+        cv.height = floors * 16;
+        const ctx = cv.getContext('2d');
+        // Base color
+        const r = (tint >> 16) & 0xff, g = (tint >> 8) & 0xff, b = tint & 0xff;
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(0, 0, cv.width, cv.height);
+
+        // Subtle variation per floor
+        for (let fy = 0; fy < floors; fy++) {
+            const v = Math.floor(rng() * 12 - 6);
+            ctx.fillStyle = `rgb(${Math.max(0,r+v)},${Math.max(0,g+v)},${Math.max(0,b+v)})`;
+            ctx.fillRect(0, fy * 16, cv.width, 16);
+        }
+
+        // Windows
+        for (let fy = 0; fy < floors; fy++) {
+            for (let fx = 0; fx < cols; fx++) {
+                const lit = rng() > 0.35;
+                if (lit) {
+                    const warmth = rng();
+                    const wr = Math.floor(200 + warmth * 55);
+                    const wg = Math.floor(180 + warmth * 50);
+                    const wb = Math.floor(120 + warmth * 80);
+                    ctx.fillStyle = `rgb(${wr},${wg},${wb})`;
+                } else {
+                    ctx.fillStyle = `rgb(${Math.max(0,r-30)},${Math.max(0,g-30)},${Math.max(0,b-30)})`;
+                }
+                ctx.fillRect(fx * 16 + 3, fy * 16 + 3, 10, 10);
+                // Window frame
+                ctx.strokeStyle = `rgba(0,0,0,0.3)`;
+                ctx.lineWidth = 0.5;
+                ctx.strokeRect(fx * 16 + 3, fy * 16 + 3, 10, 10);
+            }
+        }
+
+        // Horizontal ledges every few floors
+        ctx.fillStyle = `rgba(0,0,0,0.15)`;
+        for (let fy = 0; fy < floors; fy += 3 + Math.floor(rng() * 3)) {
+            ctx.fillRect(0, fy * 16, cv.width, 2);
+        }
+
+        const tex = new THREE.CanvasTexture(cv);
+        tex.magFilter = THREE.NearestFilter;
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        return tex;
+    }
+
+    function createRoadTexture() {
+        const cv = document.createElement('canvas');
+        cv.width = 128; cv.height = 128;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(0, 0, 128, 128);
+        // Center dashes
+        ctx.setLineDash([16, 12]);
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(64, 0); ctx.lineTo(64, 128); ctx.stroke();
+        // Edge lines
+        ctx.setLineDash([]);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(4, 128); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(124, 0); ctx.lineTo(124, 128); ctx.stroke();
+        const tex = new THREE.CanvasTexture(cv);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        return tex;
+    }
+
+    function createSidewalkTexture() {
+        const cv = document.createElement('canvas');
+        cv.width = 64; cv.height = 64;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#999';
+        ctx.fillRect(0, 0, 64, 64);
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 64; i += 16) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 64); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(64, i); ctx.stroke();
+        }
+        const tex = new THREE.CanvasTexture(cv);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        return tex;
+    }
+
+    const roadTex = createRoadTexture();
+    const sidewalkTex = createSidewalkTexture();
+
+    // ─── MATERIALS (shared) ─────────────────────────────────────
+    const roadMat = new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9 });
+    const sidewalkMat = new THREE.MeshStandardMaterial({ map: sidewalkTex, roughness: 0.8, color: 0xaaaaaa });
+    const grassMat = new THREE.MeshStandardMaterial({ color: PARK_GRASS_COLOR, roughness: 0.95 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x445566, roughness: 0.7 });
+
+    // ─── CHUNK MANAGEMENT ───────────────────────────────────────
+    const chunks = new Map();
+    const chunkGroup = new THREE.Group();
+    scene.add(chunkGroup);
+
+    function chunkKey(cx, cz) { return `${cx},${cz}`; }
+
+    function getChunkCoord(worldX, worldZ) {
+        return [Math.floor(worldX / CHUNK_SIZE), Math.floor(worldZ / CHUNK_SIZE)];
+    }
+
+    // ─── L-SYSTEM ROAD LAYOUT ───────────────────────────────────
+    // Generates a grid of roads within a chunk with controlled randomness
+    function generateRoadLayout(cx, cz, rng) {
+        const roads = []; // {x, z, w, d, dir:'x'|'z'}
+        const half = CHUNK_SIZE / 2;
+        const ox = cx * CHUNK_SIZE;
+        const oz = cz * CHUNK_SIZE;
+
+        // Primary roads along chunk borders (guaranteed connectivity)
+        roads.push({ x: ox, z: oz, w: CHUNK_SIZE, d: ROAD_WIDTH, dir: 'x', primary: true }); // south edge
+        roads.push({ x: ox, z: oz, w: ROAD_WIDTH, d: CHUNK_SIZE, dir: 'z', primary: true }); // west edge
+
+        // L-system inspired secondary roads
+        // Axiom: place roads at intervals with jitter
+        const numXRoads = 2 + Math.floor(rng() * 2);
+        const numZRoads = 2 + Math.floor(rng() * 2);
+        const step = CHUNK_SIZE / (numXRoads + 1);
+        const stepZ = CHUNK_SIZE / (numZRoads + 1);
+
+        for (let i = 1; i <= numXRoads; i++) {
+            const jitter = (rng() - 0.5) * step * 0.3;
+            const zPos = oz + i * step + jitter;
+            roads.push({ x: ox, z: zPos, w: CHUNK_SIZE, d: ROAD_WIDTH * 0.7, dir: 'x', primary: false });
+        }
+        for (let i = 1; i <= numZRoads; i++) {
+            const jitter = (rng() - 0.5) * stepZ * 0.3;
+            const xPos = ox + i * stepZ + jitter;
+            roads.push({ x: xPos, z: oz, w: ROAD_WIDTH * 0.7, d: CHUNK_SIZE, dir: 'z', primary: false });
+        }
+
+        return roads;
+    }
+
+    // ─── BUILDING GENERATION ────────────────────────────────────
+    function generateBuildings(cx, cz, rng, roads) {
+        const buildings = [];
+        const ox = cx * CHUNK_SIZE;
+        const oz = cz * CHUNK_SIZE;
+
+        // Create city blocks by finding spaces between roads
+        const xPositions = [ox];
+        const zPositions = [oz];
+        roads.forEach(r => {
+            if (r.dir === 'z') xPositions.push(r.x);
+            if (r.dir === 'x') zPositions.push(r.z);
+        });
+        xPositions.push(ox + CHUNK_SIZE);
+        zPositions.push(oz + CHUNK_SIZE);
+        xPositions.sort((a, b) => a - b);
+        zPositions.sort((a, b) => a - b);
+
+        for (let xi = 0; xi < xPositions.length - 1; xi++) {
+            for (let zi = 0; zi < zPositions.length - 1; zi++) {
+                const bx = xPositions[xi] + ROAD_WIDTH + SIDEWALK_WIDTH;
+                const bz = zPositions[zi] + ROAD_WIDTH + SIDEWALK_WIDTH;
+                const bw = xPositions[xi + 1] - xPositions[xi] - ROAD_WIDTH * 2 - SIDEWALK_WIDTH * 2;
+                const bd = zPositions[zi + 1] - zPositions[zi] - ROAD_WIDTH * 2 - SIDEWALK_WIDTH * 2;
+
+                if (bw < 3 || bd < 3) continue;
+
+                // Chance of park
+                if (rng() < 0.12) {
+                    buildings.push({ x: bx, z: bz, w: bw, d: bd, type: 'park' });
+                    continue;
+                }
+
+                // Distance from origin affects building height
+                const dist = Math.sqrt((bx - CHUNK_SIZE / 2) ** 2 + (bz - CHUNK_SIZE / 2) ** 2);
+                const downtownFactor = Math.max(0.3, 1 - dist / 600);
+
+                // Fill block with 1-4 buildings
+                const numBuildings = 1 + Math.floor(rng() * Math.min(3, Math.floor(bw / 6)));
+                const sliceW = bw / numBuildings;
+
+                for (let bi = 0; bi < numBuildings; bi++) {
+                    const bxOff = bi * sliceW + rng() * 0.5;
+                    const w = sliceW - 1 - rng() * 2;
+                    const d = bd - rng() * 3;
+                    if (w < 2.5 || d < 2.5) continue;
+
+                    const maxH = BUILDING_MIN_H + (BUILDING_MAX_H - BUILDING_MIN_H) * downtownFactor;
+                    const h = BUILDING_MIN_H + rng() * (maxH - BUILDING_MIN_H);
+                    const color = BUILDING_COLORS[Math.floor(rng() * BUILDING_COLORS.length)];
+
+                    buildings.push({
+                        x: bx + bxOff, z: bz + rng() * 0.5,
+                        w: Math.max(2.5, w), d: Math.max(2.5, d), h,
+                        color, type: 'building'
+                    });
+                }
+            }
+        }
+        return buildings;
+    }
+
+    // ─── CAR PATHS ──────────────────────────────────────────────
+    function generateCarPaths(cx, cz, rng, roads) {
+        const paths = [];
+        const numCars = 1 + Math.floor(rng() * MAX_CARS_PER_CHUNK);
+        for (let i = 0; i < numCars; i++) {
+            const road = roads[Math.floor(rng() * roads.length)];
+            const color = CAR_COLORS[Math.floor(rng() * CAR_COLORS.length)];
+            const speed = 5 + rng() * 12;
+            let startX, startZ, endX, endZ;
+            if (road.dir === 'x') {
+                const lane = road.z + ROAD_WIDTH * (0.25 + rng() * 0.5);
+                startX = road.x; startZ = lane;
+                endX = road.x + road.w; endZ = lane;
+            } else {
+                const lane = road.x + ROAD_WIDTH * (0.25 + rng() * 0.5);
+                startX = lane; startZ = road.z;
+                endX = lane; endZ = road.z + road.d;
+            }
+            paths.push({ startX, startZ, endX, endZ, color, speed, progress: rng() });
+        }
+        return paths;
+    }
+
+    // ─── BUILD CHUNK MESH ───────────────────────────────────────
+    function buildChunk(cx, cz) {
+        const key = chunkKey(cx, cz);
+        if (chunks.has(key)) return;
+
+        const rng = mulberry32(chunkSeed(cx, cz));
+        const group = new THREE.Group();
+        group.userData = { cx, cz, colliders: [], cars: [], carPaths: [], streetLights: [] };
+
+        const ox = cx * CHUNK_SIZE;
+        const oz = cz * CHUNK_SIZE;
+
+        // Ground plane
+        const groundGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(ox + CHUNK_SIZE / 2, 0, oz + CHUNK_SIZE / 2);
+        ground.receiveShadow = true;
+        group.add(ground);
+
+        // Roads
+        const roads = generateRoadLayout(cx, cz, rng);
+        roads.forEach(road => {
+            const geo = new THREE.PlaneGeometry(
+                road.dir === 'x' ? road.w : road.d,
+                road.dir === 'x' ? road.d : road.w
+            );
+            const rMesh = new THREE.Mesh(geo, roadMat.clone());
+            rMesh.material.map = roadTex.clone();
+            rMesh.material.map.repeat.set(
+                road.dir === 'x' ? road.w / 8 : road.d / 8,
+                road.dir === 'x' ? 1 : 1
+            );
+            rMesh.rotation.x = -Math.PI / 2;
+            if (road.dir === 'x') {
+                rMesh.position.set(road.x + road.w / 2, 0.02, road.z + road.d / 2);
+            } else {
+                rMesh.position.set(road.x + road.w / 2, 0.02, road.z + road.d / 2);
+                rMesh.rotation.z = Math.PI / 2;
+            }
+            group.add(rMesh);
+
+            // Sidewalks alongside roads
+            for (let side = -1; side <= 1; side += 2) {
+                const swGeo = new THREE.PlaneGeometry(
+                    road.dir === 'x' ? road.w : SIDEWALK_WIDTH,
+                    road.dir === 'x' ? SIDEWALK_WIDTH : road.d
+                );
+                const sw = new THREE.Mesh(swGeo, sidewalkMat);
+                sw.rotation.x = -Math.PI / 2;
+                if (road.dir === 'x') {
+                    sw.position.set(road.x + road.w / 2, 0.04, road.z + road.d / 2 + side * (road.d / 2 + SIDEWALK_WIDTH / 2));
+                } else {
+                    sw.position.set(road.x + road.w / 2 + side * (road.w / 2 + SIDEWALK_WIDTH / 2), 0.04, road.z + road.d / 2);
+                }
+                group.add(sw);
+            }
+        });
+
+        // Street lights along primary roads
+        roads.forEach(road => {
+            if (!road.primary) return;
+            const count = Math.floor((road.dir === 'x' ? road.w : road.d) / 20);
+            for (let i = 0; i < count; i++) {
+                const t = (i + 0.5) / count;
+                for (let side = -1; side <= 1; side += 2) {
+                    const poleGeo = new THREE.CylinderGeometry(0.1, 0.12, 5, 6);
+                    const poleMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.5 });
+                    const pole = new THREE.Mesh(poleGeo, poleMat);
+
+                    let px, pz;
+                    if (road.dir === 'x') {
+                        px = road.x + t * road.w;
+                        pz = road.z + road.d / 2 + side * (road.d / 2 + SIDEWALK_WIDTH + 0.3);
+                    } else {
+                        px = road.x + road.w / 2 + side * (road.w / 2 + SIDEWALK_WIDTH + 0.3);
+                        pz = road.z + t * road.d;
+                    }
+                    pole.position.set(px, 2.5, pz);
+                    pole.castShadow = true;
+                    group.add(pole);
+
+                    // Light fixture
+                    const lampGeo = new THREE.SphereGeometry(0.3, 8, 8);
+                    const lampMat = new THREE.MeshBasicMaterial({ color: 0xffdd88 });
+                    const lamp = new THREE.Mesh(lampGeo, lampMat);
+                    lamp.position.set(px, 5.2, pz);
+                    group.add(lamp);
+
+                    group.userData.streetLights.push(lamp);
+                    // Arm
+                    const armGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.2, 4);
+                    const arm = new THREE.Mesh(armGeo, poleMat);
+                    arm.rotation.z = Math.PI / 2 * side;
+                    arm.position.set(px + side * 0.4, 5, pz);
+                    group.add(arm);
+                }
+            }
+        });
+
+        // Buildings & Parks
+        const buildings = generateBuildings(cx, cz, rng, roads);
+        buildings.forEach(b => {
+            if (b.type === 'park') {
+                // Park ground
+                const pgeo = new THREE.PlaneGeometry(b.w, b.d);
+                const park = new THREE.Mesh(pgeo, grassMat);
+                park.rotation.x = -Math.PI / 2;
+                park.position.set(b.x + b.w / 2, 0.03, b.z + b.d / 2);
+                park.receiveShadow = true;
+                group.add(park);
+
+                // Trees
+                const numTrees = 2 + Math.floor(rng() * 5);
+                for (let t = 0; t < numTrees; t++) {
+                    const tx = b.x + 1 + rng() * (b.w - 2);
+                    const tz = b.z + 1 + rng() * (b.d - 2);
+                    const th = 2 + rng() * 4;
+
+                    const trunkGeo = new THREE.CylinderGeometry(0.15, 0.2, th * 0.4, 6);
+                    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x664422, roughness: 0.9 });
+                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                    trunk.position.set(tx, th * 0.2, tz);
+                    trunk.castShadow = true;
+                    group.add(trunk);
+
+                    const crownGeo = new THREE.SphereGeometry(th * 0.35, 8, 6);
+                    const crownMat = new THREE.MeshStandardMaterial({
+                        color: PARK_TREE_COLOR + Math.floor(rng() * 0x101010),
+                        roughness: 0.85
+                    });
+                    const crown = new THREE.Mesh(crownGeo, crownMat);
+                    crown.position.set(tx, th * 0.55, tz);
+                    crown.castShadow = true;
+                    group.add(crown);
+                }
+
+                // Park bench
+                if (rng() > 0.5) {
+                    const benchGeo = new THREE.BoxGeometry(2, 0.5, 0.6);
+                    const bench = new THREE.Mesh(benchGeo, new THREE.MeshStandardMaterial({ color: 0x885533, roughness: 0.8 }));
+                    bench.position.set(b.x + b.w / 2, 0.25, b.z + b.d * 0.7);
+                    bench.castShadow = true;
+                    group.add(bench);
+                }
+                return;
+            }
+
+            // Building
+            const floors = Math.max(1, Math.round(b.h / 3));
+            const tex = createBuildingTexture(rng, floors, b.color);
+
+            const geo = new THREE.BoxGeometry(b.w, b.h, b.d);
+            const wallMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 });
+            const mesh = new THREE.Mesh(geo, [wallMat, wallMat, roofMat, roofMat, wallMat, wallMat]);
+            mesh.position.set(b.x + b.w / 2, b.h / 2, b.z + b.d / 2);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            group.add(mesh);
+
+            // Collision box
+            group.userData.colliders.push(new THREE.Box3(
+                new THREE.Vector3(b.x - 0.3, 0, b.z - 0.3),
+                new THREE.Vector3(b.x + b.w + 0.3, b.h, b.z + b.d + 0.3)
+            ));
+
+            // Rooftop details
+            if (b.h > 15 && rng() > 0.4) {
+                const antGeo = new THREE.CylinderGeometry(0.05, 0.05, 2 + rng() * 3, 4);
+                const ant = new THREE.Mesh(antGeo, new THREE.MeshStandardMaterial({ color: 0x888888 }));
+                ant.position.set(b.x + b.w / 2 + rng() * 2 - 1, b.h + 1.5, b.z + b.d / 2 + rng() * 2 - 1);
+                group.add(ant);
+            }
+            if (b.h > 20 && rng() > 0.6) {
+                const acGeo = new THREE.BoxGeometry(1.5, 0.8, 1.5);
+                const ac = new THREE.Mesh(acGeo, new THREE.MeshStandardMaterial({ color: 0x778888, roughness: 0.6 }));
+                ac.position.set(b.x + b.w * 0.3, b.h + 0.4, b.z + b.d * 0.7);
+                group.add(ac);
+            }
+        });
+
+        // Cars
+        const carPaths = generateCarPaths(cx, cz, rng, roads);
+        carPaths.forEach(cp => {
+            const carGeo = new THREE.BoxGeometry(1.8, 0.8, 3.2);
+            const carMat = new THREE.MeshStandardMaterial({ color: cp.color, roughness: 0.4, metalness: 0.3 });
+            const car = new THREE.Mesh(carGeo, carMat);
+            car.castShadow = true;
+            car.receiveShadow = true;
+            group.add(car);
+
+            // Windshield
+            const wsGeo = new THREE.BoxGeometry(1.6, 0.5, 0.05);
+            const wsMat = new THREE.MeshStandardMaterial({ color: 0x88bbdd, roughness: 0.1, metalness: 0.5, transparent: true, opacity: 0.6 });
+            const ws = new THREE.Mesh(wsGeo, wsMat);
+            ws.position.set(0, 0.3, -1.2);
+            car.add(ws);
+
+            // Headlights
+            const hlGeo = new THREE.SphereGeometry(0.12, 6, 6);
+            const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+            for (let s = -1; s <= 1; s += 2) {
+                const hl = new THREE.Mesh(hlGeo, hlMat);
+                hl.position.set(s * 0.6, -0.1, -1.65);
+                car.add(hl);
+            }
+            // Tail lights
+            const tlMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+            for (let s = -1; s <= 1; s += 2) {
+                const tl = new THREE.Mesh(hlGeo, tlMat);
+                tl.position.set(s * 0.6, -0.1, 1.65);
+                car.add(tl);
+            }
+
+            group.userData.cars.push(car);
+            group.userData.carPaths.push(cp);
+        });
+
+        chunkGroup.add(group);
+        chunks.set(key, group);
+    }
+
+    function removeChunk(key) {
+        const group = chunks.get(key);
+        if (!group) return;
+        chunkGroup.remove(group);
+        group.traverse(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+                if (Array.isArray(obj.material)) obj.material.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+                else { if (obj.material.map) obj.material.map.dispose(); obj.material.dispose(); }
+            }
+        });
+        chunks.delete(key);
+    }
+
+    function updateChunks(px, pz) {
+        const [pcx, pcz] = getChunkCoord(px, pz);
+        const needed = new Set();
+
+        for (let dx = -RENDER_DIST; dx <= RENDER_DIST; dx++) {
+            for (let dz = -RENDER_DIST; dz <= RENDER_DIST; dz++) {
+                const key = chunkKey(pcx + dx, pcz + dz);
+                needed.add(key);
+                if (!chunks.has(key)) buildChunk(pcx + dx, pcz + dz);
+            }
+        }
+
+        for (const key of chunks.keys()) {
+            if (!needed.has(key)) removeChunk(key);
+        }
+    }
+
+    // ─── PLAYER / FIRST PERSON ──────────────────────────────────
+    const player = {
+        x: CHUNK_SIZE / 2, y: PLAYER_HEIGHT, z: CHUNK_SIZE / 2,
+        vx: 0, vy: 0, vz: 0,
+        yaw: 0, pitch: 0,
+        onGround: true
+    };
+    const keys = {};
+    let pointerLocked = false;
+    let timeSpeed = 1;
+    let fogEnabled = true;
+
+    document.addEventListener('keydown', e => {
+        keys[e.code] = true;
+        if (e.code === 'KeyT') timeSpeed = timeSpeed === 1 ? 10 : timeSpeed === 10 ? 50 : 1;
+        if (e.code === 'KeyF') {
+            fogEnabled = !fogEnabled;
+            scene.fog = fogEnabled ? new THREE.FogExp2(0x88aacc, 0.006) : null;
+        }
+    });
+    document.addEventListener('keyup', e => keys[e.code] = false);
+
+    document.addEventListener('mousemove', e => {
+        if (!pointerLocked) return;
+        player.yaw -= e.movementX * 0.002;
+        player.pitch -= e.movementY * 0.002;
+        player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, player.pitch));
+    });
+
+    function requestLock() {
+        if (!pointerLocked) renderer.domElement.requestPointerLock();
+    }
+    renderer.domElement.addEventListener('click', requestLock);
+    document.getElementById('splash').addEventListener('click', requestLock);
+    document.addEventListener('pointerlockchange', () => {
+        pointerLocked = document.pointerLockElement === renderer.domElement;
+        document.getElementById('splash').style.display = pointerLocked ? 'none' : 'flex';
+    });
+
+    // Collision check
+    function checkCollision(nx, ny, nz) {
+        const testBox = new THREE.Box3(
+            new THREE.Vector3(nx - 0.4, ny - PLAYER_HEIGHT, nz - 0.4),
+            new THREE.Vector3(nx + 0.4, ny + 0.3, nz + 0.4)
+        );
+        for (const [, chunk] of chunks) {
+            for (const box of chunk.userData.colliders) {
+                if (testBox.intersectsBox(box)) return true;
+            }
+        }
+        return false;
+    }
+
+    function updatePlayer(dt) {
+        if (!pointerLocked) return;
+
+        const sprint = keys['ShiftLeft'] || keys['ShiftRight'] ? SPRINT_MULT : 1;
+        const speed = PLAYER_SPEED * sprint * dt;
+
+        let mx = 0, mz = 0;
+        if (keys['KeyW'] || keys['ArrowUp']) mz -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) mz += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) mx += 1;
+
+        if (mx || mz) {
+            const len = Math.sqrt(mx * mx + mz * mz);
+            mx /= len; mz /= len;
+        }
+
+        // Move in camera direction
+        const sinY = Math.sin(player.yaw), cosY = Math.cos(player.yaw);
+        const dx = (mx * cosY - mz * sinY) * speed;
+        const dz = (mx * sinY + mz * cosY) * speed;
+
+        // Try X then Z separately for wall sliding
+        let nx = player.x + dx;
+        let nz = player.z + dz;
+
+        if (!checkCollision(nx, player.y, player.z)) player.x = nx;
+        if (!checkCollision(player.x, player.y, nz)) player.z = nz;
+
+        // Jump
+        if ((keys['Space']) && player.onGround) {
+            player.vy = JUMP_VEL;
+            player.onGround = false;
+        }
+
+        // Gravity
+        player.vy += GRAVITY * dt;
+        player.y += player.vy * dt;
+        if (player.y <= PLAYER_HEIGHT) {
+            player.y = PLAYER_HEIGHT;
+            player.vy = 0;
+            player.onGround = true;
+        }
+
+        // Update camera
+        camera.position.set(player.x, player.y, player.z);
+        const euler = new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ');
+        camera.quaternion.setFromEuler(euler);
+    }
+
+    // ─── DAY / NIGHT CYCLE ──────────────────────────────────────
+    let dayTime = 0.3; // 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset
+
+    function updateDayNight(dt) {
+        dayTime += (dt * timeSpeed) / DAY_DURATION;
+        dayTime %= 1;
+
+        const angle = dayTime * Math.PI * 2 - Math.PI / 2;
+        const sunDist = 150;
+
+        // Sun position
+        const sunX = player.x + Math.cos(angle) * sunDist;
+        const sunY = Math.sin(angle) * sunDist;
+        const sunZ = player.z + Math.cos(angle * 0.3) * sunDist * 0.3;
+        sunLight.position.set(sunX, Math.max(sunY, -20), sunZ);
+        sunLight.target.position.set(player.x, 0, player.z);
+        sunMesh.position.copy(sunLight.position);
+
+        // Moon opposite
+        moonLight.position.set(player.x - Math.cos(angle) * sunDist, Math.max(-Math.sin(angle) * sunDist, -20), player.z);
+        moonMesh.position.set(moonLight.position.x, moonLight.position.y, moonLight.position.z);
+
+        // Sun intensity based on elevation
+        const sunElev = Math.sin(angle); // -1 to 1
+        const dayFactor = Math.max(0, Math.min(1, sunElev * 2 + 0.3));
+        const nightFactor = 1 - dayFactor;
+
+        sunLight.intensity = dayFactor * 1.5;
+        moonLight.intensity = nightFactor * 0.2;
+        ambientLight.intensity = 0.15 + dayFactor * 0.4;
+        hemiLight.intensity = 0.1 + dayFactor * 0.4;
+
+        // Street lamp emissive glow at night
+        const lampNightColor = new THREE.Color(0xffdd88).multiplyScalar(nightFactor);
+        const lampDayColor = new THREE.Color(0x666655);
+        for (const [, chunk] of chunks) {
+            for (const lamp of chunk.userData.streetLights) {
+                lamp.material.color.copy(nightFactor > 0.3 ? lampNightColor : lampDayColor);
+            }
+        }
+
+        // Sky color
+        const dayR = 0.53, dayG = 0.67, dayB = 0.80;
+        const nightR = 0.02, nightG = 0.02, nightB = 0.06;
+        const sunsetR = 0.85, sunsetG = 0.45, sunsetB = 0.25;
+
+        let r, g, b;
+        const sunsetFactor = Math.max(0, 1 - Math.abs(sunElev) * 5) * Math.max(0, sunElev + 0.2);
+
+        r = nightR + (dayR - nightR) * dayFactor + (sunsetR - dayR) * sunsetFactor;
+        g = nightG + (dayG - nightG) * dayFactor + (sunsetG - dayG) * sunsetFactor;
+        b = nightB + (dayB - nightB) * dayFactor + (sunsetB - dayB) * sunsetFactor;
+
+        const skyColor = new THREE.Color(r, g, b);
+        scene.background = skyColor;
+        if (scene.fog) {
+            scene.fog.color.copy(skyColor);
+            scene.fog.density = 0.004 + nightFactor * 0.004;
+        }
+
+        // Sun/moon color
+        sunMat.color.setHex(sunsetFactor > 0.2 ? 0xff8844 : 0xffee88);
+        sunMesh.visible = sunElev > -0.1;
+        moonMesh.visible = sunElev < 0.3;
+
+        // Stars
+        stars.material.opacity = nightFactor;
+        stars.material.transparent = true;
+        stars.position.set(player.x, 0, player.z);
+
+        // Tone mapping exposure
+        renderer.toneMappingExposure = 0.3 + dayFactor * 0.9;
+
+        // Sun light color
+        if (sunsetFactor > 0.1) {
+            sunLight.color.setHex(0xffaa66);
+        } else {
+            sunLight.color.setHex(0xffeedd);
+        }
+
+        // Update shadow camera to follow player
+        sunLight.shadow.camera.updateProjectionMatrix();
+
+        // Clock display
+        const totalMinutes = Math.floor(dayTime * 24 * 60);
+        const hours = Math.floor(totalMinutes / 60) % 24;
+        const mins = totalMinutes % 60;
+        document.getElementById('clock').textContent =
+            `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+
+        // Day bar
+        const fill = document.getElementById('daybar-fill');
+        fill.style.width = `${dayTime * 100}%`;
+        if (dayFactor > 0.5) fill.style.background = '#ffd866';
+        else if (sunsetFactor > 0.15) fill.style.background = '#ff7744';
+        else fill.style.background = '#4466aa';
+    }
+
+    // ─── UPDATE CARS ────────────────────────────────────────────
+    function updateCars(dt) {
+        for (const [, chunk] of chunks) {
+            const { cars, carPaths } = chunk.userData;
+            for (let i = 0; i < cars.length; i++) {
+                const car = cars[i];
+                const path = carPaths[i];
+                path.progress += (dt * path.speed) / Math.sqrt(
+                    (path.endX - path.startX) ** 2 + (path.endZ - path.startZ) ** 2
+                );
+                if (path.progress > 1) path.progress -= 1;
+                if (path.progress < 0) path.progress += 1;
+
+                const t = path.progress;
+                car.position.set(
+                    path.startX + (path.endX - path.startX) * t,
+                    0.5,
+                    path.startZ + (path.endZ - path.startZ) * t
+                );
+
+                // Face direction of travel
+                const dir = Math.atan2(path.endX - path.startX, path.endZ - path.startZ);
+                car.rotation.y = dir;
+            }
+        }
+    }
+
+    // ─── MINIMAP ────────────────────────────────────────────────
+    const minimapCanvas = document.getElementById('minimap');
+    minimapCanvas.width = 160;
+    minimapCanvas.height = 160;
+    const mCtx = minimapCanvas.getContext('2d');
+
+    function updateMinimap() {
+        mCtx.fillStyle = '#1a1a2a';
+        mCtx.fillRect(0, 0, 160, 160);
+
+        const scale = 1.2;
+        const cx = 80, cy = 80;
+
+        for (const [, chunk] of chunks) {
+            const ocx = chunk.userData.cx * CHUNK_SIZE;
+            const ocz = chunk.userData.cz * CHUNK_SIZE;
+
+            // Draw buildings as rects
+            chunk.userData.colliders.forEach(box => {
+                const bx = (box.min.x - player.x) * scale + cx;
+                const bz = (box.min.z - player.z) * scale + cy;
+                const bw = (box.max.x - box.min.x) * scale;
+                const bd = (box.max.z - box.min.z) * scale;
+                mCtx.fillStyle = 'rgba(100,130,160,0.6)';
+                mCtx.fillRect(bx, bz, bw, bd);
+            });
+
+            // Draw cars
+            chunk.userData.cars.forEach(car => {
+                const px = (car.position.x - player.x) * scale + cx;
+                const pz = (car.position.z - player.z) * scale + cy;
+                mCtx.fillStyle = '#ff4444';
+                mCtx.fillRect(px - 1, pz - 1, 3, 3);
+            });
+        }
+
+        // Player dot
+        mCtx.fillStyle = '#00ff88';
+        mCtx.beginPath();
+        mCtx.arc(cx, cy, 3, 0, Math.PI * 2);
+        mCtx.fill();
+
+        // Player direction
+        mCtx.strokeStyle = '#00ff88';
+        mCtx.lineWidth = 1.5;
+        mCtx.beginPath();
+        mCtx.moveTo(cx, cy);
+        mCtx.lineTo(cx - Math.sin(player.yaw) * 10, cy - Math.cos(player.yaw) * 10);
+        mCtx.stroke();
+    }
+
+    // ─── HUD UPDATE ─────────────────────────────────────────────
+    function updateHUD() {
+        document.getElementById('pos').textContent = `${Math.round(player.x)}, ${Math.round(player.z)}`;
+        const [pcx, pcz] = getChunkCoord(player.x, player.z);
+        document.getElementById('chunk').textContent = `${pcx}, ${pcz}`;
+        document.getElementById('loaded').textContent = `${chunks.size} chunks`;
+    }
+
+    // ─── RESIZE ─────────────────────────────────────────────────
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ─── MAIN LOOP ──────────────────────────────────────────────
+    let frameCount = 0;
+    function animate() {
+        requestAnimationFrame(animate);
+        const dt = Math.min(clock.getDelta(), 0.1);
+
+        updatePlayer(dt);
+        updateChunks(player.x, player.z);
+        updateDayNight(dt);
+        updateCars(dt);
+
+        frameCount++;
+        if (frameCount % 6 === 0) {
+            updateMinimap();
+            updateHUD();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    // ─── INIT ───────────────────────────────────────────────────
+    updateChunks(player.x, player.z);
+    animate();
+
+    })();
+    </script>
+</body>
+</html>

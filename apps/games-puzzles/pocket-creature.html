@@ -1,0 +1,2534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pocket Creature - AI Pet</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#1a1a2e;font-family:'Courier New',monospace}
+#gameCanvas{display:block;image-rendering:pixelated;cursor:pointer;touch-action:none}
+#ui-overlay{position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:10}
+#needs-bar{display:flex;gap:4px;padding:6px;flex-wrap:wrap;justify-content:center}
+.need{display:flex;align-items:center;gap:3px;background:rgba(0,0,0,0.6);border-radius:8px;padding:3px 8px;pointer-events:auto;font-size:11px;color:#fff}
+.need-icon{font-size:14px}
+.need-fill{width:50px;height:8px;background:#333;border-radius:4px;overflow:hidden}
+.need-fill-inner{height:100%;border-radius:4px;transition:width 0.5s}
+#bottom-bar{position:absolute;bottom:0;left:0;width:100%;display:flex;justify-content:center;gap:6px;padding:8px;pointer-events:none;flex-wrap:wrap}
+.action-btn{pointer-events:auto;background:rgba(0,0,0,0.7);color:#fff;border:2px solid rgba(255,255,255,0.3);border-radius:12px;padding:6px 14px;font-size:12px;font-family:inherit;cursor:pointer;transition:all 0.2s}
+.action-btn:hover,.action-btn:active{background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.6);transform:scale(1.05)}
+#info-panel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(20,20,40,0.95);border:2px solid rgba(255,255,255,0.3);border-radius:16px;padding:20px;color:#fff;max-width:90%;max-height:80%;overflow-y:auto;pointer-events:auto;display:none;z-index:20;min-width:280px}
+#info-panel h2{text-align:center;margin-bottom:12px;font-size:16px}
+#info-panel pre{font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.3);padding:8px;border-radius:8px}
+#info-panel button{display:block;margin:10px auto 0;padding:6px 16px;background:#555;color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit}
+#creature-name{position:absolute;bottom:50px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;text-align:center;pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,0.8)}
+#thought-bubble{position:absolute;pointer-events:none;background:rgba(255,255,255,0.9);color:#333;border-radius:12px;padding:4px 10px;font-size:18px;display:none;z-index:15;box-shadow:0 2px 8px rgba(0,0,0,0.3)}
+#thought-bubble::after{content:'';position:absolute;bottom:-8px;left:20px;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:8px solid rgba(255,255,255,0.9)}
+#minigame-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:none;z-index:25;pointer-events:auto}
+#minigame-canvas{width:100%;height:100%}
+#dream-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:none;z-index:5;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<canvas id="dream-overlay"></canvas>
+<canvas id="minigame-overlay"></canvas>
+<div id="ui-overlay">
+  <div id="needs-bar">
+    <div class="need"><span class="need-icon">🍖</span><div class="need-fill"><div class="need-fill-inner" id="need-hunger" style="width:80%;background:#e74c3c"></div></div></div>
+    <div class="need"><span class="need-icon">⚡</span><div class="need-fill"><div class="need-fill-inner" id="need-energy" style="width:80%;background:#f39c12"></div></div></div>
+    <div class="need"><span class="need-icon">😊</span><div class="need-fill"><div class="need-fill-inner" id="need-happy" style="width:80%;background:#2ecc71"></div></div></div>
+    <div class="need"><span class="need-icon">✨</span><div class="need-fill"><div class="need-fill-inner" id="need-clean" style="width:80%;background:#3498db"></div></div></div>
+    <div class="need"><span class="need-icon">💬</span><div class="need-fill"><div class="need-fill-inner" id="need-social" style="width:80%;background:#9b59b6"></div></div></div>
+  </div>
+</div>
+<div id="bottom-bar">
+  <button class="action-btn" onclick="G.feedCreature()">🍖 Feed</button>
+  <button class="action-btn" onclick="G.putToBed()">🛏️ Sleep</button>
+  <button class="action-btn" onclick="G.playWithToy()">🎾 Play</button>
+  <button class="action-btn" onclick="G.bathCreature()">🛁 Bath</button>
+  <button class="action-btn" onclick="G.talkToCreature()">💬 Talk</button>
+  <button class="action-btn" onclick="G.startMinigame()">🎮 Game</button>
+  <button class="action-btn" onclick="G.showInfo()">📊 Info</button>
+</div>
+<div id="thought-bubble"></div>
+<div id="creature-name"></div>
+<div id="info-panel">
+  <h2 id="info-title">Creature Info</h2>
+  <pre id="info-content"></pre>
+  <button onclick="G.exportLife()">📤 Export Life Story</button>
+  <button onclick="G.closeInfo()">Close</button>
+</div>
+<script>
+// ============================================================
+// POCKET CREATURE - AI PET THAT LEARNS YOUR HABITS
+// ============================================================
+const SAVE_KEY = 'pocket-creature-v2';
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const dreamCanvas = document.getElementById('dream-overlay');
+const dreamCtx = dreamCanvas.getContext('2d');
+const mgCanvas = document.getElementById('minigame-overlay');
+const mgCtx = mgCanvas.getContext('2d');
+
+let W, H, SCALE;
+const ROOM_W = 320;
+const ROOM_H = 240;
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  SCALE = Math.min(W / ROOM_W, H / ROOM_H);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dreamCanvas.width = W * dpr; dreamCanvas.height = H * dpr;
+  dreamCanvas.style.width = W + 'px'; dreamCanvas.style.height = H + 'px';
+  dreamCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  mgCanvas.width = W * dpr; mgCanvas.height = H * dpr;
+  mgCanvas.style.width = W + 'px'; mgCanvas.style.height = H + 'px';
+  mgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
+function rand(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function hsl(h, s, l) { return `hsl(${h},${s}%,${l}%)`; }
+function rgba(r, g, b, a) { return `rgba(${r},${g},${b},${a})`; }
+function now() { return Date.now(); }
+function hourNow() { return new Date().getHours() + new Date().getMinutes() / 60; }
+function daysSince(ts) { return (now() - ts) / 86400000; }
+
+// ============================================================
+// ROOM COORDINATES (in room-space 320x240)
+// ============================================================
+const ROOM = {
+  bed: { x: 40, y: 145, w: 65, h: 45 },
+  bowl: { x: 130, y: 185, w: 30, h: 18 },
+  toy: { x: 240, y: 180, w: 25, h: 25 },
+  window: { x: 200, y: 30, w: 80, h: 60 },
+  bath: { x: 270, y: 140, w: 40, h: 40 },
+  center: { x: 160, y: 155 },
+  corner: { x: 20, y: 190 },
+  door: { x: 155, y: 210 },
+  floor_y: 200,
+  wall_y: 100,
+  ceiling_y: 15
+};
+
+// ============================================================
+// DEFAULT STATE
+// ============================================================
+function defaultState() {
+  return {
+    name: pick(['Blob','Puff','Mochi','Pip','Nub','Toki','Boo','Dot','Goo','Fizz']),
+    born: now(),
+    lastTick: now(),
+    needs: { hunger: 75, energy: 80, happiness: 70, cleanliness: 80, social: 65 },
+    pos: { x: 160, y: 160 },
+    target: null,
+    state: 'idle',
+    stateTimer: 0,
+    personality: { cheerful: 0, lazy: 0, hyper: 0, melancholy: 0 },
+    traits: { playfulness: 50, appetite: 50, sociability: 50, curiosity: 50 },
+    habits: { feedTimes: [], playTimes: [], talkTimes: [], sleepTimes: [], bathTimes: [] },
+    habitPatterns: { feed: new Array(24).fill(0), play: new Array(24).fill(0), talk: new Array(24).fill(0) },
+    memories: [],
+    dreams: [],
+    age: 0,
+    stage: 'baby',
+    totalFeeds: 0,
+    totalPlays: 0,
+    totalTalks: 0,
+    totalBaths: 0,
+    totalSleeps: 0,
+    totalPets: 0,
+    interactionCount: 0,
+    lastInteraction: now(),
+    neglectStreak: 0,
+    vocabulary: ['😊','😃','❤️'],
+    miniGameScores: [],
+    isSleeping: false,
+    dreamActive: false,
+    direction: 1,
+    animFrame: 0,
+    blinkTimer: 0,
+    emotionTimer: 0,
+    currentEmotion: null,
+    wanderTimer: 0,
+    anticipating: null,
+    moodColor: [120, 200, 160]
+  };
+}
+
+// ============================================================
+// STATE MANAGEMENT
+// ============================================================
+let S = loadState();
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s && s.born) return s;
+    }
+  } catch(e) {}
+  return defaultState();
+}
+
+function saveState() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch(e) {}
+}
+
+function resetCreature() {
+  if (confirm('Reset your creature? This cannot be undone!')) {
+    S = defaultState();
+    saveState();
+  }
+}
+
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+const particles = [];
+class Particle {
+  constructor(x, y, type, color) {
+    this.x = x; this.y = y; this.type = type; this.color = color || '#fff';
+    this.life = 1; this.maxLife = rand(0.6, 1.5);
+    this.vx = rand(-20, 20); this.vy = rand(-40, -10);
+    this.size = rand(3, 8); this.rotation = rand(0, Math.PI * 2);
+    this.text = null;
+    if (type === 'heart') { this.text = '❤️'; this.size = rand(8, 14); this.vy = rand(-30, -15); }
+    else if (type === 'zzz') { this.text = 'Z'; this.size = rand(8, 14); this.vy = rand(-15, -8); this.vx = rand(-5, 10); }
+    else if (type === 'sweat') { this.text = '💧'; this.size = rand(6, 10); }
+    else if (type === 'sparkle') { this.text = '✨'; this.size = rand(8, 12); this.vy = rand(-25, -10); }
+    else if (type === 'note') { this.text = pick(['♪','♫','♬']); this.size = rand(10, 14); this.vy = rand(-30, -15); }
+    else if (type === 'star') { this.text = '⭐'; this.size = rand(6, 10); this.vy = rand(-35, -15); }
+    else if (type === 'food') { this.text = pick(['🍖','🍕','🍔','🧁']); this.size = rand(10, 14); this.vy = rand(-30, -10); }
+    else if (type === 'sad') { this.text = '😢'; this.size = 10; this.vy = rand(-10, -5); }
+    else if (type === 'bubble') { this.size = rand(3, 8); this.vy = rand(-20, -8); this.vx = rand(-5, 5); }
+  }
+  update(dt) {
+    this.life -= dt / this.maxLife;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    if (this.type === 'bubble') this.vy -= 10 * dt;
+    else this.vy += 30 * dt;
+    this.rotation += dt * 2;
+    return this.life > 0;
+  }
+  draw(ctx, ox, oy, sc) {
+    const alpha = Math.max(0, this.life);
+    const sx = this.x * sc + ox;
+    const sy = this.y * sc + oy;
+    ctx.globalAlpha = alpha;
+    if (this.text) {
+      ctx.font = `${this.size * sc}px serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(this.text, sx, sy);
+    } else if (this.type === 'bubble') {
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.size * sc * alpha, 0, Math.PI * 2);
+      ctx.strokeStyle = rgba(200, 230, 255, alpha * 0.8);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.size * sc * alpha * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function spawnParticles(x, y, type, count, color) {
+  for (let i = 0; i < count; i++) particles.push(new Particle(x, y, type, color));
+}
+
+// ============================================================
+// TIME & ENVIRONMENT
+// ============================================================
+function getTimeOfDay() {
+  const h = hourNow();
+  if (h >= 6 && h < 10) return 'morning';
+  if (h >= 10 && h < 17) return 'day';
+  if (h >= 17 && h < 20) return 'evening';
+  return 'night';
+}
+
+function getSkyColor() {
+  const h = hourNow();
+  if (h >= 6 && h < 8) return { top: '#ff9a56', bot: '#ffcc80', sun: 0.2 };
+  if (h >= 8 && h < 17) return { top: '#4a9eff', bot: '#87ceeb', sun: Math.min(1, (h - 8) / 4) };
+  if (h >= 17 && h < 19) return { top: '#ff6b35', bot: '#ffa07a', sun: 1 - (h - 17) / 2 };
+  if (h >= 19 && h < 21) return { top: '#2c1654', bot: '#4a2c82', sun: 0 };
+  return { top: '#0a0a2a', bot: '#1a1a4a', sun: 0 };
+}
+
+function isNightTime() {
+  const h = hourNow();
+  return h >= 22 || h < 6;
+}
+
+function shouldRain() {
+  const day = Math.floor(daysSince(S.born));
+  return (day * 7 + 3) % 5 === 0;
+}
+
+// ============================================================
+// AGING SYSTEM
+// ============================================================
+const AGE_STAGES = [
+  { name: 'baby', days: 0, size: 0.6, eyes: 0.4, color: [180, 220, 255] },
+  { name: 'child', days: 2, size: 0.8, eyes: 0.35, color: [160, 230, 180] },
+  { name: 'teen', days: 5, size: 0.95, eyes: 0.3, color: [200, 180, 240] },
+  { name: 'adult', days: 10, size: 1.0, eyes: 0.25, color: [240, 200, 160] },
+  { name: 'elder', days: 20, size: 0.9, eyes: 0.3, color: [200, 200, 210] }
+];
+
+function updateAge() {
+  S.age = daysSince(S.born);
+  let stage = AGE_STAGES[0];
+  for (let i = AGE_STAGES.length - 1; i >= 0; i--) {
+    if (S.age >= AGE_STAGES[i].days) { stage = AGE_STAGES[i]; break; }
+  }
+  S.stage = stage.name;
+}
+
+function getStageData() {
+  return AGE_STAGES.find(s => s.name === S.stage) || AGE_STAGES[0];
+}
+
+// ============================================================
+// PERSONALITY SYSTEM
+// ============================================================
+function updatePersonality() {
+  const feeds = S.totalFeeds;
+  const plays = S.totalPlays;
+  const talks = S.totalTalks;
+  const total = Math.max(1, feeds + plays + talks + S.totalBaths);
+  const neglect = S.neglectStreak;
+
+  const feedRatio = feeds / total;
+  const playRatio = plays / total;
+  const talkRatio = talks / total;
+
+  S.personality.cheerful = clamp((feedRatio > 0.2 && playRatio > 0.2) ? 
+    (feedRatio + playRatio) * 50 - neglect * 5 : -neglect * 3, -50, 100);
+  S.personality.lazy = clamp(feedRatio > 0.4 && playRatio < 0.15 ? 
+    feedRatio * 80 : 0, 0, 100);
+  S.personality.hyper = clamp(playRatio > 0.35 && feedRatio < 0.2 ? 
+    playRatio * 100 : 0, 0, 100);
+  S.personality.melancholy = clamp(neglect > 3 ? neglect * 10 : 0, 0, 100);
+
+  S.traits.playfulness = clamp(50 + S.personality.cheerful * 0.5 + S.personality.hyper * 0.8 - S.personality.melancholy * 0.4, 0, 100);
+  S.traits.appetite = clamp(50 + S.personality.lazy * 0.6 + feedRatio * 30, 0, 100);
+  S.traits.sociability = clamp(50 + talkRatio * 40 + S.personality.cheerful * 0.3 - S.personality.melancholy * 0.5, 0, 100);
+  S.traits.curiosity = clamp(50 + S.personality.hyper * 0.4 + playRatio * 20 - S.personality.lazy * 0.3, 0, 100);
+}
+
+function getDominantPersonality() {
+  const p = S.personality;
+  let best = 'neutral', bestVal = 10;
+  for (const k in p) { if (p[k] > bestVal) { best = k; bestVal = p[k]; } }
+  return best;
+}
+
+function getMoodColor() {
+  const pers = getDominantPersonality();
+  switch(pers) {
+    case 'cheerful': return [255, 220, 100];
+    case 'lazy': return [180, 200, 160];
+    case 'hyper': return [255, 130, 180];
+    case 'melancholy': return [130, 130, 170];
+    default: return getStageData().color;
+  }
+}
+
+// ============================================================
+// HABIT LEARNING SYSTEM
+// ============================================================
+function recordHabit(type) {
+  const h = Math.floor(hourNow());
+  const entry = { hour: h, time: now(), type };
+  S.habits[type + 'Times'] = S.habits[type + 'Times'] || [];
+  S.habits[type + 'Times'].push(entry);
+  if (S.habits[type + 'Times'].length > 200) S.habits[type + 'Times'] = S.habits[type + 'Times'].slice(-200);
+  S.habitPatterns[type] = S.habitPatterns[type] || new Array(24).fill(0);
+  S.habitPatterns[type][h] = (S.habitPatterns[type][h] || 0) + 1;
+}
+
+function getAnticipatedAction() {
+  const h = Math.floor(hourNow());
+  let bestAction = null, bestScore = 3;
+  for (const type of ['feed', 'play', 'talk']) {
+    const pattern = S.habitPatterns[type] || [];
+    const score = (pattern[h] || 0) + (pattern[(h + 1) % 24] || 0) * 0.5;
+    if (score > bestScore) { bestScore = score; bestAction = type; }
+  }
+  return bestAction;
+}
+
+function getHabitStrength(type) {
+  const pattern = S.habitPatterns[type] || [];
+  return Math.max(...pattern) || 0;
+}
+
+// ============================================================
+// MEMORY SYSTEM
+// ============================================================
+function addMemory(type, detail) {
+  S.memories.push({ type, detail, time: now(), hour: Math.floor(hourNow()), day: Math.floor(S.age) });
+  if (S.memories.length > 100) S.memories = S.memories.slice(-100);
+}
+
+function getRecentMemories(count) {
+  return S.memories.slice(-count);
+}
+
+// ============================================================
+// NEEDS DECAY & UPDATE
+// ============================================================
+function updateNeeds(dt) {
+  const pers = getDominantPersonality();
+  const hungerRate = pers === 'hyper' ? 2.5 : pers === 'lazy' ? 1.2 : 1.8;
+  const energyRate = S.isSleeping ? -8 : (pers === 'hyper' ? 2.5 : pers === 'lazy' ? 1 : 1.5);
+  const happyRate = pers === 'cheerful' ? 0.8 : pers === 'melancholy' ? 2 : 1.2;
+  const cleanRate = 0.6;
+  const socialRate = pers === 'melancholy' ? 1.8 : 1;
+
+  S.needs.hunger = clamp(S.needs.hunger - hungerRate * dt / 60, 0, 100);
+  S.needs.energy = clamp(S.needs.energy - energyRate * dt / 60, 0, 100);
+  S.needs.happiness = clamp(S.needs.happiness - happyRate * dt / 60, 0, 100);
+  S.needs.cleanliness = clamp(S.needs.cleanliness - cleanRate * dt / 60, 0, 100);
+  S.needs.social = clamp(S.needs.social - socialRate * dt / 60, 0, 100);
+
+  const timeSinceInteraction = (now() - S.lastInteraction) / 60000;
+  if (timeSinceInteraction > 30) {
+    S.neglectStreak = Math.min(20, Math.floor(timeSinceInteraction / 30));
+  } else {
+    S.neglectStreak = Math.max(0, S.neglectStreak - dt / 120);
+  }
+}
+
+function getCriticalNeed() {
+  const n = S.needs;
+  let worst = null, worstVal = 30;
+  for (const k in n) {
+    if (n[k] < worstVal) { worst = k; worstVal = n[k]; }
+  }
+  return worst;
+}
+
+function getUrgentNeed() {
+  const n = S.needs;
+  let worst = null, worstVal = 50;
+  for (const k in n) {
+    if (n[k] < worstVal) { worst = k; worstVal = n[k]; }
+  }
+  return worst;
+}
+
+// ============================================================
+// CREATURE AI - STATE MACHINE
+// ============================================================
+function updateAI(dt) {
+  if (S.isSleeping) { updateSleepingAI(dt); return; }
+  if (mgActive) return;
+
+  S.stateTimer -= dt;
+  S.blinkTimer -= dt;
+  S.wanderTimer -= dt;
+  if (S.emotionTimer > 0) S.emotionTimer -= dt;
+  else S.currentEmotion = null;
+
+  const critical = getCriticalNeed();
+  const anticipated = getAnticipatedAction();
+
+  if (critical && S.state !== 'moving_to_need') {
+    goToNeed(critical);
+    return;
+  }
+
+  if (anticipated && !critical && S.state === 'idle' && Math.random() < 0.01) {
+    S.anticipating = anticipated;
+    if (anticipated === 'feed') setTarget(ROOM.bowl.x + 15, ROOM.bowl.y);
+    else if (anticipated === 'play') setTarget(ROOM.toy.x, ROOM.toy.y);
+    else if (anticipated === 'talk') setTarget(ROOM.center.x, ROOM.center.y - 20);
+    S.state = 'anticipating';
+    showThought(anticipated === 'feed' ? '🍖?' : anticipated === 'play' ? '🎾?' : '💬?');
+  }
+
+  switch(S.state) {
+    case 'idle':
+      if (S.wanderTimer <= 0) {
+        S.wanderTimer = rand(2, 6);
+        const rx = rand(30, 290);
+        const ry = rand(ROOM.wall_y + 50, ROOM.floor_y);
+        setTarget(rx, ry);
+        S.state = 'wandering';
+      }
+      idleAnimate(dt);
+      break;
+
+    case 'wandering':
+      if (moveToTarget(dt)) {
+        S.state = 'idle';
+        S.wanderTimer = rand(2, 5);
+      }
+      break;
+
+    case 'moving_to_need':
+      if (moveToTarget(dt)) {
+        performNeedAction();
+      }
+      break;
+
+    case 'eating':
+      S.stateTimer -= 0;
+      if (S.stateTimer <= 0) {
+        S.state = 'idle';
+        addMemory('eat', { hunger: S.needs.hunger });
+      }
+      break;
+
+    case 'playing':
+      if (S.stateTimer <= 0) {
+        S.state = 'idle';
+      }
+      break;
+
+    case 'bathing':
+      if (S.stateTimer <= 0) {
+        S.state = 'idle';
+        spawnParticles(S.pos.x, S.pos.y - 10, 'sparkle', 5);
+      }
+      break;
+
+    case 'talking':
+      if (S.stateTimer <= 0) { S.state = 'idle'; }
+      break;
+
+    case 'anticipating':
+      if (moveToTarget(dt)) {
+        S.stateTimer = rand(3, 8);
+        S.state = 'waiting';
+      }
+      break;
+
+    case 'waiting':
+      if (S.stateTimer <= 0) {
+        S.anticipating = null;
+        S.state = 'idle';
+      }
+      break;
+
+    case 'being_pet':
+      if (S.stateTimer <= 0) { S.state = 'idle'; }
+      break;
+
+    case 'depressed':
+      if (S.neglectStreak < 3) S.state = 'idle';
+      break;
+
+    case 'looking_window':
+      if (S.stateTimer <= 0) S.state = 'idle';
+      break;
+  }
+
+  if (S.neglectStreak > 5 && S.state === 'idle' && Math.random() < 0.005) {
+    setTarget(ROOM.corner.x, ROOM.corner.y);
+    S.state = 'moving_to_need';
+    S.stateTimer = 10;
+    S._nextState = 'depressed';
+  }
+
+  if (S.state === 'idle' && Math.random() < 0.003 && S.needs.happiness < 60) {
+    setTarget(ROOM.window.x + 40, ROOM.window.y + 50);
+    S.state = 'moving_to_need';
+    S._nextState = 'looking_window';
+    S.stateTimer = rand(4, 10);
+  }
+}
+
+function goToNeed(need) {
+  S.state = 'moving_to_need';
+  switch(need) {
+    case 'hunger':
+      setTarget(ROOM.bowl.x + 15, ROOM.bowl.y);
+      showThought('🍖');
+      break;
+    case 'energy':
+      setTarget(ROOM.bed.x + 30, ROOM.bed.y + 20);
+      showThought('😴');
+      break;
+    case 'happiness':
+      setTarget(ROOM.toy.x, ROOM.toy.y);
+      showThought('🎾');
+      break;
+    case 'cleanliness':
+      setTarget(ROOM.bath.x + 20, ROOM.bath.y + 20);
+      showThought('🛁');
+      break;
+    case 'social':
+      setTarget(ROOM.center.x, ROOM.center.y);
+      showThought('💬');
+      break;
+  }
+  S._pendingNeed = need;
+}
+
+function performNeedAction() {
+  const need = S._pendingNeed;
+  if (S._nextState) {
+    S.state = S._nextState;
+    S._nextState = null;
+    return;
+  }
+  if (!need) { S.state = 'idle'; return; }
+  switch(need) {
+    case 'hunger':
+      S.needs.hunger = clamp(S.needs.hunger + 15, 0, 100);
+      S.state = 'eating'; S.stateTimer = 3;
+      spawnParticles(S.pos.x, S.pos.y - 10, 'food', 2);
+      break;
+    case 'energy':
+      S.isSleeping = true; S.state = 'idle';
+      break;
+    case 'happiness':
+      S.needs.happiness = clamp(S.needs.happiness + 10, 0, 100);
+      S.state = 'playing'; S.stateTimer = 4;
+      spawnParticles(S.pos.x, S.pos.y - 10, 'star', 3);
+      break;
+    case 'cleanliness':
+      S.needs.cleanliness = clamp(S.needs.cleanliness + 20, 0, 100);
+      S.state = 'bathing'; S.stateTimer = 3;
+      spawnParticles(S.pos.x, S.pos.y - 10, 'bubble', 6);
+      break;
+    case 'social':
+      showThought(pick(S.vocabulary));
+      S.state = 'talking'; S.stateTimer = 3;
+      break;
+  }
+  S._pendingNeed = null;
+}
+
+function updateSleepingAI(dt) {
+  if (S.needs.energy >= 95 || (hourNow() >= 7 && hourNow() < 22 && S.needs.energy > 60)) {
+    S.isSleeping = false;
+    S.state = 'idle';
+    showThought('☀️');
+    addMemory('wake', { energy: S.needs.energy });
+    return;
+  }
+  if (Math.random() < 0.05) {
+    spawnParticles(S.pos.x + 10, S.pos.y - 20, 'zzz', 1);
+  }
+}
+
+function setTarget(x, y) {
+  S.target = { x, y };
+}
+
+function moveToTarget(dt) {
+  if (!S.target) return true;
+  const speed = getDominantPersonality() === 'hyper' ? 50 : 
+                getDominantPersonality() === 'lazy' ? 18 :
+                getDominantPersonality() === 'melancholy' ? 15 : 30;
+  const dx = S.target.x - S.pos.x;
+  const dy = S.target.y - S.pos.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 3) { S.target = null; return true; }
+  S.direction = dx > 0 ? 1 : dx < 0 ? -1 : S.direction;
+  S.pos.x += (dx / d) * speed * dt;
+  S.pos.y += (dy / d) * speed * dt;
+  return false;
+}
+
+function idleAnimate(dt) {
+  S.animFrame += dt * 2;
+}
+
+// ============================================================
+// THOUGHT BUBBLE
+// ============================================================
+let thoughtTimeout = null;
+function showThought(text) {
+  const bubble = document.getElementById('thought-bubble');
+  bubble.textContent = text;
+  bubble.style.display = 'block';
+  clearTimeout(thoughtTimeout);
+  thoughtTimeout = setTimeout(() => { bubble.style.display = 'none'; }, 2500);
+}
+
+function updateThoughtPosition() {
+  const bubble = document.getElementById('thought-bubble');
+  if (bubble.style.display === 'none') return;
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  bubble.style.left = (S.pos.x * SCALE + ox - 20) + 'px';
+  bubble.style.top = (S.pos.y * SCALE + oy - 45 * SCALE) + 'px';
+}
+
+// ============================================================
+// PLAYER ACTIONS
+// ============================================================
+const G = {};
+
+G.feedCreature = function() {
+  if (S.isSleeping) { showThought('😴💤'); return; }
+  S.needs.hunger = clamp(S.needs.hunger + 30, 0, 100);
+  S.totalFeeds++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  recordHabit('feed');
+  addMemory('fed', { hungerAfter: S.needs.hunger });
+  setTarget(ROOM.bowl.x + 15, ROOM.bowl.y);
+  S.state = 'moving_to_need';
+  S._pendingNeed = null;
+  S._nextState = 'eating';
+  S.stateTimer = 3;
+  spawnParticles(S.pos.x, S.pos.y - 10, 'food', 3);
+  showThought(pick(['😋','🍖','😊','🤤']));
+  saveState();
+};
+
+G.putToBed = function() {
+  if (S.isSleeping) { S.isSleeping = false; S.state = 'idle'; showThought('😳'); return; }
+  S.isSleeping = true;
+  S.totalSleeps++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  recordHabit('sleep');
+  addMemory('sleep', { energyBefore: S.needs.energy });
+  setTarget(ROOM.bed.x + 30, ROOM.bed.y + 20);
+  S.state = 'moving_to_need';
+  S._pendingNeed = 'energy';
+  showThought('😴');
+  saveState();
+};
+
+G.playWithToy = function() {
+  if (S.isSleeping) { showThought('😴💤'); return; }
+  if (S.needs.energy < 10) { showThought('😫'); return; }
+  S.needs.happiness = clamp(S.needs.happiness + 25, 0, 100);
+  S.needs.energy = clamp(S.needs.energy - 5, 0, 100);
+  S.totalPlays++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  recordHabit('play');
+  addMemory('play', { happyAfter: S.needs.happiness });
+  setTarget(ROOM.toy.x, ROOM.toy.y);
+  S.state = 'moving_to_need';
+  S._pendingNeed = null;
+  S._nextState = 'playing';
+  S.stateTimer = 4;
+  spawnParticles(S.pos.x, S.pos.y - 10, 'star', 4);
+  showThought(pick(['🎾','⭐','🎉','😆']));
+  if (S.personality.cheerful > 30) spawnParticles(S.pos.x, S.pos.y - 10, 'heart', 2);
+  saveState();
+};
+
+G.bathCreature = function() {
+  if (S.isSleeping) { showThought('😴💤'); return; }
+  S.needs.cleanliness = clamp(S.needs.cleanliness + 35, 0, 100);
+  S.totalBaths++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  recordHabit('bath');
+  addMemory('bath', { cleanAfter: S.needs.cleanliness });
+  setTarget(ROOM.bath.x + 20, ROOM.bath.y + 20);
+  S.state = 'moving_to_need';
+  S._pendingNeed = null;
+  S._nextState = 'bathing';
+  S.stateTimer = 3;
+  spawnParticles(S.pos.x, S.pos.y - 10, 'bubble', 8);
+  spawnParticles(S.pos.x, S.pos.y - 10, 'sparkle', 3);
+  showThought(pick(['🛁','✨','😊','🫧']));
+  saveState();
+};
+
+G.talkToCreature = function() {
+  if (S.isSleeping) { showThought('😴💤'); return; }
+  S.needs.social = clamp(S.needs.social + 25, 0, 100);
+  S.needs.happiness = clamp(S.needs.happiness + 5, 0, 100);
+  S.totalTalks++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  recordHabit('talk');
+  addMemory('talk', { socialAfter: S.needs.social });
+
+  const vocabPool = ['😊','😃','❤️','🥰','😎','🤗','😋','🌟','💫','✨','🎵','🎶','👋','🙌','💪','🤩','😇','🥳','💖','🌈','🦋','🌸'];
+  if (S.totalTalks % 5 === 0 && S.vocabulary.length < vocabPool.length) {
+    const newWord = vocabPool.find(w => !S.vocabulary.includes(w));
+    if (newWord) {
+      S.vocabulary.push(newWord);
+      showThought(newWord + '!');
+      spawnParticles(S.pos.x, S.pos.y - 15, 'star', 5);
+    }
+  } else {
+    showThought(pick(S.vocabulary));
+  }
+  S.state = 'talking';
+  S.stateTimer = 3;
+  spawnParticles(S.pos.x, S.pos.y - 10, 'heart', 2);
+  saveState();
+};
+
+G.petCreature = function(px, py) {
+  if (S.isSleeping) return;
+  S.needs.social = clamp(S.needs.social + 8, 0, 100);
+  S.needs.happiness = clamp(S.needs.happiness + 5, 0, 100);
+  S.totalPets++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  S.state = 'being_pet';
+  S.stateTimer = 1.5;
+  S.currentEmotion = '❤️';
+  S.emotionTimer = 1.5;
+  spawnParticles(S.pos.x, S.pos.y - 15, 'heart', 3);
+  showThought(pick(['❤️','🥰','😊','💖']));
+};
+
+
+// ============================================================
+// MINI-GAMES
+// ============================================================
+let mgActive = false;
+let mgType = null;
+let mgState = {};
+let mgScore = 0;
+
+G.startMinigame = function() {
+  if (S.isSleeping) { showThought('😴💤'); return; }
+  if (S.needs.energy < 15) { showThought('😫'); return; }
+  const pers = getDominantPersonality();
+  const games = ['catch', 'pattern', 'rhythm', 'hideseek'];
+  if (pers === 'cheerful') mgType = pick(['catch', 'rhythm']);
+  else if (pers === 'hyper') mgType = pick(['catch', 'rhythm']);
+  else if (pers === 'lazy') mgType = 'pattern';
+  else mgType = pick(games);
+  mgActive = true;
+  mgScore = 0;
+  mgCanvas.style.display = 'block';
+  initMinigame();
+};
+
+function initMinigame() {
+  switch(mgType) {
+    case 'catch':
+      mgState = { balls: [], spawnTimer: 0, misses: 0, maxMisses: 5, timer: 20, 
+                  catcher: { x: ROOM_W / 2, w: 40 } };
+      break;
+    case 'pattern':
+      mgState = { sequence: [], playerSeq: [], showing: true, showIdx: 0, 
+                  showTimer: 0, round: 1, buttons: [
+                    { x: 80, y: 100, w: 60, h: 60, color: '#e74c3c', id: 0 },
+                    { x: 180, y: 100, w: 60, h: 60, color: '#2ecc71', id: 1 },
+                    { x: 80, y: 180, w: 60, h: 60, color: '#3498db', id: 2 },
+                    { x: 180, y: 180, w: 60, h: 60, color: '#f39c12', id: 3 }
+                  ], flash: -1, flashTimer: 0, failed: false };
+      addPatternStep();
+      mgState.showTimer = 1;
+      break;
+    case 'rhythm':
+      mgState = { notes: [], spawnTimer: 0, score: 0, misses: 0, maxMisses: 8,
+                  timer: 15, hitZone: ROOM_H - 40, lanes: 3 };
+      break;
+    case 'hideseek':
+      mgState = { hiding: true, spots: [
+        { x: 60, y: 150, w: 50, h: 50, found: false },
+        { x: 150, y: 130, w: 45, h: 55, found: false },
+        { x: 240, y: 160, w: 50, h: 45, found: false }
+      ], creatureSpot: randInt(0, 2), timer: 10, found: false, round: 1 };
+      break;
+  }
+}
+
+function addPatternStep() {
+  mgState.sequence.push(randInt(0, 3));
+  mgState.playerSeq = [];
+  mgState.showing = true;
+  mgState.showIdx = 0;
+  mgState.showTimer = 0.8;
+}
+
+function updateMinigame(dt) {
+  if (!mgActive) return;
+  switch(mgType) {
+    case 'catch': updateCatch(dt); break;
+    case 'pattern': updatePattern(dt); break;
+    case 'rhythm': updateRhythm(dt); break;
+    case 'hideseek': updateHideSeek(dt); break;
+  }
+}
+
+function updateCatch(dt) {
+  mgState.timer -= dt;
+  mgState.spawnTimer -= dt;
+  if (mgState.spawnTimer <= 0) {
+    mgState.balls.push({ x: rand(20, ROOM_W - 20), y: 0, speed: rand(60, 120), size: 8 });
+    mgState.spawnTimer = rand(0.3, 0.8);
+  }
+  for (let i = mgState.balls.length - 1; i >= 0; i--) {
+    mgState.balls[i].y += mgState.balls[i].speed * dt;
+    if (Math.abs(mgState.balls[i].x - mgState.catcher.x) < mgState.catcher.w / 2 && 
+        mgState.balls[i].y > ROOM_H - 35 && mgState.balls[i].y < ROOM_H - 15) {
+      mgScore++;
+      mgState.balls.splice(i, 1);
+    } else if (mgState.balls[i].y > ROOM_H) {
+      mgState.misses++;
+      mgState.balls.splice(i, 1);
+    }
+  }
+  if (mgState.timer <= 0 || mgState.misses >= mgState.maxMisses) endMinigame();
+}
+
+function updatePattern(dt) {
+  if (mgState.failed) return;
+  if (mgState.flashTimer > 0) mgState.flashTimer -= dt;
+  else mgState.flash = -1;
+  if (mgState.showing) {
+    mgState.showTimer -= dt;
+    if (mgState.showTimer <= 0) {
+      mgState.flash = mgState.sequence[mgState.showIdx];
+      mgState.flashTimer = 0.5;
+      mgState.showIdx++;
+      mgState.showTimer = 0.7;
+      if (mgState.showIdx >= mgState.sequence.length) {
+        mgState.showing = false;
+      }
+    }
+  }
+}
+
+function updateRhythm(dt) {
+  mgState.timer -= dt;
+  mgState.spawnTimer -= dt;
+  if (mgState.spawnTimer <= 0) {
+    mgState.notes.push({ lane: randInt(0, mgState.lanes - 1), y: 0, speed: 100, hit: false });
+    mgState.spawnTimer = rand(0.4, 0.9);
+  }
+  for (let i = mgState.notes.length - 1; i >= 0; i--) {
+    mgState.notes[i].y += mgState.notes[i].speed * dt;
+    if (mgState.notes[i].y > ROOM_H + 10 && !mgState.notes[i].hit) {
+      mgState.misses++;
+      mgState.notes.splice(i, 1);
+    }
+  }
+  if (mgState.timer <= 0 || mgState.misses >= mgState.maxMisses) endMinigame();
+}
+
+function updateHideSeek(dt) {
+  mgState.timer -= dt;
+  if (mgState.timer <= 0 && !mgState.found) endMinigame();
+}
+
+function endMinigame() {
+  mgActive = false;
+  mgCanvas.style.display = 'none';
+  S.needs.happiness = clamp(S.needs.happiness + 10 + mgScore * 2, 0, 100);
+  S.needs.energy = clamp(S.needs.energy - 5, 0, 100);
+  S.totalPlays++;
+  S.interactionCount++;
+  S.lastInteraction = now();
+  S.miniGameScores.push({ type: mgType, score: mgScore, time: now() });
+  if (S.miniGameScores.length > 50) S.miniGameScores = S.miniGameScores.slice(-50);
+  addMemory('minigame', { type: mgType, score: mgScore });
+  showThought(mgScore > 5 ? '🎉' : '😊');
+  spawnParticles(S.pos.x, S.pos.y - 10, 'star', mgScore > 5 ? 8 : 3);
+  saveState();
+}
+
+function handleMinigameClick(rx, ry) {
+  if (!mgActive) return;
+  switch(mgType) {
+    case 'catch':
+      mgState.catcher.x = rx;
+      break;
+    case 'pattern':
+      if (mgState.showing || mgState.failed) return;
+      for (const btn of mgState.buttons) {
+        if (rx > btn.x && rx < btn.x + btn.w && ry > btn.y && ry < btn.y + btn.h) {
+          mgState.flash = btn.id;
+          mgState.flashTimer = 0.3;
+          mgState.playerSeq.push(btn.id);
+          const idx = mgState.playerSeq.length - 1;
+          if (mgState.playerSeq[idx] !== mgState.sequence[idx]) {
+            mgState.failed = true;
+            setTimeout(endMinigame, 500);
+            return;
+          }
+          if (mgState.playerSeq.length === mgState.sequence.length) {
+            mgScore += mgState.round;
+            mgState.round++;
+            setTimeout(() => addPatternStep(), 500);
+            setTimeout(() => { mgState.showTimer = 0.8; }, 600);
+          }
+          return;
+        }
+      }
+      break;
+    case 'rhythm':
+      const laneW = ROOM_W / mgState.lanes;
+      const lane = Math.floor(rx / laneW);
+      for (let i = mgState.notes.length - 1; i >= 0; i--) {
+        if (mgState.notes[i].lane === lane && 
+            Math.abs(mgState.notes[i].y - mgState.hitZone) < 30 && !mgState.notes[i].hit) {
+          mgState.notes[i].hit = true;
+          mgScore++;
+          mgState.notes.splice(i, 1);
+          break;
+        }
+      }
+      break;
+    case 'hideseek':
+      for (let i = 0; i < mgState.spots.length; i++) {
+        const sp = mgState.spots[i];
+        if (rx > sp.x && rx < sp.x + sp.w && ry > sp.y && ry < sp.y + sp.h) {
+          if (i === mgState.creatureSpot && !mgState.found) {
+            mgState.found = true;
+            mgScore += 3;
+            mgState.round++;
+            showThought('😆');
+            if (mgState.round > 3) { setTimeout(endMinigame, 500); }
+            else {
+              mgState.creatureSpot = randInt(0, 2);
+              mgState.found = false;
+              mgState.timer = 8;
+            }
+          }
+          break;
+        }
+      }
+      break;
+  }
+}
+
+function drawMinigame() {
+  if (!mgActive) return;
+  mgCtx.clearRect(0, 0, W, H);
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  mgCtx.fillStyle = 'rgba(0,0,0,0.7)';
+  mgCtx.fillRect(0, 0, W, H);
+  mgCtx.save();
+  mgCtx.translate(ox, oy);
+  mgCtx.scale(SCALE, SCALE);
+
+  mgCtx.fillStyle = '#fff';
+  mgCtx.font = '12px monospace';
+  mgCtx.textAlign = 'center';
+  mgCtx.fillText(`Score: ${mgScore}`, ROOM_W / 2, 15);
+
+  switch(mgType) {
+    case 'catch':
+      mgCtx.fillStyle = '#333';
+      mgCtx.fillRect(0, ROOM_H - 25, ROOM_W, 25);
+      mgCtx.fillStyle = '#4a9';
+      mgCtx.fillRect(mgState.catcher.x - mgState.catcher.w / 2, ROOM_H - 25, mgState.catcher.w, 10);
+      mgCtx.fillStyle = '#f55';
+      for (const b of mgState.balls) {
+        mgCtx.beginPath();
+        mgCtx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        mgCtx.fill();
+      }
+      mgCtx.fillStyle = '#fff';
+      mgCtx.fillText(`Time: ${Math.ceil(mgState.timer)}s  Misses: ${mgState.misses}/${mgState.maxMisses}`, ROOM_W / 2, 30);
+      break;
+
+    case 'pattern':
+      for (const btn of mgState.buttons) {
+        mgCtx.fillStyle = mgState.flash === btn.id ? '#fff' : btn.color;
+        mgCtx.globalAlpha = mgState.showing ? 0.5 : 0.9;
+        mgCtx.fillRect(btn.x, btn.y, btn.w, btn.h);
+        mgCtx.globalAlpha = 1;
+        mgCtx.strokeStyle = '#fff';
+        mgCtx.lineWidth = 2;
+        mgCtx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+      }
+      mgCtx.fillStyle = '#fff';
+      mgCtx.fillText(`Round ${mgState.round}`, ROOM_W / 2, 80);
+      if (mgState.failed) mgCtx.fillText('Wrong!', ROOM_W / 2, ROOM_H - 20);
+      break;
+
+    case 'rhythm':
+      const laneW = ROOM_W / mgState.lanes;
+      for (let i = 0; i < mgState.lanes; i++) {
+        mgCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+        mgCtx.beginPath();
+        mgCtx.moveTo(i * laneW, 0);
+        mgCtx.lineTo(i * laneW, ROOM_H);
+        mgCtx.stroke();
+      }
+      mgCtx.fillStyle = 'rgba(255,255,0,0.3)';
+      mgCtx.fillRect(0, mgState.hitZone - 15, ROOM_W, 30);
+      const noteColors = ['#e74c3c', '#2ecc71', '#3498db'];
+      for (const n of mgState.notes) {
+        if (n.hit) continue;
+        mgCtx.fillStyle = noteColors[n.lane];
+        mgCtx.beginPath();
+        mgCtx.arc(n.lane * laneW + laneW / 2, n.y, 12, 0, Math.PI * 2);
+        mgCtx.fill();
+        mgCtx.fillStyle = '#fff';
+        mgCtx.font = '10px serif';
+        mgCtx.fillText('♪', n.lane * laneW + laneW / 2, n.y + 4);
+      }
+      mgCtx.fillStyle = '#fff';
+      mgCtx.font = '12px monospace';
+      mgCtx.fillText(`Time: ${Math.ceil(mgState.timer)}s`, ROOM_W / 2, 30);
+      break;
+
+    case 'hideseek':
+      mgCtx.fillStyle = '#665544';
+      mgCtx.fillRect(0, 120, ROOM_W, ROOM_H - 120);
+      for (let i = 0; i < mgState.spots.length; i++) {
+        const sp = mgState.spots[i];
+        mgCtx.fillStyle = mgState.found && i === mgState.creatureSpot ? '#8a5' : '#886644';
+        mgCtx.fillRect(sp.x, sp.y, sp.w, sp.h);
+        mgCtx.fillStyle = '#554433';
+        mgCtx.fillRect(sp.x + 5, sp.y + 5, sp.w - 10, sp.h - 10);
+        if (mgState.found && i === mgState.creatureSpot) {
+          mgCtx.fillStyle = '#fff';
+          mgCtx.font = '20px serif';
+          mgCtx.fillText('😊', sp.x + sp.w / 2, sp.y + sp.h / 2 + 7);
+        }
+        mgCtx.fillStyle = 'rgba(255,255,255,0.5)';
+        mgCtx.font = '12px monospace';
+        mgCtx.fillText('?', sp.x + sp.w / 2, sp.y + sp.h / 2 + 4);
+      }
+      mgCtx.fillStyle = '#fff';
+      mgCtx.font = '12px monospace';
+      mgCtx.fillText(`Find me! Round ${mgState.round}/3  Time: ${Math.ceil(mgState.timer)}s`, ROOM_W / 2, 50);
+      break;
+  }
+  mgCtx.restore();
+}
+
+// ============================================================
+// DREAM SYSTEM
+// ============================================================
+let dreamParticles = [];
+let dreamPhase = 0;
+
+function updateDreams(dt) {
+  if (!S.isSleeping || !isNightTime()) {
+    dreamCanvas.style.display = 'none';
+    S.dreamActive = false;
+    return;
+  }
+  S.dreamActive = true;
+  dreamCanvas.style.display = 'block';
+  dreamPhase += dt * 0.3;
+  if (Math.random() < 0.08) {
+    const memories = getRecentMemories(10);
+    const mem = memories.length > 0 ? pick(memories) : null;
+    let type = 'sparkle';
+    let color = '#aaf';
+    if (mem) {
+      if (mem.type === 'fed' || mem.type === 'eat') { type = 'food'; color = '#fda'; }
+      else if (mem.type === 'play' || mem.type === 'minigame') { type = 'star'; color = '#ffa'; }
+      else if (mem.type === 'talk') { type = 'heart'; color = '#faf'; }
+    }
+    if (S.neglectStreak > 5 && Math.random() < 0.4) { type = 'sad'; color = '#88a'; }
+    dreamParticles.push(new Particle(rand(40, ROOM_W - 40), rand(40, ROOM_H - 40), type, color));
+  }
+  for (let i = dreamParticles.length - 1; i >= 0; i--) {
+    dreamParticles[i].vy = -10 - Math.sin(dreamPhase + i) * 5;
+    dreamParticles[i].vx = Math.cos(dreamPhase * 0.7 + i * 0.3) * 10;
+    if (!dreamParticles[i].update(dt)) dreamParticles.splice(i, 1);
+  }
+}
+
+function drawDreams() {
+  if (!S.dreamActive) return;
+  dreamCtx.clearRect(0, 0, W, H);
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  const t = dreamPhase;
+  dreamCtx.fillStyle = `rgba(20, 10, 40, ${0.3 + Math.sin(t) * 0.1})`;
+  dreamCtx.fillRect(0, 0, W, H);
+
+  // watercolor-like dream clouds
+  for (let i = 0; i < 4; i++) {
+    const cx = W / 2 + Math.sin(t * 0.5 + i * 1.5) * W * 0.3;
+    const cy = H / 2 + Math.cos(t * 0.3 + i * 2) * H * 0.2;
+    const r = 80 + Math.sin(t + i) * 30;
+    const grad = dreamCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    const hue = (t * 30 + i * 90) % 360;
+    grad.addColorStop(0, `hsla(${hue}, 60%, 60%, 0.15)`);
+    grad.addColorStop(1, `hsla(${hue}, 60%, 40%, 0)`);
+    dreamCtx.fillStyle = grad;
+    dreamCtx.beginPath();
+    dreamCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    dreamCtx.fill();
+  }
+
+  for (const p of dreamParticles) p.draw(dreamCtx, ox, oy, SCALE);
+  drawDreamShapes(ox, oy);
+
+  dreamCtx.fillStyle = 'rgba(255,255,255,0.6)';
+  dreamCtx.font = `${14 * SCALE}px monospace`;
+  dreamCtx.textAlign = 'center';
+  const dreamTexts = ['💭', '✨ dreaming ✨', '💤 zzz...', '🌙'];
+  dreamCtx.fillText(dreamTexts[Math.floor(t * 0.5) % dreamTexts.length], W / 2, oy + 20 * SCALE);
+}
+
+
+// ============================================================
+// ROOM RENDERING
+// ============================================================
+function drawRoom() {
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(SCALE, SCALE);
+
+  const tod = getTimeOfDay();
+  const sky = getSkyColor();
+  const nightAlpha = tod === 'night' ? 0.4 : tod === 'evening' ? 0.2 : 0;
+
+  // Background walls
+  const wallGrad = ctx.createLinearGradient(0, 0, 0, ROOM_H);
+  const wallBase = tod === 'night' ? [40, 35, 55] : tod === 'evening' ? [80, 65, 70] : [110, 100, 90];
+  wallGrad.addColorStop(0, rgba(wallBase[0] + 30, wallBase[1] + 25, wallBase[2] + 20, 1));
+  wallGrad.addColorStop(1, rgba(wallBase[0], wallBase[1], wallBase[2], 1));
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(0, 0, ROOM_W, ROOM_H);
+
+  // Wall pattern (subtle)
+  ctx.fillStyle = rgba(0, 0, 0, 0.03);
+  for (let y = 0; y < ROOM_H; y += 20) {
+    for (let x = (y % 40 === 0 ? 0 : 10); x < ROOM_W; x += 20) {
+      ctx.fillRect(x, y, 19, 19);
+    }
+  }
+
+  // Floor
+  const floorGrad = ctx.createLinearGradient(0, ROOM.floor_y, 0, ROOM_H);
+  const floorBase = tod === 'night' ? [35, 30, 25] : [90, 75, 55];
+  floorGrad.addColorStop(0, rgba(floorBase[0] + 20, floorBase[1] + 15, floorBase[2] + 10, 1));
+  floorGrad.addColorStop(1, rgba(floorBase[0], floorBase[1], floorBase[2], 1));
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(0, ROOM.floor_y, ROOM_W, ROOM_H - ROOM.floor_y);
+
+  // Floor boards
+  ctx.strokeStyle = rgba(0, 0, 0, 0.1);
+  ctx.lineWidth = 1;
+  for (let x = 0; x < ROOM_W; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, ROOM.floor_y);
+    ctx.lineTo(x, ROOM_H);
+    ctx.stroke();
+  }
+
+  // Baseboard
+  ctx.fillStyle = rgba(floorBase[0] - 20, floorBase[1] - 15, floorBase[2] - 10, 1);
+  ctx.fillRect(0, ROOM.floor_y - 3, ROOM_W, 6);
+
+  drawWindow(sky, tod);
+  drawWeatherInWindow();
+  drawBed(tod);
+  drawBowl();
+  drawToy();
+  drawBath();
+  drawFurniture(tod);
+
+  // Night overlay
+  if (nightAlpha > 0) {
+    ctx.fillStyle = rgba(10, 10, 30, nightAlpha);
+    ctx.fillRect(0, 0, ROOM_W, ROOM_H);
+  }
+
+  ctx.restore();
+}
+
+function drawWindow(sky, tod) {
+  const w = ROOM.window;
+  // Window frame
+  ctx.fillStyle = '#8B7355';
+  ctx.fillRect(w.x - 4, w.y - 4, w.w + 8, w.h + 8);
+  ctx.fillStyle = '#A08060';
+  ctx.fillRect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
+
+  // Sky gradient
+  const skyGrad = ctx.createLinearGradient(w.x, w.y, w.x, w.y + w.h);
+  skyGrad.addColorStop(0, sky.top);
+  skyGrad.addColorStop(1, sky.bot);
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(w.x, w.y, w.w, w.h);
+
+  const h = hourNow();
+
+  // Sun or moon
+  if (sky.sun > 0) {
+    const sunX = w.x + w.w * 0.3 + Math.sin((h - 6) / 12 * Math.PI) * w.w * 0.3;
+    const sunY = w.y + w.h * 0.8 - Math.sin((h - 6) / 12 * Math.PI) * w.h * 0.6;
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (tod === 'night' || tod === 'evening') {
+    const moonX = w.x + w.w * 0.7;
+    const moonY = w.y + w.h * 0.3;
+    ctx.fillStyle = '#EEEECC';
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Stars
+    const starSeed = Math.floor(daysSince(S.born));
+    for (let i = 0; i < 8; i++) {
+      const sx = w.x + ((starSeed * 17 + i * 37) % w.w);
+      const sy = w.y + ((starSeed * 13 + i * 23) % (w.h * 0.7));
+      const twinkle = 0.5 + Math.sin(now() / 500 + i * 2) * 0.5;
+      ctx.fillStyle = `rgba(255, 255, 220, ${twinkle})`;
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+  }
+
+  // Rain
+  if (shouldRain()) {
+    ctx.strokeStyle = 'rgba(150, 180, 220, 0.5)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 12; i++) {
+      const rx = w.x + (now() / 50 + i * 7) % w.w;
+      const ry = w.y + (now() / 30 + i * 19) % w.h;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx - 1, ry + 5);
+      ctx.stroke();
+    }
+  }
+
+  // Clouds
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  const cloudX = w.x + ((now() / 100) % (w.w + 20)) - 10;
+  drawCloud(cloudX, w.y + 12, 12);
+
+  // Window dividers
+  ctx.strokeStyle = '#8B7355';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(w.x + w.w / 2, w.y);
+  ctx.lineTo(w.x + w.w / 2, w.y + w.h);
+  ctx.moveTo(w.x, w.y + w.h / 2);
+  ctx.lineTo(w.x + w.w, w.y + w.h / 2);
+  ctx.stroke();
+
+  // Curtains
+  ctx.fillStyle = rgba(120, 60, 60, 0.6);
+  ctx.fillRect(w.x - 6, w.y - 6, 8, w.h + 12);
+  ctx.fillRect(w.x + w.w - 2, w.y - 6, 8, w.h + 12);
+  for (let y = w.y; y < w.y + w.h; y += 8) {
+    ctx.fillStyle = rgba(100, 50, 50, 0.3);
+    ctx.fillRect(w.x - 6, y, 8, 4);
+    ctx.fillRect(w.x + w.w - 2, y, 8, 4);
+  }
+}
+
+function drawCloud(x, y, s) {
+  ctx.beginPath();
+  ctx.arc(x, y, s * 0.5, 0, Math.PI * 2);
+  ctx.arc(x + s * 0.4, y - s * 0.2, s * 0.4, 0, Math.PI * 2);
+  ctx.arc(x + s * 0.8, y, s * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBed(tod) {
+  const b = ROOM.bed;
+  // Bed frame
+  ctx.fillStyle = '#6B4226';
+  ctx.fillRect(b.x, b.y + b.h - 8, b.w, 8);
+  // Headboard
+  ctx.fillStyle = '#7B5236';
+  ctx.fillRect(b.x, b.y, 6, b.h);
+  // Footboard
+  ctx.fillStyle = '#7B5236';
+  ctx.fillRect(b.x + b.w - 4, b.y + 10, 4, b.h - 10);
+  // Mattress
+  ctx.fillStyle = '#E8D8C8';
+  ctx.fillRect(b.x + 6, b.y + 8, b.w - 10, b.h - 16);
+  // Blanket
+  const blanketColor = tod === 'night' ? '#556B8A' : '#7B9BC0';
+  ctx.fillStyle = blanketColor;
+  ctx.fillRect(b.x + 6, b.y + 18, b.w - 10, b.h - 26);
+  // Pillow
+  ctx.fillStyle = '#F5F0E8';
+  ctx.fillRect(b.x + 8, b.y + 10, 20, 10);
+  ctx.fillStyle = '#EAE5DD';
+  ctx.fillRect(b.x + 9, b.y + 11, 18, 8);
+  // Blanket pattern
+  ctx.strokeStyle = rgba(255, 255, 255, 0.15);
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(b.x + 10, b.y + 22 + i * 6);
+    ctx.lineTo(b.x + b.w - 8, b.y + 22 + i * 6);
+    ctx.stroke();
+  }
+
+  // Sleeping creature
+  if (S.isSleeping) {
+    drawCreatureInBed(b);
+  }
+}
+
+function drawBowl() {
+  const b = ROOM.bowl;
+  ctx.fillStyle = '#CD853F';
+  ctx.beginPath();
+  ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#DEB887';
+  ctx.beginPath();
+  ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2 - 2, b.w / 2 - 3, b.h / 2 - 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Food level based on hunger
+  if (S.needs.hunger < 50) {
+    const foodH = (50 - S.needs.hunger) / 50 * (b.h - 6);
+    ctx.fillStyle = '#A0522D';
+    ctx.beginPath();
+    ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2 - 1, b.w / 2 - 5, Math.max(2, foodH / 2), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Label
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '6px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('🍖', b.x + b.w / 2, b.y + b.h + 8);
+}
+
+function drawToy() {
+  const t = ROOM.toy;
+  const bounce = Math.sin(now() / 300) * 2;
+  // Ball
+  ctx.fillStyle = '#E74C3C';
+  ctx.beginPath();
+  ctx.arc(t.x, t.y + bounce, t.w / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#C0392B';
+  ctx.beginPath();
+  ctx.arc(t.x, t.y + bounce, t.w / 2, 0, Math.PI);
+  ctx.fill();
+  // Stripe
+  ctx.strokeStyle = '#FFF';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(t.x - t.w / 2 + 3, t.y + bounce);
+  ctx.lineTo(t.x + t.w / 2 - 3, t.y + bounce);
+  ctx.stroke();
+  // Star highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.beginPath();
+  ctx.arc(t.x - 3, t.y + bounce - 4, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBath() {
+  const b = ROOM.bath;
+  ctx.fillStyle = '#87CEEB';
+  ctx.beginPath();
+  ctx.moveTo(b.x, b.y);
+  ctx.lineTo(b.x + b.w, b.y);
+  ctx.lineTo(b.x + b.w - 5, b.y + b.h);
+  ctx.lineTo(b.x + 5, b.y + b.h);
+  ctx.closePath();
+  ctx.fill();
+  // Water
+  ctx.fillStyle = 'rgba(100, 180, 255, 0.5)';
+  ctx.beginPath();
+  ctx.moveTo(b.x + 3, b.y + 10);
+  ctx.lineTo(b.x + b.w - 3, b.y + 10);
+  ctx.lineTo(b.x + b.w - 6, b.y + b.h - 2);
+  ctx.lineTo(b.x + 6, b.y + b.h - 2);
+  ctx.closePath();
+  ctx.fill();
+  // Bubbles
+  const bt = now() / 800;
+  for (let i = 0; i < 4; i++) {
+    const bx = b.x + 10 + (i * 8) + Math.sin(bt + i) * 3;
+    const by = b.y + 8 + Math.cos(bt + i * 2) * 2;
+    ctx.strokeStyle = 'rgba(200, 230, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(bx, by, 3 + Math.sin(bt + i) * 1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Rim
+  ctx.strokeStyle = '#6BB5D0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(b.x - 2, b.y);
+  ctx.lineTo(b.x + b.w + 2, b.y);
+  ctx.stroke();
+}
+
+function drawFurniture(tod) {
+  // Rug
+  ctx.fillStyle = rgba(140, 80, 80, 0.4);
+  ctx.beginPath();
+  ctx.ellipse(160, 190, 50, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = rgba(160, 90, 90, 0.3);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(160, 190, 45, 12, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Shelf on wall
+  ctx.fillStyle = '#7B5236';
+  ctx.fillRect(15, 60, 60, 4);
+  ctx.fillStyle = '#6B4226';
+  ctx.fillRect(20, 44, 10, 16);
+  ctx.fillRect(36, 48, 8, 12);
+  ctx.fillStyle = '#8B6246';
+  ctx.fillRect(50, 46, 12, 14);
+
+  // Clock
+  ctx.fillStyle = '#DDD';
+  ctx.beginPath();
+  ctx.arc(130, 40, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(130, 40, 12, 0, Math.PI * 2);
+  ctx.stroke();
+  // Clock hands
+  const hr = hourNow();
+  const hrAngle = (hr % 12) / 12 * Math.PI * 2 - Math.PI / 2;
+  const minAngle = (new Date().getMinutes() / 60) * Math.PI * 2 - Math.PI / 2;
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(130, 40);
+  ctx.lineTo(130 + Math.cos(hrAngle) * 7, 40 + Math.sin(hrAngle) * 7);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(130, 40);
+  ctx.lineTo(130 + Math.cos(minAngle) * 9, 40 + Math.sin(minAngle) * 9);
+  ctx.stroke();
+
+  // Lamp (glows at night)
+  ctx.fillStyle = '#8B7355';
+  ctx.fillRect(285, ROOM.wall_y + 5, 4, 30);
+  if (tod === 'night' || tod === 'evening') {
+    const lampGrad = ctx.createRadialGradient(287, ROOM.wall_y + 5, 0, 287, ROOM.wall_y + 5, 30);
+    lampGrad.addColorStop(0, 'rgba(255, 220, 100, 0.4)');
+    lampGrad.addColorStop(1, 'rgba(255, 220, 100, 0)');
+    ctx.fillStyle = lampGrad;
+    ctx.beginPath();
+    ctx.arc(287, ROOM.wall_y + 5, 30, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = tod === 'night' ? '#FFD700' : '#DAA520';
+  ctx.beginPath();
+  ctx.moveTo(279, ROOM.wall_y + 5);
+  ctx.lineTo(295, ROOM.wall_y + 5);
+  ctx.lineTo(290, ROOM.wall_y - 5);
+  ctx.lineTo(284, ROOM.wall_y - 5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Picture frame
+  ctx.strokeStyle = '#8B7355';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(160, 50, 25, 20);
+  ctx.fillStyle = '#556B2F';
+  ctx.fillRect(162, 52, 21, 16);
+  ctx.fillStyle = '#228B22';
+  ctx.beginPath();
+  ctx.moveTo(166, 66);
+  ctx.lineTo(172, 56);
+  ctx.lineTo(178, 66);
+  ctx.fill();
+}
+
+// ============================================================
+// CREATURE RENDERING
+// ============================================================
+function drawCreature() {
+  if (S.isSleeping) return; // drawn in bed
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(SCALE, SCALE);
+
+  const stg = getStageData();
+  const sz = stg.size;
+  const mc = getMoodColor();
+  const x = S.pos.x + idleOff.x;
+  const y = S.pos.y + idleOff.y;
+  const bob = Math.sin(now() / 400 + S.animFrame) * 2;
+  const idleOff = getIdleOffset();
+  const pers = getDominantPersonality();
+  const speedMult = pers === 'hyper' ? 1.8 : pers === 'lazy' ? 0.5 : pers === 'melancholy' ? 0.6 : 1;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 14 * sz, 12 * sz, 4 * sz, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  const bodyR = 16 * sz;
+  const bodyY = y + bob * sz;
+
+  // Glow for cheerful
+  if (pers === 'cheerful') {
+    const glow = ctx.createRadialGradient(x, bodyY, bodyR * 0.5, x, bodyY, bodyR * 1.8);
+    glow.addColorStop(0, `rgba(${mc[0]}, ${mc[1]}, ${mc[2]}, 0.15)`);
+    glow.addColorStop(1, `rgba(${mc[0]}, ${mc[1]}, ${mc[2]}, 0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, bodyY, bodyR * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Main body
+  const bodyGrad = ctx.createRadialGradient(x - 4, bodyY - 4, 0, x, bodyY, bodyR);
+  bodyGrad.addColorStop(0, rgba(Math.min(255, mc[0] + 40), Math.min(255, mc[1] + 40), Math.min(255, mc[2] + 40), 1));
+  bodyGrad.addColorStop(1, rgba(mc[0], mc[1], mc[2], 1));
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.arc(x, bodyY, bodyR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cheeks
+  const blush = S.needs.happiness > 60 ? 0.4 : S.needs.social > 60 ? 0.3 : 0.1;
+  ctx.fillStyle = `rgba(255, 150, 150, ${blush})`;
+  ctx.beginPath();
+  ctx.ellipse(x - 10 * sz, bodyY + 3 * sz, 4 * sz, 3 * sz, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + 10 * sz, bodyY + 3 * sz, 4 * sz, 3 * sz, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  const eyeSize = bodyR * stg.eyes;
+  const eyeSpacing = 6 * sz;
+  const blink = S.blinkTimer <= 0 && S.blinkTimer > -0.15;
+  if (S.blinkTimer <= -0.15) S.blinkTimer = rand(2, 5);
+  const eyeY = bodyY - 2 * sz;
+  const lookX = S.target ? Math.sign(S.target.x - x) * 1.5 : 0;
+  const lookY = S.target ? Math.sign(S.target.y - y) * 0.5 : 0;
+
+  for (const side of [-1, 1]) {
+    const ex = x + eyeSpacing * side;
+    if (blink) {
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ex - eyeSize, eyeY);
+      ctx.lineTo(ex + eyeSize, eyeY);
+      ctx.stroke();
+    } else {
+      // Eye white
+      ctx.fillStyle = '#FFF';
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, eyeSize, eyeSize * 1.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pupil
+      ctx.fillStyle = '#333';
+      const pupilSize = eyeSize * 0.55;
+      ctx.beginPath();
+      ctx.arc(ex + lookX, eyeY + lookY, pupilSize, 0, Math.PI * 2);
+      ctx.fill();
+      // Eye shine
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath();
+      ctx.arc(ex + lookX + pupilSize * 0.3, eyeY + lookY - pupilSize * 0.3, pupilSize * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Expression
+      if (S.needs.happiness < 20 || pers === 'melancholy') {
+        ctx.strokeStyle = '#55A';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(ex, eyeY + eyeSize + 2, 2, 0, Math.PI);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Mouth
+  const mouthY = bodyY + 6 * sz;
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (S.state === 'eating') {
+    ctx.arc(x, mouthY, 3 * sz, 0, Math.PI * 2);
+    ctx.fillStyle = '#833';
+    ctx.fill();
+  } else if (S.needs.happiness > 60) {
+    ctx.arc(x, mouthY - 2 * sz, 4 * sz, 0.1 * Math.PI, 0.9 * Math.PI);
+    ctx.stroke();
+  } else if (S.needs.happiness < 25) {
+    ctx.arc(x, mouthY + 3 * sz, 4 * sz, 1.1 * Math.PI, 1.9 * Math.PI);
+    ctx.stroke();
+  } else {
+    ctx.moveTo(x - 3 * sz, mouthY);
+    ctx.lineTo(x + 3 * sz, mouthY);
+    ctx.stroke();
+  }
+
+  // Limbs
+  const limbColor = rgba(Math.max(0, mc[0] - 30), Math.max(0, mc[1] - 30), Math.max(0, mc[2] - 30), 1);
+  const walkPhase = now() / (300 / speedMult);
+  const isMoving = S.state === 'wandering' || S.state === 'moving_to_need' || S.state === 'anticipating';
+
+  // Arms
+  ctx.strokeStyle = limbColor;
+  ctx.lineWidth = 3 * sz;
+  ctx.lineCap = 'round';
+  for (const side of [-1, 1]) {
+    const armX = x + bodyR * 0.8 * side;
+    const armWave = isMoving ? Math.sin(walkPhase + side) * 8 : 
+                    S.state === 'being_pet' ? -10 :
+                    S.state === 'playing' ? Math.sin(walkPhase * 2 + side) * 15 : 
+                    Math.sin(now() / 1000 + side) * 2;
+    ctx.beginPath();
+    ctx.moveTo(armX, bodyY + 2 * sz);
+    ctx.lineTo(armX + 5 * side * sz, bodyY + 10 * sz + armWave * sz * 0.3);
+    ctx.stroke();
+  }
+
+  // Legs
+  for (const side of [-1, 1]) {
+    const legX = x + 5 * side * sz;
+    const legWave = isMoving ? Math.sin(walkPhase + side * Math.PI) * 4 : 0;
+    ctx.beginPath();
+    ctx.moveTo(legX, bodyY + bodyR * 0.7);
+    ctx.lineTo(legX + legWave, bodyY + bodyR + 5 * sz);
+    ctx.stroke();
+  }
+
+  // Ears/features based on stage
+  if (S.stage === 'baby') {
+    ctx.fillStyle = rgba(mc[0], mc[1], mc[2], 0.8);
+    ctx.beginPath();
+    ctx.arc(x - 8 * sz, bodyY - bodyR + 2, 4 * sz, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 8 * sz, bodyY - bodyR + 2, 4 * sz, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (S.stage === 'child' || S.stage === 'teen') {
+    // Small antenna/tuft
+    ctx.strokeStyle = limbColor;
+    ctx.lineWidth = 2;
+    const tuftWave = Math.sin(now() / 500) * 3;
+    ctx.beginPath();
+    ctx.moveTo(x, bodyY - bodyR);
+    ctx.quadraticCurveTo(x + tuftWave, bodyY - bodyR - 8 * sz, x + 4, bodyY - bodyR - 6 * sz);
+    ctx.stroke();
+    ctx.fillStyle = rgba(mc[0], mc[1], mc[2], 1);
+    ctx.beginPath();
+    ctx.arc(x + 4, bodyY - bodyR - 6 * sz, 2 * sz, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (S.stage === 'elder') {
+    // Tiny glasses
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(x + eyeSpacing * side, eyeY, eyeSize + 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(x - eyeSpacing + eyeSize + 2, eyeY);
+    ctx.lineTo(x + eyeSpacing - eyeSize - 2, eyeY);
+    ctx.stroke();
+  }
+
+  // State-specific effects
+  if (S.state === 'depressed') {
+    ctx.fillStyle = 'rgba(100, 100, 200, 0.3)';
+    ctx.beginPath();
+    ctx.arc(x, bodyY, bodyR + 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (S.state === 'being_pet') {
+    const pet = Math.sin(now() / 100) * 2;
+    ctx.fillStyle = 'rgba(255, 200, 200, 0.2)';
+    ctx.beginPath();
+    ctx.arc(x, bodyY + pet, bodyR + 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawCreatureInBed(b) {
+  const stg = getStageData();
+  const sz = stg.size * 0.8;
+  const mc = getMoodColor();
+  const x = b.x + 30;
+  const y = b.y + 22;
+  const breathe = Math.sin(now() / 1000) * 1.5;
+
+  // Body under blanket
+  ctx.fillStyle = rgba(mc[0], mc[1], mc[2], 0.8);
+  ctx.beginPath();
+  ctx.arc(x, y + breathe, 10 * sz, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Closed eyes
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1.5;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(x + 4 * side * sz, y - 1 + breathe, 2 * sz, 0.1 * Math.PI, 0.9 * Math.PI);
+    ctx.stroke();
+  }
+
+  // Smile
+  ctx.beginPath();
+  ctx.arc(x, y + 3 * sz + breathe, 2 * sz, 0.1 * Math.PI, 0.9 * Math.PI);
+  ctx.stroke();
+}
+
+// ============================================================
+// INFO & EXPORT
+// ============================================================
+G.showInfo = function() {
+  const panel = document.getElementById('info-panel');
+  const content = document.getElementById('info-content');
+  updatePersonality();
+  const pers = getDominantPersonality();
+  const info = {
+    name: S.name,
+    age: `${S.age.toFixed(1)} days (${S.stage})`,
+    personality: pers,
+    personalityWeights: S.personality,
+    traits: S.traits,
+    needs: Object.fromEntries(Object.entries(S.needs).map(([k,v]) => [k, Math.round(v)])),
+    stats: {
+      feeds: S.totalFeeds, plays: S.totalPlays, talks: S.totalTalks,
+      baths: S.totalBaths, sleeps: S.totalSleeps, pets: S.totalPets,
+      totalInteractions: S.interactionCount
+    },
+    vocabulary: S.vocabulary.join(' '),
+    habitStrengths: {
+      feed: getHabitStrength('feed'),
+      play: getHabitStrength('play'),
+      talk: getHabitStrength('talk')
+    },
+    memories: S.memories.length,
+    miniGameScores: S.miniGameScores.slice(-5).map(s => `${s.type}: ${s.score}`),
+    born: new Date(S.born).toLocaleDateString()
+  };
+  content.textContent = JSON.stringify(info, null, 2);
+  panel.style.display = 'block';
+};
+
+G.closeInfo = function() {
+  document.getElementById('info-panel').style.display = 'none';
+};
+
+G.exportLife = function() {
+  updatePersonality();
+  const story = {
+    creature: S.name,
+    born: new Date(S.born).toISOString(),
+    age: S.age,
+    stage: S.stage,
+    personality: getDominantPersonality(),
+    personalityWeights: S.personality,
+    traits: S.traits,
+    needs: S.needs,
+    vocabulary: S.vocabulary,
+    stats: {
+      totalFeeds: S.totalFeeds, totalPlays: S.totalPlays,
+      totalTalks: S.totalTalks, totalBaths: S.totalBaths,
+      totalSleeps: S.totalSleeps, totalPets: S.totalPets,
+      totalInteractions: S.interactionCount
+    },
+    habitPatterns: S.habitPatterns,
+    memories: S.memories,
+    miniGameScores: S.miniGameScores,
+    exportedAt: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(story, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${S.name}-life-story.json`; a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+function getCanvasPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0)) - rect.left;
+  const cy = (e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0)) - rect.top;
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  return { rx: (cx - ox) / SCALE, ry: (cy - oy) / SCALE };
+}
+
+function handleClick(e) {
+  e.preventDefault();
+  const { rx, ry } = getCanvasPos(e);
+
+  if (mgActive) {
+    handleMinigameClick(rx, ry);
+    return;
+  }
+
+  // Check if clicking on creature
+  const creatureDist = dist(rx, ry, S.pos.x, S.pos.y);
+  if (creatureDist < 20) {
+    G.petCreature(rx, ry);
+    return;
+  }
+
+  // Check room objects
+  const b = ROOM.bowl;
+  if (rx > b.x && rx < b.x + b.w && ry > b.y && ry < b.y + b.h + 10) {
+    G.feedCreature();
+    return;
+  }
+  const bed = ROOM.bed;
+  if (rx > bed.x && rx < bed.x + bed.w && ry > bed.y && ry < bed.y + bed.h) {
+    G.putToBed();
+    return;
+  }
+  const toy = ROOM.toy;
+  if (dist(rx, ry, toy.x, toy.y) < toy.w) {
+    G.playWithToy();
+    return;
+  }
+  const bath = ROOM.bath;
+  if (rx > bath.x && rx < bath.x + bath.w && ry > bath.y && ry < bath.y + bath.h) {
+    G.bathCreature();
+    return;
+  }
+}
+
+function handleMove(e) {
+  if (mgActive && mgType === 'catch') {
+    const { rx } = getCanvasPos(e);
+    mgState.catcher.x = clamp(rx, 20, ROOM_W - 20);
+  }
+}
+
+canvas.addEventListener('click', handleClick);
+canvas.addEventListener('touchstart', handleClick, { passive: false });
+canvas.addEventListener('mousemove', handleMove);
+canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleMove(e); }, { passive: false });
+
+// ============================================================
+// UPDATE NEEDS UI
+// ============================================================
+function updateNeedsUI() {
+  const bars = [
+    ['need-hunger', S.needs.hunger, '#e74c3c'],
+    ['need-energy', S.needs.energy, '#f39c12'],
+    ['need-happy', S.needs.happiness, '#2ecc71'],
+    ['need-clean', S.needs.cleanliness, '#3498db'],
+    ['need-social', S.needs.social, '#9b59b6']
+  ];
+  for (const [id, val, color] of bars) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.width = Math.round(val) + '%';
+      const l = val > 50 ? 50 : val > 25 ? 40 : 30;
+      el.style.background = val < 20 ? '#c0392b' : color;
+    }
+  }
+
+  // Name display
+  const nameEl = document.getElementById('creature-name');
+  const stg = getStageData();
+  nameEl.textContent = `${S.name} • ${S.stage} • ${getDominantPersonality()} • Day ${Math.floor(S.age)}`;
+}
+
+
+// ============================================================
+// WEATHER SYSTEM
+// ============================================================
+const weather = { type: 'clear', intensity: 0, drops: [], timer: 0 };
+
+function updateWeather(dt) {
+  weather.timer -= dt;
+  if (weather.timer <= 0) {
+    weather.timer = rand(120, 600);
+    const roll = Math.random();
+    if (roll < 0.15) { weather.type = 'rain'; weather.intensity = rand(0.3, 1); }
+    else if (roll < 0.22) { weather.type = 'snow'; weather.intensity = rand(0.3, 0.8); }
+    else if (roll < 0.3) { weather.type = 'storm'; weather.intensity = 1; }
+    else { weather.type = 'clear'; weather.intensity = 0; }
+  }
+  if (shouldRain()) { weather.type = 'rain'; weather.intensity = 0.6; }
+
+  if (weather.type === 'rain' || weather.type === 'storm') {
+    const count = Math.floor(weather.intensity * 3);
+    for (let i = 0; i < count; i++) {
+      weather.drops.push({
+        x: rand(ROOM.window.x, ROOM.window.x + ROOM.window.w),
+        y: ROOM.window.y,
+        speed: rand(80, 150) * weather.intensity,
+        length: rand(3, 8)
+      });
+    }
+  } else if (weather.type === 'snow') {
+    if (Math.random() < weather.intensity * 0.3) {
+      weather.drops.push({
+        x: rand(ROOM.window.x, ROOM.window.x + ROOM.window.w),
+        y: ROOM.window.y,
+        speed: rand(10, 30),
+        size: rand(1, 3),
+        wobble: rand(0, Math.PI * 2)
+      });
+    }
+  }
+
+  for (let i = weather.drops.length - 1; i >= 0; i--) {
+    const d = weather.drops[i];
+    d.y += d.speed * dt;
+    if (d.wobble !== undefined) d.x += Math.sin(d.wobble + d.y * 0.05) * 8 * dt;
+    if (d.y > ROOM.window.y + ROOM.window.h) weather.drops.splice(i, 1);
+  }
+  if (weather.drops.length > 200) weather.drops.splice(0, weather.drops.length - 200);
+}
+
+function drawWeatherInWindow() {
+  const w = ROOM.window;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(w.x, w.y, w.w, w.h);
+  ctx.clip();
+
+  if (weather.type === 'rain' || weather.type === 'storm') {
+    ctx.strokeStyle = `rgba(180, 200, 240, ${0.4 * weather.intensity})`;
+    ctx.lineWidth = 1;
+    for (const d of weather.drops) {
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - 1, d.y + (d.length || 5));
+      ctx.stroke();
+    }
+    if (weather.type === 'storm' && Math.random() < 0.002) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fillRect(w.x, w.y, w.w, w.h);
+    }
+  } else if (weather.type === 'snow') {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    for (const d of weather.drops) {
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.size || 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// ADVANCED DREAM VISUALIZATION
+// ============================================================
+const dreamShapes = [];
+
+function generateDreamContent() {
+  const memories = getRecentMemories(20);
+  const feedMems = memories.filter(m => m.type === 'fed' || m.type === 'eat');
+  const playMems = memories.filter(m => m.type === 'play' || m.type === 'minigame');
+  const talkMems = memories.filter(m => m.type === 'talk');
+  const isNightmare = S.neglectStreak > 5;
+
+  if (dreamShapes.length < 8 && Math.random() < 0.03) {
+    if (isNightmare) {
+      dreamShapes.push({
+        type: 'nightmare',
+        x: rand(50, ROOM_W - 50), y: rand(50, ROOM_H - 50),
+        size: rand(20, 50), rotation: 0, life: rand(3, 8),
+        maxLife: rand(3, 8), color: `hsla(${rand(250, 290)}, 40%, 20%, 0.6)`,
+        speed: rand(5, 15)
+      });
+    } else if (feedMems.length > playMems.length) {
+      dreamShapes.push({
+        type: 'food_landscape',
+        x: rand(30, ROOM_W - 30), y: rand(100, ROOM_H - 30),
+        size: rand(30, 60), rotation: 0, life: rand(4, 10),
+        maxLife: rand(4, 10), hue: rand(20, 60)
+      });
+    } else if (playMems.length > 0) {
+      dreamShapes.push({
+        type: 'adventure',
+        x: rand(40, ROOM_W - 40), y: rand(60, ROOM_H - 40),
+        size: rand(15, 40), rotation: 0, life: rand(3, 7),
+        maxLife: rand(3, 7), hue: rand(100, 300),
+        vx: rand(-20, 20), vy: rand(-15, 15)
+      });
+    } else {
+      dreamShapes.push({
+        type: 'abstract',
+        x: rand(40, ROOM_W - 40), y: rand(40, ROOM_H - 40),
+        size: rand(20, 45), rotation: 0, life: rand(3, 8),
+        maxLife: rand(3, 8), hue: rand(0, 360)
+      });
+    }
+  }
+}
+
+function updateDreamShapes(dt) {
+  for (let i = dreamShapes.length - 1; i >= 0; i--) {
+    const s = dreamShapes[i];
+    s.life -= dt;
+    s.rotation += dt * 0.5;
+    if (s.vx) { s.x += s.vx * dt; s.y += s.vy * dt; }
+    if (s.x < 0 || s.x > ROOM_W) s.vx = -(s.vx || 0);
+    if (s.y < 0 || s.y > ROOM_H) s.vy = -(s.vy || 0);
+    if (s.life <= 0) dreamShapes.splice(i, 1);
+  }
+}
+
+function drawDreamShapes(ox, oy) {
+  for (const s of dreamShapes) {
+    const alpha = clamp(s.life / s.maxLife, 0, 1) * 0.6;
+    const sx = s.x * SCALE + ox;
+    const sy = s.y * SCALE + oy;
+    const sz = s.size * SCALE;
+    dreamCtx.globalAlpha = alpha;
+
+    if (s.type === 'food_landscape') {
+      // Rolling hills of food colors
+      const grad = dreamCtx.createRadialGradient(sx, sy, 0, sx, sy, sz);
+      grad.addColorStop(0, `hsla(${s.hue}, 70%, 60%, 0.5)`);
+      grad.addColorStop(0.5, `hsla(${s.hue + 20}, 60%, 50%, 0.3)`);
+      grad.addColorStop(1, `hsla(${s.hue + 40}, 50%, 40%, 0)`);
+      dreamCtx.fillStyle = grad;
+      dreamCtx.beginPath();
+      dreamCtx.ellipse(sx, sy, sz, sz * 0.5, s.rotation, 0, Math.PI * 2);
+      dreamCtx.fill();
+      // Tiny food icons floating
+      dreamCtx.font = `${sz * 0.3}px serif`;
+      dreamCtx.textAlign = 'center';
+      dreamCtx.fillText(pick(['🍕','🍔','🍖','🧁','🍩']), sx + Math.sin(s.rotation * 3) * sz * 0.3, sy - sz * 0.2);
+    } else if (s.type === 'adventure') {
+      // Swirling adventure shapes
+      dreamCtx.save();
+      dreamCtx.translate(sx, sy);
+      dreamCtx.rotate(s.rotation);
+      dreamCtx.strokeStyle = `hsla(${s.hue}, 80%, 65%, ${alpha})`;
+      dreamCtx.lineWidth = 2 * SCALE;
+      dreamCtx.beginPath();
+      for (let a = 0; a < Math.PI * 4; a += 0.2) {
+        const r = (a / (Math.PI * 4)) * sz;
+        dreamCtx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      dreamCtx.stroke();
+      dreamCtx.fillStyle = `hsla(${s.hue}, 80%, 70%, ${alpha * 0.3})`;
+      dreamCtx.fill();
+      dreamCtx.restore();
+      dreamCtx.font = `${sz * 0.4}px serif`;
+      dreamCtx.textAlign = 'center';
+      dreamCtx.fillText(pick(['⭐','🌟','🎾','🎮','🎪']), sx, sy);
+    } else if (s.type === 'nightmare') {
+      // Dark, unsettling shapes
+      dreamCtx.fillStyle = s.color;
+      dreamCtx.save();
+      dreamCtx.translate(sx, sy);
+      dreamCtx.rotate(s.rotation);
+      const points = 5 + Math.floor(Math.sin(s.rotation * 2) * 2);
+      dreamCtx.beginPath();
+      for (let j = 0; j < points; j++) {
+        const angle = (j / points) * Math.PI * 2;
+        const r = sz * (0.5 + Math.sin(angle * 3 + s.rotation) * 0.3);
+        if (j === 0) dreamCtx.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
+        else dreamCtx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+      }
+      dreamCtx.closePath();
+      dreamCtx.fill();
+      dreamCtx.restore();
+      // Sad emotes
+      if (Math.random() < 0.02) {
+        dreamCtx.font = `${sz * 0.3}px serif`;
+        dreamCtx.fillText('😢', sx, sy);
+      }
+    } else {
+      // Abstract peaceful shapes
+      const grad = dreamCtx.createRadialGradient(sx, sy, 0, sx, sy, sz);
+      grad.addColorStop(0, `hsla(${s.hue}, 60%, 70%, 0.4)`);
+      grad.addColorStop(1, `hsla(${s.hue}, 60%, 50%, 0)`);
+      dreamCtx.fillStyle = grad;
+      dreamCtx.beginPath();
+      dreamCtx.arc(sx, sy, sz, 0, Math.PI * 2);
+      dreamCtx.fill();
+    }
+  }
+  dreamCtx.globalAlpha = 1;
+}
+
+// ============================================================
+// CREATURE EXPRESSIONS & EMOTE SYSTEM
+// ============================================================
+const emoteQueue = [];
+let activeEmote = null;
+let emoteDisplayTimer = 0;
+
+function queueEmote(emoji, duration) {
+  emoteQueue.push({ emoji, duration: duration || 2 });
+}
+
+function updateEmotes(dt) {
+  if (activeEmote) {
+    emoteDisplayTimer -= dt;
+    if (emoteDisplayTimer <= 0) activeEmote = null;
+  }
+  if (!activeEmote && emoteQueue.length > 0) {
+    activeEmote = emoteQueue.shift();
+    emoteDisplayTimer = activeEmote.duration;
+  }
+}
+
+function drawEmote(ox, oy) {
+  if (!activeEmote || S.isSleeping) return;
+  const sx = S.pos.x * SCALE + ox;
+  const sy = (S.pos.y - 35) * SCALE + oy;
+  const bounce = Math.sin(emoteDisplayTimer * 4) * 3 * SCALE;
+  ctx.font = `${16 * SCALE}px serif`;
+  ctx.textAlign = 'center';
+  ctx.globalAlpha = Math.min(1, emoteDisplayTimer * 2);
+  ctx.fillText(activeEmote.emoji, sx, sy + bounce);
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// CREATURE IDLE ANIMATIONS
+// ============================================================
+let idleAction = 'stand';
+let idleActionTimer = 0;
+
+function updateIdleAnimations(dt) {
+  if (S.state !== 'idle' || S.isSleeping) return;
+  idleActionTimer -= dt;
+  if (idleActionTimer <= 0) {
+    const actions = ['stand', 'look_around', 'bounce', 'stretch', 'yawn', 'sniff'];
+    const pers = getDominantPersonality();
+    if (pers === 'hyper') actions.push('bounce', 'bounce', 'spin');
+    if (pers === 'lazy') actions.push('yawn', 'yawn', 'stand');
+    if (pers === 'cheerful') actions.push('bounce', 'dance', 'dance');
+    if (pers === 'melancholy') actions.push('stand', 'stand', 'sigh');
+    idleAction = pick(actions);
+    idleActionTimer = rand(2, 6);
+
+    if (idleAction === 'yawn' && S.needs.energy < 50) {
+      queueEmote('😪', 1.5);
+    } else if (idleAction === 'sniff' && S.needs.hunger < 40) {
+      queueEmote('🤤', 1.5);
+    } else if (idleAction === 'dance') {
+      spawnParticles(S.pos.x, S.pos.y - 10, 'note', 2);
+    } else if (idleAction === 'sigh') {
+      queueEmote('😔', 2);
+    }
+  }
+}
+
+function getIdleOffset() {
+  const t = now() / 1000;
+  switch(idleAction) {
+    case 'bounce': return { x: 0, y: Math.abs(Math.sin(t * 6)) * -5 };
+    case 'look_around': return { x: Math.sin(t * 2) * 3, y: 0 };
+    case 'stretch': return { x: 0, y: Math.sin(t * 1.5) * -3 };
+    case 'spin': return { x: Math.sin(t * 4) * 4, y: Math.cos(t * 4) * 2 };
+    case 'dance': return { x: Math.sin(t * 5) * 5, y: Math.abs(Math.sin(t * 5)) * -4 };
+    default: return { x: 0, y: 0 };
+  }
+}
+
+// ============================================================
+// ROOM AMBIENT EFFECTS
+// ============================================================
+const dustMotes = [];
+
+function updateAmbient(dt) {
+  // Dust motes floating in light from window
+  const tod = getTimeOfDay();
+  if ((tod === 'day' || tod === 'morning') && dustMotes.length < 15 && Math.random() < 0.02) {
+    dustMotes.push({
+      x: rand(ROOM.window.x - 20, ROOM.window.x + ROOM.window.w + 40),
+      y: rand(ROOM.window.y, ROOM.window.y + ROOM.window.h + 60),
+      size: rand(1, 2.5),
+      speed: rand(2, 8),
+      wobble: rand(0, Math.PI * 2),
+      life: rand(3, 8)
+    });
+  }
+  for (let i = dustMotes.length - 1; i >= 0; i--) {
+    const d = dustMotes[i];
+    d.life -= dt;
+    d.y += d.speed * dt;
+    d.x += Math.sin(d.wobble + d.y * 0.03) * 5 * dt;
+    d.wobble += dt;
+    if (d.life <= 0 || d.y > ROOM.floor_y) dustMotes.splice(i, 1);
+  }
+}
+
+function drawAmbient(ox, oy) {
+  for (const d of dustMotes) {
+    const alpha = clamp(d.life / 3, 0, 0.4);
+    ctx.fillStyle = `rgba(255, 255, 200, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(d.x * SCALE + ox, d.y * SCALE + oy, d.size * SCALE, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Light beam from window during day
+  const tod = getTimeOfDay();
+  if (tod === 'day' || tod === 'morning') {
+    const w = ROOM.window;
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.moveTo((w.x) * SCALE + ox, (w.y + w.h) * SCALE + oy);
+    ctx.lineTo((w.x + w.w) * SCALE + ox, (w.y + w.h) * SCALE + oy);
+    ctx.lineTo((w.x + w.w + 40) * SCALE + ox, ROOM.floor_y * SCALE + oy);
+    ctx.lineTo((w.x - 20) * SCALE + ox, ROOM.floor_y * SCALE + oy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// SOUND-LIKE VISUAL FEEDBACK (screen flash effects)
+// ============================================================
+let screenFlash = null;
+
+function flashScreen(color, duration) {
+  screenFlash = { color, duration, maxDuration: duration };
+}
+
+function updateFlash(dt) {
+  if (!screenFlash) return;
+  screenFlash.duration -= dt;
+  if (screenFlash.duration <= 0) screenFlash = null;
+}
+
+function drawFlash() {
+  if (!screenFlash) return;
+  const alpha = (screenFlash.duration / screenFlash.maxDuration) * 0.3;
+  ctx.fillStyle = screenFlash.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ============================================================
+// STATUS INDICATOR ICONS
+// ============================================================
+function drawStatusIndicators(ox, oy) {
+  if (S.isSleeping) return;
+  const indicators = [];
+  if (S.needs.hunger < 20) indicators.push('🍖');
+  if (S.needs.energy < 20) indicators.push('😴');
+  if (S.needs.happiness < 20) indicators.push('😢');
+  if (S.needs.cleanliness < 20) indicators.push('🧹');
+  if (S.needs.social < 20) indicators.push('💬');
+
+  if (indicators.length === 0) return;
+  const sx = S.pos.x * SCALE + ox;
+  const sy = (S.pos.y - 30) * SCALE + oy;
+  const pulse = 0.7 + Math.sin(now() / 300) * 0.3;
+  ctx.globalAlpha = pulse;
+  ctx.font = `${10 * SCALE}px serif`;
+  ctx.textAlign = 'center';
+  for (let i = 0; i < indicators.length; i++) {
+    const angle = (i / indicators.length) * Math.PI - Math.PI / 2;
+    const ix = sx + Math.cos(angle + now() / 2000) * 25 * SCALE;
+    const iy = sy + Math.sin(angle + now() / 2000) * 15 * SCALE - 5 * SCALE;
+    ctx.fillText(indicators[i], ix, iy);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// DAILY EVENTS & SURPRISES
+// ============================================================
+let dailyEventChecked = -1;
+
+function checkDailyEvent() {
+  const day = Math.floor(S.age);
+  if (day === dailyEventChecked) return;
+  dailyEventChecked = day;
+
+  if (day > 0 && day % 3 === 0) {
+    queueEmote('🎂', 3);
+    spawnParticles(S.pos.x, S.pos.y - 15, 'star', 8);
+    addMemory('milestone', { day, stage: S.stage });
+  }
+
+  if (day > 0 && S.stage !== (AGE_STAGES.find(a => a.days <= day - 1) || AGE_STAGES[0]).name) {
+    queueEmote('🌟', 3);
+    spawnParticles(S.pos.x, S.pos.y - 20, 'sparkle', 12);
+    addMemory('evolved', { newStage: S.stage, day });
+    flashScreen('rgb(255, 255, 200)', 1);
+  }
+}
+
+// ============================================================
+// ADVANCED HABIT DISPLAY
+// ============================================================
+function getHabitSummary() {
+  const summary = {};
+  for (const type of ['feed', 'play', 'talk']) {
+    const pattern = S.habitPatterns[type] || [];
+    let peakHour = 0, peakVal = 0;
+    for (let h = 0; h < 24; h++) {
+      if ((pattern[h] || 0) > peakVal) { peakVal = pattern[h]; peakHour = h; }
+    }
+    summary[type] = { peakHour, peakStrength: peakVal, total: pattern.reduce((a, b) => a + b, 0) };
+  }
+  return summary;
+}
+
+// ============================================================
+// MAIN GAME LOOP
+// ============================================================
+let lastTime = performance.now();
+let saveTimer = 0;
+let tickAccum = 0;
+
+function gameLoop(timestamp) {
+  const rawDt = (timestamp - lastTime) / 1000;
+  const dt = Math.min(rawDt, 0.1);
+  lastTime = timestamp;
+  tickAccum += dt;
+  saveTimer += dt;
+
+  // Catch up if tab was inactive
+  const realElapsed = (now() - S.lastTick) / 1000;
+  if (realElapsed > 60) {
+    const catchupMinutes = Math.min(realElapsed / 60, 480);
+    updateNeeds(catchupMinutes * 0.5);
+    S.lastTick = now();
+  }
+
+  updateAge();
+  updatePersonality();
+  updateNeeds(dt);
+  updateAI(dt);
+  updateMinigame(dt);
+  updateDreams(dt);
+  updateWeather(dt);
+  updateEmotes(dt);
+  updateIdleAnimations(dt);
+  updateAmbient(dt);
+  updateFlash(dt);
+  checkDailyEvent();
+
+  if (S.dreamActive) {
+    generateDreamContent();
+    updateDreamShapes(dt);
+  }
+
+  // Update particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    if (!particles[i].update(dt)) particles.splice(i, 1);
+  }
+
+  // Auto-sleep at night
+  if (isNightTime() && !S.isSleeping && S.needs.energy < 40 && S.state === 'idle') {
+    S.isSleeping = true;
+    setTarget(ROOM.bed.x + 30, ROOM.bed.y + 20);
+    S.state = 'moving_to_need';
+    S._pendingNeed = 'energy';
+    showThought('😴');
+  }
+
+  // Periodic particle effects based on state
+  if (S.needs.hunger < 15 && Math.random() < 0.02) {
+    spawnParticles(S.pos.x + rand(-5, 5), S.pos.y - 10, 'sweat', 1);
+  }
+  if (S.needs.happiness > 80 && Math.random() < 0.01 && !S.isSleeping) {
+    spawnParticles(S.pos.x + rand(-10, 10), S.pos.y - 20, 'heart', 1);
+  }
+  if (S.state === 'playing' && Math.random() < 0.1) {
+    spawnParticles(S.pos.x + rand(-15, 15), S.pos.y - 15, 'note', 1);
+  }
+
+  // Render
+  ctx.clearRect(0, 0, W, H);
+  // Background
+  const tod = getTimeOfDay();
+  const bgColors = {
+    morning: '#2a1f3d', day: '#1a1a2e', evening: '#1a1025', night: '#0a0a15'
+  };
+  ctx.fillStyle = bgColors[tod] || '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  drawRoom();
+  drawCreature();
+
+  // Draw ambient effects, particles, emotes, indicators, flash
+  const ox = (W - ROOM_W * SCALE) / 2;
+  const oy = (H - ROOM_H * SCALE) / 2;
+  drawAmbient(ox, oy);
+  for (const p of particles) p.draw(ctx, ox, oy, SCALE);
+  drawEmote(ox, oy);
+  drawStatusIndicators(ox, oy);
+  drawFlash();
+
+  drawDreams();
+  drawMinigame();
+
+  updateThoughtPosition();
+  if (tickAccum > 0.5) {
+    updateNeedsUI();
+    tickAccum = 0;
+  }
+
+  // Auto-save
+  if (saveTimer > 10) {
+    S.lastTick = now();
+    saveState();
+    saveTimer = 0;
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+function init() {
+  resize();
+  updateAge();
+  updatePersonality();
+  S.lastTick = now();
+  updateNeedsUI();
+
+  // If creature is new, show welcome
+  if (S.interactionCount === 0) {
+    setTimeout(() => showThought('👋'), 500);
+    addMemory('born', { name: S.name });
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+init();
+</script>
+</body>
+</html>
