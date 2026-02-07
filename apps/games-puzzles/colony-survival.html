@@ -1,0 +1,2162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colony Survival - Epic Browser Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #gameContainer {
+            display: flex;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        #topBar {
+            background: #0f3460;
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #16213e;
+            flex-shrink: 0;
+        }
+
+        #topBar .section {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #topBar .stat {
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        #topBar .stat.alert {
+            color: #ff4757;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        #mainContent {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #leftPanel {
+            width: 220px;
+            background: #16213e;
+            border-right: 2px solid #0f3460;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        #gameView {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #rightPanel {
+            width: 280px;
+            background: #16213e;
+            border-left: 2px solid #0f3460;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        #bottomBar {
+            background: #0f3460;
+            border-top: 2px solid #16213e;
+            padding: 10px;
+            height: 140px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .panel-section {
+            padding: 12px;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        .panel-section h3 {
+            color: #e94560;
+            margin-bottom: 8px;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+
+        .colonist-item {
+            background: #0f3460;
+            padding: 8px;
+            margin: 6px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            border-left: 3px solid #16213e;
+            font-size: 12px;
+        }
+
+        .colonist-item:hover {
+            background: #1a4d7a;
+        }
+
+        .colonist-item.selected {
+            border-left-color: #e94560;
+            background: #1a4d7a;
+        }
+
+        .colonist-item .name {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .colonist-item .task {
+            color: #aaa;
+            font-size: 11px;
+        }
+
+        .needs-bar {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .need {
+            flex: 1;
+            height: 4px;
+            background: #16213e;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .need .fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        .need .fill.hunger { background: #ff6b6b; }
+        .need .fill.thirst { background: #4ecdc4; }
+        .need .fill.rest { background: #95e1d3; }
+        .need .fill.morale { background: #f38181; }
+
+        .build-category {
+            margin-bottom: 10px;
+        }
+
+        .build-category h4 {
+            color: #4ecdc4;
+            font-size: 12px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .build-category h4:hover {
+            color: #95e1d3;
+        }
+
+        .build-item {
+            background: #0f3460;
+            padding: 6px 8px;
+            margin: 4px 0;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            border-left: 2px solid #16213e;
+        }
+
+        .build-item:hover {
+            background: #1a4d7a;
+            border-left-color: #4ecdc4;
+        }
+
+        .build-item.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .build-item .cost {
+            color: #aaa;
+            font-size: 10px;
+            margin-top: 2px;
+        }
+
+        .resource-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            font-size: 11px;
+        }
+
+        .resource-item {
+            background: #0f3460;
+            padding: 4px 6px;
+            border-radius: 3px;
+        }
+
+        .resource-item .amount {
+            color: #4ecdc4;
+            font-weight: bold;
+        }
+
+        #eventLog {
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            padding: 2px 0;
+        }
+
+        .log-entry.warning {
+            color: #ffa502;
+        }
+
+        .log-entry.danger {
+            color: #ff4757;
+        }
+
+        .log-entry.success {
+            color: #26de81;
+        }
+
+        #speedControls {
+            display: flex;
+            gap: 8px;
+        }
+
+        #speedControls button {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            color: #eee;
+            padding: 4px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+
+        #speedControls button:hover {
+            background: #1a4d7a;
+        }
+
+        #speedControls button.active {
+            background: #e94560;
+            border-color: #e94560;
+        }
+
+        .menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .menu-overlay.active {
+            display: flex;
+        }
+
+        .menu-content {
+            background: #16213e;
+            border: 2px solid #e94560;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .menu-content h2 {
+            color: #e94560;
+            margin-bottom: 20px;
+        }
+
+        .menu-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .menu-buttons button {
+            background: #0f3460;
+            border: 1px solid #1a4d7a;
+            color: #eee;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .menu-buttons button:hover {
+            background: #1a4d7a;
+            border-color: #4ecdc4;
+        }
+
+        .research-tree {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .research-tier {
+            background: #0f3460;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .research-tier h4 {
+            color: #4ecdc4;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .research-nodes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .research-node {
+            background: #16213e;
+            border: 2px solid #1a4d7a;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            min-width: 100px;
+        }
+
+        .research-node:hover {
+            border-color: #4ecdc4;
+        }
+
+        .research-node.completed {
+            border-color: #26de81;
+            background: #0f3a2f;
+        }
+
+        .research-node.researching {
+            border-color: #ffa502;
+            animation: researchPulse 1.5s infinite;
+        }
+
+        .research-node.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        @keyframes researchPulse {
+            0%, 100% { border-color: #ffa502; }
+            50% { border-color: #ff6348; }
+        }
+
+        .research-node .progress {
+            height: 3px;
+            background: #0f3460;
+            margin-top: 4px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .research-node .progress .fill {
+            height: 100%;
+            background: #ffa502;
+            transition: width 0.3s;
+        }
+
+        #tooltip {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid #4ecdc4;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            pointer-events: none;
+            display: none;
+            z-index: 2000;
+            max-width: 250px;
+        }
+
+        .stat-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .stat-bar .bar {
+            flex: 1;
+            height: 12px;
+            background: #0f3460;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #1a4d7a;
+        }
+
+        .stat-bar .bar .fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        .colonist-detail {
+            font-size: 12px;
+        }
+
+        .colonist-detail .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 10px 0;
+        }
+
+        .colonist-detail .stat {
+            background: #0f3460;
+            padding: 6px;
+            border-radius: 3px;
+        }
+
+        .colonist-detail .stat .label {
+            color: #aaa;
+            font-size: 10px;
+        }
+
+        .colonist-detail .stat .value {
+            color: #4ecdc4;
+            font-weight: bold;
+        }
+
+        .win-screen {
+            text-align: center;
+        }
+
+        .win-screen h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #26de81;
+        }
+
+        .win-screen .stats {
+            background: #0f3460;
+            padding: 20px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .win-screen .stat-line {
+            font-size: 14px;
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="topBar">
+            <div class="section">
+                <div class="stat">📅 Day <span id="dayCount">1</span></div>
+                <div class="stat">🕐 <span id="timeDisplay">06:00</span></div>
+                <div class="stat">🌤️ <span id="weatherDisplay">Clear</span></div>
+                <div class="stat">🍂 <span id="seasonDisplay">Spring</span></div>
+                <div class="stat">👥 <span id="populationCount">3</span></div>
+                <div class="stat" id="alertIndicator"></div>
+            </div>
+            <div class="section" id="speedControls">
+                <button id="pauseBtn">⏸️ Pause</button>
+                <button id="speed1x" class="active">▶️ 1x</button>
+                <button id="speed2x">⏩ 2x</button>
+                <button id="speed3x">⏭️ 3x</button>
+                <button id="menuBtn">☰ Menu</button>
+            </div>
+        </div>
+
+        <div id="mainContent">
+            <div id="leftPanel">
+                <div class="panel-section">
+                    <h3>Colonists</h3>
+                    <div id="colonistList"></div>
+                </div>
+            </div>
+
+            <div id="gameView">
+                <canvas id="canvas"></canvas>
+            </div>
+
+            <div id="rightPanel">
+                <div class="panel-section">
+                    <h3>Resources</h3>
+                    <div id="resourceList" class="resource-list"></div>
+                </div>
+                <div class="panel-section">
+                    <h3>Build</h3>
+                    <div id="buildMenu"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="bottomBar">
+            <div id="eventLog"></div>
+        </div>
+    </div>
+
+    <div id="mainMenu" class="menu-overlay active">
+        <div class="menu-content">
+            <h2>🏕️ COLONY SURVIVAL</h2>
+            <p style="margin-bottom: 20px; line-height: 1.6;">
+                Lead a group of colonists to survive in a harsh procedurally-generated world.
+                Build, research, defend against threats, and manage your people's needs.
+                Can you survive 100 days?
+            </p>
+            <div class="menu-buttons">
+                <button id="newGameBtn">🆕 New Game</button>
+                <button id="loadGameBtn">💾 Load Game</button>
+                <button id="howToPlayBtn">❓ How to Play</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="researchMenu" class="menu-overlay">
+        <div class="menu-content">
+            <h2>🔬 Research Tree</h2>
+            <div id="researchTree" class="research-tree"></div>
+            <div class="menu-buttons">
+                <button id="closeResearchBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameMenu" class="menu-overlay">
+        <div class="menu-content">
+            <h2>Game Menu</h2>
+            <div class="menu-buttons">
+                <button id="resumeBtn">Resume</button>
+                <button id="saveBtn">💾 Save Game</button>
+                <button id="viewResearchBtn">🔬 Research</button>
+                <button id="statsBtn">📊 Statistics</button>
+                <button id="quitBtn">Quit to Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="statsMenu" class="menu-overlay">
+        <div class="menu-content">
+            <h2>📊 Colony Statistics</h2>
+            <div id="statsContent"></div>
+            <div class="menu-buttons">
+                <button id="closeStatsBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="winMenu" class="menu-overlay">
+        <div class="menu-content win-screen">
+            <h2 id="winTitle">🎉 VICTORY!</h2>
+            <div id="winStats"></div>
+            <div class="menu-buttons">
+                <button id="continuePlayBtn">Continue Playing</button>
+                <button id="newGameAfterWinBtn">New Game</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="howToPlayMenu" class="menu-overlay">
+        <div class="menu-content">
+            <h2>❓ How to Play</h2>
+            <div style="line-height: 1.8; font-size: 13px;">
+                <h3 style="color: #4ecdc4; margin-top: 15px;">🎯 Goal</h3>
+                <p>Survive 100 days, reach 20 happy colonists, or build all Tier 5 structures.</p>
+
+                <h3 style="color: #4ecdc4; margin-top: 15px;">🖱️ Controls</h3>
+                <p><strong>Click map:</strong> Select tiles or buildings<br>
+                <strong>Arrow keys / WASD:</strong> Scroll map<br>
+                <strong>Build menu:</strong> Click to place structures<br>
+                <strong>Speed controls:</strong> Pause or speed up time</p>
+
+                <h3 style="color: #4ecdc4; margin-top: 15px;">👥 Colonists</h3>
+                <p>Monitor hunger, thirst, rest, and morale. Colonists improve skills by working. Keep them happy or they'll rebel.</p>
+
+                <h3 style="color: #4ecdc4; margin-top: 15px;">🏗️ Building</h3>
+                <p>Place structures on the map. Colonists will auto-construct them. Buildings need resources and maintenance.</p>
+
+                <h3 style="color: #4ecdc4; margin-top: 15px;">⚔️ Threats</h3>
+                <p>Defend against wolves, bears, and bandit raids. Build watchtowers for early warnings. Train soldiers and craft weapons.</p>
+
+                <h3 style="color: #4ecdc4; margin-top: 15px;">🔬 Research</h3>
+                <p>Unlock new technologies to access advanced buildings and recipes. Assign colonists to Research Labs.</p>
+            </div>
+            <div class="menu-buttons">
+                <button id="closeHowToPlayBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <script>
+        // ============================================================
+        // GAME STATE & CONSTANTS
+        // ============================================================
+
+        const TILE_SIZE = 16;
+        const MAP_WIDTH = 120;
+        const MAP_HEIGHT = 120;
+        const VIEW_WIDTH = 40;
+        const VIEW_HEIGHT = 35;
+
+        const BIOMES = {
+            GRASSLAND: { color: '#5a8f4a', name: 'Grassland' },
+            FOREST: { color: '#2d5016', name: 'Forest' },
+            DESERT: { color: '#d4a574', name: 'Desert' },
+            TUNDRA: { color: '#c4d4e0', name: 'Tundra' },
+            SWAMP: { color: '#4a5c3a', name: 'Swamp' },
+            MOUNTAIN: { color: '#6b7280', name: 'Mountain' }
+        };
+
+        const RESOURCES = {
+            WOOD: '🪵',
+            STONE: '🪨',
+            IRON_ORE: '⛏️',
+            GOLD_ORE: '💎',
+            BERRIES: '🫐',
+            MEAT: '🥩',
+            WATER: '💧',
+            HERBS: '🌿',
+            FIBER: '🧵',
+            PLANKS: '🪜',
+            BRICKS: '🧱',
+            IRON_BARS: '⚙️',
+            GOLD_BARS: '💰',
+            CLOTH: '🧶',
+            MEDICINE: '💊',
+            COOKED_FOOD: '🍖'
+        };
+
+        const BUILDINGS = {
+            SHELTER: { name: 'Shelter', cost: { WOOD: 20, FIBER: 10 }, tier: 1, icon: '🏠', hp: 100 },
+            FARM: { name: 'Farm Plot', cost: { WOOD: 15, FIBER: 5 }, tier: 1, icon: '🌾', hp: 50 },
+            WELL: { name: 'Well', cost: { STONE: 30, WOOD: 10 }, tier: 1, icon: '🚰', hp: 80 },
+            STOCKPILE: { name: 'Stockpile', cost: { WOOD: 25 }, tier: 1, icon: '📦', hp: 60 },
+            WORKSHOP: { name: 'Workshop', cost: { WOOD: 30, STONE: 20 }, tier: 2, icon: '🔨', hp: 100 },
+            RESEARCH_LAB: { name: 'Research Lab', cost: { WOOD: 40, STONE: 30, IRON_BARS: 10 }, tier: 2, icon: '🔬', hp: 100 },
+            WALL: { name: 'Wall', cost: { STONE: 10 }, tier: 1, icon: '🧱', hp: 200 },
+            GATE: { name: 'Gate', cost: { WOOD: 15, IRON_BARS: 5 }, tier: 2, icon: '🚪', hp: 150 },
+            WATCHTOWER: { name: 'Watchtower', cost: { WOOD: 35, STONE: 25 }, tier: 2, icon: '🗼', hp: 120 },
+            HOSPITAL: { name: 'Hospital', cost: { WOOD: 50, STONE: 30, CLOTH: 20 }, tier: 3, icon: '🏥', hp: 100 },
+            KITCHEN: { name: 'Kitchen', cost: { STONE: 40, IRON_BARS: 15 }, tier: 2, icon: '🍳', hp: 80 },
+            BARRACKS: { name: 'Barracks', cost: { WOOD: 60, STONE: 40, IRON_BARS: 20 }, tier: 3, icon: '⚔️', hp: 150 },
+            MINE: { name: 'Mine', cost: { WOOD: 30, STONE: 20 }, tier: 2, icon: '⛏️', hp: 100 },
+            SMELTER: { name: 'Smelter', cost: { STONE: 50, BRICKS: 30 }, tier: 3, icon: '🔥', hp: 120 },
+            FORGE: { name: 'Forge', cost: { STONE: 60, IRON_BARS: 30, BRICKS: 20 }, tier: 3, icon: '⚒️', hp: 130 }
+        };
+
+        const RESEARCH_TREE = {
+            TIER_1: [
+                { id: 'basic_farming', name: 'Basic Farming', cost: 50, prereq: [], unlocks: ['FARM'] },
+                { id: 'stone_tools', name: 'Stone Tools', cost: 40, prereq: [], unlocks: [] },
+                { id: 'shelter', name: 'Shelter Building', cost: 30, prereq: [], unlocks: ['SHELTER'] }
+            ],
+            TIER_2: [
+                { id: 'irrigation', name: 'Irrigation', cost: 100, prereq: ['basic_farming'], unlocks: [] },
+                { id: 'metal_working', name: 'Metal Working', cost: 120, prereq: ['stone_tools'], unlocks: ['SMELTER', 'MINE'] },
+                { id: 'medicine', name: 'Medicine', cost: 80, prereq: ['shelter'], unlocks: ['HOSPITAL'] }
+            ],
+            TIER_3: [
+                { id: 'advanced_farming', name: 'Advanced Farming', cost: 200, prereq: ['irrigation'], unlocks: [] },
+                { id: 'steel_weapons', name: 'Steel Weapons', cost: 250, prereq: ['metal_working'], unlocks: ['FORGE'] },
+                { id: 'fortifications', name: 'Fortifications', cost: 180, prereq: ['metal_working'], unlocks: ['WALL', 'GATE', 'WATCHTOWER'] }
+            ],
+            TIER_4: [
+                { id: 'machinery', name: 'Machinery', cost: 400, prereq: ['advanced_farming', 'steel_weapons'], unlocks: [] },
+                { id: 'advanced_medicine', name: 'Advanced Medicine', cost: 350, prereq: ['medicine'], unlocks: [] },
+                { id: 'trade_routes', name: 'Trade Routes', cost: 300, prereq: ['fortifications'], unlocks: [] }
+            ],
+            TIER_5: [
+                { id: 'electricity', name: 'Electricity', cost: 600, prereq: ['machinery'], unlocks: [] },
+                { id: 'advanced_military', name: 'Advanced Military', cost: 700, prereq: ['steel_weapons', 'fortifications'], unlocks: [] },
+                { id: 'victory', name: 'Colony Mastery', cost: 500, prereq: ['electricity', 'advanced_military'], unlocks: [] }
+            ]
+        };
+
+        const FIRST_NAMES = ['Alex', 'Sam', 'Jordan', 'Riley', 'Morgan', 'Casey', 'Taylor', 'Avery', 'Quinn', 'Skyler', 'Rowan', 'Blake', 'Dakota', 'River', 'Sage', 'Phoenix', 'Charlie', 'Finley', 'Emerson', 'Kai'];
+        const LAST_NAMES = ['Stone', 'Wood', 'Rivers', 'Brooks', 'Fields', 'Hill', 'Fox', 'Wolf', 'Bear', 'Hawk', 'Reed', 'Storm', 'Winter', 'Summer', 'Frost', 'Blaze', 'Iron', 'Steel', 'Gold', 'Silver'];
+        const TRAITS = ['Hard Worker', 'Lazy', 'Brave', 'Coward', 'Optimist', 'Pessimist', 'Strong', 'Weak', 'Quick', 'Slow', 'Smart', 'Dull'];
+
+        let gameState = {
+            map: [],
+            colonists: [],
+            buildings: [],
+            resources: {},
+            research: {
+                completed: [],
+                current: null,
+                progress: 0
+            },
+            day: 1,
+            time: 6.0, // 6 AM
+            weather: 'Clear',
+            season: 'Spring',
+            cameraX: 0,
+            cameraY: 0,
+            selectedColonist: null,
+            buildMode: null,
+            buildingQueue: [],
+            enemies: [],
+            alerts: [],
+            stats: {
+                daysAlive: 0,
+                colonistsTotal: 3,
+                resourcesGathered: 0,
+                enemiesDefeated: 0,
+                buildingsConstructed: 0,
+                researchCompleted: 0
+            },
+            gameSpeed: 1,
+            paused: false,
+            gameOver: false,
+            won: false
+        };
+
+        // ============================================================
+        // UTILITY FUNCTIONS
+        // ============================================================
+
+        function rand(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function randFloat(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randChoice(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        function clamp(val, min, max) {
+            return Math.max(min, Math.min(max, val));
+        }
+
+        function generateName() {
+            return `${randChoice(FIRST_NAMES)} ${randChoice(LAST_NAMES)}`;
+        }
+
+        // ============================================================
+        // WORLD GENERATION
+        // ============================================================
+
+        function generateWorld() {
+            const map = [];
+
+            // Generate base terrain with noise
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                map[y] = [];
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    const noise = Math.sin(x * 0.1) * Math.cos(y * 0.1) + randFloat(-0.3, 0.3);
+                    let biome;
+
+                    if (noise < -0.5) biome = BIOMES.DESERT;
+                    else if (noise < -0.2) biome = BIOMES.TUNDRA;
+                    else if (noise < 0.2) biome = BIOMES.GRASSLAND;
+                    else if (noise < 0.5) biome = BIOMES.FOREST;
+                    else if (noise < 0.7) biome = BIOMES.SWAMP;
+                    else biome = BIOMES.MOUNTAIN;
+
+                    map[y][x] = {
+                        biome,
+                        resource: null,
+                        explored: false,
+                        building: null
+                    };
+                }
+            }
+
+            // Place resources
+            for (let i = 0; i < 200; i++) {
+                const x = rand(0, MAP_WIDTH - 1);
+                const y = rand(0, MAP_HEIGHT - 1);
+                const tile = map[y][x];
+
+                if (tile.biome === BIOMES.FOREST) {
+                    tile.resource = { type: 'TREE', amount: rand(50, 150), icon: '🌲' };
+                } else if (tile.biome === BIOMES.MOUNTAIN) {
+                    const oreType = Math.random() < 0.7 ? 'STONE' : (Math.random() < 0.5 ? 'IRON_ORE' : 'GOLD_ORE');
+                    tile.resource = { type: oreType, amount: rand(100, 300), icon: oreType === 'STONE' ? '🪨' : (oreType === 'IRON_ORE' ? '⛏️' : '💎') };
+                } else if (tile.biome === BIOMES.GRASSLAND && Math.random() < 0.3) {
+                    tile.resource = { type: 'BERRIES', amount: rand(20, 60), icon: '🫐' };
+                } else if (tile.biome === BIOMES.SWAMP && Math.random() < 0.4) {
+                    tile.resource = { type: 'HERBS', amount: rand(30, 80), icon: '🌿' };
+                }
+            }
+
+            // Place water sources
+            for (let i = 0; i < 30; i++) {
+                const x = rand(0, MAP_WIDTH - 1);
+                const y = rand(0, MAP_HEIGHT - 1);
+                if (!map[y][x].resource) {
+                    map[y][x].resource = { type: 'WATER', amount: 9999, icon: '💧' };
+                }
+            }
+
+            // Starting area (clear and explored)
+            const startX = Math.floor(MAP_WIDTH / 2);
+            const startY = Math.floor(MAP_HEIGHT / 2);
+            for (let dy = -3; dy <= 3; dy++) {
+                for (let dx = -3; dx <= 3; dx++) {
+                    const nx = startX + dx;
+                    const ny = startY + dy;
+                    if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
+                        map[ny][nx].explored = true;
+                        map[ny][nx].biome = BIOMES.GRASSLAND;
+                        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+                            map[ny][nx].resource = null;
+                        }
+                    }
+                }
+            }
+
+            gameState.cameraX = startX - Math.floor(VIEW_WIDTH / 2);
+            gameState.cameraY = startY - Math.floor(VIEW_HEIGHT / 2);
+
+            return map;
+        }
+
+        // ============================================================
+        // COLONIST SYSTEM
+        // ============================================================
+
+        function createColonist(x, y) {
+            return {
+                id: Date.now() + Math.random(),
+                name: generateName(),
+                x, y,
+                stats: {
+                    strength: rand(5, 15),
+                    agility: rand(5, 15),
+                    intelligence: rand(5, 15),
+                    endurance: rand(5, 15)
+                },
+                skills: {
+                    mining: rand(1, 5),
+                    farming: rand(1, 5),
+                    building: rand(1, 5),
+                    crafting: rand(1, 5),
+                    combat: rand(1, 5),
+                    cooking: rand(1, 5),
+                    research: rand(1, 5)
+                },
+                needs: {
+                    hunger: 100,
+                    thirst: 100,
+                    rest: 100,
+                    morale: 100
+                },
+                health: 100,
+                maxHealth: 100,
+                trait: randChoice(TRAITS),
+                task: 'idle',
+                taskTarget: null,
+                taskProgress: 0,
+                inventory: []
+            };
+        }
+
+        function updateColonistNeeds(colonist, delta) {
+            // Decay needs over time
+            colonist.needs.hunger = Math.max(0, colonist.needs.hunger - delta * 0.3);
+            colonist.needs.thirst = Math.max(0, colonist.needs.thirst - delta * 0.5);
+
+            // Rest depends on time of day
+            if (gameState.time >= 22 || gameState.time < 6) {
+                colonist.needs.rest = Math.min(100, colonist.needs.rest + delta * 2);
+            } else {
+                colonist.needs.rest = Math.max(0, colonist.needs.rest - delta * 0.2);
+            }
+
+            // Morale affected by other needs
+            const avgNeeds = (colonist.needs.hunger + colonist.needs.thirst + colonist.needs.rest) / 3;
+            if (avgNeeds < 30) {
+                colonist.needs.morale = Math.max(0, colonist.needs.morale - delta * 0.5);
+            } else if (avgNeeds > 70) {
+                colonist.needs.morale = Math.min(100, colonist.needs.morale + delta * 0.2);
+            }
+
+            // Trait effects
+            if (colonist.trait === 'Optimist') {
+                colonist.needs.morale = Math.min(100, colonist.needs.morale + delta * 0.1);
+            } else if (colonist.trait === 'Pessimist') {
+                colonist.needs.morale = Math.max(0, colonist.needs.morale - delta * 0.1);
+            }
+
+            // Critical needs cause health damage
+            if (colonist.needs.hunger < 10 || colonist.needs.thirst < 10) {
+                colonist.health = Math.max(0, colonist.health - delta * 2);
+            }
+
+            // Very low morale can cause rebellion (just idle for now)
+            if (colonist.needs.morale < 20) {
+                colonist.task = 'rebelling';
+            }
+        }
+
+        function assignColonistTask(colonist) {
+            if (colonist.task === 'rebelling') return;
+            if (colonist.health < 30) {
+                colonist.task = 'seeking_hospital';
+                return;
+            }
+
+            // Prioritize needs
+            if (colonist.needs.hunger < 40) {
+                colonist.task = 'seeking_food';
+                return;
+            }
+            if (colonist.needs.thirst < 40) {
+                colonist.task = 'seeking_water';
+                return;
+            }
+            if (colonist.needs.rest < 30 && (gameState.time >= 22 || gameState.time < 6)) {
+                colonist.task = 'resting';
+                return;
+            }
+
+            // Work tasks
+            const buildingJob = gameState.buildingQueue.find(b => !b.assigned);
+            if (buildingJob) {
+                buildingJob.assigned = colonist.id;
+                colonist.task = 'building';
+                colonist.taskTarget = buildingJob;
+                return;
+            }
+
+            if (gameState.research.current && !gameState.research.current.assigned) {
+                const lab = gameState.buildings.find(b => b.type === 'RESEARCH_LAB' && b.progress === 100);
+                if (lab) {
+                    gameState.research.current.assigned = colonist.id;
+                    colonist.task = 'researching';
+                    colonist.taskTarget = lab;
+                    return;
+                }
+            }
+
+            // Gather resources
+            const nearbyResource = findNearestResource(colonist.x, colonist.y);
+            if (nearbyResource) {
+                colonist.task = 'gathering';
+                colonist.taskTarget = nearbyResource;
+                return;
+            }
+
+            colonist.task = 'idle';
+        }
+
+        function findNearestResource(x, y) {
+            let nearest = null;
+            let minDist = Infinity;
+
+            for (let dy = -10; dy <= 10; dy++) {
+                for (let dx = -10; dx <= 10; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
+                        const tile = gameState.map[ny][nx];
+                        if (tile.resource && tile.resource.amount > 0) {
+                            const dist = Math.abs(dx) + Math.abs(dy);
+                            if (dist < minDist) {
+                                minDist = dist;
+                                nearest = { x: nx, y: ny, resource: tile.resource };
+                            }
+                        }
+                    }
+                }
+            }
+
+            return nearest;
+        }
+
+        function updateColonistWork(colonist, delta) {
+            if (colonist.task === 'gathering' && colonist.taskTarget) {
+                const target = colonist.taskTarget;
+                const tile = gameState.map[target.y][target.x];
+
+                if (!tile.resource || tile.resource.amount <= 0) {
+                    colonist.task = 'idle';
+                    return;
+                }
+
+                // Move towards target
+                if (colonist.x !== target.x || colonist.y !== target.y) {
+                    if (colonist.x < target.x) colonist.x++;
+                    else if (colonist.x > target.x) colonist.x--;
+                    else if (colonist.y < target.y) colonist.y++;
+                    else if (colonist.y > target.y) colonist.y--;
+                } else {
+                    // Gather
+                    const gatherRate = delta * (1 + colonist.skills.mining * 0.1);
+                    const gathered = Math.min(tile.resource.amount, gatherRate);
+                    tile.resource.amount -= gathered;
+
+                    const resourceMap = {
+                        'TREE': 'WOOD',
+                        'STONE': 'STONE',
+                        'IRON_ORE': 'IRON_ORE',
+                        'GOLD_ORE': 'GOLD_ORE',
+                        'BERRIES': 'BERRIES',
+                        'HERBS': 'HERBS',
+                        'WATER': 'WATER'
+                    };
+
+                    const resourceType = resourceMap[tile.resource.type];
+                    if (resourceType) {
+                        gameState.resources[resourceType] = (gameState.resources[resourceType] || 0) + gathered;
+                        gameState.stats.resourcesGathered += gathered;
+                    }
+
+                    colonist.skills.mining = Math.min(20, colonist.skills.mining + 0.001);
+
+                    if (tile.resource.amount <= 0) {
+                        tile.resource = null;
+                        colonist.task = 'idle';
+                    }
+                }
+            } else if (colonist.task === 'building' && colonist.taskTarget) {
+                const building = colonist.taskTarget;
+
+                // Move to building site
+                if (distance(colonist.x, colonist.y, building.x, building.y) > 1) {
+                    if (colonist.x < building.x) colonist.x++;
+                    else if (colonist.x > building.x) colonist.x--;
+                    else if (colonist.y < building.y) colonist.y++;
+                    else if (colonist.y > building.y) colonist.y--;
+                } else {
+                    // Build
+                    const buildRate = delta * (1 + colonist.skills.building * 0.2);
+                    building.progress = Math.min(100, building.progress + buildRate);
+                    colonist.skills.building = Math.min(20, colonist.skills.building + 0.001);
+
+                    if (building.progress >= 100) {
+                        gameState.buildings.push(building);
+                        gameState.map[building.y][building.x].building = building;
+                        gameState.buildingQueue = gameState.buildingQueue.filter(b => b !== building);
+                        gameState.stats.buildingsConstructed++;
+                        addLog(`✅ ${building.name} completed!`, 'success');
+                        colonist.task = 'idle';
+                    }
+                }
+            } else if (colonist.task === 'researching' && colonist.taskTarget) {
+                const researchRate = delta * (1 + colonist.skills.research * 0.1);
+                gameState.research.progress += researchRate;
+                colonist.skills.research = Math.min(20, colonist.skills.research + 0.001);
+
+                if (gameState.research.progress >= gameState.research.current.cost) {
+                    completeResearch(gameState.research.current);
+                    colonist.task = 'idle';
+                }
+            } else if (colonist.task === 'seeking_food') {
+                if (gameState.resources.COOKED_FOOD > 0) {
+                    gameState.resources.COOKED_FOOD -= 1;
+                    colonist.needs.hunger = Math.min(100, colonist.needs.hunger + 50);
+                    colonist.task = 'idle';
+                } else if (gameState.resources.BERRIES > 0) {
+                    gameState.resources.BERRIES -= 1;
+                    colonist.needs.hunger = Math.min(100, colonist.needs.hunger + 30);
+                    colonist.task = 'idle';
+                } else if (gameState.resources.MEAT > 0) {
+                    gameState.resources.MEAT -= 1;
+                    colonist.needs.hunger = Math.min(100, colonist.needs.hunger + 40);
+                    colonist.task = 'idle';
+                } else {
+                    // No food available
+                    colonist.task = 'idle';
+                }
+            } else if (colonist.task === 'seeking_water') {
+                if (gameState.resources.WATER > 0) {
+                    gameState.resources.WATER -= 1;
+                    colonist.needs.thirst = Math.min(100, colonist.needs.thirst + 60);
+                    colonist.task = 'idle';
+                } else {
+                    colonist.task = 'idle';
+                }
+            } else if (colonist.task === 'resting') {
+                colonist.needs.rest = Math.min(100, colonist.needs.rest + delta);
+                if (colonist.needs.rest >= 80) {
+                    colonist.task = 'idle';
+                }
+            } else if (colonist.task === 'seeking_hospital') {
+                const hospital = gameState.buildings.find(b => b.type === 'HOSPITAL');
+                if (hospital && gameState.resources.MEDICINE > 0) {
+                    gameState.resources.MEDICINE -= 1;
+                    colonist.health = Math.min(colonist.maxHealth, colonist.health + 30);
+                    if (colonist.health > 50) {
+                        colonist.task = 'idle';
+                    }
+                } else {
+                    colonist.task = 'idle';
+                }
+            }
+        }
+
+        // ============================================================
+        // BUILDING SYSTEM
+        // ============================================================
+
+        function placeBuilding(type, x, y) {
+            const buildingDef = BUILDINGS[type];
+            if (!buildingDef) return false;
+
+            // Check if researched
+            const requiredResearch = Object.keys(RESEARCH_TREE).flatMap(tier =>
+                RESEARCH_TREE[tier].filter(r => r.unlocks.includes(type))
+            );
+            if (requiredResearch.length > 0 && !requiredResearch.some(r => gameState.research.completed.includes(r.id))) {
+                addLog(`⚠️ ${buildingDef.name} requires research!`, 'warning');
+                return false;
+            }
+
+            // Check resources
+            for (const [resource, amount] of Object.entries(buildingDef.cost)) {
+                if ((gameState.resources[resource] || 0) < amount) {
+                    addLog(`⚠️ Not enough ${resource}!`, 'warning');
+                    return false;
+                }
+            }
+
+            // Check tile
+            const tile = gameState.map[y][x];
+            if (tile.building || tile.resource) {
+                addLog('⚠️ Cannot build here!', 'warning');
+                return false;
+            }
+
+            // Deduct resources
+            for (const [resource, amount] of Object.entries(buildingDef.cost)) {
+                gameState.resources[resource] -= amount;
+            }
+
+            // Create building
+            const building = {
+                id: Date.now() + Math.random(),
+                type,
+                name: buildingDef.name,
+                x, y,
+                progress: 0,
+                hp: buildingDef.hp,
+                maxHp: buildingDef.hp,
+                icon: buildingDef.icon,
+                assigned: null
+            };
+
+            gameState.buildingQueue.push(building);
+            addLog(`🏗️ ${buildingDef.name} queued for construction`, 'success');
+            return true;
+        }
+
+        // ============================================================
+        // RESEARCH SYSTEM
+        // ============================================================
+
+        function startResearch(researchId) {
+            const research = Object.values(RESEARCH_TREE).flat().find(r => r.id === researchId);
+            if (!research) return false;
+
+            // Check prerequisites
+            for (const prereq of research.prereq) {
+                if (!gameState.research.completed.includes(prereq)) {
+                    addLog('⚠️ Prerequisites not met!', 'warning');
+                    return false;
+                }
+            }
+
+            if (gameState.research.completed.includes(researchId)) {
+                addLog('⚠️ Already researched!', 'warning');
+                return false;
+            }
+
+            gameState.research.current = { ...research, assigned: null };
+            gameState.research.progress = 0;
+            addLog(`🔬 Started researching ${research.name}`, 'success');
+            return true;
+        }
+
+        function completeResearch(research) {
+            gameState.research.completed.push(research.id);
+            gameState.research.current = null;
+            gameState.research.progress = 0;
+            gameState.stats.researchCompleted++;
+            addLog(`✅ Research complete: ${research.name}!`, 'success');
+        }
+
+        // ============================================================
+        // TIME & WEATHER SYSTEM
+        // ============================================================
+
+        function updateTime(delta) {
+            gameState.time += delta * 0.01;
+
+            if (gameState.time >= 24) {
+                gameState.time = 0;
+                gameState.day++;
+                gameState.stats.daysAlive = gameState.day;
+
+                // Change season every 25 days
+                const seasonDay = gameState.day % 100;
+                if (seasonDay < 25) gameState.season = 'Spring';
+                else if (seasonDay < 50) gameState.season = 'Summer';
+                else if (seasonDay < 75) gameState.season = 'Autumn';
+                else gameState.season = 'Winter';
+
+                // Random weather
+                const weatherRoll = Math.random();
+                if (weatherRoll < 0.6) gameState.weather = 'Clear';
+                else if (weatherRoll < 0.75) gameState.weather = 'Rain';
+                else if (weatherRoll < 0.85 && gameState.season === 'Winter') gameState.weather = 'Snow';
+                else if (weatherRoll < 0.90 && gameState.season === 'Summer') gameState.weather = 'Heat Wave';
+                else gameState.weather = 'Storm';
+
+                // Auto-save
+                saveGame();
+                addLog(`📅 Day ${gameState.day} begins`, 'success');
+
+                // Check win conditions
+                checkWinConditions();
+            }
+
+            // Weather effects
+            if (gameState.weather === 'Rain') {
+                gameState.resources.WATER = (gameState.resources.WATER || 0) + delta * 0.1;
+            } else if (gameState.weather === 'Snow') {
+                gameState.colonists.forEach(c => {
+                    c.health = Math.max(0, c.health - delta * 0.05);
+                });
+            } else if (gameState.weather === 'Heat Wave') {
+                gameState.colonists.forEach(c => {
+                    c.needs.thirst = Math.max(0, c.needs.thirst - delta * 0.3);
+                });
+            }
+        }
+
+        function checkWinConditions() {
+            if (gameState.won) return;
+
+            // Survival: 100 days
+            if (gameState.day >= 100) {
+                winGame('Survival: 100 Days!');
+                return;
+            }
+
+            // Prosperity: 20 colonists with high morale
+            const happyColonists = gameState.colonists.filter(c => c.needs.morale >= 70);
+            if (gameState.colonists.length >= 20 && happyColonists.length >= 20) {
+                winGame('Prosperity: 20 Happy Colonists!');
+                return;
+            }
+
+            // Dominance: all tier 5 buildings (simplified: all tier 5 research)
+            const tier5Research = RESEARCH_TREE.TIER_5.map(r => r.id);
+            if (tier5Research.every(id => gameState.research.completed.includes(id))) {
+                winGame('Dominance: Complete Mastery!');
+                return;
+            }
+        }
+
+        function winGame(condition) {
+            gameState.won = true;
+            gameState.paused = true;
+            showWinScreen(condition);
+        }
+
+        // ============================================================
+        // THREAT SYSTEM
+        // ============================================================
+
+        function spawnEnemies() {
+            // Spawn enemies at night or during raids
+            if (gameState.time >= 20 || gameState.time < 6) {
+                if (Math.random() < 0.02) {
+                    const x = rand(0, MAP_WIDTH - 1);
+                    const y = rand(0, MAP_HEIGHT - 1);
+                    const type = Math.random() < 0.7 ? 'Wolf' : 'Bear';
+                    gameState.enemies.push({
+                        id: Date.now() + Math.random(),
+                        type,
+                        x, y,
+                        hp: type === 'Wolf' ? 30 : 80,
+                        damage: type === 'Wolf' ? 10 : 25,
+                        icon: type === 'Wolf' ? '🐺' : '🐻'
+                    });
+                }
+            }
+
+            // Bandit raids (scale with colony wealth)
+            const wealth = Object.values(gameState.resources).reduce((a, b) => a + b, 0);
+            if (gameState.day % 10 === 0 && Math.random() < 0.5) {
+                const raidSize = Math.floor(wealth / 500) + 1;
+                for (let i = 0; i < raidSize; i++) {
+                    const x = rand(0, MAP_WIDTH - 1);
+                    const y = rand(0, MAP_HEIGHT - 1);
+                    gameState.enemies.push({
+                        id: Date.now() + Math.random() + i,
+                        type: 'Bandit',
+                        x, y,
+                        hp: 50,
+                        damage: 15,
+                        icon: '🗡️'
+                    });
+                }
+                addLog(`⚔️ Bandit raid! ${raidSize} attackers!`, 'danger');
+                gameState.alerts.push('RAID');
+            }
+        }
+
+        function updateEnemies(delta) {
+            gameState.enemies.forEach(enemy => {
+                // Move towards colony center
+                const centerX = Math.floor(MAP_WIDTH / 2);
+                const centerY = Math.floor(MAP_HEIGHT / 2);
+
+                if (Math.random() < 0.1) {
+                    if (enemy.x < centerX) enemy.x++;
+                    else if (enemy.x > centerX) enemy.x--;
+                    else if (enemy.y < centerY) enemy.y++;
+                    else if (enemy.y > centerY) enemy.y--;
+                }
+
+                // Attack colonists
+                const nearbyColonist = gameState.colonists.find(c =>
+                    Math.abs(c.x - enemy.x) <= 1 && Math.abs(c.y - enemy.y) <= 1
+                );
+
+                if (nearbyColonist) {
+                    nearbyColonist.health = Math.max(0, nearbyColonist.health - enemy.damage * delta * 0.1);
+
+                    // Colonist fights back
+                    const counterDamage = (nearbyColonist.stats.strength + nearbyColonist.skills.combat) * delta * 0.5;
+                    enemy.hp -= counterDamage;
+
+                    if (enemy.hp <= 0) {
+                        gameState.enemies = gameState.enemies.filter(e => e !== enemy);
+                        gameState.stats.enemiesDefeated++;
+                        addLog(`⚔️ ${nearbyColonist.name} defeated a ${enemy.type}!`, 'success');
+                    }
+
+                    if (nearbyColonist.health <= 0) {
+                        gameState.colonists = gameState.colonists.filter(c => c !== nearbyColonist);
+                        addLog(`💀 ${nearbyColonist.name} has died!`, 'danger');
+
+                        if (gameState.colonists.length === 0) {
+                            gameOver();
+                        }
+                    }
+                }
+
+                // Attack buildings
+                const tile = gameState.map[enemy.y][enemy.x];
+                if (tile.building) {
+                    tile.building.hp -= enemy.damage * delta * 0.1;
+                    if (tile.building.hp <= 0) {
+                        addLog(`💥 ${tile.building.name} destroyed!`, 'danger');
+                        gameState.buildings = gameState.buildings.filter(b => b !== tile.building);
+                        tile.building = null;
+                    }
+                }
+            });
+        }
+
+        function gameOver() {
+            gameState.gameOver = true;
+            gameState.paused = true;
+            addLog('💀 GAME OVER - All colonists are dead!', 'danger');
+            alert('Game Over! Your colony has been destroyed.');
+            showMainMenu();
+        }
+
+        // ============================================================
+        // RENDERING
+        // ============================================================
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            const container = document.getElementById('gameView');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const tilePixelSize = Math.min(canvas.width / VIEW_WIDTH, canvas.height / VIEW_HEIGHT);
+
+            // Render tiles
+            for (let y = 0; y < VIEW_HEIGHT; y++) {
+                for (let x = 0; x < VIEW_WIDTH; x++) {
+                    const mapX = gameState.cameraX + x;
+                    const mapY = gameState.cameraY + y;
+
+                    if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) continue;
+
+                    const tile = gameState.map[mapY][mapX];
+                    const px = x * tilePixelSize;
+                    const py = y * tilePixelSize;
+
+                    if (!tile.explored) {
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(px, py, tilePixelSize, tilePixelSize);
+                        continue;
+                    }
+
+                    // Biome color
+                    ctx.fillStyle = tile.biome.color;
+                    ctx.fillRect(px, py, tilePixelSize, tilePixelSize);
+
+                    // Day/night overlay
+                    const hour = gameState.time;
+                    let darkness = 0;
+                    if (hour >= 20 || hour < 6) {
+                        darkness = 0.6;
+                    } else if (hour >= 18 || hour < 8) {
+                        darkness = 0.3;
+                    }
+                    if (darkness > 0) {
+                        ctx.fillStyle = `rgba(0, 0, 0, ${darkness})`;
+                        ctx.fillRect(px, py, tilePixelSize, tilePixelSize);
+                    }
+
+                    // Resources
+                    if (tile.resource && tile.resource.amount > 0) {
+                        ctx.font = `${tilePixelSize * 0.7}px Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(tile.resource.icon, px + tilePixelSize / 2, py + tilePixelSize / 2);
+                    }
+
+                    // Buildings
+                    if (tile.building) {
+                        ctx.font = `${tilePixelSize * 0.8}px Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(tile.building.icon, px + tilePixelSize / 2, py + tilePixelSize / 2);
+
+                        // HP bar
+                        if (tile.building.hp < tile.building.maxHp) {
+                            const hpRatio = tile.building.hp / tile.building.maxHp;
+                            ctx.fillStyle = '#ff4757';
+                            ctx.fillRect(px, py, tilePixelSize, 2);
+                            ctx.fillStyle = '#26de81';
+                            ctx.fillRect(px, py, tilePixelSize * hpRatio, 2);
+                        }
+                    }
+                }
+            }
+
+            // Render colonists
+            gameState.colonists.forEach(colonist => {
+                const screenX = colonist.x - gameState.cameraX;
+                const screenY = colonist.y - gameState.cameraY;
+
+                if (screenX >= 0 && screenX < VIEW_WIDTH && screenY >= 0 && screenY < VIEW_HEIGHT) {
+                    const px = screenX * tilePixelSize;
+                    const py = screenY * tilePixelSize;
+
+                    ctx.font = `${tilePixelSize * 0.6}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('🧑', px + tilePixelSize / 2, py + tilePixelSize / 2);
+
+                    // HP bar
+                    const hpRatio = colonist.health / colonist.maxHealth;
+                    ctx.fillStyle = '#ff4757';
+                    ctx.fillRect(px, py - 3, tilePixelSize, 2);
+                    ctx.fillStyle = '#26de81';
+                    ctx.fillRect(px, py - 3, tilePixelSize * hpRatio, 2);
+
+                    // Selection indicator
+                    if (gameState.selectedColonist === colonist) {
+                        ctx.strokeStyle = '#ffa502';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(px, py, tilePixelSize, tilePixelSize);
+                    }
+                }
+            });
+
+            // Render enemies
+            gameState.enemies.forEach(enemy => {
+                const screenX = enemy.x - gameState.cameraX;
+                const screenY = enemy.y - gameState.cameraY;
+
+                if (screenX >= 0 && screenX < VIEW_WIDTH && screenY >= 0 && screenY < VIEW_HEIGHT) {
+                    const px = screenX * tilePixelSize;
+                    const py = screenY * tilePixelSize;
+
+                    ctx.font = `${tilePixelSize * 0.7}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(enemy.icon, px + tilePixelSize / 2, py + tilePixelSize / 2);
+                }
+            });
+
+            // Render building queue (ghosts)
+            gameState.buildingQueue.forEach(building => {
+                const screenX = building.x - gameState.cameraX;
+                const screenY = building.y - gameState.cameraY;
+
+                if (screenX >= 0 && screenX < VIEW_WIDTH && screenY >= 0 && screenY < VIEW_HEIGHT) {
+                    const px = screenX * tilePixelSize;
+                    const py = screenY * tilePixelSize;
+
+                    ctx.globalAlpha = 0.5;
+                    ctx.font = `${tilePixelSize * 0.8}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(building.icon, px + tilePixelSize / 2, py + tilePixelSize / 2);
+                    ctx.globalAlpha = 1;
+
+                    // Progress bar
+                    const progress = building.progress / 100;
+                    ctx.fillStyle = '#0f3460';
+                    ctx.fillRect(px, py + tilePixelSize - 4, tilePixelSize, 4);
+                    ctx.fillStyle = '#ffa502';
+                    ctx.fillRect(px, py + tilePixelSize - 4, tilePixelSize * progress, 4);
+                }
+            });
+
+            // Weather effects
+            if (gameState.weather === 'Rain' || gameState.weather === 'Storm') {
+                ctx.fillStyle = 'rgba(100, 150, 200, 0.3)';
+                for (let i = 0; i < 50; i++) {
+                    const x = Math.random() * canvas.width;
+                    const y = (Math.random() * canvas.height + Date.now() * 0.5) % canvas.height;
+                    ctx.fillRect(x, y, 1, 10);
+                }
+            } else if (gameState.weather === 'Snow') {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                for (let i = 0; i < 30; i++) {
+                    const x = Math.random() * canvas.width;
+                    const y = (Math.random() * canvas.height + Date.now() * 0.2) % canvas.height;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        // ============================================================
+        // UI UPDATES
+        // ============================================================
+
+        function updateUI() {
+            // Top bar
+            document.getElementById('dayCount').textContent = gameState.day;
+            const hours = Math.floor(gameState.time);
+            const minutes = Math.floor((gameState.time % 1) * 60);
+            document.getElementById('timeDisplay').textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            document.getElementById('weatherDisplay').textContent = gameState.weather;
+            document.getElementById('seasonDisplay').textContent = gameState.season;
+            document.getElementById('populationCount').textContent = gameState.colonists.length;
+
+            // Alerts
+            const alertDiv = document.getElementById('alertIndicator');
+            if (gameState.alerts.length > 0) {
+                alertDiv.textContent = '⚠️ ' + gameState.alerts.join(', ');
+                alertDiv.className = 'stat alert';
+            } else {
+                alertDiv.textContent = '';
+                alertDiv.className = 'stat';
+            }
+
+            // Colonist list
+            const colonistList = document.getElementById('colonistList');
+            colonistList.innerHTML = '';
+            gameState.colonists.forEach(colonist => {
+                const div = document.createElement('div');
+                div.className = 'colonist-item';
+                if (gameState.selectedColonist === colonist) {
+                    div.className += ' selected';
+                }
+
+                const avgNeeds = (colonist.needs.hunger + colonist.needs.thirst + colonist.needs.rest + colonist.needs.morale) / 4;
+                const healthColor = colonist.health > 70 ? '#26de81' : (colonist.health > 30 ? '#ffa502' : '#ff4757');
+
+                div.innerHTML = `
+                    <div class="name">${colonist.name}</div>
+                    <div class="task">${colonist.task} (HP: <span style="color: ${healthColor}">${Math.floor(colonist.health)}</span>)</div>
+                    <div class="needs-bar">
+                        <div class="need" title="Hunger"><div class="fill hunger" style="width: ${colonist.needs.hunger}%"></div></div>
+                        <div class="need" title="Thirst"><div class="fill thirst" style="width: ${colonist.needs.thirst}%"></div></div>
+                        <div class="need" title="Rest"><div class="fill rest" style="width: ${colonist.needs.rest}%"></div></div>
+                        <div class="need" title="Morale"><div class="fill morale" style="width: ${colonist.needs.morale}%"></div></div>
+                    </div>
+                `;
+
+                div.onclick = () => {
+                    gameState.selectedColonist = colonist;
+                    updateBottomBar();
+                };
+
+                colonistList.appendChild(div);
+            });
+
+            // Resources
+            const resourceList = document.getElementById('resourceList');
+            resourceList.innerHTML = '';
+            for (const [key, icon] of Object.entries(RESOURCES)) {
+                const amount = gameState.resources[key] || 0;
+                if (amount > 0 || ['WOOD', 'STONE', 'WATER', 'BERRIES'].includes(key)) {
+                    const div = document.createElement('div');
+                    div.className = 'resource-item';
+                    div.innerHTML = `${icon} <span class="amount">${Math.floor(amount)}</span>`;
+                    resourceList.appendChild(div);
+                }
+            }
+
+            // Build menu
+            const buildMenu = document.getElementById('buildMenu');
+            buildMenu.innerHTML = '';
+
+            const categories = {
+                'Basic': ['SHELTER', 'FARM', 'WELL', 'STOCKPILE', 'WALL'],
+                'Production': ['WORKSHOP', 'KITCHEN', 'MINE', 'SMELTER', 'FORGE'],
+                'Advanced': ['RESEARCH_LAB', 'HOSPITAL', 'BARRACKS', 'WATCHTOWER', 'GATE']
+            };
+
+            for (const [category, buildings] of Object.entries(categories)) {
+                const catDiv = document.createElement('div');
+                catDiv.className = 'build-category';
+
+                const header = document.createElement('h4');
+                header.textContent = category;
+                catDiv.appendChild(header);
+
+                buildings.forEach(buildingKey => {
+                    const building = BUILDINGS[buildingKey];
+                    const div = document.createElement('div');
+                    div.className = 'build-item';
+
+                    // Check if can build
+                    let canBuild = true;
+                    for (const [resource, amount] of Object.entries(building.cost)) {
+                        if ((gameState.resources[resource] || 0) < amount) {
+                            canBuild = false;
+                        }
+                    }
+
+                    // Check research
+                    const requiredResearch = Object.keys(RESEARCH_TREE).flatMap(tier =>
+                        RESEARCH_TREE[tier].filter(r => r.unlocks.includes(buildingKey))
+                    );
+                    if (requiredResearch.length > 0 && !requiredResearch.some(r => gameState.research.completed.includes(r.id))) {
+                        canBuild = false;
+                    }
+
+                    if (!canBuild) {
+                        div.className += ' disabled';
+                    }
+
+                    const costStr = Object.entries(building.cost)
+                        .map(([r, a]) => `${RESOURCES[r]}${a}`)
+                        .join(' ');
+
+                    div.innerHTML = `
+                        ${building.icon} ${building.name}
+                        <div class="cost">${costStr}</div>
+                    `;
+
+                    div.onclick = () => {
+                        if (canBuild) {
+                            gameState.buildMode = buildingKey;
+                            addLog(`🏗️ Click map to place ${building.name}`, 'success');
+                        }
+                    };
+
+                    catDiv.appendChild(div);
+                });
+
+                buildMenu.appendChild(catDiv);
+            }
+        }
+
+        function updateBottomBar() {
+            const eventLog = document.getElementById('eventLog');
+
+            if (gameState.selectedColonist) {
+                const c = gameState.selectedColonist;
+                eventLog.innerHTML = `
+                    <div class="colonist-detail">
+                        <h3>${c.name} - ${c.trait}</h3>
+                        <div class="stats-grid">
+                            <div class="stat"><div class="label">Strength</div><div class="value">${c.stats.strength}</div></div>
+                            <div class="stat"><div class="label">Agility</div><div class="value">${c.stats.agility}</div></div>
+                            <div class="stat"><div class="label">Intelligence</div><div class="value">${c.stats.intelligence}</div></div>
+                            <div class="stat"><div class="label">Endurance</div><div class="value">${c.stats.endurance}</div></div>
+                            <div class="stat"><div class="label">Mining</div><div class="value">${c.skills.mining.toFixed(1)}</div></div>
+                            <div class="stat"><div class="label">Farming</div><div class="value">${c.skills.farming.toFixed(1)}</div></div>
+                            <div class="stat"><div class="label">Building</div><div class="value">${c.skills.building.toFixed(1)}</div></div>
+                            <div class="stat"><div class="label">Combat</div><div class="value">${c.skills.combat.toFixed(1)}</div></div>
+                        </div>
+                        <p style="margin-top: 10px;">Task: ${c.task}</p>
+                    </div>
+                `;
+            }
+        }
+
+        const eventLogMessages = [];
+
+        function addLog(message, type = 'normal') {
+            eventLogMessages.push({ message, type, time: Date.now() });
+            if (eventLogMessages.length > 50) {
+                eventLogMessages.shift();
+            }
+
+            if (!gameState.selectedColonist) {
+                updateEventLog();
+            }
+        }
+
+        function updateEventLog() {
+            const eventLog = document.getElementById('eventLog');
+            eventLog.innerHTML = eventLogMessages.slice(-10).reverse().map(log =>
+                `<div class="log-entry ${log.type}">${log.message}</div>`
+            ).join('');
+        }
+
+        // ============================================================
+        // INPUT HANDLING
+        // ============================================================
+
+        canvas.addEventListener('click', (e) => {
+            if (!gameState.map.length) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const tilePixelSize = Math.min(canvas.width / VIEW_WIDTH, canvas.height / VIEW_HEIGHT);
+            const tileX = Math.floor(x / tilePixelSize);
+            const tileY = Math.floor(y / tilePixelSize);
+
+            const mapX = gameState.cameraX + tileX;
+            const mapY = gameState.cameraY + tileY;
+
+            if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) return;
+
+            if (gameState.buildMode) {
+                if (placeBuilding(gameState.buildMode, mapX, mapY)) {
+                    gameState.buildMode = null;
+                }
+            } else {
+                // Select colonist or building
+                const colonist = gameState.colonists.find(c => c.x === mapX && c.y === mapY);
+                if (colonist) {
+                    gameState.selectedColonist = colonist;
+                    updateBottomBar();
+                }
+            }
+        });
+
+        const keys = {};
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        function handleInput() {
+            const scrollSpeed = 1;
+
+            if (keys['ArrowLeft'] || keys['a']) {
+                gameState.cameraX = Math.max(0, gameState.cameraX - scrollSpeed);
+            }
+            if (keys['ArrowRight'] || keys['d']) {
+                gameState.cameraX = Math.min(MAP_WIDTH - VIEW_WIDTH, gameState.cameraX + scrollSpeed);
+            }
+            if (keys['ArrowUp'] || keys['w']) {
+                gameState.cameraY = Math.max(0, gameState.cameraY - scrollSpeed);
+            }
+            if (keys['ArrowDown'] || keys['s']) {
+                gameState.cameraY = Math.min(MAP_HEIGHT - VIEW_HEIGHT, gameState.cameraY + scrollSpeed);
+            }
+
+            if (keys['Escape']) {
+                gameState.buildMode = null;
+                keys['Escape'] = false;
+            }
+        }
+
+        // ============================================================
+        // GAME LOOP
+        // ============================================================
+
+        let lastTime = Date.now();
+
+        function gameLoop() {
+            const now = Date.now();
+            const rawDelta = (now - lastTime) / 1000;
+            lastTime = now;
+
+            if (!gameState.paused && !gameState.gameOver) {
+                const delta = rawDelta * gameState.gameSpeed * 60;
+
+                handleInput();
+                updateTime(delta);
+
+                gameState.colonists.forEach(c => {
+                    updateColonistNeeds(c, delta);
+                    assignColonistTask(c);
+                    updateColonistWork(c, delta);
+                });
+
+                spawnEnemies();
+                updateEnemies(delta);
+
+                // Clear temporary alerts
+                gameState.alerts = gameState.alerts.filter(a => a !== 'RAID');
+
+                // Explore fog of war near colonists
+                gameState.colonists.forEach(c => {
+                    for (let dy = -2; dy <= 2; dy++) {
+                        for (let dx = -2; dx <= 2; dx++) {
+                            const nx = c.x + dx;
+                            const ny = c.y + dy;
+                            if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
+                                gameState.map[ny][nx].explored = true;
+                            }
+                        }
+                    }
+                });
+
+                // Watchtowers reveal more
+                gameState.buildings.filter(b => b.type === 'WATCHTOWER').forEach(tower => {
+                    for (let dy = -5; dy <= 5; dy++) {
+                        for (let dx = -5; dx <= 5; dx++) {
+                            const nx = tower.x + dx;
+                            const ny = tower.y + dy;
+                            if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
+                                gameState.map[ny][nx].explored = true;
+                            }
+                        }
+                    }
+                });
+            }
+
+            render();
+            updateUI();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ============================================================
+        // SAVE/LOAD
+        // ============================================================
+
+        function saveGame() {
+            try {
+                localStorage.setItem('colonySurvival_save', JSON.stringify(gameState));
+                addLog('💾 Game saved', 'success');
+            } catch (e) {
+                addLog('⚠️ Save failed!', 'warning');
+            }
+        }
+
+        function loadGame() {
+            try {
+                const saved = localStorage.getItem('colonySurvival_save');
+                if (saved) {
+                    gameState = JSON.parse(saved);
+                    addLog('💾 Game loaded', 'success');
+                    return true;
+                }
+            } catch (e) {
+                addLog('⚠️ Load failed!', 'warning');
+            }
+            return false;
+        }
+
+        function newGame() {
+            // Initialize resources
+            gameState.resources = {
+                WOOD: 50,
+                STONE: 30,
+                BERRIES: 20,
+                WATER: 50,
+                FIBER: 10
+            };
+
+            // Generate world
+            gameState.map = generateWorld();
+
+            // Create starting colonists
+            const startX = Math.floor(MAP_WIDTH / 2);
+            const startY = Math.floor(MAP_HEIGHT / 2);
+            gameState.colonists = [
+                createColonist(startX, startY),
+                createColonist(startX + 1, startY),
+                createColonist(startX, startY + 1)
+            ];
+
+            gameState.day = 1;
+            gameState.time = 6.0;
+            gameState.weather = 'Clear';
+            gameState.season = 'Spring';
+            gameState.buildings = [];
+            gameState.buildingQueue = [];
+            gameState.enemies = [];
+            gameState.research = { completed: [], current: null, progress: 0 };
+            gameState.stats = {
+                daysAlive: 0,
+                colonistsTotal: 3,
+                resourcesGathered: 0,
+                enemiesDefeated: 0,
+                buildingsConstructed: 0,
+                researchCompleted: 0
+            };
+            gameState.gameOver = false;
+            gameState.won = false;
+            gameState.paused = false;
+
+            addLog('🏕️ Colony founded! Good luck!', 'success');
+        }
+
+        // ============================================================
+        // MENU SYSTEM
+        // ============================================================
+
+        function showMenu(menuId) {
+            document.querySelectorAll('.menu-overlay').forEach(m => m.classList.remove('active'));
+            document.getElementById(menuId).classList.add('active');
+            gameState.paused = true;
+        }
+
+        function hideMenu() {
+            document.querySelectorAll('.menu-overlay').forEach(m => m.classList.remove('active'));
+            gameState.paused = false;
+        }
+
+        function showMainMenu() {
+            showMenu('mainMenu');
+        }
+
+        function showWinScreen(condition) {
+            const title = document.getElementById('winTitle');
+            const stats = document.getElementById('winStats');
+
+            title.textContent = `🎉 VICTORY: ${condition}`;
+            stats.innerHTML = `
+                <div class="stats">
+                    <div class="stat-line">Days Survived: ${gameState.stats.daysAlive}</div>
+                    <div class="stat-line">Colonists: ${gameState.colonists.length} (Total: ${gameState.stats.colonistsTotal})</div>
+                    <div class="stat-line">Resources Gathered: ${Math.floor(gameState.stats.resourcesGathered)}</div>
+                    <div class="stat-line">Enemies Defeated: ${gameState.stats.enemiesDefeated}</div>
+                    <div class="stat-line">Buildings Constructed: ${gameState.stats.buildingsConstructed}</div>
+                    <div class="stat-line">Research Completed: ${gameState.stats.researchCompleted}</div>
+                </div>
+            `;
+
+            showMenu('winMenu');
+        }
+
+        // Research tree UI
+        function updateResearchTree() {
+            const tree = document.getElementById('researchTree');
+            tree.innerHTML = '';
+
+            for (const [tier, researches] of Object.entries(RESEARCH_TREE)) {
+                const tierDiv = document.createElement('div');
+                tierDiv.className = 'research-tier';
+
+                const header = document.createElement('h4');
+                header.textContent = tier.replace('_', ' ');
+                tierDiv.appendChild(header);
+
+                const nodesDiv = document.createElement('div');
+                nodesDiv.className = 'research-nodes';
+
+                researches.forEach(research => {
+                    const node = document.createElement('div');
+                    node.className = 'research-node';
+
+                    const completed = gameState.research.completed.includes(research.id);
+                    const researching = gameState.research.current && gameState.research.current.id === research.id;
+                    const locked = research.prereq.some(p => !gameState.research.completed.includes(p));
+
+                    if (completed) node.classList.add('completed');
+                    else if (researching) node.classList.add('researching');
+                    else if (locked) node.classList.add('locked');
+
+                    node.innerHTML = `
+                        <div>${research.name}</div>
+                        <div style="font-size: 10px; color: #aaa;">Cost: ${research.cost}</div>
+                        ${researching ? `<div class="progress"><div class="fill" style="width: ${(gameState.research.progress / research.cost) * 100}%"></div></div>` : ''}
+                    `;
+
+                    if (!completed && !researching && !locked) {
+                        node.onclick = () => {
+                            startResearch(research.id);
+                            updateResearchTree();
+                        };
+                    }
+
+                    nodesDiv.appendChild(node);
+                });
+
+                tierDiv.appendChild(nodesDiv);
+                tree.appendChild(tierDiv);
+            }
+        }
+
+        function showStats() {
+            const content = document.getElementById('statsContent');
+            content.innerHTML = `
+                <div class="stats-grid" style="grid-template-columns: 1fr; gap: 10px;">
+                    <div class="stat"><div class="label">Days Survived</div><div class="value">${gameState.stats.daysAlive}</div></div>
+                    <div class="stat"><div class="label">Current Population</div><div class="value">${gameState.colonists.length}</div></div>
+                    <div class="stat"><div class="label">Total Colonists</div><div class="value">${gameState.stats.colonistsTotal}</div></div>
+                    <div class="stat"><div class="label">Resources Gathered</div><div class="value">${Math.floor(gameState.stats.resourcesGathered)}</div></div>
+                    <div class="stat"><div class="label">Buildings Constructed</div><div class="value">${gameState.stats.buildingsConstructed}</div></div>
+                    <div class="stat"><div class="label">Enemies Defeated</div><div class="value">${gameState.stats.enemiesDefeated}</div></div>
+                    <div class="stat"><div class="label">Research Completed</div><div class="value">${gameState.stats.researchCompleted}</div></div>
+                    <div class="stat"><div class="label">Current Season</div><div class="value">${gameState.season}</div></div>
+                    <div class="stat"><div class="label">Current Weather</div><div class="value">${gameState.weather}</div></div>
+                </div>
+            `;
+            showMenu('statsMenu');
+        }
+
+        // ============================================================
+        // EVENT LISTENERS
+        // ============================================================
+
+        document.getElementById('newGameBtn').onclick = () => {
+            newGame();
+            hideMenu();
+        };
+
+        document.getElementById('loadGameBtn').onclick = () => {
+            if (loadGame()) {
+                hideMenu();
+            } else {
+                alert('No saved game found!');
+            }
+        };
+
+        document.getElementById('howToPlayBtn').onclick = () => {
+            showMenu('howToPlayMenu');
+        };
+
+        document.getElementById('closeHowToPlayBtn').onclick = () => {
+            showMainMenu();
+        };
+
+        document.getElementById('menuBtn').onclick = () => {
+            showMenu('gameMenu');
+        };
+
+        document.getElementById('resumeBtn').onclick = hideMenu;
+
+        document.getElementById('saveBtn').onclick = () => {
+            saveGame();
+        };
+
+        document.getElementById('viewResearchBtn').onclick = () => {
+            updateResearchTree();
+            showMenu('researchMenu');
+        };
+
+        document.getElementById('closeResearchBtn').onclick = () => {
+            showMenu('gameMenu');
+        };
+
+        document.getElementById('statsBtn').onclick = showStats;
+
+        document.getElementById('closeStatsBtn').onclick = () => {
+            showMenu('gameMenu');
+        };
+
+        document.getElementById('quitBtn').onclick = () => {
+            if (confirm('Quit to main menu? Unsaved progress will be lost.')) {
+                showMainMenu();
+            }
+        };
+
+        document.getElementById('pauseBtn').onclick = () => {
+            gameState.paused = !gameState.paused;
+            document.getElementById('pauseBtn').textContent = gameState.paused ? '▶️ Resume' : '⏸️ Pause';
+        };
+
+        document.getElementById('speed1x').onclick = () => {
+            gameState.gameSpeed = 1;
+            document.querySelectorAll('#speedControls button').forEach(b => b.classList.remove('active'));
+            document.getElementById('speed1x').classList.add('active');
+        };
+
+        document.getElementById('speed2x').onclick = () => {
+            gameState.gameSpeed = 2;
+            document.querySelectorAll('#speedControls button').forEach(b => b.classList.remove('active'));
+            document.getElementById('speed2x').classList.add('active');
+        };
+
+        document.getElementById('speed3x').onclick = () => {
+            gameState.gameSpeed = 3;
+            document.querySelectorAll('#speedControls button').forEach(b => b.classList.remove('active'));
+            document.getElementById('speed3x').classList.add('active');
+        };
+
+        document.getElementById('continuePlayBtn').onclick = () => {
+            hideMenu();
+            gameState.paused = false;
+        };
+
+        document.getElementById('newGameAfterWinBtn').onclick = () => {
+            newGame();
+            hideMenu();
+        };
+
+        // ============================================================
+        // INITIALIZATION
+        // ============================================================
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        gameLoop();
+    </script>
+</body>
+</html>
