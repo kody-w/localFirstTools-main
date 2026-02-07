@@ -1,0 +1,1822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIGNAL LOST - A Radio Survival Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #bunker {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+            overflow: hidden;
+        }
+
+        /* Concrete texture effect */
+        #bunker::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px),
+                repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);
+            pointer-events: none;
+        }
+
+        /* Flickering light */
+        #light {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100px;
+            height: 20px;
+            background: linear-gradient(180deg, rgba(200,220,255,0.3), transparent);
+            box-shadow: 0 0 100px 50px rgba(200,220,255,0.1);
+            animation: flicker 8s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            5% { opacity: 0.8; }
+            10% { opacity: 1; }
+            15% { opacity: 0.9; }
+            20% { opacity: 1; }
+            50% { opacity: 0.95; }
+            55% { opacity: 0.7; }
+            60% { opacity: 1; }
+        }
+
+        /* Day counter on wall */
+        #dayCounter {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            font-size: 18px;
+            color: rgba(200,200,200,0.6);
+            text-align: right;
+            line-height: 1.8;
+        }
+
+        #tallyMarks {
+            font-size: 24px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 5px;
+            margin-bottom: 10px;
+            color: rgba(150,150,150,0.5);
+        }
+
+        /* Radio container */
+        #radioContainer {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 400px;
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            border-radius: 10px;
+            box-shadow:
+                0 10px 50px rgba(0,0,0,0.8),
+                inset 0 1px 0 rgba(255,255,255,0.1);
+            padding: 30px;
+            border: 2px solid #333;
+        }
+
+        /* Frequency display */
+        #frequencyDisplay {
+            width: 100%;
+            height: 80px;
+            background: #000;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            font-weight: bold;
+            color: #ff4400;
+            text-shadow: 0 0 20px #ff4400;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 20px;
+            border: 3px solid #111;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.8);
+            position: relative;
+        }
+
+        #modeIndicator {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            font-size: 14px;
+            color: #888;
+        }
+
+        /* Signal strength meter */
+        #signalMeter {
+            display: flex;
+            gap: 3px;
+            margin-bottom: 20px;
+            height: 30px;
+        }
+
+        .signalBar {
+            flex: 1;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .signalBar.active {
+            background: linear-gradient(180deg, #00ff00, #008800);
+            box-shadow: 0 0 10px #00ff00;
+        }
+
+        /* Tuning dial */
+        #dialContainer {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 20px;
+        }
+
+        #dialOuter {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #3a3a3a, #1a1a1a);
+            box-shadow:
+                0 5px 20px rgba(0,0,0,0.8),
+                inset 0 1px 0 rgba(255,255,255,0.2),
+                inset 0 -5px 20px rgba(0,0,0,0.5);
+            position: relative;
+            cursor: grab;
+        }
+
+        #dialOuter:active {
+            cursor: grabbing;
+        }
+
+        #dialInner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 90px;
+            background: linear-gradient(180deg, #ff4400, #cc3300);
+            transform-origin: center bottom;
+            transform: translate(-50%, -100%);
+            border-radius: 2px;
+            box-shadow: 0 0 10px #ff4400;
+        }
+
+        #dialCenter {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle, #444, #222);
+            border-radius: 50%;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.8);
+        }
+
+        /* Control panel */
+        #controls {
+            display: flex;
+            justify-content: space-around;
+            gap: 20px;
+        }
+
+        .controlGroup {
+            text-align: center;
+        }
+
+        .controlLabel {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .knob {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #3a3a3a, #1a1a1a);
+            box-shadow:
+                0 3px 10px rgba(0,0,0,0.8),
+                inset 0 1px 0 rgba(255,255,255,0.2);
+            position: relative;
+            cursor: pointer;
+            margin: 0 auto;
+        }
+
+        .knob::after {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 3px;
+            height: 15px;
+            background: #ff4400;
+            border-radius: 2px;
+        }
+
+        .button {
+            padding: 10px 20px;
+            background: linear-gradient(180deg, #333, #1a1a1a);
+            border: 2px solid #444;
+            border-radius: 5px;
+            color: #aaa;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            transition: all 0.1s;
+        }
+
+        .button:hover {
+            background: linear-gradient(180deg, #444, #2a2a2a);
+            border-color: #555;
+        }
+
+        .button:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .button.active {
+            background: linear-gradient(180deg, #ff4400, #cc3300);
+            border-color: #ff4400;
+            color: #fff;
+            box-shadow: 0 0 10px #ff4400;
+        }
+
+        /* Status bars */
+        #statusBars {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            right: 30px;
+        }
+
+        .statusBar {
+            margin-bottom: 10px;
+        }
+
+        .statusLabel {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 3px;
+        }
+
+        .statusBarOuter {
+            height: 20px;
+            background: #111;
+            border: 2px solid #333;
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .statusBarInner {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff00, #00aa00);
+            transition: width 0.3s;
+            box-shadow: 0 0 10px rgba(0,255,0,0.5);
+        }
+
+        .statusBarInner.low {
+            background: linear-gradient(90deg, #ff4400, #cc3300);
+            box-shadow: 0 0 10px rgba(255,68,0,0.5);
+        }
+
+        .statusBarInner.critical {
+            background: linear-gradient(90deg, #ff0000, #cc0000);
+            box-shadow: 0 0 10px rgba(255,0,0,0.5);
+            animation: pulse 0.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Broadcast window */
+        #broadcastWindow {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            width: 400px;
+            max-height: 500px;
+            background: rgba(0,0,0,0.9);
+            border: 2px solid #333;
+            border-radius: 5px;
+            padding: 15px;
+            display: none;
+            overflow-y: auto;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.9);
+        }
+
+        #broadcastWindow.active {
+            display: block;
+        }
+
+        #broadcastHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        #broadcastTitle {
+            font-size: 14px;
+            color: #ff4400;
+            text-transform: uppercase;
+        }
+
+        #broadcastClose {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            line-height: 1;
+        }
+
+        #broadcastClose:hover {
+            color: #fff;
+        }
+
+        #broadcastContent {
+            font-size: 13px;
+            line-height: 1.8;
+            color: #aaa;
+            white-space: pre-wrap;
+        }
+
+        .broadcastLine {
+            margin-bottom: 10px;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        #broadcastChoices {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .choiceButton {
+            padding: 12px;
+            background: rgba(255,68,0,0.1);
+            border: 1px solid #ff4400;
+            border-radius: 3px;
+            color: #ff4400;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+        }
+
+        .choiceButton:hover {
+            background: rgba(255,68,0,0.2);
+            border-color: #ff6600;
+            transform: translateX(5px);
+        }
+
+        .choiceButton:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Notepad */
+        #notepad {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 300px;
+            height: 200px;
+            background: rgba(40,40,30,0.95);
+            border: 2px solid #444;
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.8);
+        }
+
+        #notepadTitle {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        #notepadContent {
+            width: 100%;
+            height: calc(100% - 30px);
+            background: transparent;
+            border: none;
+            color: #aaa;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            resize: none;
+            outline: none;
+        }
+
+        /* Main menu */
+        #mainMenu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        #mainMenu.hidden {
+            display: none;
+        }
+
+        #menuTitle {
+            font-size: 72px;
+            color: #ff4400;
+            text-shadow: 0 0 30px #ff4400;
+            margin-bottom: 20px;
+            letter-spacing: 10px;
+        }
+
+        #menuSubtitle {
+            font-size: 18px;
+            color: #888;
+            margin-bottom: 60px;
+            letter-spacing: 3px;
+        }
+
+        .menuButton {
+            padding: 15px 40px;
+            margin: 10px;
+            background: linear-gradient(180deg, #333, #1a1a1a);
+            border: 2px solid #ff4400;
+            border-radius: 5px;
+            color: #ff4400;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            transition: all 0.3s;
+            min-width: 250px;
+        }
+
+        .menuButton:hover {
+            background: linear-gradient(180deg, #444, #2a2a2a);
+            box-shadow: 0 0 20px rgba(255,68,0,0.5);
+            transform: translateY(-2px);
+        }
+
+        /* Tutorial overlay */
+        #tutorial {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            max-width: 90vw;
+            background: rgba(0,0,0,0.95);
+            border: 2px solid #ff4400;
+            border-radius: 10px;
+            padding: 30px;
+            z-index: 999;
+            display: none;
+        }
+
+        #tutorial.active {
+            display: block;
+        }
+
+        #tutorialTitle {
+            font-size: 24px;
+            color: #ff4400;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        #tutorialText {
+            font-size: 14px;
+            line-height: 1.8;
+            color: #aaa;
+            margin-bottom: 30px;
+        }
+
+        #tutorialButton {
+            display: block;
+            margin: 0 auto;
+        }
+
+        /* Wave visualization */
+        #waveform {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        /* Static overlay for Entity */
+        #staticOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0);
+            pointer-events: none;
+            z-index: 500;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        #staticOverlay.active {
+            opacity: 1;
+            background-image:
+                repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px),
+                repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px);
+            animation: staticNoise 0.1s infinite;
+        }
+
+        @keyframes staticNoise {
+            0% { transform: translate(0, 0); }
+            10% { transform: translate(-2px, 2px); }
+            20% { transform: translate(2px, -2px); }
+            30% { transform: translate(-2px, -2px); }
+            40% { transform: translate(2px, 2px); }
+            50% { transform: translate(0, 0); }
+        }
+
+        /* Day transition */
+        #dayTransition {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 900;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        #dayTransition.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #dayTransitionText {
+            font-size: 48px;
+            color: #ff4400;
+            text-shadow: 0 0 20px #ff4400;
+            margin-bottom: 20px;
+        }
+
+        #dayTransitionSub {
+            font-size: 18px;
+            color: #888;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #111;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            #radioContainer {
+                width: 90vw;
+                height: auto;
+                padding: 20px;
+            }
+
+            #broadcastWindow {
+                width: calc(100vw - 60px);
+                max-height: 60vh;
+            }
+
+            #notepad {
+                width: calc(100vw - 60px);
+                height: 150px;
+            }
+
+            #menuTitle {
+                font-size: 48px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="bunker">
+        <div id="light"></div>
+
+        <div id="dayCounter">
+            <div id="tallyMarks"></div>
+            <div>DAY <span id="dayNumber">1</span> / 30</div>
+            <div id="timeRemaining">05:00</div>
+        </div>
+
+        <div id="radioContainer">
+            <div id="frequencyDisplay">
+                <span id="frequency">93.5</span>
+                <span id="modeIndicator">FM</span>
+            </div>
+
+            <div id="signalMeter">
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+                <div class="signalBar"></div>
+            </div>
+
+            <div id="dialContainer">
+                <div id="dialOuter">
+                    <div id="dialInner"></div>
+                    <div id="dialCenter"></div>
+                </div>
+            </div>
+
+            <div id="controls">
+                <div class="controlGroup">
+                    <div class="controlLabel">Volume</div>
+                    <div class="knob" id="volumeKnob"></div>
+                </div>
+                <div class="controlGroup">
+                    <div class="controlLabel">Mode</div>
+                    <button class="button active" id="modeButton">FM</button>
+                </div>
+                <div class="controlGroup">
+                    <div class="controlLabel">Transmit</div>
+                    <button class="button" id="transmitButton">TX</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="statusBars">
+            <div class="statusBar">
+                <div class="statusLabel">
+                    <span>BATTERY</span>
+                    <span id="batteryValue">100/100</span>
+                </div>
+                <div class="statusBarOuter">
+                    <div class="statusBarInner" id="batteryBar" style="width: 100%"></div>
+                </div>
+            </div>
+            <div class="statusBar">
+                <div class="statusLabel">
+                    <span>MORALE</span>
+                    <span id="moraleValue">75/100</span>
+                </div>
+                <div class="statusBarOuter">
+                    <div class="statusBarInner" id="moraleBar" style="width: 75%"></div>
+                </div>
+            </div>
+            <div class="statusBar">
+                <div class="statusLabel">
+                    <span>SUPPLIES</span>
+                    <span id="suppliesValue">30 days</span>
+                </div>
+                <div class="statusBarOuter">
+                    <div class="statusBarInner" id="suppliesBar" style="width: 100%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="broadcastWindow">
+            <div id="broadcastHeader">
+                <div id="broadcastTitle">SIGNAL DETECTED</div>
+                <button id="broadcastClose">✕</button>
+            </div>
+            <div id="broadcastContent"></div>
+            <div id="broadcastChoices"></div>
+        </div>
+
+        <div id="notepad">
+            <div id="notepadTitle">NOTEPAD</div>
+            <textarea id="notepadContent" placeholder="Write down frequencies, names, anything important..."></textarea>
+        </div>
+
+        <canvas id="waveform"></canvas>
+        <div id="staticOverlay"></div>
+
+        <div id="dayTransition">
+            <div id="dayTransitionText">DAY 2</div>
+            <div id="dayTransitionSub">You survived another day...</div>
+        </div>
+    </div>
+
+    <div id="mainMenu">
+        <div id="menuTitle">SIGNAL LOST</div>
+        <div id="menuSubtitle">A Radio Survival Game</div>
+        <button class="menuButton" id="newGameButton">NEW GAME</button>
+        <button class="menuButton" id="continueButton" style="display: none;">CONTINUE</button>
+        <button class="menuButton" id="howToPlayButton">HOW TO PLAY</button>
+    </div>
+
+    <div id="tutorial">
+        <div id="tutorialTitle">HOW TO PLAY</div>
+        <div id="tutorialText">
+            You're alone in a bunker after an unknown catastrophe. Your only connection to the world is this shortwave radio.
+
+            <br><br><strong>OBJECTIVE:</strong> Survive 30 days. Each day lasts 5 minutes of real time.
+
+            <br><br><strong>THE RADIO:</strong>
+            • Drag the dial to tune frequencies (87.0 - 108.0 MHz)
+            • Listen for broadcasts from other survivors
+            • Toggle AM/FM to access more frequencies
+            • Watch your battery - the radio drains power
+
+            <br><br><strong>SURVIVAL:</strong>
+            • BATTERY: Limited power each day. Choose what to listen to carefully.
+            • MORALE: Stay connected. Isolation and bad news lower morale. At 0, you give up.
+            • SUPPLIES: Food and water. Contacts may tell you about supply caches.
+
+            <br><br><strong>CHOICES:</strong>
+            • Who do you trust?
+            • Do you respond? (Transmitting reveals your location)
+            • Do you share information between contacts?
+            • Some frequencies are dangerous...
+
+            <br><br><strong>TIP:</strong> Use the notepad to write down frequencies and important information. Some broadcasts contain hidden messages.
+
+            <br><br>Good luck, survivor. The signal is all you have.
+        </div>
+        <button class="menuButton" id="tutorialButton">I UNDERSTAND</button>
+    </div>
+
+    <script>
+        // Game state
+        const gameState = {
+            day: 1,
+            battery: 100,
+            maxBattery: 100,
+            morale: 75,
+            supplies: 30,
+            antenna: 100,
+            currentFrequency: 93.5,
+            mode: 'FM', // FM or AM
+            volume: 0.7,
+            isTransmitting: false,
+            dayStartTime: null,
+            dayDuration: 300000, // 5 minutes in milliseconds
+            contacts: {},
+            choices: {},
+            discoveredFrequencies: [],
+            entityExposure: 0,
+            decodedCaches: [],
+            gameStarted: false,
+            tutorialShown: false
+        };
+
+        // Frequency database
+        const frequencies = {
+            // Emergency Broadcast
+            91.5: {
+                name: "Emergency Broadcast System",
+                type: "automated",
+                signalStrength: 10,
+                content: (day) => {
+                    const messages = {
+                        1: "ATTENTION. This is the Emergency Broadcast System. A national emergency has been declared. All citizens are advised to shelter in place. Do not attempt to leave your shelter. Do not drink tap water. Further instructions will follow. This message will repeat.",
+                        3: "EMERGENCY BROADCAST: Day 3. The contamination event has been classified as Level 5. Atmospheric particulate readings remain hazardous. Military evacuation protocols are suspended indefinitely. Remain in your shelter. This is not a drill.",
+                        5: "EBS UPDATE: Communication networks are at 12% capacity. If you can hear this, you are among the fortunate. The contamination appears to be spreading. Origin point unknown. Remain sheltered. Conserve resources.",
+                        7: "ATTENTION: This broadcast will continue until... [SIGNAL INTERRUPTED]",
+                        10: "This is not the Emergency Broadcast System. This is Lieutenant Marcus Chen, USAF. If military personnel are receiving this: Rally point Zeta is compromised. Repeat: Zeta is gone. Proceed to secondary extraction points. Civilian listeners: help is coming. Stay strong.",
+                        15: "EBS AUTOMATED PROTOCOL RESTORED. Day 15. Analysis suggests the Event was not natural. Repeat: evidence indicates deliberate deployment. Investigation ongoing. Trust only official channels. Beware of false broadcasts.",
+                        20: "CRITICAL UPDATE: Several relay towers are broadcasting unauthorized signals. If you hear voices claiming to offer rescue, verify through proper channels. Location compromises have led to civilian casualties. Do not reveal your position to unknown parties.",
+                        25: "[STATIC] ...the truth is they don't know what it is... [STATIC] ...some of the rescue teams didn't come back right... [STATIC] ...if you can hear this, don't trust the-- [SIGNAL LOST]",
+                        30: "FINAL BROADCAST: This automated system will shut down at 23:59 tonight. Power reserves exhausted. To anyone still listening: you've survived this long. You can make it. The contamination is clearing in some areas. There is hope. This is EBS Station Alpha-7, signing off. Good luck."
+                    };
+                    return messages[day] || messages[Math.max(...Object.keys(messages).map(Number).filter(d => d <= day))];
+                }
+            },
+
+            // Sarah - The Nurse
+            93.2: {
+                name: "Sarah Chen",
+                type: "survivor",
+                signalStrength: 7,
+                requiresDiscovery: false,
+                content: (day, choices) => {
+                    if (choices.sarahIgnored) {
+                        if (day >= 10) return null; // She's gone
+                        return "Hello? Is anyone there? Please... I'm trapped in Mercy General Hospital, fourth floor. The stairwells are blocked. I can hear... things... moving below. If you can hear this, please respond. I don't know how much longer the generator will last.";
+                    }
+
+                    if (choices.sarahHelped) {
+                        const helpedMessages = {
+                            5: "Thank you for responding yesterday. It helped more than you know. I found some medical supplies - antibiotics, painkillers. If you ever need help... 93.2. I'm here. How are you holding up?",
+                            8: "I made it to the roof. Used your advice about the ventilation shaft. There's a supply drop visible from here - about two miles east. Military crate, looks intact. Coordinates: 40.7128 N, 74.0060 W. Wish I could get to it.",
+                            12: "Something attacked the hospital last night. Not human. It didn't get through the barricade but... God, the sounds it made. I'm moving to the pharmacy bunker. If you're out there, be careful. They're drawn to noise.",
+                            18: "I've been thinking... we could meet. I know it's risky. But I have medical supplies, you might have food or equipment. There's an old subway station at Fifth and Main. Day 22, I'll be there at noon. Your call.",
+                            22: choices.sarahMeet ? "I'm here. Waiting. Please tell me you're coming..." : "I waited. You didn't come. I understand - it's too dangerous. But I thought... maybe I wasn't alone. I'll keep broadcasting. For both of us.",
+                            27: "Sarah here. Still alive. The hospital is completely overrun now. I'm in the underground parking structure. This might be my last broadcast - battery is almost dead. Thank you for talking to me. Knowing someone else was out there... it kept me going. If you make it, live for both of us."
+                        };
+                        return helpedMessages[day];
+                    }
+
+                    const initialMessages = {
+                        1: "CQ CQ CQ, this is Sarah Chen broadcasting on 93.2 FM. I'm a nurse trapped in Mercy General Hospital. If anyone can hear this, please respond. I have medical supplies but I'm running low on food. Please... anyone.",
+                        2: "This is Sarah, 93.2. Still here. Still hoping. The emergency power is holding for now. I can see the city from the windows. Everything's dark except for a few fires. Is anyone else alive out there?"
+                    };
+                    return initialMessages[day] || initialMessages[2];
+                },
+                choices: (day, choices) => {
+                    if (day === 1) {
+                        return [
+                            { text: "Respond and offer advice (REVEALS LOCATION)", id: "sarahHelped", batteryCost: 5 },
+                            { text: "Listen silently", id: "sarahIgnored" }
+                        ];
+                    }
+                    if (day === 18 && choices.sarahHelped) {
+                        return [
+                            { text: "Agree to meet on Day 22", id: "sarahMeet", moraleCost: 0 },
+                            { text: "Too dangerous. Decline.", id: "sarahNoMeet", moraleCost: 10 }
+                        ];
+                    }
+                    return null;
+                }
+            },
+
+            // Marcus - The Soldier (Actually a Raider)
+            96.7: {
+                name: "Marcus",
+                type: "survivor",
+                signalStrength: 9,
+                requiresDiscovery: true,
+                discoveryDay: 3,
+                content: (day, choices) => {
+                    if (choices.marcusExposed && day >= 20) {
+                        return "[ANGRY] You shouldn't have done that. You shouldn't have warned them. We know where you are now. We're coming.";
+                    }
+
+                    if (choices.marcusRevealed && day >= 8) {
+                        return null; // He stops broadcasting if you don't trust him
+                    }
+
+                    const messages = {
+                        3: "Attention all survivors. This is Captain Marcus Rodriguez, United States Air Force. I'm coordinating rescue operations from Forward Operating Base Trinity. We're extracting civilians from the contamination zone. If you can hear this, we can help. But I need to verify you're not compromised. Stand by for authentication protocol.",
+                        5: "Captain Rodriguez again. I'm detecting multiple civilian signals in this sector. Good news - we have transport standing by. But before extraction, I need to confirm your location and status. Are you mobile? Do you have supplies? Any signs of infection? Respond on this frequency and we'll get you out.",
+                        8: "Listen, I know you're scared. I know trust is hard right now. But I'm military - I took an oath to protect civilians. I've already extracted twelve survivors this week. You could be next. All I need is your coordinates and we'll have a team to you within 48 hours. 96.7. I'm here.",
+                        12: choices.marcusTrusted ? "Received your coordinates. Good. Extraction team is en route. ETA 36 hours. Pack light, bring any medical supplies or weapons. Seal your entrance after we extract you - can't let those things follow us. Stay safe, survivor. Help is coming." : "Still waiting. Time is running out. We can't keep the operation running forever. If you want out, you need to decide now. Last chance.",
+                        15: "Change of plans. Extraction delayed due to hostile activity in your sector. Stand by. Do NOT leave your shelter. We'll get to you.",
+                        20: "[The mask slips] You know what? I'm tired of playing nice. We know there are supplies in these bunkers. We've hit eight so far. You're not talking to any captain. We're survivors, just like you, but we're not too proud to take what we need. You can join us or you can starve. Your choice."
+                    };
+                    return messages[day];
+                },
+                choices: (day, choices) => {
+                    if (day === 8) {
+                        return [
+                            { text: "Give him your coordinates", id: "marcusTrusted", moraleCost: 0 },
+                            { text: "Refuse. Something feels wrong.", id: "marcusRevealed", moraleCost: 5 }
+                        ];
+                    }
+                    if (day === 20 && choices.marcusTrusted) {
+                        return [
+                            { text: "Try to warn other survivors", id: "marcusExposed", batteryCost: 15 },
+                            { text: "Stay silent and hope they don't find you", id: "marcusHiding" }
+                        ];
+                    }
+                    return null;
+                }
+            },
+
+            // The Collective
+            99.1: {
+                name: "The Collective",
+                type: "survivor",
+                signalStrength: 8,
+                requiresDiscovery: true,
+                discoveryDay: 7,
+                content: (day, choices) => {
+                    const messages = {
+                        7: "Greetings, fellow survivors. We are the Collective - a community of 47 souls who have found each other in the darkness. We're establishing a permanent settlement at the Old Mill. We have power, clean water, and growing food. We welcome all who wish to join us. Together, we are stronger. Contact us on this frequency.",
+                        10: "The Collective grows. We are now 63. Our gardens are producing. Our walls are strong. But more importantly, our spirit is unbreakable. We hold gatherings each evening - we sing, we share stories, we remember what it means to be human. This is not just survival. This is living. Join us.",
+                        13: "We ask all members to commit fully to the Collective. Individual possessions lead to greed, to inequality. We share all things. We work as one. If you wish to join, you must be willing to give yourself completely to the community. This is the only way forward.",
+                        16: "A warning to those who hoard supplies while others starve: the Collective remembers. When we reclaim this world, there will be a reckoning. Those who helped will be welcomed. Those who hoarded will answer for their selfishness.",
+                        20: "Today we cast out three members who questioned the Council. They tried to leave with supplies that belonged to the Collective. They were not permitted. If any survivor encounters them, do not offer aid. They are traitors to humanity's future.",
+                        24: choices.collectiveJoined ? "Welcome, new member. You've made the right choice. Proceed to the Old Mill on Day 28. Bring all supplies. You'll be assigned work duties and living quarters. Remember: individual thought divides us. The Collective guides us. Obey and prosper." : "Our patience wears thin with those who refuse community. We know you're out there, listening. Hiding. Selfish. When this is over, we will remember who helped build the new world, and who cowered alone.",
+                        28: "The cleansing begins. The Collective will inherit the earth."
+                    };
+                    return messages[day];
+                },
+                choices: (day, choices) => {
+                    if (day === 15) {
+                        return [
+                            { text: "Express interest in joining", id: "collectiveJoined", moraleCost: 0 },
+                            { text: "This is cult behavior. Stay away.", id: "collectiveRejected", moraleCost: 5 }
+                        ];
+                    }
+                    return null;
+                }
+            },
+
+            // Numbers Station
+            101.3: {
+                name: "Numbers Station UVB-76",
+                type: "automated",
+                signalStrength: 10,
+                content: (day) => {
+                    // Caesar cipher, shift 7. Decoded messages reveal supply cache coordinates
+                    const codes = {
+                        1: "8-20-12 15-15-18-20-9... 4-12-1-18-15-22-5-11-8... 3-1-3-8-5... 3-15-15-18-4-9-14-1-20-5-19...",
+                        5: "19-21-16-16-12-25... 4-18-15-16... 12-15-3-1-20-9-15-14... 23-1-18-5-8-15-21-19-5... 4-9-19-20-18-9-3-20... 7...",
+                        10: "13-5-4-9-3-1-12... 19-21-16-16-12-9-5-19... 8-15-19-16-9-20-1-12... 16-1-18-11-9-14-7... 19-20-18-21-3-20-21-18-5...",
+                        15: "13-9-12-9-20-1-18-25... 3-1-3-8-5... 1-2-1-14-4-15-14-5-4... 2-1-19-5... 5-14-20-18-1-14-3-5... 3-15-4-5... 2-18-1-22-15...",
+                        20: "4-1-14-7-5-18... 19-9-7-14-1-12... 3-15-13-16-18-15-13-9-19-5-4... 12-5-1-22-5... 26-15-14-5...",
+                        25: "6-9-14-1-12... 3-1-3-8-5... 19-21-2-23-1-25... 19-20-1-20-9-15-14... 1-12-12... 19-21-16-16-12-9-5-19... 1-22-1-9-12-1-2-12-5...",
+                        30: "13-9-19-19-9-15-14... 3-15-13-16-12-5-20-5... 20-18-1-14-19-13-9-19-19-9-15-14... 5-14-4-9-14-7..."
+                    };
+                    return codes[day] || codes[1];
+                }
+            },
+
+            // The Entity
+            103.7: {
+                name: "<<<UNKNOWN>>>",
+                type: "entity",
+                signalStrength: 6,
+                content: (day, choices) => {
+                    const exposure = gameState.entityExposure || 0;
+
+                    if (exposure > 50) {
+                        return "W̴̢̧̡̛̰̠̫̲͎̹̜̭̠͕̮͎͔̋́́͊̆̂̌͑̿̾̒̈́͘͝͠Ȩ̴̡̨̛̙̻̪̪͕͎̹̜̺̱̼̈́̈́̀̈̓͆̂̓̉̚͝͠ ̸̧̨̡̰̺̳̱̘̮̳̻͍̪̮̈́̉̑̓͒̄̓͋͘͝͝Ś̸̨̨̡̧̱̠̪̝̰̖̹̝̫̩̊̃̿̒̍̈́̿͜͝Ē̸̡̢̺̘̜̬͕͎̖̱̩̯͚̥̈́̽͐͑̽͌͌̏̿͐́͂͋̄̚͜͜Ȩ̵̛̱̼̣̣̰̺̟̼̝̭̲̬̦̼̍̒̃͊͗̈́̕ͅ ̷̧̛̹̗͈̮̤̯͓̪͈̥̼͓͕̽̍̀̀̈̅̈́̐̾̍̒̈́͝Y̶̧̡̡̛̗̖̩̖̦̜̟̝̘͇̟̜̏̂͋̀͗͒̈́͌̾́̔̓̈́̐O̴̧̨̜̮̺̫͖̭͉͙̫̘̐̾̆͂̾̎̚Ų̴̨̢̰̟͎̮̬̫͙̭̹̯̮̊̀͂̅̀̕͜";
+                    }
+
+                    if (exposure > 30) {
+                        return "[STATIC]... you... hear... us... now... [STATIC]... we... are... the... space... between... [STATIC]... do... not... be... afraid... [STATIC]... we... are... already... inside...";
+                    }
+
+                    if (day < 10) {
+                        return "[STATIC AND INCOMPREHENSIBLE TONES]";
+                    }
+
+                    const messages = {
+                        10: "[STATIC]... [A LOW FREQUENCY TONE, ALMOST SUBSONIC]... [STATIC]...",
+                        15: "[STATIC]... listening... [STATIC]... you are listening... [STATIC]... we know... [STATIC]...",
+                        20: "[REVERSED AUDIO]... noitatS rebmuN eht edoced evah uoy... [STATIC]... good... [STATIC]...",
+                        25: "[MULTIPLE OVERLAPPING WHISPERS]... join us... leave the shelter... we are waiting... [STATIC]... the others are not what they seem... [STATIC]... only we tell truth...",
+                        30: "[CLEAR AUDIO] Thank you for listening. The frequency is complete. The door is open. We are coming through."
+                    };
+
+                    return messages[day] || "[STATIC]... [UNKNOWN SIGNAL PATTERN]... [STATIC]...";
+                },
+                choices: (day, choices) => {
+                    if (day === 25) {
+                        return [
+                            { text: "Try to communicate with it", id: "entityContact", batteryCost: 10 },
+                            { text: "Turn off the radio immediately", id: "entityAvoid" }
+                        ];
+                    }
+                    return null;
+                }
+            },
+
+            // Child's Voice
+            88.8: {
+                name: "Lily",
+                type: "survivor",
+                signalStrength: 4,
+                content: (day, choices) => {
+                    if (choices.childComforted) {
+                        const messages = {
+                            5: "[Sniffling] Hi... it's me again. Thank you for talking to me last time. I found some crackers in the basement. They're stale but okay. Are you still there?",
+                            10: "I had a nightmare. About the loud noises from that night. But then I remembered you said I was brave. That helped. Do you think my parents are okay?",
+                            15: "I'm teaching myself to read from the books here. There's no one to help me with the big words, but I'm trying. Maybe when this is over, I can go to school again.",
+                            20: "The food is almost gone. I'm scared. But you told me to be brave. I'm being brave. Right?",
+                            25: "[Very weak] Hello... I don't feel good. I'm so hungry. Are you still listening? Please don't go away...",
+                            30: choices.childSaved ? "[Crying with joy] You came! You really came! I knew you would. You're my hero." : "[No signal]"
+                        };
+                        return messages[day];
+                    }
+
+                    const messages = {
+                        1: "[Child's voice, crying] Hello? Mommy? Daddy? Is anyone there? I'm scared. The sirens stopped but you didn't come home. I'm in the basement like you said. Please come home.",
+                        3: "This is Lily. I'm seven. I've been alone for three days. If anyone can hear this, I'm at 42 Oak Street. The blue house. Please help.",
+                        8: "[Weaker] I'm still here. I'm eating the canned food from the shelf. The lights don't work anymore. It's dark and cold. Mommy... where are you?"
+                    };
+                    return messages[day] || messages[8];
+                },
+                choices: (day, choices) => {
+                    if (day === 3) {
+                        return [
+                            { text: "Comfort her (uses battery)", id: "childComforted", batteryCost: 5, moraleBoost: 10 },
+                            { text: "Can't spare the battery", id: "childIgnored" }
+                        ];
+                    }
+                    if (day === 28 && choices.childComforted) {
+                        return [
+                            { text: "Risk everything to rescue her", id: "childSaved", suppliesCost: 5, moraleCost: 0 },
+                            { text: "You can't save everyone", id: "childAbandoned", moraleCost: 30 }
+                        ];
+                    }
+                    return null;
+                }
+            },
+
+            // Weather Station
+            89.5: {
+                name: "NOAA Weather Radio",
+                type: "automated",
+                signalStrength: 9,
+                content: (day) => {
+                    const reports = {
+                        1: "Current conditions: Heavy particulate contamination. Visibility near zero. Temperature 62°F. Wind northwest at 15 mph. Air quality index: HAZARDOUS. Do not venture outside.",
+                        5: "Weather update: Contamination levels decreasing slowly. Visibility improving to 1 mile. Temperature 58°F. Light rain expected, DO NOT collect rainwater. AQI: VERY UNHEALTHY.",
+                        10: "Conditions: Overcast. Contamination at 60% of initial levels. Temperature 55°F. Winds variable. AQI: UNHEALTHY. Brief outdoor exposure may be survivable with protection.",
+                        15: "Current: Partly cloudy. Contamination at 40% of Day 1 levels. Temperature 60°F. Winds calm. AQI: UNHEALTHY FOR SENSITIVE GROUPS. Short outdoor trips advised with caution.",
+                        20: "Update: Clear skies. Contamination at 25% of initial reading. Temperature 65°F. Light breeze. AQI: MODERATE. Surface conditions improving. Water sources in rural areas may be safer.",
+                        25: "Conditions: Sunny. Contamination at 15% of Day 1. Temperature 68°F. Winds light and variable. AQI: MODERATE. Long-term outdoor survival becoming viable in select zones.",
+                        30: "Final report: Contamination at 10% of initial levels. Temperature 70°F. Light winds. AQI: MODERATE. The worst has passed. Gradual return to surface activity is advised. This station will continue automated broadcasts."
+                    };
+                    return reports[day] || reports[Math.max(...Object.keys(reports).map(Number).filter(d => d <= day))];
+                }
+            },
+
+            // Music Station
+            104.9: {
+                name: "The Last DJ",
+                type: "music",
+                signalStrength: 7,
+                content: (day) => {
+                    const messages = {
+                        1: "[Vinyl crackle, then soft jazz begins playing. No voice, just music. It's hauntingly beautiful in the silence.]",
+                        7: "[Between songs, a tired voice] If anyone's listening... this is Station 104.9. I'm playing records from my collection. Seemed like the right thing to do. Music is... it's all we have left of the old world. Hope someone out there enjoys it.",
+                        14: "[Voice, slightly more energetic] Day 14. Still spinning records. Found some Beatles today. Remember when the biggest worry was which album to buy? [Soft laugh] Here's 'Here Comes the Sun'. We could use some sun right about now.",
+                        21: "[Voice is weaker] Running low on food. But the music plays on. Someone told me once that music is humanity's gift to the universe. If we're going out, might as well go out with a good soundtrack. This is Brahms. Seemed appropriate.",
+                        28: "[Voice is a whisper] Last few records. Last few days of battery. If you made it this far... you're stronger than me. This is for everyone who didn't make it. And everyone who did. [Beethoven's 9th begins playing]"
+                    };
+                    return messages[day] || "[Beautiful, melancholic music continues playing. No voice.]";
+                },
+                moraleBoost: 5
+            },
+
+            // Rival Survivor
+            95.0: {
+                name: "Jackson",
+                type: "survivor",
+                signalStrength: 8,
+                content: (day, choices) => {
+                    const messages = {
+                        4: "Huh, so I'm not the only one who made it. Name's Jackson. Got a bunker about... well, somewhere around here. Been listening to the frequencies. Found the numbers station yet? Interesting stuff if you know how to decode it.",
+                        8: "Jackson again. Decoded another cache location from the numbers. Not gonna share this one - finders keepers. But hey, there's probably enough for both of us. Probably.",
+                        12: choices.sharedWithJackson ? "Appreciate you sharing that info about the hospital. Checked it out - you were right. Found supplies. Here, I'll trade you: there's a cache at the old water tower. We're even." : "Heard someone talking to that nurse. You being soft? Information is survival, friend. Help yourself first.",
+                        16: "You hear about the Collective? Bunch of nutjobs. Tried to recruit me on Day 14. Told them where they could shove their 'community spirit'. Watch out for them.",
+                        22: "Getting lonely out here. Which is weird to say after living alone for years before this happened. Funny what you miss. Got any good stories? Trade you a story for a story.",
+                        28: choices.jacksonFriend ? "Can't believe we made it this far. If we ever meet in person, first drink's on me. Thanks for the company, friend. Made this whole nightmare a little less dark." : "Well, looks like we both made it. Good for us. Maybe we'll run into each other topside. Or maybe not. Either way, good luck out there."
+                    };
+                    return messages[day];
+                },
+                choices: (day, choices) => {
+                    if (day === 10) {
+                        return [
+                            { text: "Share info about Sarah's cache location", id: "sharedWithJackson" },
+                            { text: "Keep the information to yourself", id: "keptFromJackson" }
+                        ];
+                    }
+                    if (day === 22) {
+                        return [
+                            { text: "Share a personal story", id: "jacksonFriend", moraleBoost: 10 },
+                            { text: "Keep it professional", id: "jacksonBusiness" }
+                        ];
+                    }
+                    return null;
+                }
+            },
+
+            // Conspiracy Theorist (Hidden)
+            92.3: {
+                name: "Truth Seeker",
+                type: "survivor",
+                signalStrength: 5,
+                requiresDiscovery: true,
+                content: (day) => {
+                    const messages = {
+                        6: "They're not telling you everything. The 'contamination'? That's what they want you to think. I've been tracking the patterns. This was planned. The government knew. Wake up, people.",
+                        12: "I was right. Check the emergency broadcasts - they admitted it wasn't natural. They ADMITTED it. But they're still not telling you who did it. Or why. Follow the money. Follow the power.",
+                        18: "That frequency at 103.7? That's not random static. That's a signal. An intelligent signal. They made contact with something before the Event. This is first contact gone wrong. Or maybe... gone right. For them.",
+                        24: "I'm going dark after this. They know I know too much. If you're listening, trust nothing. Question everything. The truth is out there, you just have to tune to the right frequency.",
+                        30: "[No signal - frequency is dead static]"
+                    };
+                    return messages[day];
+                }
+            },
+
+            // Supply Drop Coordinates (Hidden)
+            87.3: {
+                name: "Automated Supply Beacon",
+                type: "automated",
+                signalStrength: 3,
+                content: () => {
+                    return "AUTOMATED BEACON: Military supply drop located at Grid Reference 847-293. Contents: MREs, water purification, medical supplies, battery packs. Authorization code: NOVEMBER-TANGO-7. Beacon will repeat for 72 hours.";
+                },
+                suppliesBoost: 10
+            }
+        };
+
+        // Audio context
+        let audioContext;
+        let staticNoise;
+        let oscillator;
+
+        // Initialize audio
+        function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Create static noise
+            const bufferSize = audioContext.sampleRate * 2;
+            const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+
+            staticNoise = audioContext.createBufferSource();
+            staticNoise.buffer = noiseBuffer;
+            staticNoise.loop = true;
+
+            const staticGain = audioContext.createGain();
+            staticGain.gain.value = 0.03 * gameState.volume;
+
+            const filter = audioContext.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 1000;
+
+            staticNoise.connect(filter);
+            filter.connect(staticGain);
+            staticGain.connect(audioContext.destination);
+            staticNoise.start();
+
+            // Ambient bunker hum
+            oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 60;
+            const humGain = audioContext.createGain();
+            humGain.gain.value = 0.01 * gameState.volume;
+            oscillator.connect(humGain);
+            humGain.connect(audioContext.destination);
+            oscillator.start();
+        }
+
+        // DOM elements
+        const elements = {
+            frequency: document.getElementById('frequency'),
+            dayNumber: document.getElementById('dayNumber'),
+            timeRemaining: document.getElementById('timeRemaining'),
+            tallyMarks: document.getElementById('tallyMarks'),
+            batteryBar: document.getElementById('batteryBar'),
+            batteryValue: document.getElementById('batteryValue'),
+            moraleBar: document.getElementById('moraleBar'),
+            moraleValue: document.getElementById('moraleValue'),
+            suppliesBar: document.getElementById('suppliesBar'),
+            suppliesValue: document.getElementById('suppliesValue'),
+            signalBars: document.querySelectorAll('.signalBar'),
+            dialOuter: document.getElementById('dialOuter'),
+            dialInner: document.getElementById('dialInner'),
+            modeButton: document.getElementById('modeButton'),
+            transmitButton: document.getElementById('transmitButton'),
+            broadcastWindow: document.getElementById('broadcastWindow'),
+            broadcastTitle: document.getElementById('broadcastTitle'),
+            broadcastContent: document.getElementById('broadcastContent'),
+            broadcastChoices: document.getElementById('broadcastChoices'),
+            broadcastClose: document.getElementById('broadcastClose'),
+            notepad: document.getElementById('notepadContent'),
+            mainMenu: document.getElementById('mainMenu'),
+            tutorial: document.getElementById('tutorial'),
+            dayTransition: document.getElementById('dayTransition'),
+            dayTransitionText: document.getElementById('dayTransitionText'),
+            staticOverlay: document.getElementById('staticOverlay')
+        };
+
+        // Initialize game
+        function init() {
+            // Check for saved game
+            const saved = localStorage.getItem('signalLostSave');
+            if (saved) {
+                document.getElementById('continueButton').style.display = 'block';
+            }
+
+            // Menu buttons
+            document.getElementById('newGameButton').addEventListener('click', startNewGame);
+            document.getElementById('continueButton').addEventListener('click', continueGame);
+            document.getElementById('howToPlayButton').addEventListener('click', showTutorial);
+            document.getElementById('tutorialButton').addEventListener('click', hideTutorial);
+            elements.broadcastClose.addEventListener('click', closeBroadcast);
+
+            // Radio controls
+            setupDialControl();
+            elements.modeButton.addEventListener('click', toggleMode);
+            elements.transmitButton.addEventListener('click', toggleTransmit);
+
+            // Notepad auto-save
+            elements.notepad.addEventListener('input', () => {
+                if (gameState.gameStarted) {
+                    saveGame();
+                }
+            });
+
+            // Canvas for waveform
+            setupWaveform();
+        }
+
+        // Start new game
+        function startNewGame() {
+            // Reset state
+            Object.assign(gameState, {
+                day: 1,
+                battery: 100,
+                maxBattery: 100,
+                morale: 75,
+                supplies: 30,
+                antenna: 100,
+                currentFrequency: 93.5,
+                mode: 'FM',
+                volume: 0.7,
+                isTransmitting: false,
+                dayStartTime: Date.now(),
+                contacts: {},
+                choices: {},
+                discoveredFrequencies: [91.5, 93.2],
+                entityExposure: 0,
+                decodedCaches: [],
+                gameStarted: true
+            });
+
+            elements.mainMenu.classList.add('hidden');
+            elements.notepad.value = "Day 1:\n\n93.2 - Sarah (nurse)\n91.5 - Emergency broadcast\n\n";
+
+            if (!audioContext) {
+                initAudio();
+            }
+
+            startDayCycle();
+            updateUI();
+            saveGame();
+
+            // Show first broadcast after a moment
+            setTimeout(() => {
+                tuneToFrequency(91.5);
+            }, 2000);
+        }
+
+        // Continue saved game
+        function continueGame() {
+            const saved = JSON.parse(localStorage.getItem('signalLostSave'));
+            Object.assign(gameState, saved.state);
+            elements.notepad.value = saved.notepad;
+            gameState.gameStarted = true;
+            gameState.dayStartTime = Date.now();
+
+            elements.mainMenu.classList.add('hidden');
+
+            if (!audioContext) {
+                initAudio();
+            }
+
+            startDayCycle();
+            updateUI();
+        }
+
+        // Show tutorial
+        function showTutorial() {
+            elements.tutorial.classList.add('active');
+        }
+
+        function hideTutorial() {
+            elements.tutorial.classList.remove('active');
+        }
+
+        // Save game
+        function saveGame() {
+            const save = {
+                state: { ...gameState, dayStartTime: null },
+                notepad: elements.notepad.value,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('signalLostSave', JSON.stringify(save));
+        }
+
+        // Dial control
+        function setupDialControl() {
+            let isDragging = false;
+            let startAngle = 0;
+
+            elements.dialOuter.addEventListener('mousedown', startDrag);
+            elements.dialOuter.addEventListener('touchstart', startDrag);
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('touchmove', drag);
+            document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchend', stopDrag);
+
+            function startDrag(e) {
+                isDragging = true;
+                const rect = elements.dialOuter.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                startAngle = Math.atan2(clientY - centerY, clientX - centerX);
+            }
+
+            function drag(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+
+                const rect = elements.dialOuter.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                const angle = Math.atan2(clientY - centerY, clientX - centerX);
+
+                let deltaAngle = angle - startAngle;
+                startAngle = angle;
+
+                // Map to frequency
+                const freqChange = (deltaAngle / (Math.PI * 2)) * 21; // Full rotation = 21 MHz range
+                let newFreq = gameState.currentFrequency + freqChange;
+
+                // Clamp
+                const min = 87.0;
+                const max = 108.0;
+                newFreq = Math.max(min, Math.min(max, newFreq));
+                newFreq = Math.round(newFreq * 10) / 10;
+
+                if (newFreq !== gameState.currentFrequency) {
+                    gameState.currentFrequency = newFreq;
+                    updateFrequencyDisplay();
+                    checkForBroadcast();
+                }
+            }
+
+            function stopDrag() {
+                isDragging = false;
+            }
+        }
+
+        // Update frequency display
+        function updateFrequencyDisplay() {
+            elements.frequency.textContent = gameState.currentFrequency.toFixed(1);
+
+            // Update dial rotation
+            const range = 108.0 - 87.0;
+            const position = (gameState.currentFrequency - 87.0) / range;
+            const rotation = position * 360;
+            elements.dialInner.style.transform = `translate(-50%, -100%) rotate(${rotation}deg)`;
+
+            // Update signal strength
+            updateSignalStrength();
+        }
+
+        // Update signal strength meter
+        function updateSignalStrength() {
+            const freq = gameState.currentFrequency;
+            let strength = 0;
+
+            // Check if close to any station
+            for (const [stationFreq, station] of Object.entries(frequencies)) {
+                const distance = Math.abs(freq - parseFloat(stationFreq));
+                if (distance < 0.3) {
+                    strength = Math.max(strength, station.signalStrength * (1 - distance / 0.3));
+                }
+            }
+
+            // Apply antenna degradation
+            strength *= (gameState.antenna / 100);
+
+            // Update bars
+            const barsToShow = Math.floor(strength);
+            elements.signalBars.forEach((bar, i) => {
+                bar.classList.toggle('active', i < barsToShow);
+            });
+
+            return strength;
+        }
+
+        // Check for broadcast at current frequency
+        function checkForBroadcast() {
+            const freq = gameState.currentFrequency;
+            const tolerance = 0.15;
+
+            for (const [stationFreq, station] of Object.entries(frequencies)) {
+                const distance = Math.abs(freq - parseFloat(stationFreq));
+                if (distance < tolerance) {
+                    // Check if station is available
+                    if (station.requiresDiscovery && !gameState.discoveredFrequencies.includes(parseFloat(stationFreq))) {
+                        if (station.discoveryDay && gameState.day >= station.discoveryDay) {
+                            gameState.discoveredFrequencies.push(parseFloat(stationFreq));
+                            showBroadcast(stationFreq, station);
+                        }
+                    } else if (!station.requiresDiscovery || gameState.discoveredFrequencies.includes(parseFloat(stationFreq))) {
+                        showBroadcast(stationFreq, station);
+                    }
+                    return;
+                }
+            }
+
+            // No station - close broadcast window
+            closeBroadcast();
+        }
+
+        // Show broadcast
+        function showBroadcast(freq, station) {
+            elements.broadcastTitle.textContent = `${station.name} - ${freq} ${gameState.mode}`;
+
+            let content = '';
+            if (typeof station.content === 'function') {
+                content = station.content(gameState.day, gameState.choices);
+            } else {
+                content = station.content;
+            }
+
+            if (!content) {
+                closeBroadcast();
+                return;
+            }
+
+            elements.broadcastContent.innerHTML = '';
+
+            // Animate text appearance
+            const lines = content.split('\n');
+            lines.forEach((line, i) => {
+                setTimeout(() => {
+                    const div = document.createElement('div');
+                    div.className = 'broadcastLine';
+                    div.textContent = line;
+                    elements.broadcastContent.appendChild(div);
+                }, i * 100);
+            });
+
+            // Show choices if available
+            elements.broadcastChoices.innerHTML = '';
+            if (typeof station.choices === 'function') {
+                const choices = station.choices(gameState.day, gameState.choices);
+                if (choices) {
+                    setTimeout(() => {
+                        choices.forEach(choice => {
+                            const button = document.createElement('button');
+                            button.className = 'choiceButton';
+                            button.textContent = choice.text;
+                            button.addEventListener('click', () => {
+                                makeChoice(choice);
+                            });
+                            elements.broadcastChoices.appendChild(button);
+                        });
+                    }, lines.length * 100);
+                }
+            }
+
+            elements.broadcastWindow.classList.add('active');
+
+            // Handle special effects
+            if (station.type === 'entity') {
+                gameState.entityExposure = (gameState.entityExposure || 0) + 1;
+                if (gameState.entityExposure > 10) {
+                    elements.staticOverlay.classList.add('active');
+                }
+            }
+
+            // Morale boost from music
+            if (station.moraleBoost) {
+                setTimeout(() => {
+                    changeMorele(station.moraleBoost);
+                }, 2000);
+            }
+        }
+
+        // Close broadcast
+        function closeBroadcast() {
+            elements.broadcastWindow.classList.remove('active');
+            elements.staticOverlay.classList.remove('active');
+        }
+
+        // Make a choice
+        function makeChoice(choice) {
+            // Apply costs
+            if (choice.batteryCost) {
+                gameState.battery = Math.max(0, gameState.battery - choice.batteryCost);
+            }
+            if (choice.moraleCost) {
+                changeMorele(-choice.moraleCost);
+            }
+            if (choice.suppliesCost) {
+                gameState.supplies = Math.max(0, gameState.supplies - choice.suppliesCost);
+            }
+
+            // Apply benefits
+            if (choice.moraleBoost) {
+                changeMorele(choice.moraleBoost);
+            }
+            if (choice.suppliesBoost) {
+                gameState.supplies += choice.suppliesBoost;
+            }
+
+            // Record choice
+            gameState.choices[choice.id] = true;
+
+            // Close broadcast
+            closeBroadcast();
+
+            updateUI();
+            saveGame();
+        }
+
+        // Toggle mode
+        function toggleMode() {
+            gameState.mode = gameState.mode === 'FM' ? 'AM' : 'FM';
+            elements.modeButton.textContent = gameState.mode;
+            elements.modeButton.classList.toggle('active');
+            document.getElementById('modeIndicator').textContent = gameState.mode;
+        }
+
+        // Toggle transmit
+        function toggleTransmit() {
+            gameState.isTransmitting = !gameState.isTransmitting;
+            elements.transmitButton.classList.toggle('active', gameState.isTransmitting);
+
+            if (gameState.isTransmitting) {
+                // Transmitting reveals location - increase danger
+                gameState.battery -= 10;
+                updateUI();
+            }
+        }
+
+        // Day cycle
+        function startDayCycle() {
+            const updateInterval = setInterval(() => {
+                if (!gameState.gameStarted) {
+                    clearInterval(updateInterval);
+                    return;
+                }
+
+                // Drain battery
+                gameState.battery -= 0.033; // ~1 per 30 seconds = 100 over 5 minutes
+
+                // Drain morale slowly
+                if (Math.random() < 0.001) {
+                    changeMorele(-1);
+                }
+
+                const elapsed = Date.now() - gameState.dayStartTime;
+                const remaining = Math.max(0, gameState.dayDuration - elapsed);
+                const minutes = Math.floor(remaining / 60000);
+                const seconds = Math.floor((remaining % 60000) / 1000);
+                elements.timeRemaining.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+                updateUI();
+
+                // Check for day end
+                if (remaining <= 0) {
+                    clearInterval(updateInterval);
+                    endDay();
+                }
+
+                // Check for game over
+                if (gameState.battery <= 0 || gameState.morale <= 0 || gameState.supplies <= 0) {
+                    clearInterval(updateInterval);
+                    gameOver();
+                }
+            }, 1000);
+        }
+
+        // End day
+        function endDay() {
+            gameState.day++;
+
+            // Check for victory
+            if (gameState.day > 30) {
+                victory();
+                return;
+            }
+
+            // Reset battery
+            gameState.battery = gameState.maxBattery;
+
+            // Consume supplies
+            gameState.supplies--;
+
+            // Random events
+            if (Math.random() < 0.2) {
+                gameState.battery += 20;
+                gameState.maxBattery += 20;
+            }
+
+            // Show day transition
+            elements.dayTransitionText.textContent = `DAY ${gameState.day}`;
+            elements.dayTransitionSub.textContent = gameState.day < 30 ? 'You survived another day...' : 'The final day...';
+            elements.dayTransition.classList.add('active');
+
+            setTimeout(() => {
+                elements.dayTransition.classList.remove('active');
+                gameState.dayStartTime = Date.now();
+                startDayCycle();
+                updateUI();
+                saveGame();
+            }, 3000);
+        }
+
+        // Change morale
+        function changeMorele(amount) {
+            gameState.morale = Math.max(0, Math.min(100, gameState.morale + amount));
+        }
+
+        // Update UI
+        function updateUI() {
+            // Day
+            elements.dayNumber.textContent = gameState.day;
+            elements.tallyMarks.textContent = '||||'.repeat(Math.floor((gameState.day - 1) / 5)) + '|'.repeat((gameState.day - 1) % 5);
+
+            // Battery
+            const batteryPercent = (gameState.battery / gameState.maxBattery) * 100;
+            elements.batteryBar.style.width = `${batteryPercent}%`;
+            elements.batteryValue.textContent = `${Math.floor(gameState.battery)}/${gameState.maxBattery}`;
+            elements.batteryBar.className = 'statusBarInner';
+            if (batteryPercent < 20) elements.batteryBar.classList.add('critical');
+            else if (batteryPercent < 40) elements.batteryBar.classList.add('low');
+
+            // Morale
+            const moralePercent = gameState.morale;
+            elements.moraleBar.style.width = `${moralePercent}%`;
+            elements.moraleValue.textContent = `${Math.floor(gameState.morale)}/100`;
+            elements.moraleBar.className = 'statusBarInner';
+            if (moralePercent < 20) elements.moraleBar.classList.add('critical');
+            else if (moralePercent < 40) elements.moraleBar.classList.add('low');
+
+            // Supplies
+            const suppliesPercent = (gameState.supplies / 30) * 100;
+            elements.suppliesBar.style.width = `${suppliesPercent}%`;
+            elements.suppliesValue.textContent = `${gameState.supplies} days`;
+            elements.suppliesBar.className = 'statusBarInner';
+            if (suppliesPercent < 20) elements.suppliesBar.classList.add('critical');
+            else if (suppliesPercent < 40) elements.suppliesBar.classList.add('low');
+
+            updateFrequencyDisplay();
+        }
+
+        // Game over
+        function gameOver() {
+            let reason = '';
+            if (gameState.battery <= 0) reason = 'Your radio died. Alone in the dark, you lost all hope.';
+            else if (gameState.morale <= 0) reason = 'The isolation broke you. You gave up.';
+            else if (gameState.supplies <= 0) reason = 'You ran out of food and water.';
+
+            setTimeout(() => {
+                alert(`GAME OVER - DAY ${gameState.day}\n\n${reason}\n\nYou survived ${gameState.day - 1} days.`);
+                localStorage.removeItem('signalLostSave');
+                location.reload();
+            }, 500);
+        }
+
+        // Victory
+        function victory() {
+            let ending = determineEnding();
+            setTimeout(() => {
+                alert(`YOU SURVIVED - 30 DAYS\n\n${ending}\n\nThank you for playing SIGNAL LOST.`);
+                localStorage.removeItem('signalLostSave');
+                location.reload();
+            }, 500);
+        }
+
+        // Determine ending
+        function determineEnding() {
+            const c = gameState.choices;
+
+            if (c.entityContact) {
+                return "ENTITY ENDING:\n\nYou made contact. On Day 30, the static cleared and you understood. The Entity wasn't hostile - it was lonely. A consciousness trapped between dimensions by the Event. Your radio became a bridge. As the contamination clears, you realize: you're not alone anymore. Something vast and ancient shares your mind now. Forever.";
+            }
+
+            if (c.marcusTrusted && !c.marcusExposed) {
+                return "RAIDER ENDING:\n\nOn Day 30, Marcus arrived. But he wasn't military. They broke through your door and took everything. Your supplies. Your equipment. Your hope. They left you alive - barely. You survived the apocalypse only to learn the oldest lesson: humans are the real monsters.";
+            }
+
+            if (c.childSaved) {
+                return "HERO ENDING:\n\nYou risked everything to save Lily. On Day 29, you left your bunker for the first time since the Event. The world was broken, but the contamination was clearing. You found her weak but alive. Together, you walked toward the rising sun. Two survivors, against all odds. The radio saved you both.";
+            }
+
+            if (c.collectiveJoined) {
+                return "COLLECTIVE ENDING:\n\nOn Day 28, you joined the Collective. They welcomed you with open arms and empty eyes. You learned too late: the Collective wasn't a community - it was a cult. They took your supplies, your identity, your free will. You survived the apocalypse, but lost yourself.";
+            }
+
+            if (c.jacksonFriend && c.sarahHelped && !c.marcusTrusted) {
+                return "COMMUNITY ENDING:\n\nYou helped others. You made friends through the static. On Day 30, you emerged to find Sarah and Jackson waiting at a pre-arranged meeting point. Three strangers who became family through a radio. Together, you have a chance. Together, you can rebuild. This is how humanity survives.";
+            }
+
+            if (Object.keys(gameState.choices).length < 3) {
+                return "ALONE ENDING:\n\nYou survived 30 days by trusting no one, helping no one, revealing nothing. Your supplies lasted. Your morale held. Your battery never died. On Day 30, you emerge to a silent world. No friends. No enemies. Just you. You survived, but at what cost?";
+            }
+
+            return "SURVIVOR ENDING:\n\nThirty days. You made it through hell by making hard choices and taking calculated risks. The contamination is clearing. The radio frequencies are filling with voices again - real people, rebuilding. You don't know what comes next, but you're alive to find out. The signal was never lost. It was just waiting.";
+        }
+
+        // Waveform canvas
+        function setupWaveform() {
+            const canvas = document.getElementById('waveform');
+            const ctx = canvas.getContext('2d');
+
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = 60;
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            function drawWaveform() {
+                ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+
+                const strength = updateSignalStrength();
+                for (let x = 0; x < canvas.width; x++) {
+                    const y = canvas.height / 2 + Math.sin(x * 0.1 + Date.now() * 0.01) * strength * 2;
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+
+                ctx.stroke();
+                requestAnimationFrame(drawWaveform);
+            }
+            drawWaveform();
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>
