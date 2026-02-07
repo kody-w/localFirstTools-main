@@ -354,13 +354,27 @@ def main():
 
     if push:
         import subprocess
-        subprocess.run(["git", "add", str(OUTPUT)], cwd=ROOT)
-        subprocess.run(
-            ["git", "commit", "-m", f"Update rankings.json ({rankings['total_apps']} apps)"],
-            cwd=ROOT,
+        dist = rankings["summary"]["grade_distribution"]
+        msg = (
+            f"chore: update rankings.json ({rankings['total_apps']} apps scored)\n\n"
+            f"Avg: {rankings['summary']['avg_score']} | "
+            f"Median: {rankings['summary']['median_score']} | "
+            f"Top 10: {rankings['summary']['top_10_avg']}\n"
+            f"Grades: S:{dist.get('S',0)} A:{dist.get('A',0)} "
+            f"B:{dist.get('B',0)} C:{dist.get('C',0)} "
+            f"D:{dist.get('D',0)} F:{dist.get('F',0)}\n\n"
+            f"Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
         )
-        subprocess.run(["git", "push"], cwd=ROOT)
-        print("  Pushed to remote.")
+        subprocess.run(["git", "add", str(OUTPUT)], cwd=ROOT)
+        result = subprocess.run(
+            ["git", "commit", "-m", msg],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            subprocess.run(["git", "push"], cwd=ROOT)
+            print("  Published rankings to GitHub Pages.")
+        else:
+            print(f"  No changes to commit: {result.stdout.strip()}")
 
 
 if __name__ == "__main__":
