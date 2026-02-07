@@ -300,6 +300,97 @@ If files slip into root on a push (e.g. direct GitHub web upload), the `.github/
 
 ---
 
+## Skill 13: Molting Generations (Iterative App Improvement)
+
+Iteratively improves existing HTML apps using **Claude Opus 4.6 via Copilot CLI**. Each "molt" sheds technical debt while preserving functionality. Archives every generation for rollback.
+
+**Generation Focus Rotation:**
+| Gen | Focus | What Improves |
+|-----|-------|---------------|
+| 1 | Structural | DOCTYPE, semantic HTML, const/let, dead code |
+| 2 | Accessibility | ARIA, keyboard nav, contrast, focus |
+| 3 | Performance | rAF, CSS transforms, debounce, responsive |
+| 4 | Polish | Error handling, edge cases, DRY, naming |
+| 5 | Refinement | Micro-optimizations, memory leaks, coherence |
+
+**Commands:**
+```bash
+# Molt a single app
+python3 scripts/molt.py memory-training-game.html --verbose
+
+# Preview without changes
+python3 scripts/molt.py memory-training-game.html --dry-run
+
+# Molt all apps in a category
+python3 scripts/molt.py --category games_puzzles
+
+# Show generation status for all apps
+python3 scripts/molt.py --status
+
+# Roll back to a previous generation
+python3 scripts/molt.py --rollback memory-training-game 1
+
+# Set max generations (default 5)
+python3 scripts/molt.py memory-training-game.html --max-gen 3
+```
+
+**Archive structure:**
+```
+apps/archive/<app-stem>/
+  v1.html          # Original
+  v2.html          # After first molt
+  molt-log.json    # Audit trail (dates, sizes, SHA-256, focus areas)
+```
+
+**Manifest additions** (backward-compatible, gallery ignores unknown keys):
+```json
+{
+  "generation": 2,
+  "lastMolted": "2026-02-07",
+  "moltHistory": [
+    {"gen": 1, "date": "2025-12-27", "size": 21762},
+    {"gen": 2, "date": "2026-02-07", "size": 19450}
+  ]
+}
+```
+
+**Safeguards:**
+- Max 5 generations (configurable with `--max-gen`)
+- Files over 100KB are skipped
+- Output validated: DOCTYPE, title, no external deps, size within 30-300% of original
+- Original always archived before replacement
+- Rollback to any prior generation
+- All tests mocked: `python3 -m pytest scripts/tests/test_molt.py -v`
+
+**Full reference:** `molting-generations-pattern.md` in repo root.
+
+---
+
+## Skill 14: Game Factory (Autonomous Mass Production)
+
+Use the `game-factory` agent to mass-produce HTML games for the gallery. It handles everything: concept generation, game building, verification, manifest updates, git commit, and push.
+
+**Invocation:**
+```
+Use the game-factory agent to build 5 games
+Use game-factory to build: "Mycelium Wars: fungal network RTS", "Gravity Court: physics basketball"
+Have game-factory build 3 apps for experimental-ai
+```
+
+**What it does:**
+1. Generates creative game concepts (if not given specific ones)
+2. Writes each game as a self-contained HTML file (2000+ lines, 80-120KB target)
+3. Verifies: file exists, >20KB, >500 lines, DOCTYPE present, no external deps, localStorage used
+4. Updates manifest.json with entries for all new games
+5. Commits and pushes to origin/main
+6. Reports production summary
+
+**Limitation:** Subagents can't spawn other subagents, so game-factory builds sequentially (one game at a time). For parallel production, use the main orchestrator (Claude) to spawn multiple task-delegator agents directly.
+
+**Agent file:** `.claude/agents/game-factory.md`
+
+---
+
 ## Quick Reference
 
 | Task | Command |
@@ -311,3 +402,7 @@ If files slip into root on a push (e.g. direct GitHub web upload), the `.github/
 | Enable autosort hook | `git config core.hooksPath .githooks` |
 | Local preview | `python3 -m http.server 8000` then visit `http://localhost:8000` |
 | Deploy | `git push origin main` (auto-deploys via GitHub Pages) |
+| Molt an app | `python3 scripts/molt.py <app>.html --verbose` |
+| Molt status | `python3 scripts/molt.py --status` |
+| Molt rollback | `python3 scripts/molt.py --rollback <app-stem> <gen>` |
+| Molt tests | `python3 -m pytest scripts/tests/test_molt.py -v` |
