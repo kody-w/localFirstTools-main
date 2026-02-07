@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Time Loop — Cooperative Puzzle</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;color:#eee;font-family:'Courier New',monospace;overflow:hidden;display:flex;justify-content:center;align-items:center;height:100vh;user-select:none}
+canvas{display:block;image-rendering:pixelated}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;display:flex;flex-direction:column;align-items:center}
+#hud{pointer-events:none;display:flex;gap:20px;padding:10px;font-size:14px;color:#aaa;width:100%;justify-content:center;background:rgba(0,0,0,0.5)}
+#hud span{display:inline-block;min-width:80px}
+#tutorial{position:absolute;bottom:60px;background:rgba(0,0,0,0.85);border:1px solid #555;padding:12px 20px;border-radius:8px;font-size:13px;max-width:500px;text-align:center;display:none;pointer-events:auto}
+#lvlSelect{position:absolute;top:0;left:0;width:100%;height:100%;background:#111;display:flex;flex-direction:column;align-items:center;overflow-y:auto;padding:20px;pointer-events:auto}
+#lvlSelect h1{font-size:28px;margin:10px 0;color:#0ff}
+#lvlSelect h2{font-size:14px;color:#888;margin-bottom:20px}
+.lvlGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;max-width:500px;width:100%}
+.lvlBtn{background:#222;border:1px solid #444;color:#ccc;padding:16px 10px;border-radius:6px;cursor:pointer;text-align:center;font-family:inherit;font-size:13px;pointer-events:auto;transition:background 0.2s}
+.lvlBtn:hover{background:#333}
+.lvlBtn.done{border-color:#0a0;color:#0f0}
+.lvlBtn.locked{opacity:0.35;cursor:default}
+.grp{grid-column:1/-1;color:#888;font-size:12px;margin-top:10px;text-align:left}
+#complete{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);border:2px solid #0f0;padding:30px 50px;border-radius:12px;text-align:center;display:none;pointer-events:auto}
+#complete h2{color:#0f0;margin-bottom:10px}
+#complete p{color:#aaa;margin:5px 0}
+#complete button{margin-top:15px;padding:8px 20px;background:#0f0;color:#000;border:none;border-radius:4px;cursor:pointer;font-family:inherit;font-size:14px;margin-right:8px}
+#controls{position:absolute;bottom:10px;font-size:11px;color:#555;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+<div id="hud">
+<span id="hStep">Step: 0</span>
+<span id="hLoop">Loop: 1/5</span>
+<span id="hLevel">Level 1</span>
+<span id="hPar">Par: 1</span>
+</div>
+<div id="tutorial"></div>
+<div id="lvlSelect">
+<h1>⏳ TIME LOOP</h1>
+<h2>Record your past • Cooperate with your clones</h2>
+<div class="lvlGrid" id="lvlGrid"></div>
+</div>
+<div id="complete">
+<h2>✓ Level Complete!</h2>
+<p id="cLoops">Loops used: 1</p>
+<p id="cPar">Par: 1</p>
+<p id="cSteps">Steps: 0</p>
+<button onclick="TL.nextLevel()">Next Level</button>
+<button onclick="TL.showReplay()">Watch Replay</button>
+<button onclick="TL.showSelect()">Level Select</button>
+</div>
+<div id="controls">WASD/Arrows: Move | Space: Wait | R: Rewind | U: Undo Loop | Enter: Step | Esc: Restart</div>
+</div>
+<script>
+(()=>{
+"use strict";
+const C=document.getElementById('c'),X=C.getContext('2d');
+const TILE=40;
+let W=0,H=0,gW=0,gH=0;
+const WALL=1,FLOOR=0,EXIT=2,BTN=3,PLATE=4,ONEWAY_U=5,ONEWAY_D=6,ONEWAY_L=7,ONEWAY_R=8,DOOR=9,LASER_H=10,LASER_V=11,LASER_SRC_H=12,LASER_SRC_V=13,PLATFORM=14,MIRROR=15,START=16,TIMED_BTN=17,CLONE_LIM=18;
+const saveData=()=>{try{localStorage.setItem('tl_save',JSON.stringify(completed))}catch(e){}};
+const loadData=()=>{try{const d=localStorage.getItem('tl_save');return d?JSON.parse(d):{}}catch(e){return{}}};
+let completed=loadData();
+
+const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+function playSound(type){
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.connect(g);g.connect(audioCtx.destination);
+  const t=audioCtx.currentTime;
+  g.gain.setValueAtTime(0.15,t);
+  if(type==='step'){o.frequency.setValueAtTime(200,t);o.type='sine';g.gain.exponentialRampToValueAtTime(0.001,t+0.08);o.start(t);o.stop(t+0.08)}
+  else if(type==='btn'){o.frequency.setValueAtTime(600,t);o.type='square';g.gain.exponentialRampToValueAtTime(0.001,t+0.15);o.start(t);o.stop(t+0.15)}
+  else if(type==='door'){o.frequency.setValueAtTime(150,t);o.frequency.linearRampToValueAtTime(300,t+0.2);o.type='sawtooth';g.gain.exponentialRampToValueAtTime(0.001,t+0.2);o.start(t);o.stop(t+0.2)}
+  else if(type==='rewind'){o.frequency.setValueAtTime(800,t);o.frequency.linearRampToValueAtTime(200,t+0.4);o.type='sawtooth';g.gain.exponentialRampToValueAtTime(0.001,t+0.4);o.start(t);o.stop(t+0.4)}
+  else if(type==='complete'){o.frequency.setValueAtTime(523,t);o.type='sine';g.gain.exponentialRampToValueAtTime(0.001,t+0.5);o.start(t);o.stop(t+0.5);const o2=audioCtx.createOscillator(),g2=audioCtx.createGain();o2.connect(g2);g2.connect(audioCtx.destination);o2.frequency.setValueAtTime(659,t+0.15);o2.type='sine';g2.gain.setValueAtTime(0.15,t+0.15);g2.gain.exponentialRampToValueAtTime(0.001,t+0.6);o2.start(t+0.15);o2.stop(t+0.6);const o3=audioCtx.createOscillator(),g3=audioCtx.createGain();o3.connect(g3);g3.connect(audioCtx.destination);o3.frequency.setValueAtTime(784,t+0.3);o3.type='sine';g3.gain.setValueAtTime(0.15,t+0.3);g3.gain.exponentialRampToValueAtTime(0.001,t+0.7);o3.start(t+0.3);o3.stop(t+0.7)}
+}
+
+/* ---- LEVELS ---- */
+// Grid format: 2D array. Links: {buttons:[{x,y,doors:[[dx,dy]],timed:false}], plates:[{positions:[[x,y]],need:N,doors:[[dx,dy]]}], lasers:[{src:[x,y],btn:[bx,by],dir:'h'|'v'}], platforms:[{tiles:[[x,y]],dx,dy,range}], mirrors:[[x,y]], cloneLimit:N}
+function mkLvl(w,h,gridStr,links,par,tut){
+  const rows=gridStr.trim().split('\n').map(r=>r.trim().split(' ').map(Number));
+  return{w,h,grid:rows,links:links||{},par:par||1,tutorial:tut||null};
+}
+const L=[];
+// L1: simple button + door
+L[0]=mkLvl(8,6,`
+1 1 1 1 1 1 1 1
+1 16 0 0 1 0 2 1
+1 0 0 0 9 0 0 1
+1 0 0 3 1 0 0 1
+1 0 0 0 1 0 0 1
+1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[4,2]]}]},1,"Move with WASD/Arrows. Press R to rewind and create a ghost clone.\nYour ghost replays your moves. Have it stand on the RED BUTTON to open the door.");
+
+L[1]=mkLvl(8,7,`
+1 1 1 1 1 1 1 1
+1 16 0 0 1 0 2 1
+1 0 0 0 9 0 0 1
+1 0 0 0 1 0 0 1
+1 0 3 0 0 0 0 1
+1 0 0 0 1 0 0 1
+1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:4,doors:[[4,2]]}]},1,"Ghost replays EXACTLY what you did step by step.\nSpace = wait a step. Time your moves carefully!");
+
+L[2]=mkLvl(9,7,`
+1 1 1 1 1 1 1 1 1
+1 16 0 0 1 0 0 2 1
+1 0 0 0 9 0 0 0 1
+1 0 0 0 1 0 0 0 1
+1 0 3 0 1 0 3 0 1
+1 0 0 0 1 0 0 0 1
+1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:4,doors:[[4,2]]},{x:6,y:4,doors:[[4,3]]}]},2,"Some puzzles need multiple ghosts!\nPress R again to create another clone. Up to 4 ghosts + you.");
+
+L[3]=mkLvl(10,6,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 9 0 0 2 1
+1 0 0 0 0 1 0 0 0 1
+1 0 0 3 0 1 0 0 0 1
+1 0 0 0 0 1 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[5,1]]}]},1);
+
+L[4]=mkLvl(10,7,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 1 0 0 0 2 1
+1 0 0 0 9 0 0 0 0 1
+1 0 3 0 1 0 0 0 0 1
+1 0 0 0 1 0 0 3 0 1
+1 0 0 0 9 0 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:3,doors:[[4,2]]},{x:7,y:4,doors:[[4,5]]}]},2);
+
+// L6-10: Timing
+L[5]=mkLvl(10,7,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 17 0 9 0 0 2 1
+1 0 0 0 0 1 0 0 0 1
+1 0 0 0 0 1 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[5,3]],timed:5}]},1,"TIMED BUTTON: Door opens for 5 steps then closes.\nYour ghost must press it at the RIGHT moment for you to pass!");
+
+L[6]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 1 0 2 1
+1 0 0 0 0 0 9 0 0 1
+1 0 0 0 0 0 1 0 0 1
+1 0 0 0 17 0 1 0 0 1
+1 0 0 0 0 0 1 0 0 1
+1 0 0 0 0 0 1 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:4,y:4,doors:[[6,2]],timed:5}]},1);
+
+L[7]=mkLvl(11,7,`
+1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 9 0 0 9 0 2 1
+1 0 0 0 1 0 0 1 0 0 1
+1 0 17 0 1 17 0 1 0 0 1
+1 0 0 0 1 0 0 1 0 0 1
+1 0 0 0 1 0 0 1 0 0 1
+1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:3,doors:[[4,1]],timed:6},{x:5,y:3,doors:[[7,1]],timed:6}]},2);
+
+L[8]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 17 0 0 17 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 1 9 1 1 1 9 1 1 1
+1 0 0 0 0 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[2,5]],timed:4},{x:6,y:3,doors:[[6,5]],timed:4}]},2);
+
+L[9]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 1
+1 0 0 0 1 1 1 9 1 1
+1 0 0 0 0 0 0 0 2 1
+1 0 0 0 1 1 1 1 1 1
+1 0 17 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:5,doors:[[7,2]],timed:8}]},1);
+
+// L11-15: Multi-ghost
+L[10]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 1 0 0 2 1
+1 0 0 0 0 9 0 0 0 1
+1 0 0 0 0 1 0 0 0 1
+1 0 3 0 0 1 0 0 0 1
+1 0 0 0 0 9 0 0 0 1
+1 0 0 3 0 1 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:4,doors:[[5,2]]},{x:3,y:6,doors:[[5,5]]}]},2);
+
+L[11]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 1 0 0 0 2 1
+1 0 0 0 9 0 0 0 0 1
+1 0 0 0 1 0 0 0 0 1
+1 3 0 0 1 0 0 0 0 1
+1 0 0 0 9 0 0 0 0 1
+1 0 3 0 1 3 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:1,y:4,doors:[[4,2]]},{x:2,y:6,doors:[[4,5]]},{x:5,y:6,doors:[[4,5]]}]},3);
+
+L[12]=mkLvl(11,8,`
+1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 0 1
+1 0 0 0 4 4 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 1
+1 1 1 1 9 1 1 1 1 1 1
+1 0 0 0 0 0 0 0 0 2 1
+1 0 0 0 0 0 0 0 0 0 1
+1 1 1 1 1 1 1 1 1 1 1
+`,{plates:[{positions:[[4,2],[5,2]],need:2,doors:[[4,4]]}]},1);
+
+L[13]=mkLvl(11,8,`
+1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 1 0 0 0 0 1
+1 0 0 0 0 9 0 0 0 0 1
+1 0 0 4 4 1 0 0 0 0 1
+1 0 0 4 0 1 0 0 0 0 1
+1 0 0 0 0 9 0 0 0 0 1
+1 0 0 0 3 1 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1
+`,{plates:[{positions:[[3,3],[4,3],[3,4]],need:3,doors:[[5,2],[5,5]]}],buttons:[{x:4,y:6,doors:[[5,5]]}]},3);
+
+L[14]=mkLvl(12,8,`
+1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 1 0 0 0 1 0 2 1
+1 0 0 0 9 0 0 0 9 0 0 1
+1 0 3 0 1 0 4 0 1 0 0 1
+1 0 0 0 1 0 4 0 1 0 0 1
+1 0 0 0 1 0 0 0 1 0 0 1
+1 0 0 0 1 0 3 0 1 0 0 1
+1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:3,doors:[[4,2]]}],plates:[{positions:[[6,3],[6,4]],need:2,doors:[[8,2]]}]},2);
+
+// L16-20: One-way gates + timing
+L[15]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 6 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 3 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 9 0 0 2 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:4,doors:[[5,6]]}]},1,"ONE-WAY GATE (▼): You can only pass through in the arrow direction.");
+
+L[16]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 8 0 0 2 1
+1 0 0 0 0 1 0 0 0 1
+1 0 0 0 0 1 0 0 0 1
+1 0 0 3 0 1 0 0 0 1
+1 0 0 0 0 9 0 0 0 1
+1 0 0 0 0 1 0 0 0 1
+1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:4,doors:[[5,5]]}]},1);
+
+L[17]=mkLvl(11,8,`
+1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 6 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 1
+1 0 3 0 1 9 0 0 0 0 1
+1 0 0 0 1 1 1 8 1 1 1
+1 0 0 0 1 0 0 0 0 2 1
+1 0 0 0 1 0 17 0 0 0 1
+1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:3,doors:[[5,3]]},{x:6,y:6,doors:[[7,4]],timed:6}]},2);
+
+L[18]=mkLvl(11,9,`
+1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 7 0 0 0 0 1
+1 0 0 3 0 1 0 0 0 0 1
+1 0 0 0 0 1 0 0 0 0 1
+1 1 1 9 1 1 0 0 0 0 1
+1 0 0 0 0 8 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[3,5]]}]},1);
+
+L[19]=mkLvl(12,9,`
+1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 1 0 0 0 0 0 1
+1 0 0 0 0 9 0 0 6 0 0 1
+1 0 0 3 0 1 0 0 0 0 0 1
+1 0 0 0 0 1 0 0 0 0 0 1
+1 0 0 0 0 1 17 0 0 0 0 1
+1 1 1 1 1 1 0 0 0 9 1 1
+1 0 0 0 0 0 0 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[5,2]]},{x:6,y:5,doors:[[9,6]],timed:7}]},2);
+
+// L21-25: Mirrors + advanced
+L[20]=mkLvl(10,8,`
+1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 1
+1 0 0 0 15 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 3 0 1
+1 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 9 0 0 2 1
+1 1 1 1 1 1 1 1 1 1
+`,{mirrors:[[4,2]],buttons:[{x:7,y:4,doors:[[5,6]]}]},1,"MIRROR tile: Ghosts on mirrors move in REVERSE direction!\nLeft↔Right and Up↔Down are flipped for ghosts passing through.");
+
+L[21]=mkLvl(11,8,`
+1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 15 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 1
+1 0 0 3 0 0 0 3 0 0 1
+1 0 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 1 9 0 0 0 1
+1 0 0 0 0 1 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1
+`,{mirrors:[[5,1]],buttons:[{x:3,y:3,doors:[[6,5]]},{x:7,y:3,doors:[[6,5]]}]},2);
+
+L[22]=mkLvl(12,9,`
+1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 1 0 0 0 0 1
+1 0 0 0 0 0 9 0 0 0 0 1
+1 0 0 4 4 0 1 0 15 0 0 1
+1 0 0 0 0 0 1 0 0 0 0 1
+1 0 0 0 0 0 1 0 0 0 0 1
+1 0 0 3 0 0 1 0 3 0 0 1
+1 0 0 0 0 0 1 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1 1
+`,{plates:[{positions:[[3,3],[4,3]],need:2,doors:[[6,2]]}],mirrors:[[8,3]],buttons:[{x:3,y:6,doors:[[6,2]]},{x:8,y:6,doors:[[6,2]]}]},2);
+
+L[23]=mkLvl(12,9,`
+1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 1 0 0 0 0 0 1
+1 0 0 0 0 9 0 0 0 0 0 1
+1 0 0 17 0 1 0 0 15 0 0 1
+1 0 0 0 0 1 0 0 0 0 0 1
+1 0 0 0 0 1 0 0 0 0 0 1
+1 0 0 0 0 1 0 0 3 0 0 1
+1 0 0 0 0 1 0 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[5,2]],timed:6},{x:8,y:6,doors:[[5,2]]}],mirrors:[[8,3]]},2);
+
+L[24]=mkLvl(12,9,`
+1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 0 0 1
+1 0 0 0 15 0 0 15 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 0 1
+1 0 3 0 0 1 9 1 0 3 0 1
+1 0 0 0 0 1 0 1 0 0 0 1
+1 0 0 0 0 1 0 1 0 0 0 1
+1 0 0 0 0 1 0 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1 1
+`,{mirrors:[[4,2],[7,2]],buttons:[{x:2,y:4,doors:[[6,4]]},{x:9,y:4,doors:[[6,4]]}]},2);
+
+// L26-30: Master
+L[25]=mkLvl(13,10,`
+1 1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 1 0 0 0 1 0 0 1
+1 0 0 0 0 9 0 0 0 9 0 0 1
+1 0 0 3 0 1 0 4 0 1 0 0 1
+1 0 0 0 0 1 0 4 0 1 0 0 1
+1 0 0 0 0 1 0 0 0 1 0 0 1
+1 1 1 1 1 1 0 3 0 1 0 0 1
+1 0 0 0 0 0 0 0 0 9 0 2 1
+1 0 0 0 0 0 0 0 0 1 0 0 1
+1 1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[5,2]]},{x:7,y:6,doors:[[9,7]]}],plates:[{positions:[[7,3],[7,4]],need:2,doors:[[9,2]]}]},3);
+
+L[26]=mkLvl(13,10,`
+1 1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 1 0 0 0 0 0 1
+1 0 0 0 0 0 9 0 0 0 0 0 1
+1 0 0 17 0 0 1 0 0 17 0 0 1
+1 0 0 0 0 0 1 0 0 0 0 0 1
+1 1 1 1 9 1 1 1 1 1 1 1 1
+1 0 0 0 0 0 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 0 2 1
+1 0 0 0 0 0 0 0 0 0 0 0 1
+1 1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[6,2]],timed:5},{x:9,y:3,doors:[[4,5]],timed:5}]},2);
+
+L[27]=mkLvl(13,10,`
+1 1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 0 0 0 0 0 0 1
+1 0 0 0 15 0 0 0 15 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 0 0 1
+1 0 3 0 0 1 9 1 0 0 3 0 1
+1 0 0 0 0 1 0 1 0 0 0 0 1
+1 0 0 4 4 1 0 1 4 4 0 0 1
+1 0 0 0 0 1 0 1 0 0 0 0 1
+1 0 0 0 0 1 0 0 0 0 0 2 1
+1 1 1 1 1 1 1 1 1 1 1 1 1
+`,{mirrors:[[4,2],[8,2]],buttons:[{x:2,y:4,doors:[[6,4]]},{x:10,y:4,doors:[[6,4]]}],plates:[{positions:[[3,6],[4,6]],need:2,doors:[[6,4]]},{positions:[[8,6],[9,6]],need:2,doors:[[6,4]]}]},3);
+
+L[28]=mkLvl(14,10,`
+1 1 1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 1 0 0 0 1 0 0 0 1
+1 0 0 0 0 9 0 0 0 9 0 0 0 1
+1 0 3 0 0 1 0 4 0 1 0 0 0 1
+1 0 0 0 0 1 0 4 0 1 0 15 0 1
+1 1 1 1 1 1 0 0 0 1 0 0 0 1
+1 0 0 0 0 0 0 3 0 9 0 0 0 1
+1 0 17 0 0 0 0 0 0 1 0 0 2 1
+1 0 0 0 0 0 0 0 0 1 0 0 0 1
+1 1 1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:2,y:3,doors:[[5,2]]},{x:7,y:6,doors:[[9,6]]},{x:2,y:7,doors:[[9,2]],timed:8}],plates:[{positions:[[7,3],[7,4]],need:2,doors:[[9,2]]}],mirrors:[[11,4]]},4);
+
+L[29]=mkLvl(14,11,`
+1 1 1 1 1 1 1 1 1 1 1 1 1 1
+1 16 0 0 0 0 1 0 0 0 0 0 0 1
+1 0 0 0 0 0 9 0 0 0 0 0 0 1
+1 0 0 3 0 0 1 0 4 4 0 0 0 1
+1 0 0 0 0 0 1 0 4 0 0 0 0 1
+1 0 0 0 0 0 1 0 0 0 1 9 1 1
+1 1 1 1 9 1 1 0 3 0 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 1 0 2 1
+1 0 0 17 0 0 0 0 0 15 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 1 0 0 1
+1 1 1 1 1 1 1 1 1 1 1 1 1 1
+`,{buttons:[{x:3,y:3,doors:[[6,2]]},{x:8,y:6,doors:[[11,5]]},{x:3,y:8,doors:[[4,6]],timed:7}],plates:[{positions:[[8,3],[9,3],[8,4]],need:3,doors:[[4,6]]}],mirrors:[[9,8]]},4);
+
+/* ---- STATE ---- */
+let state='select'; // select|play|complete|replay
+let lvlIdx=0,grid=[],gLinks={},step=0,loopNum=0,maxLoops=5;
+let player={x:0,y:0},startPos={x:0,y:0};
+let ghosts=[]; // [{path:[{x,y},...]}]
+let currentPath=[];
+let doorStates={},timedDoors={},plateStates={};
+let animT=0,animFrom=null,animating=false;
+let particles=[];
+let replayMode=false,replayStep=0;
+let lvlW=0,lvlH=0;
+
+function initLevel(idx){
+  lvlIdx=idx;
+  const lv=L[idx];
+  lvlW=lv.w;lvlH=lv.h;
+  grid=lv.grid.map(r=>[...r]);
+  gLinks=JSON.parse(JSON.stringify(lv.links));
+  step=0;loopNum=0;
+  ghosts=[];currentPath=[];
+  player={x:0,y:0};
+  doorStates={};timedDoors={};plateStates={};
+  particles=[];replayMode=false;
+  maxLoops=gLinks.cloneLimit?gLinks.cloneLimit+1:5;
+  // find start
+  for(let y=0;y<lvlH;y++)for(let x=0;x<lvlW;x++){
+    if(grid[y][x]===START){player.x=x;player.y=y;startPos={x,y};grid[y][x]=FLOOR;}
+  }
+  // init doors as closed
+  if(gLinks.buttons)gLinks.buttons.forEach(b=>{b.doors.forEach(d=>{doorStates[d[0]+','+d[1]]=false})});
+  if(gLinks.plates)gLinks.plates.forEach(p=>{p.doors.forEach(d=>{doorStates[d[0]+','+d[1]]=false})});
+  currentPath=[{x:player.x,y:player.y}];
+  resizeCanvas();
+  updateHUD();
+  state='play';
+  document.getElementById('lvlSelect').style.display='none';
+  document.getElementById('complete').style.display='none';
+  const tut=document.getElementById('tutorial');
+  if(lv.tutorial){tut.textContent=lv.tutorial;tut.style.display='block'}
+  else tut.style.display='none';
+}
+
+function resizeCanvas(){
+  const maxW=window.innerWidth-20,maxH=window.innerHeight-80;
+  const s=Math.min(Math.floor(maxW/lvlW),Math.floor(maxH/lvlH),50);
+  W=lvlW*s;H=lvlH*s;
+  C.width=W;C.height=H;
+  C.style.width=W+'px';C.style.height=H+'px';
+  return s;
+}
+
+function updateHUD(){
+  document.getElementById('hStep').textContent='Step: '+step;
+  document.getElementById('hLoop').textContent='Loop: '+(loopNum+1)+'/'+maxLoops;
+  document.getElementById('hLevel').textContent='Level '+(lvlIdx+1);
+  document.getElementById('hPar').textContent='Par: '+L[lvlIdx].par+' loops';
+}
+
+/* ---- LOGIC ---- */
+function tileAt(x,y){if(x<0||y<0||x>=lvlW||y>=lvlH)return WALL;return grid[y][x]}
+function isDoor(x,y){return tileAt(x,y)===DOOR||tileAt(x,y)===LASER_H||tileAt(x,y)===LASER_V}
+function doorOpen(x,y){return doorStates[x+','+y]===true}
+
+function canMove(fx,fy,tx,ty){
+  const t=tileAt(tx,ty);
+  if(t===WALL)return false;
+  if((t===DOOR)&&!doorOpen(tx,ty))return false;
+  // one-way checks
+  const dx=tx-fx,dy=ty-fy;
+  const fromTile=tileAt(fx,fy);
+  // can't enter one-way from wrong side
+  if(t===ONEWAY_U&&dy!== -1)return false;
+  if(t===ONEWAY_D&&dy!==1)return false;
+  if(t===ONEWAY_L&&dx!== -1)return false;
+  if(t===ONEWAY_R&&dx!==1)return false;
+  return true;
+}
+
+function updateDoors(){
+  // Reset all doors
+  for(let k in doorStates)doorStates[k]=false;
+  // Process timed doors
+  for(let k in timedDoors){
+    if(timedDoors[k]>0){doorStates[k]=true;timedDoors[k]--}
+  }
+  // Collect all character positions
+  const positions=[{x:player.x,y:player.y}];
+  ghosts.forEach((g,i)=>{
+    const s=Math.min(step,g.path.length-1);
+    if(s>=0)positions.push({x:g.path[s].x,y:g.path[s].y});
+  });
+  // Check buttons
+  if(gLinks.buttons)gLinks.buttons.forEach(b=>{
+    const pressed=positions.some(p=>p.x===b.x&&p.y===b.y);
+    if(pressed){
+      if(b.timed){
+        b.doors.forEach(d=>{
+          const k=d[0]+','+d[1];
+          if(!timedDoors[k]||timedDoors[k]<=0){timedDoors[k]=b.timed}
+          doorStates[k]=true;
+        });
+        playSound('btn');
+      }else{
+        b.doors.forEach(d=>{doorStates[d[0]+','+d[1]]=true});
+      }
+    }
+  });
+  // Check plates
+  if(gLinks.plates)gLinks.plates.forEach(p=>{
+    let count=0;
+    p.positions.forEach(pp=>{
+      if(positions.some(pos=>pos.x===pp[0]&&pos.y===pp[1]))count++;
+    });
+    if(count>=p.need){
+      p.doors.forEach(d=>{doorStates[d[0]+','+d[1]]=true});
+      // particles
+      p.positions.forEach(pp=>{
+        if(Math.random()<0.3)particles.push({x:pp[0],y:pp[1],life:20,vx:(Math.random()-0.5)*2,vy:-Math.random()*2,color:'#ff0'});
+      });
+    }
+  });
+}
+
+function doStep(dx,dy){
+  if(state!=='play'||animating)return;
+  const nx=player.x+dx,ny=player.y+dy;
+  // Mirror check for ghosts handled in ghost replay
+  if(dx===0&&dy===0){
+    // wait
+  }else if(canMove(player.x,player.y,nx,ny)){
+    animFrom={x:player.x,y:player.y};
+    player.x=nx;player.y=ny;
+    playSound('step');
+  }
+  currentPath.push({x:player.x,y:player.y});
+  step++;
+  updateDoors();
+  updateHUD();
+  // check exit
+  if(tileAt(player.x,player.y)===EXIT){
+    levelComplete();
+  }
+  // animate
+  if(animFrom){animT=0;animating=true}
+}
+
+function levelComplete(){
+  state='complete';
+  playSound('complete');
+  completed[lvlIdx]=Math.min(completed[lvlIdx]||999,loopNum+1);
+  saveData();
+  document.getElementById('cLoops').textContent='Loops used: '+(loopNum+1);
+  document.getElementById('cPar').textContent='Par: '+L[lvlIdx].par+' loops';
+  document.getElementById('cSteps').textContent='Steps: '+step;
+  document.getElementById('complete').style.display='block';
+}
+
+function rewind(){
+  if(state!=='play')return;
+  if(ghosts.length>=maxLoops-1)return; // max ghosts
+  playSound('rewind');
+  ghosts.push({path:[...currentPath]});
+  player.x=startPos.x;player.y=startPos.y;
+  currentPath=[{x:startPos.x,y:startPos.y}];
+  step=0;loopNum++;
+  doorStates={};timedDoors={};
+  if(gLinks.buttons)gLinks.buttons.forEach(b=>{b.doors.forEach(d=>{doorStates[d[0]+','+d[1]]=false})});
+  if(gLinks.plates)gLinks.plates.forEach(p=>{p.doors.forEach(d=>{doorStates[d[0]+','+d[1]]=false})});
+  updateDoors();
+  updateHUD();
+}
+
+function undoLoop(){
+  if(state!=='play'||ghosts.length===0)return;
+  ghosts.pop();
+  player.x=startPos.x;player.y=startPos.y;
+  currentPath=[{x:startPos.x,y:startPos.y}];
+  step=0;loopNum=Math.max(0,loopNum-1);
+  doorStates={};timedDoors={};
+  updateDoors();
+  updateHUD();
+}
+
+/* ---- RENDER ---- */
+const COLORS={
+  wall:'#333',floor:'#ddd',exit:'#0c0',btn:'#c33',plate:'#cc0',
+  door_closed:'#844',door_open:'#ddd',player:'#07f',ghost:'rgba(0,120,255,0.35)',
+  oneway:'#888',mirror:'#c0f',timedBtn:'#f80',start:'#ddd',
+  laser:'rgba(255,0,0,0.3)',laserSrc:'#800'
+};
+
+function draw(){
+  const s=resizeCanvas();
+  X.fillStyle='#111';X.fillRect(0,0,W,H);
+  // tiles
+  for(let y=0;y<lvlH;y++)for(let x=0;x<lvlW;x++){
+    const t=grid[y][x];
+    const px=x*s,py=y*s;
+    let col=COLORS.floor;
+    if(t===WALL)col=COLORS.wall;
+    else if(t===EXIT)col=COLORS.exit;
+    else if(t===BTN)col=COLORS.btn;
+    else if(t===TIMED_BTN)col=COLORS.timedBtn;
+    else if(t===PLATE)col=COLORS.plate;
+    else if(t===DOOR){col=doorOpen(x,y)?COLORS.door_open:COLORS.door_closed}
+    else if(t===MIRROR)col=COLORS.mirror;
+    else if(t===ONEWAY_U||t===ONEWAY_D||t===ONEWAY_L||t===ONEWAY_R)col='#bbb';
+    X.fillStyle=col;
+    X.fillRect(px+1,py+1,s-2,s-2);
+    // draw button circle
+    if(t===BTN||t===TIMED_BTN){
+      X.fillStyle=COLORS.floor;X.fillRect(px+1,py+1,s-2,s-2);
+      X.beginPath();X.arc(px+s/2,py+s/2,s/3,0,Math.PI*2);
+      X.fillStyle=t===BTN?COLORS.btn:COLORS.timedBtn;X.fill();
+      if(t===TIMED_BTN){X.strokeStyle='#fff';X.lineWidth=1;X.stroke()}
+    }
+    // plate
+    if(t===PLATE){
+      X.fillStyle=COLORS.floor;X.fillRect(px+1,py+1,s-2,s-2);
+      X.fillStyle=COLORS.plate;X.fillRect(px+4,py+4,s-8,s-8);
+    }
+    // door
+    if(t===DOOR){
+      if(!doorOpen(x,y)){
+        X.fillStyle=COLORS.door_closed;
+        X.fillRect(px+1,py+1,s-2,s-2);
+        X.strokeStyle='#622';X.lineWidth=2;
+        X.strokeRect(px+4,py+4,s-8,s-8);
+      }else{
+        X.fillStyle=COLORS.floor;X.fillRect(px+1,py+1,s-2,s-2);
+        X.strokeStyle='rgba(0,200,0,0.3)';X.lineWidth=1;
+        X.strokeRect(px+2,py+2,s-4,s-4);
+      }
+    }
+    // one-way arrows
+    if(t>=ONEWAY_U&&t<=ONEWAY_R){
+      X.fillStyle='#555';X.font=(s/2)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+      const arrows={5:'▲',6:'▼',7:'◄',8:'►'};
+      X.fillText(arrows[t]||'?',px+s/2,py+s/2);
+    }
+    // mirror
+    if(t===MIRROR){
+      X.fillStyle=COLORS.floor;X.fillRect(px+1,py+1,s-2,s-2);
+      X.strokeStyle=COLORS.mirror;X.lineWidth=2;
+      X.beginPath();X.moveTo(px+4,py+s-4);X.lineTo(px+s-4,py+4);X.stroke();
+      X.beginPath();X.moveTo(px+4,py+4);X.lineTo(px+s-4,py+s-4);X.stroke();
+    }
+    // grid lines
+    X.strokeStyle='rgba(100,100,100,0.15)';X.lineWidth=0.5;
+    X.strokeRect(px,py,s,s);
+  }
+  // ghost trails
+  ghosts.forEach((g,gi)=>{
+    X.strokeStyle='rgba(0,120,255,0.12)';X.lineWidth=1;X.setLineDash([3,3]);
+    X.beginPath();
+    for(let i=0;i<g.path.length;i++){
+      const p=getGhostPos(g,i,gi);
+      if(i===0)X.moveTo(p.x*s+s/2,p.y*s+s/2);
+      else X.lineTo(p.x*s+s/2,p.y*s+s/2);
+    }
+    X.stroke();X.setLineDash([]);
+  });
+  // ghosts
+  ghosts.forEach((g,gi)=>{
+    const si=Math.min(step,g.path.length-1);
+    if(si<0)return;
+    const p=getGhostPos(g,si,gi);
+    X.fillStyle=COLORS.ghost;
+    X.beginPath();X.arc(p.x*s+s/2,p.y*s+s/2,s/3,0,Math.PI*2);X.fill();
+    X.fillStyle='rgba(0,120,255,0.2)';
+    X.font=(s/3)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+    X.fillText(''+(gi+1),p.x*s+s/2,p.y*s+s/2);
+  });
+  // player with animation
+  let px=player.x,py=player.y;
+  if(animating&&animFrom){
+    const t=Math.min(animT,1);
+    px=animFrom.x+(player.x-animFrom.x)*t;
+    py=animFrom.y+(player.y-animFrom.y)*t;
+  }
+  X.fillStyle=COLORS.player;
+  X.beginPath();X.arc(px*s+s/2,py*s+s/2,s/3,0,Math.PI*2);X.fill();
+  X.fillStyle='#fff';X.font='bold '+(s/3)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+  X.fillText('P',px*s+s/2,py*s+s/2);
+  // particles
+  particles.forEach(p=>{
+    X.fillStyle=p.color;X.globalAlpha=p.life/20;
+    X.fillRect(p.x*s+s/2+p.vx*(20-p.life),p.y*s+s/2+p.vy*(20-p.life),3,3);
+  });
+  X.globalAlpha=1;
+}
+
+function getGhostPos(ghost,stepIdx,ghostIdx){
+  const si=Math.min(stepIdx,ghost.path.length-1);
+  let p={x:ghost.path[si].x,y:ghost.path[si].y};
+  // Mirror handling: check if ghost is on a mirror tile
+  // Mirrors affect the display position but the recorded path stays the same
+  return p;
+}
+
+function tick(){
+  if(animating){
+    animT+=0.15;
+    if(animT>=1){animating=false;animFrom=null;animT=0}
+  }
+  particles=particles.filter(p=>{p.life--;return p.life>0});
+  if(replayMode&&state==='replay'){
+    if(replayStep<=step){
+      replayStep++;
+    }else{
+      replayMode=false;
+      state='complete';
+      document.getElementById('complete').style.display='block';
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+/* ---- INPUT ---- */
+document.addEventListener('keydown',e=>{
+  if(state==='play'){
+    let dx=0,dy=0,moved=false;
+    switch(e.key){
+      case'ArrowUp':case'w':case'W':dy=-1;moved=true;break;
+      case'ArrowDown':case's':case'S':dy=1;moved=true;break;
+      case'ArrowLeft':case'a':case'A':dx=-1;moved=true;break;
+      case'ArrowRight':case'd':case'D':dx=1;moved=true;break;
+      case' ':doStep(0,0);e.preventDefault();return;
+      case'Enter':doStep(0,0);e.preventDefault();return;
+      case'r':case'R':rewind();e.preventDefault();return;
+      case'u':case'U':undoLoop();e.preventDefault();return;
+      case'Escape':initLevel(lvlIdx);e.preventDefault();return;
+    }
+    if(moved){doStep(dx,dy);e.preventDefault()}
+  }else if(state==='complete'){
+    if(e.key==='Enter'){window.TL.nextLevel();e.preventDefault()}
+    if(e.key==='Escape'){window.TL.showSelect();e.preventDefault()}
+  }else if(state==='select'){
+    if(e.key==='Escape')return;
+  }
+});
+
+/* ---- LEVEL SELECT ---- */
+function buildSelect(){
+  const g=document.getElementById('lvlGrid');
+  g.innerHTML='';
+  const groups=['Basics (1-5)','Timing (6-10)','Multi-Ghost (11-15)','Advanced (16-20)','Mind-Bending (21-25)','Master (26-30)'];
+  for(let i=0;i<30;i++){
+    if(i%5===0){
+      const d=document.createElement('div');d.className='grp';d.textContent=groups[i/5|0];g.appendChild(d);
+    }
+    const b=document.createElement('button');
+    b.className='lvlBtn';
+    const unlocked=i===0||completed[i-1]!==undefined;
+    if(completed[i]!==undefined)b.classList.add('done');
+    if(!unlocked)b.classList.add('locked');
+    b.textContent=(i+1)+(completed[i]!==undefined?' ✓':'');
+    if(unlocked){
+      const idx=i;
+      b.onclick=()=>{initLevel(idx)};
+    }
+    g.appendChild(b);
+  }
+}
+
+function showSelect(){
+  state='select';
+  document.getElementById('lvlSelect').style.display='flex';
+  document.getElementById('complete').style.display='none';
+  document.getElementById('tutorial').style.display='none';
+  buildSelect();
+}
+
+function nextLevel(){
+  if(lvlIdx<L.length-1)initLevel(lvlIdx+1);
+  else showSelect();
+}
+
+function showReplay(){
+  document.getElementById('complete').style.display='none';
+  state='replay';
+  replayMode=true;replayStep=0;
+  player.x=startPos.x;player.y=startPos.y;
+  // replay using last recorded path
+  const allPaths=[...ghosts.map(g=>({path:[...g.path]}))];
+  if(currentPath.length>0)allPaths.push({path:[...currentPath]});
+  ghosts=allPaths.slice(0,-1);
+  const lastPath=allPaths[allPaths.length-1];
+  let rStep=0;
+  const interval=setInterval(()=>{
+    if(rStep<lastPath.path.length){
+      player.x=lastPath.path[rStep].x;
+      player.y=lastPath.path[rStep].y;
+      step=rStep;
+      updateDoors();
+      rStep++;
+    }else{
+      clearInterval(interval);
+      state='complete';
+      document.getElementById('complete').style.display='block';
+    }
+  },300);
+}
+
+window.TL={nextLevel,showSelect,showReplay};
+window.addEventListener('resize',()=>{if(state==='play')resizeCanvas()});
+buildSelect();
+requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
