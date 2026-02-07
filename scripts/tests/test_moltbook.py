@@ -208,9 +208,9 @@ class TestFeed:
         html = read_file(INDEX_PATH)
         assert html.strip().lower().startswith('<!doctype html>'), "Missing DOCTYPE"
 
-    def test_has_moltbook_branding(self):
+    def test_has_branding(self):
         html = read_file(INDEX_PATH).lower()
-        assert 'moltbook' in html, "Missing moltbook branding"
+        assert 'moltbook' in html or 'rappterbook' in html, "Missing branding"
 
     def test_fetches_manifest(self):
         html = read_file(INDEX_PATH)
