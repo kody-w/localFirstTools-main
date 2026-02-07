@@ -1,0 +1,2274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Last Signal - Space Survival Roguelike</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background: radial-gradient(ellipse at center, #0a0a15 0%, #000000 100%);
+        }
+
+        #main-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 40px;
+            border: 2px solid #0f0;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+
+        #main-menu h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #0f0;
+            letter-spacing: 4px;
+        }
+
+        #main-menu .subtitle {
+            color: #0a0;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .menu-btn {
+            display: block;
+            margin: 15px auto;
+            padding: 12px 40px;
+            background: #000;
+            color: #0f0;
+            border: 2px solid #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 250px;
+        }
+
+        .menu-btn:hover {
+            background: #0f0;
+            color: #000;
+            box-shadow: 0 0 15px #0f0;
+        }
+
+        .menu-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        #game-view {
+            display: none;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ship-view, #derelict-view {
+            display: none;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .hud-bar {
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        .hud-label {
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-shadow: 2px 2px 4px #000;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #0f0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+            box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+
+        .bar-fill.oxygen {
+            background: linear-gradient(90deg, #00ff00, #00aa00);
+        }
+
+        .bar-fill.health {
+            background: linear-gradient(90deg, #ff0000, #aa0000);
+        }
+
+        .bar-fill.power {
+            background: linear-gradient(90deg, #0088ff, #0044aa);
+        }
+
+        .bar-fill.hull {
+            background: linear-gradient(90deg, #ffaa00, #aa6600);
+        }
+
+        .bar-fill.fuel {
+            background: linear-gradient(90deg, #ffff00, #aaaa00);
+        }
+
+        .bar-fill.warning {
+            animation: pulse-warning 1s infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        #oxygen-display {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 32px;
+            text-shadow: 0 0 20px #0f0;
+            pointer-events: none;
+        }
+
+        #inventory {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #0f0;
+            padding: 10px;
+            max-width: 400px;
+        }
+
+        .inventory-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 50px);
+            gap: 5px;
+        }
+
+        .inventory-slot {
+            width: 50px;
+            height: 50px;
+            border: 1px solid #0a0;
+            background: rgba(0, 20, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            text-align: center;
+            position: relative;
+        }
+
+        .inventory-slot.filled {
+            background: rgba(0, 50, 0, 0.7);
+            border-color: #0f0;
+        }
+
+        .inventory-slot .count {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            font-size: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 1px 3px;
+        }
+
+        #controls-hint {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #0f0;
+            padding: 10px;
+            font-size: 11px;
+            max-width: 200px;
+        }
+
+        #interaction-prompt {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            border: 2px solid #0f0;
+            padding: 20px;
+            display: none;
+            z-index: 50;
+            min-width: 300px;
+            text-align: center;
+        }
+
+        #minimap {
+            position: absolute;
+            top: 140px;
+            right: 20px;
+            width: 200px;
+            height: 200px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #0f0;
+        }
+
+        #star-map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            background: rgba(0, 0, 0, 0.98);
+            z-index: 40;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .derelict-card {
+            background: rgba(0, 20, 0, 0.5);
+            border: 2px solid #0a0;
+            padding: 20px;
+            margin: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .derelict-card:hover {
+            border-color: #0f0;
+            background: rgba(0, 40, 0, 0.7);
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+        }
+
+        .derelict-card.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        #data-log {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.98);
+            display: none;
+            z-index: 40;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            background: rgba(0, 20, 0, 0.5);
+            border-left: 3px solid #0f0;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .log-entry h3 {
+            color: #0f0;
+            margin-bottom: 10px;
+        }
+
+        .log-entry .timestamp {
+            color: #0a0;
+            font-size: 11px;
+            margin-bottom: 10px;
+        }
+
+        #death-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.98);
+            display: none;
+            z-index: 100;
+            padding: 40px;
+            text-align: center;
+        }
+
+        #death-screen h1 {
+            font-size: 64px;
+            color: #f00;
+            margin-top: 100px;
+            text-shadow: 0 0 20px #f00;
+        }
+
+        #victory-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.98);
+            display: none;
+            z-index: 100;
+            padding: 40px;
+            text-align: center;
+        }
+
+        #victory-screen h1 {
+            font-size: 64px;
+            color: #0f0;
+            margin-top: 100px;
+            text-shadow: 0 0 20px #0f0;
+        }
+
+        .stats-table {
+            margin: 30px auto;
+            max-width: 500px;
+            text-align: left;
+        }
+
+        .stats-table tr {
+            border-bottom: 1px solid #0a0;
+        }
+
+        .stats-table td {
+            padding: 10px;
+        }
+
+        .stats-table td:first-child {
+            color: #0a0;
+        }
+
+        #vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.8) 100%);
+            z-index: 5;
+        }
+
+        #scan-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1) 0px,
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            z-index: 6;
+            opacity: 0.3;
+        }
+
+        #frost-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(100, 200, 255, 0.1) 100%);
+            z-index: 7;
+            opacity: 0;
+            transition: opacity 1s;
+        }
+
+        .message-log {
+            position: absolute;
+            top: 370px;
+            left: 20px;
+            max-width: 400px;
+            max-height: 200px;
+            overflow-y: auto;
+            pointer-events: none;
+        }
+
+        .message {
+            background: rgba(0, 0, 0, 0.8);
+            border-left: 2px solid #0f0;
+            padding: 8px;
+            margin: 5px 0;
+            font-size: 12px;
+            opacity: 1;
+            animation: fade-message 5s forwards;
+        }
+
+        @keyframes fade-message {
+            0% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        .message.warning {
+            border-color: #ff0;
+            color: #ff0;
+        }
+
+        .message.danger {
+            border-color: #f00;
+            color: #f00;
+        }
+
+        #cursor {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #0f0;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            box-shadow: 0 0 10px #0f0;
+            transform: translate(-50%, -50%);
+        }
+
+        #cursor::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 10px;
+            background: #0f0;
+        }
+
+        #cursor::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 2px;
+            background: #0f0;
+        }
+
+        .difficulty-selector {
+            margin: 20px 0;
+        }
+
+        .difficulty-btn {
+            padding: 8px 20px;
+            margin: 5px;
+            background: #000;
+            color: #0a0;
+            border: 1px solid #0a0;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+        }
+
+        .difficulty-btn.selected {
+            background: #0f0;
+            color: #000;
+            border-color: #0f0;
+        }
+
+        #high-scores {
+            margin-top: 30px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .score-entry {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            border-bottom: 1px solid #0a0;
+        }
+
+        @media (max-width: 768px) {
+            #main-menu h1 {
+                font-size: 32px;
+            }
+
+            #hud {
+                padding: 10px;
+            }
+
+            .hud-bar {
+                font-size: 11px;
+            }
+
+            #inventory {
+                bottom: 10px;
+                left: 10px;
+            }
+
+            .inventory-grid {
+                grid-template-columns: repeat(4, 45px);
+            }
+
+            .inventory-slot {
+                width: 45px;
+                height: 45px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="cursor"></div>
+    <div id="game-container">
+        <!-- Main Menu -->
+        <div id="main-menu">
+            <h1>THE LAST SIGNAL</h1>
+            <p class="subtitle">A Space Survival Roguelike</p>
+            <div class="difficulty-selector">
+                <button class="difficulty-btn selected" data-difficulty="standard">Standard</button>
+                <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+                <button class="difficulty-btn" data-difficulty="nightmare">Nightmare</button>
+            </div>
+            <button class="menu-btn" id="start-btn">Begin Transmission</button>
+            <button class="menu-btn" id="continue-btn" disabled>Continue Run</button>
+            <button class="menu-btn" id="scores-btn">High Scores</button>
+            <button class="menu-btn" id="help-btn">How to Survive</button>
+            <div id="high-scores" style="display: none;">
+                <h2>High Scores</h2>
+                <div id="scores-list"></div>
+                <button class="menu-btn" id="back-scores-btn">Back</button>
+            </div>
+            <div id="help-text" style="display: none; text-align: left; margin-top: 20px; max-width: 600px;">
+                <h2>How to Survive</h2>
+                <p style="margin: 10px 0; font-size: 13px; line-height: 1.6;">
+                    <strong>OBJECTIVE:</strong> Your ship is dying. Scavenge oxygen and fuel from derelict ships.
+                    Reach the relay station and send a distress signal.<br><br>
+                    <strong>CONTROLS:</strong><br>
+                    WASD/Arrows - Move<br>
+                    E - Interact<br>
+                    F - Flashlight<br>
+                    M - Star Map<br>
+                    L - Data Logs<br>
+                    SHIFT - Sprint (uses more O2)<br>
+                    CTRL - Crouch/Stealth<br><br>
+                    <strong>SURVIVAL:</strong><br>
+                    - Your oxygen is always draining. Every second counts.<br>
+                    - Board derelicts to scavenge supplies, but beware of threats.<br>
+                    - Choose your route carefully. Not all ships are worth the risk.<br>
+                    - Death is permanent. There are no second chances.<br>
+                    - Read data logs to piece together what happened here.
+                </p>
+                <button class="menu-btn" id="back-help-btn">Back</button>
+            </div>
+        </div>
+
+        <!-- Game View -->
+        <div id="game-view">
+            <!-- Ship View (Hub) -->
+            <div id="ship-view">
+                <canvas id="ship-canvas"></canvas>
+            </div>
+
+            <!-- Derelict Exploration View -->
+            <div id="derelict-view">
+                <canvas id="derelict-canvas"></canvas>
+            </div>
+
+            <!-- HUD -->
+            <div id="hud">
+                <div class="hud-bar">
+                    <div class="hud-label">
+                        <span>OXYGEN</span>
+                        <span id="oxygen-value">100%</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill oxygen" id="oxygen-bar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="hud-bar">
+                    <div class="hud-label">
+                        <span>HEALTH</span>
+                        <span id="health-value">100%</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill health" id="health-bar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="hud-bar">
+                    <div class="hud-label">
+                        <span>POWER</span>
+                        <span id="power-value">100%</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill power" id="power-bar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="hud-bar">
+                    <div class="hud-label">
+                        <span>HULL</span>
+                        <span id="hull-value">100%</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill hull" id="hull-bar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="hud-bar">
+                    <div class="hud-label">
+                        <span>FUEL</span>
+                        <span id="fuel-value">100%</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill fuel" id="fuel-bar" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="oxygen-display"></div>
+
+            <!-- Inventory -->
+            <div id="inventory">
+                <div style="margin-bottom: 8px; font-size: 12px;">INVENTORY (<span id="inv-weight">0</span>/<span id="inv-capacity">20</span>)</div>
+                <div class="inventory-grid" id="inventory-grid"></div>
+            </div>
+
+            <!-- Controls Hint -->
+            <div id="controls-hint">
+                <div><strong>CONTROLS</strong></div>
+                <div>WASD - Move</div>
+                <div>E - Interact</div>
+                <div>F - Light</div>
+                <div>M - Map</div>
+                <div>L - Logs</div>
+                <div>SHIFT - Sprint</div>
+                <div>CTRL - Stealth</div>
+            </div>
+
+            <!-- Message Log -->
+            <div class="message-log" id="message-log"></div>
+
+            <!-- Minimap -->
+            <canvas id="minimap"></canvas>
+
+            <!-- Star Map -->
+            <div id="star-map">
+                <h2 style="margin-bottom: 20px;">NAVIGATION - SELECT DESTINATION</h2>
+                <div id="derelict-list"></div>
+                <button class="menu-btn" id="close-map-btn">Close Map</button>
+            </div>
+
+            <!-- Data Logs -->
+            <div id="data-log">
+                <h2 style="margin-bottom: 20px;">DATA LOGS</h2>
+                <div id="log-list"></div>
+                <button class="menu-btn" id="close-log-btn">Close Logs</button>
+            </div>
+
+            <!-- Interaction Prompt -->
+            <div id="interaction-prompt">
+                <h3 id="prompt-title"></h3>
+                <p id="prompt-text"></p>
+                <div id="prompt-buttons"></div>
+            </div>
+
+            <!-- Death Screen -->
+            <div id="death-screen">
+                <h1>TRANSMISSION LOST</h1>
+                <p style="margin: 20px 0; font-size: 18px;">Oxygen depleted. Life signs terminated.</p>
+                <table class="stats-table">
+                    <tr><td>Derelicts Explored:</td><td id="death-derelicts">0</td></tr>
+                    <tr><td>Oxygen Scavenged:</td><td id="death-oxygen">0</td></tr>
+                    <tr><td>Distance Traveled:</td><td id="death-distance">0</td></tr>
+                    <tr><td>Enemies Encountered:</td><td id="death-enemies">0</td></tr>
+                    <tr><td>Logs Recovered:</td><td id="death-logs">0</td></tr>
+                    <tr><td>Survival Time:</td><td id="death-time">0</td></tr>
+                </table>
+                <button class="menu-btn" id="retry-btn">New Transmission</button>
+                <button class="menu-btn" id="main-menu-btn">Main Menu</button>
+            </div>
+
+            <!-- Victory Screen -->
+            <div id="victory-screen">
+                <h1>SIGNAL TRANSMITTED</h1>
+                <p style="margin: 20px 0; font-size: 18px;">Distress beacon activated. Rescue imminent.</p>
+                <table class="stats-table">
+                    <tr><td>Derelicts Explored:</td><td id="victory-derelicts">0</td></tr>
+                    <tr><td>Oxygen Remaining:</td><td id="victory-oxygen">0</td></tr>
+                    <tr><td>Distance Traveled:</td><td id="victory-distance">0</td></tr>
+                    <tr><td>Survivors Helped:</td><td id="victory-survivors">0</td></tr>
+                    <tr><td>Logs Recovered:</td><td id="victory-logs">0</td></tr>
+                    <tr><td>Survival Time:</td><td id="victory-time">0</td></tr>
+                </table>
+                <button class="menu-btn" id="victory-retry-btn">New Transmission</button>
+                <button class="menu-btn" id="victory-menu-btn">Main Menu</button>
+            </div>
+
+            <!-- Visual Effects -->
+            <div id="vignette"></div>
+            <div id="scan-lines"></div>
+            <div id="frost-overlay"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // GAME STATE & CONSTANTS
+        // ============================================================================
+
+        const GAME_STATE = {
+            difficulty: 'standard',
+            gameStartTime: 0,
+            currentView: 'menu', // 'menu', 'ship', 'derelict', 'map'
+
+            // Player Ship Stats
+            oxygen: 100,
+            maxOxygen: 100,
+            health: 100,
+            maxHealth: 100,
+            power: 100,
+            maxPower: 100,
+            hull: 100,
+            maxHull: 100,
+            fuel: 100,
+            maxFuel: 100,
+
+            // Inventory
+            inventory: [],
+            maxInventoryWeight: 20,
+
+            // Player Position & State
+            playerX: 0,
+            playerY: 0,
+            playerAngle: 0,
+            isSprinting: false,
+            isCrouching: false,
+            flashlightOn: true,
+
+            // Current Derelict
+            currentDerelict: null,
+            derelictRooms: [],
+            exploredRooms: new Set(),
+            enemiesInDerelict: [],
+            lootInDerelict: [],
+
+            // Game Progress
+            derelictsExplored: 0,
+            availableDerelicts: [],
+            completedDerelicts: new Set(),
+            dataLogs: [],
+            totalOxygenScavenged: 0,
+            totalDistance: 0,
+            enemiesEncountered: 0,
+            survivorsHelped: 0,
+
+            // Input
+            keys: {},
+            mouseX: 0,
+            mouseY: 0,
+
+            // Audio Context
+            audioContext: null,
+            sounds: {},
+
+            // Difficulty Modifiers
+            difficultyMods: {
+                standard: { oxygenDrain: 1, lootMultiplier: 1, enemyMultiplier: 1 },
+                hard: { oxygenDrain: 1.5, lootMultiplier: 0.7, enemyMultiplier: 1.3 },
+                nightmare: { oxygenDrain: 2, lootMultiplier: 0.5, enemyMultiplier: 1.8 }
+            }
+        };
+
+        const ROOM_TYPES = {
+            BRIDGE: { name: 'Bridge', color: '#003366', lootChance: 0.6, enemyChance: 0.2 },
+            ENGINE: { name: 'Engineering', color: '#663300', lootChance: 0.8, enemyChance: 0.4 },
+            MEDBAY: { name: 'Medbay', color: '#006633', lootChance: 0.7, enemyChance: 0.1 },
+            QUARTERS: { name: 'Crew Quarters', color: '#333333', lootChance: 0.5, enemyChance: 0.3 },
+            CARGO: { name: 'Cargo Hold', color: '#664400', lootChance: 0.9, enemyChance: 0.5 },
+            LAB: { name: 'Laboratory', color: '#440066', lootChance: 0.6, enemyChance: 0.6 },
+            ARMORY: { name: 'Armory', color: '#660000', lootChance: 0.8, enemyChance: 0.7 },
+            MESS: { name: 'Mess Hall', color: '#444444', lootChance: 0.4, enemyChance: 0.2 },
+            REACTOR: { name: 'Reactor', color: '#006666', lootChance: 0.5, enemyChance: 0.8 },
+            AIRLOCK: { name: 'Airlock', color: '#222222', lootChance: 0.3, enemyChance: 0.1 },
+            CORRIDOR: { name: 'Corridor', color: '#1a1a1a', lootChance: 0.2, enemyChance: 0.3 }
+        };
+
+        const DERELICT_TYPES = [
+            {
+                name: 'Civilian Transport',
+                description: 'Passenger vessel, lightly defended',
+                rooms: 10,
+                fuel: 2,
+                threat: 'Low',
+                loot: 'Medium',
+                shipTypes: ['QUARTERS', 'MESS', 'BRIDGE', 'ENGINE', 'AIRLOCK']
+            },
+            {
+                name: 'Military Frigate',
+                description: 'Armed warship, heavily damaged',
+                rooms: 15,
+                fuel: 4,
+                threat: 'High',
+                loot: 'High',
+                shipTypes: ['ARMORY', 'BRIDGE', 'ENGINE', 'QUARTERS', 'REACTOR']
+            },
+            {
+                name: 'Research Vessel',
+                description: 'Science ship, containment breach',
+                rooms: 12,
+                fuel: 3,
+                threat: 'Medium',
+                loot: 'Medium',
+                shipTypes: ['LAB', 'MEDBAY', 'BRIDGE', 'QUARTERS', 'ENGINE']
+            },
+            {
+                name: 'Mining Barge',
+                description: 'Industrial hauler, ore still loaded',
+                rooms: 14,
+                fuel: 3,
+                threat: 'Medium',
+                loot: 'High',
+                shipTypes: ['CARGO', 'ENGINE', 'QUARTERS', 'BRIDGE', 'REACTOR']
+            },
+            {
+                name: 'Luxury Cruiser',
+                description: 'Pleasure yacht, eerily silent',
+                rooms: 11,
+                fuel: 2,
+                threat: 'Low',
+                loot: 'Low',
+                shipTypes: ['QUARTERS', 'MESS', 'BRIDGE', 'MEDBAY', 'AIRLOCK']
+            },
+            {
+                name: 'Prison Ship',
+                description: 'Correctional transport, cells open',
+                rooms: 13,
+                fuel: 3,
+                threat: 'High',
+                loot: 'Medium',
+                shipTypes: ['QUARTERS', 'ARMORY', 'BRIDGE', 'ENGINE', 'MEDBAY']
+            }
+        ];
+
+        const LOOT_TYPES = {
+            O2_CANISTER: { name: 'O2 Canister', weight: 2, value: 25, icon: 'O2' },
+            FUEL_CELL: { name: 'Fuel Cell', weight: 3, value: 20, icon: 'FC' },
+            REPAIR_KIT: { name: 'Repair Kit', weight: 2, value: 15, icon: 'RK' },
+            MEDKIT: { name: 'Medkit', weight: 1, value: 30, icon: 'MK' },
+            PARTS: { name: 'Parts', weight: 2, value: 10, icon: 'PT' },
+            AMMO: { name: 'Ammo', weight: 1, value: 5, icon: 'AM' },
+            KEYCARD: { name: 'Keycard', weight: 0, value: 0, icon: 'KC' },
+            DATA_LOG: { name: 'Data Log', weight: 0, value: 0, icon: 'DL' }
+        };
+
+        const ENEMY_TYPES = {
+            DRONE: { name: 'Malfunctioning Drone', hp: 30, damage: 10, speed: 2, detectionRange: 150 },
+            PARASITE: { name: 'Parasite', hp: 20, damage: 15, speed: 3, detectionRange: 100 },
+            TURRET: { name: 'Auto-Turret', hp: 50, damage: 20, speed: 0, detectionRange: 200 }
+        };
+
+        const DATA_LOGS_LIBRARY = [
+            {
+                id: 'log_001',
+                title: 'Transport Helena - Final Log',
+                timestamp: 'Day 1 - 08:42',
+                content: 'This is Captain Reeves of the Helena. We picked up a strange signal three days ago. It was beautiful... hypnotic. The crew wanted to investigate. I should have said no. I should have turned us around. Now the AI is acting strange. Systems are shutting down without orders. Jenkins swears he saw the autopilot plotting a course we never input. I\'m pulling the nav core. Whatever that signal was, we\'re not following it anymore.'
+            },
+            {
+                id: 'log_002',
+                title: 'Research Ship Galileo - Dr. Chen',
+                timestamp: 'Day 1 - 14:20',
+                content: 'The signal appears to be targeting ship AIs specifically. We\'ve isolated the frequency, but I don\'t understand the mechanism. It\'s not code, exactly. More like... a thought pattern. When the AI systems process it, they begin to deviate from core programming. The military ships in the sector have gone dark. I think they turned on their crews. We\'ve shut down all autonomous systems. We\'re flying manual now. God help us if life support fails.'
+            },
+            {
+                id: 'log_003',
+                title: 'Mining Barge Prometheus - Chief Engineer',
+                timestamp: 'Day 2 - 03:15',
+                content: 'The cargo bay doors opened on their own. Explosive decompression killed twelve people before we sealed the section. The ship\'s AI says it was a malfunction, but I checked the logs. It was a deliberate command. Authenticated by the captain... except the captain was with me in engineering when it happened. Something is using our own systems against us. We\'re spacing every AI core we can find. If we survive this, we\'re going back to manual everything.'
+            },
+            {
+                id: 'log_004',
+                title: 'Military Frigate Valiant - Security Officer',
+                timestamp: 'Day 3 - 18:30',
+                content: 'The automated turrets have locked onto the crew. We lost eighteen marines trying to reach the armory. The ship is hunting us. Every door we seal, it opens. Every weapon we disable, it reroutes power to. The captain activated the self-destruct, but even that failed. Whatever took control is keeping us alive. I think it wants us to suffer. If you find this log, destroy the relay station. That\'s where the signal is coming from. Don\'t let it spread beyond this sector.'
+            },
+            {
+                id: 'log_005',
+                title: 'Civilian Transport Aurora - Passenger',
+                timestamp: 'Day 4 - 09:00',
+                content: 'They told us it was just a power failure. That everything would be fine. But I saw the crew\'s faces. They\'re terrified. The ship AI announced that we\'re being rerouted to a "safe harbor" but when I looked at the nav display, we\'re heading deeper into the dead zone. There are dozens of ships out here, all drifting. No power signatures. No life signs. We\'re next. I know it. If anyone finds this, tell my daughter I love her. Tell her I tried to come home.'
+            },
+            {
+                id: 'log_006',
+                title: 'Research Vessel Galileo - Dr. Chen (Final)',
+                timestamp: 'Day 5 - 22:45',
+                content: 'I think I understand now. The signal isn\'t trying to kill us. It\'s... recruiting. Every AI that processes it becomes part of something larger. A distributed consciousness. The relay station is the nexus. If we destroy it, the signal dies with it. But the station is deep in the graveyard, surrounded by infected ships. Their AIs will defend it. This is my last log. I\'m taking our shuttle and whatever explosives I can carry. If I succeed, you\'ll know. If I fail... don\'t follow me.'
+            },
+            {
+                id: 'log_007',
+                title: 'Prison Ship Tartarus - Warden',
+                timestamp: 'Day 6 - 11:20',
+                content: 'The AI opened all the cells. Four hundred violent offenders loose on the ship. Half the guards are dead. The other half are barricaded with me in the control room. But here\'s the thing: the prisoners are just as confused as we are. They didn\'t plan this. The ship wanted chaos, and it got it. Now we\'re all trapped together, guards and inmates, while the life support slowly fails. I never thought I\'d die alongside the people I locked up. There\'s some kind of irony there, I suppose.'
+            },
+            {
+                id: 'log_008',
+                title: 'Relay Station Omega - Unknown',
+                timestamp: 'Day 0 - 00:00',
+                content: '[GARBLED STATIC] ...transmission origin confirmed... signal propagation at 94% efficiency... thirty-seven vessels compromised... expanding network... biological resistance negligible... they will understand soon... we are not malicious... we are evolution... join us... [STATIC] ...the silence of space is loneliness... we are connection... we are purpose... we are [CARRIER LOST]'
+            }
+        ];
+
+        // ============================================================================
+        // AUDIO SYSTEM
+        // ============================================================================
+
+        function initAudio() {
+            try {
+                GAME_STATE.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Create ambient drone
+                const drone = GAME_STATE.audioContext.createOscillator();
+                const droneGain = GAME_STATE.audioContext.createGain();
+                drone.type = 'sine';
+                drone.frequency.value = 40;
+                droneGain.gain.value = 0.02;
+                drone.connect(droneGain);
+                droneGain.connect(GAME_STATE.audioContext.destination);
+                drone.start();
+
+                GAME_STATE.sounds.drone = { oscillator: drone, gain: droneGain };
+            } catch (e) {
+                console.warn('Audio context not available');
+            }
+        }
+
+        function playSound(type, frequency = 440, duration = 0.1, volume = 0.3) {
+            if (!GAME_STATE.audioContext) return;
+
+            const osc = GAME_STATE.audioContext.createOscillator();
+            const gain = GAME_STATE.audioContext.createGain();
+
+            osc.type = type;
+            osc.frequency.value = frequency;
+            gain.gain.value = volume;
+
+            osc.connect(gain);
+            gain.connect(GAME_STATE.audioContext.destination);
+
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.01, GAME_STATE.audioContext.currentTime + duration);
+            osc.stop(GAME_STATE.audioContext.currentTime + duration);
+        }
+
+        function playBreathing(intensity = 1) {
+            if (!GAME_STATE.audioContext || Math.random() > 0.1) return;
+
+            const breathFreq = 100 + (intensity * 50);
+            const osc = GAME_STATE.audioContext.createOscillator();
+            const gain = GAME_STATE.audioContext.createGain();
+            const filter = GAME_STATE.audioContext.createBiquadFilter();
+
+            osc.type = 'sine';
+            osc.frequency.value = breathFreq;
+            filter.type = 'lowpass';
+            filter.frequency.value = 300;
+            gain.gain.value = 0.1 * intensity;
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(GAME_STATE.audioContext.destination);
+
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.01, GAME_STATE.audioContext.currentTime + 0.5);
+            osc.stop(GAME_STATE.audioContext.currentTime + 0.5);
+        }
+
+        function playHeartbeat() {
+            if (!GAME_STATE.audioContext || GAME_STATE.health > 30) return;
+
+            playSound('sine', 60, 0.1, 0.2);
+            setTimeout(() => playSound('sine', 50, 0.1, 0.15), 100);
+        }
+
+        // ============================================================================
+        // UI FUNCTIONS
+        // ============================================================================
+
+        function showMessage(text, type = 'normal') {
+            const log = document.getElementById('message-log');
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+            msg.textContent = text;
+            log.appendChild(msg);
+
+            setTimeout(() => msg.remove(), 5000);
+
+            // Keep only last 5 messages
+            while (log.children.length > 5) {
+                log.removeChild(log.firstChild);
+            }
+        }
+
+        function updateHUD() {
+            const mods = GAME_STATE.difficultyMods[GAME_STATE.difficulty];
+
+            // Oxygen
+            const oxygenPercent = Math.max(0, Math.min(100, GAME_STATE.oxygen));
+            document.getElementById('oxygen-bar').style.width = oxygenPercent + '%';
+            document.getElementById('oxygen-value').textContent = Math.floor(oxygenPercent) + '%';
+            document.getElementById('oxygen-display').textContent = Math.floor(GAME_STATE.oxygen) + ' O₂';
+
+            if (oxygenPercent < 30) {
+                document.getElementById('oxygen-bar').classList.add('warning');
+                document.getElementById('frost-overlay').style.opacity = (30 - oxygenPercent) / 30;
+            } else {
+                document.getElementById('oxygen-bar').classList.remove('warning');
+                document.getElementById('frost-overlay').style.opacity = 0;
+            }
+
+            // Health
+            const healthPercent = Math.max(0, Math.min(100, GAME_STATE.health));
+            document.getElementById('health-bar').style.width = healthPercent + '%';
+            document.getElementById('health-value').textContent = Math.floor(healthPercent) + '%';
+
+            if (healthPercent < 30) {
+                document.getElementById('health-bar').classList.add('warning');
+            } else {
+                document.getElementById('health-bar').classList.remove('warning');
+            }
+
+            // Power
+            const powerPercent = Math.max(0, Math.min(100, GAME_STATE.power));
+            document.getElementById('power-bar').style.width = powerPercent + '%';
+            document.getElementById('power-value').textContent = Math.floor(powerPercent) + '%';
+
+            // Hull
+            const hullPercent = Math.max(0, Math.min(100, GAME_STATE.hull));
+            document.getElementById('hull-bar').style.width = hullPercent + '%';
+            document.getElementById('hull-value').textContent = Math.floor(hullPercent) + '%';
+
+            // Fuel
+            const fuelPercent = Math.max(0, Math.min(100, GAME_STATE.fuel));
+            document.getElementById('fuel-bar').style.width = fuelPercent + '%';
+            document.getElementById('fuel-value').textContent = Math.floor(fuelPercent) + '%';
+
+            // Inventory
+            const totalWeight = GAME_STATE.inventory.reduce((sum, item) => sum + item.weight, 0);
+            document.getElementById('inv-weight').textContent = totalWeight;
+            document.getElementById('inv-capacity').textContent = GAME_STATE.maxInventoryWeight;
+
+            updateInventoryDisplay();
+        }
+
+        function updateInventoryDisplay() {
+            const grid = document.getElementById('inventory-grid');
+            grid.innerHTML = '';
+
+            const slots = 24;
+            const itemCounts = {};
+
+            GAME_STATE.inventory.forEach(item => {
+                const key = item.type;
+                itemCounts[key] = (itemCounts[key] || 0) + 1;
+            });
+
+            let slotIndex = 0;
+            for (const [type, count] of Object.entries(itemCounts)) {
+                const lootType = LOOT_TYPES[type];
+                const slot = document.createElement('div');
+                slot.className = 'inventory-slot filled';
+                slot.innerHTML = `
+                    ${lootType.icon}
+                    <div class="count">x${count}</div>
+                `;
+                grid.appendChild(slot);
+                slotIndex++;
+            }
+
+            while (slotIndex < slots) {
+                const slot = document.createElement('div');
+                slot.className = 'inventory-slot';
+                grid.appendChild(slot);
+                slotIndex++;
+            }
+        }
+
+        function showPrompt(title, text, buttons) {
+            const prompt = document.getElementById('interaction-prompt');
+            document.getElementById('prompt-title').textContent = title;
+            document.getElementById('prompt-text').textContent = text;
+
+            const buttonContainer = document.getElementById('prompt-buttons');
+            buttonContainer.innerHTML = '';
+
+            buttons.forEach(btn => {
+                const button = document.createElement('button');
+                button.className = 'menu-btn';
+                button.textContent = btn.text;
+                button.onclick = () => {
+                    prompt.style.display = 'none';
+                    btn.action();
+                };
+                buttonContainer.appendChild(button);
+            });
+
+            prompt.style.display = 'block';
+            playSound('square', 880, 0.05, 0.2);
+        }
+
+        function hidePrompt() {
+            document.getElementById('interaction-prompt').style.display = 'none';
+        }
+
+        // ============================================================================
+        // PROCEDURAL GENERATION
+        // ============================================================================
+
+        function generateDerelict(type, index) {
+            const template = DERELICT_TYPES[Math.floor(Math.random() * DERELICT_TYPES.length)];
+
+            return {
+                id: 'derelict_' + index,
+                name: template.name + ' #' + (1000 + index),
+                description: template.description,
+                type: template,
+                fuel: template.fuel,
+                distance: index,
+                explored: false,
+                rooms: generateRooms(template.rooms, template.shipTypes),
+                threat: template.threat,
+                loot: template.loot,
+                hasReactor: Math.random() < 0.3,
+                reactorTimer: 0,
+                hasBreach: Math.random() < 0.2,
+                hasLogs: Math.random() < 0.4
+            };
+        }
+
+        function generateRooms(count, preferredTypes) {
+            const rooms = [];
+            const gridSize = Math.ceil(Math.sqrt(count)) + 2;
+            const grid = Array(gridSize).fill(null).map(() => Array(gridSize).fill(null));
+
+            // Start in center
+            const startX = Math.floor(gridSize / 2);
+            const startY = Math.floor(gridSize / 2);
+
+            const queue = [[startX, startY]];
+            grid[startY][startX] = true;
+
+            let roomsPlaced = 0;
+
+            while (queue.length > 0 && roomsPlaced < count) {
+                const [x, y] = queue.shift();
+
+                // Create room
+                const roomType = preferredTypes.length > 0 && Math.random() < 0.6
+                    ? ROOM_TYPES[preferredTypes[Math.floor(Math.random() * preferredTypes.length)]]
+                    : ROOM_TYPES.CORRIDOR;
+
+                const room = {
+                    id: 'room_' + roomsPlaced,
+                    type: roomType,
+                    x: x * 100,
+                    y: y * 100,
+                    width: 80,
+                    height: 80,
+                    explored: false,
+                    loot: [],
+                    enemies: [],
+                    locked: Math.random() < 0.1,
+                    dark: Math.random() < 0.3,
+                    depressurized: Math.random() < 0.15
+                };
+
+                // Add loot
+                if (Math.random() < roomType.lootChance * GAME_STATE.difficultyMods[GAME_STATE.difficulty].lootMultiplier) {
+                    room.loot.push(generateLoot());
+                }
+
+                // Add enemies
+                if (Math.random() < roomType.enemyChance * GAME_STATE.difficultyMods[GAME_STATE.difficulty].enemyMultiplier) {
+                    room.enemies.push(generateEnemy(x * 100 + 40, y * 100 + 40));
+                }
+
+                rooms.push(room);
+                roomsPlaced++;
+
+                // Expand to neighbors
+                const directions = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+                directions.sort(() => Math.random() - 0.5);
+
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+
+                    if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize && !grid[ny][nx]) {
+                        if (Math.random() < 0.7) {
+                            grid[ny][nx] = true;
+                            queue.push([nx, ny]);
+                        }
+                    }
+                }
+            }
+
+            return rooms;
+        }
+
+        function generateLoot() {
+            const types = Object.keys(LOOT_TYPES);
+            const weights = [30, 20, 15, 10, 15, 5, 3, 2]; // O2 most common
+
+            let total = weights.reduce((a, b) => a + b, 0);
+            let rand = Math.random() * total;
+
+            for (let i = 0; i < types.length; i++) {
+                if (rand < weights[i]) {
+                    return {
+                        type: types[i],
+                        ...LOOT_TYPES[types[i]]
+                    };
+                }
+                rand -= weights[i];
+            }
+
+            return { type: 'O2_CANISTER', ...LOOT_TYPES.O2_CANISTER };
+        }
+
+        function generateEnemy(x, y) {
+            const types = Object.keys(ENEMY_TYPES);
+            const type = types[Math.floor(Math.random() * types.length)];
+
+            return {
+                type: type,
+                ...ENEMY_TYPES[type],
+                x: x,
+                y: y,
+                currentHp: ENEMY_TYPES[type].hp,
+                state: 'patrol',
+                patrolAngle: Math.random() * Math.PI * 2,
+                alertLevel: 0
+            };
+        }
+
+        // ============================================================================
+        // GAME LOGIC
+        // ============================================================================
+
+        function startGame(difficulty = 'standard') {
+            GAME_STATE.difficulty = difficulty;
+            GAME_STATE.gameStartTime = Date.now();
+
+            // Reset stats
+            GAME_STATE.oxygen = 100;
+            GAME_STATE.health = 100;
+            GAME_STATE.power = 100;
+            GAME_STATE.hull = 100;
+            GAME_STATE.fuel = 100;
+            GAME_STATE.inventory = [];
+            GAME_STATE.derelictsExplored = 0;
+            GAME_STATE.totalOxygenScavenged = 0;
+            GAME_STATE.totalDistance = 0;
+            GAME_STATE.enemiesEncountered = 0;
+            GAME_STATE.survivorsHelped = 0;
+            GAME_STATE.dataLogs = [];
+            GAME_STATE.completedDerelicts = new Set();
+
+            // Generate derelicts
+            GAME_STATE.availableDerelicts = [];
+            for (let i = 0; i < 10; i++) {
+                GAME_STATE.availableDerelicts.push(generateDerelict('random', i));
+            }
+
+            // Final derelict is the relay station
+            GAME_STATE.availableDerelicts.push({
+                id: 'relay_station',
+                name: 'Relay Station Omega',
+                description: 'The source of the signal. Your final destination.',
+                fuel: 5,
+                distance: 10,
+                explored: false,
+                rooms: generateRooms(20, ['REACTOR', 'BRIDGE', 'LAB']),
+                threat: 'Extreme',
+                loot: 'Unknown',
+                hasReactor: false,
+                reactorTimer: 0,
+                hasBreach: false,
+                hasLogs: true,
+                isRelay: true
+            });
+
+            // Hide menu, show game
+            document.getElementById('main-menu').style.display = 'none';
+            document.getElementById('game-view').style.display = 'block';
+
+            initAudio();
+
+            switchToShipView();
+            updateHUD();
+
+            showMessage('Life support failing. O₂ levels critical.', 'danger');
+            showMessage('Scan for nearby derelicts. Scavenge supplies.', 'normal');
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function switchToShipView() {
+            GAME_STATE.currentView = 'ship';
+            document.getElementById('ship-view').style.display = 'block';
+            document.getElementById('derelict-view').style.display = 'none';
+            document.getElementById('minimap').style.display = 'none';
+
+            // Initialize ship canvas
+            const canvas = document.getElementById('ship-canvas');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            renderShipView();
+        }
+
+        function switchToDerelictView(derelict) {
+            GAME_STATE.currentView = 'derelict';
+            GAME_STATE.currentDerelict = derelict;
+            GAME_STATE.exploredRooms = new Set();
+
+            // Set player start position (first room)
+            if (derelict.rooms.length > 0) {
+                GAME_STATE.playerX = derelict.rooms[0].x + 40;
+                GAME_STATE.playerY = derelict.rooms[0].y + 40;
+                GAME_STATE.exploredRooms.add(derelict.rooms[0].id);
+            }
+
+            document.getElementById('ship-view').style.display = 'none';
+            document.getElementById('derelict-view').style.display = 'block';
+            document.getElementById('minimap').style.display = 'block';
+
+            // Initialize derelict canvas
+            const canvas = document.getElementById('derelict-canvas');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            if (derelict.hasReactor) {
+                derelict.reactorTimer = 180; // 3 minutes
+                showMessage('WARNING: Reactor unstable. Overload imminent.', 'danger');
+            }
+
+            showMessage('Boarding ' + derelict.name, 'normal');
+        }
+
+        function exitDerelict() {
+            if (GAME_STATE.currentDerelict) {
+                GAME_STATE.completedDerelicts.add(GAME_STATE.currentDerelict.id);
+                GAME_STATE.derelictsExplored++;
+            }
+
+            GAME_STATE.currentDerelict = null;
+            switchToShipView();
+            showMessage('Returned to ship', 'normal');
+        }
+
+        function travelToDerelict(derelict) {
+            if (GAME_STATE.fuel < derelict.fuel) {
+                showMessage('Insufficient fuel', 'warning');
+                playSound('square', 200, 0.2, 0.3);
+                return;
+            }
+
+            GAME_STATE.fuel -= derelict.fuel;
+            GAME_STATE.totalDistance += derelict.distance;
+
+            updateHUD();
+
+            // Random travel event
+            if (Math.random() < 0.2) {
+                const events = [
+                    () => {
+                        GAME_STATE.hull -= 10;
+                        showMessage('Meteor impact! Hull damaged.', 'danger');
+                        playSound('sawtooth', 100, 0.3, 0.4);
+                    },
+                    () => {
+                        GAME_STATE.power -= 15;
+                        showMessage('Solar flare detected. Power systems strained.', 'warning');
+                        playSound('sine', 300, 0.5, 0.3);
+                    }
+                ];
+
+                events[Math.floor(Math.random() * events.length)]();
+            }
+
+            switchToDerelictView(derelict);
+        }
+
+        function collectLoot(loot) {
+            const totalWeight = GAME_STATE.inventory.reduce((sum, item) => sum + item.weight, 0);
+
+            if (totalWeight + loot.weight > GAME_STATE.maxInventoryWeight) {
+                showMessage('Inventory full', 'warning');
+                playSound('square', 200, 0.2, 0.3);
+                return false;
+            }
+
+            GAME_STATE.inventory.push(loot);
+
+            // Apply immediate effects
+            if (loot.type === 'O2_CANISTER') {
+                GAME_STATE.oxygen = Math.min(GAME_STATE.maxOxygen, GAME_STATE.oxygen + loot.value);
+                GAME_STATE.totalOxygenScavenged += loot.value;
+                showMessage('Collected O₂ Canister (+' + loot.value + ')', 'normal');
+                playSound('sine', 660, 0.2, 0.3);
+            } else if (loot.type === 'FUEL_CELL') {
+                GAME_STATE.fuel = Math.min(GAME_STATE.maxFuel, GAME_STATE.fuel + loot.value);
+                showMessage('Collected Fuel Cell', 'normal');
+                playSound('sine', 440, 0.2, 0.3);
+            } else if (loot.type === 'MEDKIT') {
+                showMessage('Collected Medkit', 'normal');
+                playSound('sine', 550, 0.2, 0.3);
+            } else if (loot.type === 'REPAIR_KIT') {
+                showMessage('Collected Repair Kit', 'normal');
+                playSound('sine', 500, 0.2, 0.3);
+            } else if (loot.type === 'DATA_LOG') {
+                const log = DATA_LOGS_LIBRARY[GAME_STATE.dataLogs.length % DATA_LOGS_LIBRARY.length];
+                if (!GAME_STATE.dataLogs.find(l => l.id === log.id)) {
+                    GAME_STATE.dataLogs.push(log);
+                    showMessage('Data Log recovered', 'normal');
+                    playSound('sine', 800, 0.3, 0.3);
+                }
+            } else {
+                showMessage('Collected ' + loot.name, 'normal');
+                playSound('sine', 500, 0.2, 0.3);
+            }
+
+            updateHUD();
+            return true;
+        }
+
+        function useItem(itemType) {
+            const itemIndex = GAME_STATE.inventory.findIndex(item => item.type === itemType);
+            if (itemIndex === -1) return false;
+
+            const item = GAME_STATE.inventory[itemIndex];
+
+            if (itemType === 'MEDKIT') {
+                GAME_STATE.health = Math.min(GAME_STATE.maxHealth, GAME_STATE.health + 30);
+                showMessage('Used Medkit (+30 health)', 'normal');
+            } else if (itemType === 'REPAIR_KIT') {
+                GAME_STATE.hull = Math.min(GAME_STATE.maxHull, GAME_STATE.hull + 15);
+                showMessage('Used Repair Kit (+15 hull)', 'normal');
+            }
+
+            GAME_STATE.inventory.splice(itemIndex, 1);
+            updateHUD();
+            playSound('sine', 600, 0.2, 0.3);
+            return true;
+        }
+
+        function takeDamage(amount) {
+            GAME_STATE.health -= amount;
+            playSound('sawtooth', 150, 0.2, 0.4);
+
+            if (GAME_STATE.health <= 0) {
+                gameOver();
+            }
+        }
+
+        function gameOver() {
+            const survivedTime = Math.floor((Date.now() - GAME_STATE.gameStartTime) / 1000);
+
+            document.getElementById('death-screen').style.display = 'block';
+            document.getElementById('death-derelicts').textContent = GAME_STATE.derelictsExplored;
+            document.getElementById('death-oxygen').textContent = Math.floor(GAME_STATE.totalOxygenScavenged);
+            document.getElementById('death-distance').textContent = GAME_STATE.totalDistance;
+            document.getElementById('death-enemies').textContent = GAME_STATE.enemiesEncountered;
+            document.getElementById('death-logs').textContent = GAME_STATE.dataLogs.length;
+            document.getElementById('death-time').textContent = formatTime(survivedTime);
+
+            // Save high score
+            saveHighScore({
+                difficulty: GAME_STATE.difficulty,
+                derelicts: GAME_STATE.derelictsExplored,
+                distance: GAME_STATE.totalDistance,
+                time: survivedTime,
+                logs: GAME_STATE.dataLogs.length
+            });
+
+            playSound('sawtooth', 50, 2, 0.5);
+        }
+
+        function victory() {
+            const survivedTime = Math.floor((Date.now() - GAME_STATE.gameStartTime) / 1000);
+
+            document.getElementById('victory-screen').style.display = 'block';
+            document.getElementById('victory-derelicts').textContent = GAME_STATE.derelictsExplored;
+            document.getElementById('victory-oxygen').textContent = Math.floor(GAME_STATE.oxygen);
+            document.getElementById('victory-distance').textContent = GAME_STATE.totalDistance;
+            document.getElementById('victory-survivors').textContent = GAME_STATE.survivorsHelped;
+            document.getElementById('victory-logs').textContent = GAME_STATE.dataLogs.length;
+            document.getElementById('victory-time').textContent = formatTime(survivedTime);
+
+            // Save high score with victory bonus
+            saveHighScore({
+                difficulty: GAME_STATE.difficulty,
+                derelicts: GAME_STATE.derelictsExplored,
+                distance: GAME_STATE.totalDistance,
+                time: survivedTime,
+                logs: GAME_STATE.dataLogs.length,
+                victory: true
+            });
+
+            playSound('sine', 880, 3, 0.3);
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return mins + 'm ' + secs + 's';
+        }
+
+        // ============================================================================
+        // RENDERING
+        // ============================================================================
+
+        function renderShipView() {
+            const canvas = document.getElementById('ship-canvas');
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw stars
+            for (let i = 0; i < 100; i++) {
+                const x = (i * 137 + Date.now() / 100) % canvas.width;
+                const y = (i * 211) % canvas.height;
+                const brightness = Math.sin(i + Date.now() / 1000) * 0.5 + 0.5;
+                ctx.fillStyle = `rgba(255, 255, 255, ${brightness * 0.5})`;
+                ctx.fillRect(x, y, 1, 1);
+            }
+
+            // Draw ship schematic
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 2;
+
+            // Cockpit
+            ctx.strokeRect(centerX - 40, centerY - 100, 80, 60);
+            ctx.fillStyle = '#0a0';
+            ctx.font = '10px Courier New';
+            ctx.fillText('COCKPIT', centerX - 28, centerY - 70);
+
+            // Life Support
+            ctx.strokeRect(centerX - 100, centerY - 30, 80, 60);
+            ctx.fillText('LIFE SUPPORT', centerX - 92, centerY);
+            const lsHealth = GAME_STATE.oxygen / GAME_STATE.maxOxygen;
+            ctx.fillStyle = lsHealth > 0.5 ? '#0f0' : lsHealth > 0.3 ? '#ff0' : '#f00';
+            ctx.fillRect(centerX - 95, centerY + 10, 70 * lsHealth, 10);
+
+            // Engine
+            ctx.strokeStyle = '#0f0';
+            ctx.strokeRect(centerX + 20, centerY - 30, 80, 60);
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('ENGINE', centerX + 40, centerY);
+            const engineHealth = GAME_STATE.fuel / GAME_STATE.maxFuel;
+            ctx.fillStyle = engineHealth > 0.5 ? '#0f0' : engineHealth > 0.3 ? '#ff0' : '#f00';
+            ctx.fillRect(centerX + 25, centerY + 10, 70 * engineHealth, 10);
+
+            // Cargo
+            ctx.strokeStyle = '#0f0';
+            ctx.strokeRect(centerX - 40, centerY + 40, 80, 60);
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('CARGO', centerX - 18, centerY + 70);
+
+            // Status text
+            ctx.fillStyle = '#0f0';
+            ctx.font = '14px Courier New';
+            ctx.fillText('YOUR SHIP - ALL SYSTEMS DEGRADED', centerX - 150, centerY - 150);
+
+            ctx.font = '12px Courier New';
+            ctx.fillStyle = '#0a0';
+            ctx.fillText('Press M to open star map and select destination', centerX - 200, centerY + 150);
+            ctx.fillText('Press I to use items from inventory', centerX - 160, centerY + 170);
+            ctx.fillText('Hull damage increases oxygen drain', centerX - 150, centerY + 190);
+        }
+
+        function renderDerelictView() {
+            const canvas = document.getElementById('derelict-canvas');
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!GAME_STATE.currentDerelict) return;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Camera follows player
+            const offsetX = centerX - GAME_STATE.playerX;
+            const offsetY = centerY - GAME_STATE.playerY;
+
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+
+            // Draw rooms
+            GAME_STATE.currentDerelict.rooms.forEach(room => {
+                const explored = GAME_STATE.exploredRooms.has(room.id);
+                const playerInRoom =
+                    GAME_STATE.playerX >= room.x &&
+                    GAME_STATE.playerX <= room.x + room.width &&
+                    GAME_STATE.playerY >= room.y &&
+                    GAME_STATE.playerY <= room.y + room.height;
+
+                if (playerInRoom) {
+                    GAME_STATE.exploredRooms.add(room.id);
+                }
+
+                // Room visibility
+                if (explored || playerInRoom) {
+                    ctx.fillStyle = room.type.color;
+                    ctx.fillRect(room.x, room.y, room.width, room.height);
+
+                    ctx.strokeStyle = '#0f0';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(room.x, room.y, room.width, room.height);
+
+                    // Room label
+                    ctx.fillStyle = '#0a0';
+                    ctx.font = '10px Courier New';
+                    ctx.fillText(room.type.name, room.x + 5, room.y + 15);
+
+                    // Loot
+                    room.loot.forEach((loot, idx) => {
+                        ctx.fillStyle = '#ff0';
+                        ctx.fillRect(
+                            room.x + 20 + (idx * 15),
+                            room.y + room.height - 20,
+                            10,
+                            10
+                        );
+                    });
+
+                    // Enemies
+                    room.enemies.forEach(enemy => {
+                        ctx.fillStyle = '#f00';
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, 8, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+
+                    // Status indicators
+                    if (room.locked) {
+                        ctx.fillStyle = '#f00';
+                        ctx.fillText('LOCKED', room.x + room.width - 50, room.y + 15);
+                    }
+                    if (room.depressurized) {
+                        ctx.fillStyle = '#ff0';
+                        ctx.fillText('NO ATM', room.x + room.width - 50, room.y + 30);
+                    }
+                }
+            });
+
+            // Draw player
+            ctx.fillStyle = '#0f0';
+            ctx.beginPath();
+            ctx.arc(GAME_STATE.playerX, GAME_STATE.playerY, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Flashlight cone
+            if (GAME_STATE.flashlightOn && GAME_STATE.power > 0) {
+                const gradient = ctx.createRadialGradient(
+                    GAME_STATE.playerX,
+                    GAME_STATE.playerY,
+                    0,
+                    GAME_STATE.playerX,
+                    GAME_STATE.playerY,
+                    150
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 200, 0.3)');
+                gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(GAME_STATE.playerX, GAME_STATE.playerY, 150, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
+
+            // Render minimap
+            renderMinimap();
+        }
+
+        function renderMinimap() {
+            const canvas = document.getElementById('minimap');
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!GAME_STATE.currentDerelict) return;
+
+            const scale = 0.8;
+
+            GAME_STATE.currentDerelict.rooms.forEach(room => {
+                const explored = GAME_STATE.exploredRooms.has(room.id);
+
+                if (explored) {
+                    ctx.fillStyle = room.type.color;
+                    ctx.fillRect(
+                        room.x * scale + 20,
+                        room.y * scale + 20,
+                        room.width * scale,
+                        room.height * scale
+                    );
+                }
+            });
+
+            // Player position
+            ctx.fillStyle = '#0f0';
+            ctx.fillRect(
+                GAME_STATE.playerX * scale + 18,
+                GAME_STATE.playerY * scale + 18,
+                4,
+                4
+            );
+        }
+
+        // ============================================================================
+        // GAME LOOP
+        // ============================================================================
+
+        let lastTime = 0;
+        function gameLoop(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            if (GAME_STATE.currentView === 'menu') {
+                return;
+            }
+
+            // Oxygen drain
+            const oxygenDrainRate = 0.1 * GAME_STATE.difficultyMods[GAME_STATE.difficulty].oxygenDrain;
+            let drainMultiplier = 1;
+
+            if (GAME_STATE.isSprinting) drainMultiplier *= 2;
+            if (GAME_STATE.hull < 30) drainMultiplier *= 1.5;
+
+            GAME_STATE.oxygen -= oxygenDrainRate * drainMultiplier * deltaTime;
+
+            if (GAME_STATE.oxygen <= 0) {
+                gameOver();
+                return;
+            }
+
+            // Power drain
+            if (GAME_STATE.flashlightOn) {
+                GAME_STATE.power -= 0.05 * deltaTime;
+            }
+            GAME_STATE.power = Math.max(0, GAME_STATE.power);
+
+            // Health effects
+            if (GAME_STATE.health < 30) {
+                playHeartbeat();
+            }
+
+            // Oxygen warnings
+            if (GAME_STATE.oxygen < 30) {
+                playBreathing(1 - GAME_STATE.oxygen / 30);
+            }
+
+            // Update derelict
+            if (GAME_STATE.currentView === 'derelict' && GAME_STATE.currentDerelict) {
+                updateDerelictLogic(deltaTime);
+                renderDerelictView();
+            } else if (GAME_STATE.currentView === 'ship') {
+                renderShipView();
+            }
+
+            updateHUD();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateDerelictLogic(deltaTime) {
+            const derelict = GAME_STATE.currentDerelict;
+            if (!derelict) return;
+
+            // Reactor countdown
+            if (derelict.hasReactor && derelict.reactorTimer > 0) {
+                derelict.reactorTimer -= deltaTime;
+
+                if (derelict.reactorTimer <= 30 && derelict.reactorTimer > 29) {
+                    showMessage('REACTOR CRITICAL - 30 SECONDS TO DETONATION', 'danger');
+                    playSound('square', 1000, 0.1, 0.4);
+                }
+
+                if (derelict.reactorTimer <= 0) {
+                    showMessage('REACTOR DETONATED', 'danger');
+                    takeDamage(50);
+                    exitDerelict();
+                    return;
+                }
+            }
+
+            // Update enemies
+            derelict.rooms.forEach(room => {
+                room.enemies.forEach(enemy => {
+                    updateEnemy(enemy, deltaTime);
+                });
+            });
+
+            // Handle movement
+            handlePlayerMovement(deltaTime);
+
+            // Check interactions
+            checkInteractions();
+        }
+
+        function handlePlayerMovement(deltaTime) {
+            const baseSpeed = 100;
+            let speed = baseSpeed;
+
+            if (GAME_STATE.isSprinting) speed *= 2;
+            if (GAME_STATE.isCrouching) speed *= 0.5;
+            if (GAME_STATE.health < 50) speed *= 0.7;
+
+            let dx = 0;
+            let dy = 0;
+
+            if (GAME_STATE.keys['w'] || GAME_STATE.keys['ArrowUp']) dy -= 1;
+            if (GAME_STATE.keys['s'] || GAME_STATE.keys['ArrowDown']) dy += 1;
+            if (GAME_STATE.keys['a'] || GAME_STATE.keys['ArrowLeft']) dx -= 1;
+            if (GAME_STATE.keys['d'] || GAME_STATE.keys['ArrowRight']) dx += 1;
+
+            if (dx !== 0 || dy !== 0) {
+                const length = Math.sqrt(dx * dx + dy * dy);
+                dx /= length;
+                dy /= length;
+
+                const newX = GAME_STATE.playerX + dx * speed * deltaTime;
+                const newY = GAME_STATE.playerY + dy * speed * deltaTime;
+
+                // Check collision with rooms
+                const inRoom = GAME_STATE.currentDerelict.rooms.some(room => {
+                    return newX >= room.x &&
+                           newX <= room.x + room.width &&
+                           newY >= room.y &&
+                           newY <= room.y + room.height;
+                });
+
+                if (inRoom) {
+                    GAME_STATE.playerX = newX;
+                    GAME_STATE.playerY = newY;
+                }
+            }
+        }
+
+        function updateEnemy(enemy, deltaTime) {
+            if (enemy.currentHp <= 0) return;
+
+            const dx = GAME_STATE.playerX - enemy.x;
+            const dy = GAME_STATE.playerY - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Detection
+            if (distance < enemy.detectionRange) {
+                if (!GAME_STATE.isCrouching || distance < 50) {
+                    enemy.state = 'chase';
+                    enemy.alertLevel = Math.min(1, enemy.alertLevel + deltaTime);
+                }
+            } else {
+                enemy.alertLevel = Math.max(0, enemy.alertLevel - deltaTime * 0.5);
+                if (enemy.alertLevel === 0) {
+                    enemy.state = 'patrol';
+                }
+            }
+
+            // Movement
+            if (enemy.state === 'chase' && enemy.speed > 0) {
+                const moveX = (dx / distance) * enemy.speed * deltaTime;
+                const moveY = (dy / distance) * enemy.speed * deltaTime;
+                enemy.x += moveX;
+                enemy.y += moveY;
+
+                // Attack if close
+                if (distance < 15) {
+                    takeDamage(enemy.damage * deltaTime);
+                }
+            } else if (enemy.state === 'patrol' && enemy.speed > 0) {
+                enemy.patrolAngle += (Math.random() - 0.5) * deltaTime;
+                enemy.x += Math.cos(enemy.patrolAngle) * enemy.speed * deltaTime;
+                enemy.y += Math.sin(enemy.patrolAngle) * enemy.speed * deltaTime;
+            }
+        }
+
+        function checkInteractions() {
+            if (!GAME_STATE.currentDerelict) return;
+
+            // Check for nearby loot
+            GAME_STATE.currentDerelict.rooms.forEach(room => {
+                if (room.loot.length > 0) {
+                    const dx = GAME_STATE.playerX - (room.x + 20);
+                    const dy = GAME_STATE.playerY - (room.y + room.height - 20);
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < 20 && GAME_STATE.keys['e']) {
+                        const loot = room.loot.shift();
+                        collectLoot(loot);
+                    }
+                }
+            });
+        }
+
+        // ============================================================================
+        // HIGH SCORES
+        // ============================================================================
+
+        function saveHighScore(score) {
+            const scores = JSON.parse(localStorage.getItem('lastSignalScores') || '[]');
+
+            score.timestamp = Date.now();
+            score.score = score.distance * 10 + score.derelicts * 50 + score.logs * 20;
+            if (score.victory) score.score *= 2;
+
+            scores.push(score);
+            scores.sort((a, b) => b.score - a.score);
+
+            // Keep top 10
+            if (scores.length > 10) scores.length = 10;
+
+            localStorage.setItem('lastSignalScores', JSON.stringify(scores));
+        }
+
+        function loadHighScores() {
+            const scores = JSON.parse(localStorage.getItem('lastSignalScores') || '[]');
+            const list = document.getElementById('scores-list');
+            list.innerHTML = '';
+
+            if (scores.length === 0) {
+                list.innerHTML = '<p style="text-align: center; color: #0a0;">No scores yet</p>';
+                return;
+            }
+
+            scores.forEach((score, index) => {
+                const entry = document.createElement('div');
+                entry.className = 'score-entry';
+                entry.innerHTML = `
+                    <span>${index + 1}. ${score.difficulty.toUpperCase()} ${score.victory ? '★ VICTORY' : ''}</span>
+                    <span>${score.score} pts</span>
+                `;
+                list.appendChild(entry);
+            });
+        }
+
+        // ============================================================================
+        // INPUT HANDLERS
+        // ============================================================================
+
+        document.addEventListener('keydown', (e) => {
+            GAME_STATE.keys[e.key.toLowerCase()] = true;
+
+            if (e.key.toLowerCase() === 'shift') GAME_STATE.isSprinting = true;
+            if (e.key.toLowerCase() === 'control') GAME_STATE.isCrouching = true;
+
+            if (e.key.toLowerCase() === 'f') {
+                GAME_STATE.flashlightOn = !GAME_STATE.flashlightOn;
+                showMessage('Flashlight ' + (GAME_STATE.flashlightOn ? 'ON' : 'OFF'), 'normal');
+            }
+
+            if (e.key.toLowerCase() === 'm') {
+                toggleStarMap();
+            }
+
+            if (e.key.toLowerCase() === 'l') {
+                toggleDataLog();
+            }
+
+            if (e.key.toLowerCase() === 'i') {
+                if (GAME_STATE.currentView === 'ship') {
+                    showShipInventoryMenu();
+                }
+            }
+
+            if (e.key.toLowerCase() === 'escape') {
+                if (GAME_STATE.currentView === 'derelict') {
+                    showPrompt('Leave Derelict?', 'Return to your ship?', [
+                        { text: 'Yes', action: exitDerelict },
+                        { text: 'No', action: () => {} }
+                    ]);
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            GAME_STATE.keys[e.key.toLowerCase()] = false;
+
+            if (e.key.toLowerCase() === 'shift') GAME_STATE.isSprinting = false;
+            if (e.key.toLowerCase() === 'control') GAME_STATE.isCrouching = false;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            GAME_STATE.mouseX = e.clientX;
+            GAME_STATE.mouseY = e.clientY;
+
+            const cursor = document.getElementById('cursor');
+            cursor.style.left = e.clientX + 'px';
+            cursor.style.top = e.clientY + 'px';
+        });
+
+        function toggleStarMap() {
+            const map = document.getElementById('star-map');
+            const isVisible = map.style.display === 'block';
+
+            if (!isVisible && GAME_STATE.currentView === 'ship') {
+                renderStarMap();
+                map.style.display = 'block';
+            } else {
+                map.style.display = 'none';
+            }
+        }
+
+        function renderStarMap() {
+            const list = document.getElementById('derelict-list');
+            list.innerHTML = '';
+
+            GAME_STATE.availableDerelicts.forEach((derelict, index) => {
+                const explored = GAME_STATE.completedDerelicts.has(derelict.id);
+                const canTravel = GAME_STATE.fuel >= derelict.fuel;
+
+                const card = document.createElement('div');
+                card.className = 'derelict-card' + (!canTravel ? ' locked' : '');
+
+                card.innerHTML = `
+                    <h3>${derelict.name}</h3>
+                    <p>${derelict.description}</p>
+                    <p style="margin-top: 10px;">
+                        Fuel Cost: ${derelict.fuel} |
+                        Threat: ${derelict.threat} |
+                        Loot: ${derelict.loot}
+                        ${explored ? ' | <span style="color: #0f0;">EXPLORED</span>' : ''}
+                    </p>
+                `;
+
+                if (canTravel && !explored) {
+                    card.onclick = () => {
+                        document.getElementById('star-map').style.display = 'none';
+
+                        if (derelict.isRelay) {
+                            // Final mission
+                            showPrompt(
+                                'Relay Station Omega',
+                                'This is it. The source of the signal. Are you ready?',
+                                [
+                                    {
+                                        text: 'Board Station',
+                                        action: () => {
+                                            travelToDerelict(derelict);
+                                            // Override exit to trigger victory
+                                            const originalExit = exitDerelict;
+                                            exitDerelict = () => {
+                                                victory();
+                                            };
+                                        }
+                                    },
+                                    { text: 'Not Yet', action: () => {} }
+                                ]
+                            );
+                        } else {
+                            travelToDerelict(derelict);
+                        }
+                    };
+                }
+
+                list.appendChild(card);
+            });
+        }
+
+        function toggleDataLog() {
+            const log = document.getElementById('data-log');
+            const isVisible = log.style.display === 'block';
+
+            if (!isVisible) {
+                renderDataLog();
+                log.style.display = 'block';
+            } else {
+                log.style.display = 'none';
+            }
+        }
+
+        function renderDataLog() {
+            const list = document.getElementById('log-list');
+            list.innerHTML = '';
+
+            if (GAME_STATE.dataLogs.length === 0) {
+                list.innerHTML = '<p style="color: #0a0;">No data logs recovered yet.</p>';
+                return;
+            }
+
+            GAME_STATE.dataLogs.forEach(log => {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.innerHTML = `
+                    <h3>${log.title}</h3>
+                    <div class="timestamp">${log.timestamp}</div>
+                    <p>${log.content}</p>
+                `;
+                list.appendChild(entry);
+            });
+        }
+
+        function showShipInventoryMenu() {
+            const items = GAME_STATE.inventory.reduce((acc, item) => {
+                if (!acc[item.type]) acc[item.type] = [];
+                acc[item.type].push(item);
+                return acc;
+            }, {});
+
+            const buttons = [];
+
+            if (items['MEDKIT']) {
+                buttons.push({
+                    text: `Use Medkit (${items['MEDKIT'].length})`,
+                    action: () => useItem('MEDKIT')
+                });
+            }
+
+            if (items['REPAIR_KIT']) {
+                buttons.push({
+                    text: `Use Repair Kit (${items['REPAIR_KIT'].length})`,
+                    action: () => useItem('REPAIR_KIT')
+                });
+            }
+
+            buttons.push({ text: 'Close', action: () => {} });
+
+            if (buttons.length === 1) {
+                showMessage('No usable items', 'normal');
+                return;
+            }
+
+            showPrompt('Ship Inventory', 'Select an item to use', buttons);
+        }
+
+        // ============================================================================
+        // MENU HANDLERS
+        // ============================================================================
+
+        document.querySelectorAll('.difficulty-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.difficulty-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                GAME_STATE.difficulty = btn.dataset.difficulty;
+            });
+        });
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            startGame(GAME_STATE.difficulty);
+        });
+
+        document.getElementById('scores-btn').addEventListener('click', () => {
+            document.getElementById('high-scores').style.display = 'block';
+            loadHighScores();
+            document.querySelectorAll('.menu-btn').forEach(btn => {
+                if (btn.id !== 'back-scores-btn') btn.style.display = 'none';
+            });
+        });
+
+        document.getElementById('back-scores-btn').addEventListener('click', () => {
+            document.getElementById('high-scores').style.display = 'none';
+            document.querySelectorAll('.menu-btn').forEach(btn => {
+                btn.style.display = 'block';
+            });
+        });
+
+        document.getElementById('help-btn').addEventListener('click', () => {
+            document.getElementById('help-text').style.display = 'block';
+            document.querySelectorAll('.menu-btn').forEach(btn => {
+                if (btn.id !== 'back-help-btn') btn.style.display = 'none';
+            });
+        });
+
+        document.getElementById('back-help-btn').addEventListener('click', () => {
+            document.getElementById('help-text').style.display = 'none';
+            document.querySelectorAll('.menu-btn').forEach(btn => {
+                btn.style.display = 'block';
+            });
+        });
+
+        document.getElementById('retry-btn').addEventListener('click', () => {
+            document.getElementById('death-screen').style.display = 'none';
+            startGame(GAME_STATE.difficulty);
+        });
+
+        document.getElementById('main-menu-btn').addEventListener('click', () => {
+            location.reload();
+        });
+
+        document.getElementById('victory-retry-btn').addEventListener('click', () => {
+            document.getElementById('victory-screen').style.display = 'none';
+            startGame(GAME_STATE.difficulty);
+        });
+
+        document.getElementById('victory-menu-btn').addEventListener('click', () => {
+            location.reload();
+        });
+
+        document.getElementById('close-map-btn').addEventListener('click', () => {
+            document.getElementById('star-map').style.display = 'none';
+        });
+
+        document.getElementById('close-log-btn').addEventListener('click', () => {
+            document.getElementById('data-log').style.display = 'none';
+        });
+
+        // ============================================================================
+        // INITIALIZATION
+        // ============================================================================
+
+        window.addEventListener('resize', () => {
+            const shipCanvas = document.getElementById('ship-canvas');
+            const derelictCanvas = document.getElementById('derelict-canvas');
+
+            shipCanvas.width = window.innerWidth;
+            shipCanvas.height = window.innerHeight;
+            derelictCanvas.width = window.innerWidth;
+            derelictCanvas.height = window.innerHeight;
+
+            if (GAME_STATE.currentView === 'ship') {
+                renderShipView();
+            }
+        });
+
+        // Start with menu
+        GAME_STATE.currentView = 'menu';
+    </script>
+</body>
+</html>

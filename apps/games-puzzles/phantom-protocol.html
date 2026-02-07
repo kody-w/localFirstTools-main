@@ -1,0 +1,2884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PHANTOM PROTOCOL - Hacking Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @font-face {
+            font-family: 'Terminus';
+            src: local('Courier New'), local('Consolas'), local('Monaco');
+        }
+
+        body {
+            font-family: 'Terminus', 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            overflow: hidden;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Matrix Rain Background */
+        #matrix-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.05;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* CRT Effect */
+        .crt::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            animation: flicker 0.15s infinite;
+        }
+
+        .crt::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: rgba(18, 16, 16, 0.1);
+            opacity: 0;
+            z-index: 2;
+            pointer-events: none;
+            animation: flicker 0.15s infinite;
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.27861; }
+            5% { opacity: 0.34769; }
+            10% { opacity: 0.23604; }
+            15% { opacity: 0.90626; }
+            20% { opacity: 0.18128; }
+            25% { opacity: 0.83891; }
+            30% { opacity: 0.65583; }
+            35% { opacity: 0.67807; }
+            40% { opacity: 0.26559; }
+            45% { opacity: 0.84693; }
+            50% { opacity: 0.96019; }
+            55% { opacity: 0.08594; }
+            60% { opacity: 0.20313; }
+            65% { opacity: 0.71988; }
+            70% { opacity: 0.53455; }
+            75% { opacity: 0.37288; }
+            80% { opacity: 0.71428; }
+            85% { opacity: 0.70419; }
+            90% { opacity: 0.7003; }
+            95% { opacity: 0.36108; }
+            100% { opacity: 0.24387; }
+        }
+
+        /* Main Layout */
+        #app {
+            position: relative;
+            z-index: 1;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top HUD */
+        #hud {
+            background: rgba(0, 20, 0, 0.9);
+            border-bottom: 2px solid #0f0;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+
+        .hud-section {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .hud-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hud-label {
+            color: #0a0;
+            font-size: 12px;
+        }
+
+        .hud-value {
+            color: #0f0;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #0f0;
+        }
+
+        .hud-value.warning {
+            color: #ff0;
+            text-shadow: 0 0 5px #ff0;
+            animation: pulse 0.5s infinite;
+        }
+
+        .hud-value.danger {
+            color: #f00;
+            text-shadow: 0 0 5px #f00;
+            animation: pulse 0.3s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Trace Bar */
+        .trace-bar {
+            width: 200px;
+            height: 20px;
+            background: #001100;
+            border: 1px solid #0f0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .trace-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #0f0, #ff0, #f00);
+            transition: width 0.3s;
+            box-shadow: 0 0 10px currentColor;
+        }
+
+        .trace-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 11px;
+            color: #fff;
+            text-shadow: 1px 1px 2px #000;
+            z-index: 1;
+        }
+
+        /* Main Content */
+        #content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Terminal */
+        #terminal-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 10, 0, 0.95);
+            border-right: 2px solid #0f0;
+            position: relative;
+        }
+
+        #terminal-output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        #terminal-output::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        #terminal-output::-webkit-scrollbar-track {
+            background: #001100;
+        }
+
+        #terminal-output::-webkit-scrollbar-thumb {
+            background: #0f0;
+            box-shadow: 0 0 10px #0f0;
+        }
+
+        .terminal-line {
+            margin-bottom: 8px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .terminal-line.command {
+            color: #0ff;
+        }
+
+        .terminal-line.error {
+            color: #f00;
+        }
+
+        .terminal-line.warning {
+            color: #ff0;
+        }
+
+        .terminal-line.success {
+            color: #0f0;
+        }
+
+        .terminal-line.info {
+            color: #0af;
+        }
+
+        .terminal-prompt {
+            color: #0f0;
+            text-shadow: 0 0 5px #0f0;
+        }
+
+        /* Terminal Input */
+        #terminal-input-container {
+            display: flex;
+            padding: 15px 20px;
+            background: rgba(0, 15, 0, 0.95);
+            border-top: 1px solid #0f0;
+        }
+
+        #terminal-prompt-text {
+            color: #0f0;
+            margin-right: 10px;
+            text-shadow: 0 0 5px #0f0;
+        }
+
+        #terminal-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #0ff;
+            font-family: inherit;
+            font-size: 14px;
+            outline: none;
+            caret-color: #0f0;
+        }
+
+        /* Sidebar */
+        #sidebar {
+            width: 400px;
+            background: rgba(0, 10, 0, 0.95);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            transition: width 0.3s;
+        }
+
+        #sidebar.collapsed {
+            width: 0;
+            overflow: hidden;
+        }
+
+        #sidebar::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #sidebar::-webkit-scrollbar-track {
+            background: #001100;
+        }
+
+        #sidebar::-webkit-scrollbar-thumb {
+            background: #0f0;
+        }
+
+        .sidebar-section {
+            border-bottom: 1px solid #0f0;
+            padding: 15px;
+        }
+
+        .sidebar-title {
+            color: #0ff;
+            font-size: 16px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 5px #0ff;
+            border-bottom: 1px solid #0ff;
+            padding-bottom: 5px;
+        }
+
+        /* Network Map */
+        #network-map {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border: 1px solid #0f0;
+            position: relative;
+        }
+
+        .network-node {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+
+        .network-node:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 20px currentColor;
+        }
+
+        .network-node.unknown {
+            border-color: #666;
+            background: #111;
+            color: #666;
+        }
+
+        .network-node.scanned {
+            border-color: #00f;
+            background: #001;
+            color: #00f;
+            box-shadow: 0 0 10px #00f;
+        }
+
+        .network-node.owned {
+            border-color: #0f0;
+            background: #010;
+            color: #0f0;
+            box-shadow: 0 0 10px #0f0;
+            animation: owned-pulse 2s infinite;
+        }
+
+        .network-node.target {
+            border-color: #ff0;
+            background: #110;
+            color: #ff0;
+            box-shadow: 0 0 15px #ff0;
+            animation: target-pulse 1s infinite;
+        }
+
+        .network-node.hostile {
+            border-color: #f00;
+            background: #100;
+            color: #f00;
+            box-shadow: 0 0 10px #f00;
+        }
+
+        @keyframes owned-pulse {
+            0%, 100% { box-shadow: 0 0 10px #0f0; }
+            50% { box-shadow: 0 0 20px #0f0; }
+        }
+
+        @keyframes target-pulse {
+            0%, 100% { box-shadow: 0 0 15px #ff0; }
+            50% { box-shadow: 0 0 25px #ff0; }
+        }
+
+        .network-line {
+            position: absolute;
+            height: 2px;
+            background: #0f0;
+            opacity: 0.3;
+            transform-origin: left center;
+        }
+
+        /* Contract Panel */
+        .contract-card {
+            background: rgba(0, 20, 0, 0.8);
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .contract-card:hover {
+            background: rgba(0, 30, 0, 0.9);
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+            transform: translateX(5px);
+        }
+
+        .contract-card.active {
+            border-color: #ff0;
+            box-shadow: 0 0 15px rgba(255, 255, 0, 0.5);
+        }
+
+        .contract-title {
+            color: #0ff;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        .contract-client {
+            color: #0a0;
+            font-size: 11px;
+            margin-bottom: 5px;
+        }
+
+        .contract-objective {
+            color: #0f0;
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+
+        .contract-footer {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+        }
+
+        .contract-payment {
+            color: #ff0;
+        }
+
+        .contract-difficulty {
+            color: #f90;
+        }
+
+        /* Tools Panel */
+        .tool-item {
+            background: rgba(0, 20, 0, 0.8);
+            border: 1px solid #0f0;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+
+        .tool-name {
+            color: #0ff;
+            font-size: 12px;
+            margin-bottom: 3px;
+        }
+
+        .tool-description {
+            color: #0a0;
+            font-size: 10px;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #001100;
+            border: 2px solid #0f0;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 0 50px rgba(0, 255, 0, 0.5);
+            position: relative;
+        }
+
+        .modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .modal-content::-webkit-scrollbar-track {
+            background: #000;
+        }
+
+        .modal-content::-webkit-scrollbar-thumb {
+            background: #0f0;
+        }
+
+        .modal-title {
+            color: #0ff;
+            font-size: 20px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #0ff;
+            text-align: center;
+            border-bottom: 2px solid #0ff;
+            padding-bottom: 10px;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            color: #f00;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .modal-close:hover {
+            text-shadow: 0 0 10px #f00;
+            transform: scale(1.2);
+        }
+
+        /* Shop Items */
+        .shop-item {
+            background: rgba(0, 20, 0, 0.8);
+            border: 1px solid #0f0;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .shop-item-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .shop-item-name {
+            color: #0ff;
+            font-size: 14px;
+        }
+
+        .shop-item-price {
+            color: #ff0;
+            font-size: 14px;
+        }
+
+        .shop-item-description {
+            color: #0a0;
+            font-size: 11px;
+            margin-bottom: 10px;
+        }
+
+        .shop-buy-btn {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .shop-buy-btn:hover {
+            background: #0ff;
+            box-shadow: 0 0 15px #0ff;
+        }
+
+        .shop-buy-btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        /* Progress Bar */
+        .progress-bar {
+            width: 100%;
+            height: 15px;
+            background: #001100;
+            border: 1px solid #0f0;
+            position: relative;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #0f0;
+            transition: width 0.1s linear;
+            box-shadow: 0 0 10px #0f0;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10px;
+            color: #fff;
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        /* Notification */
+        #notification {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: rgba(0, 20, 0, 0.95);
+            border: 2px solid #0f0;
+            padding: 15px 20px;
+            max-width: 300px;
+            z-index: 999;
+            transform: translateX(400px);
+            transition: transform 0.3s;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+
+        #notification.show {
+            transform: translateX(0);
+        }
+
+        .notification-title {
+            color: #0ff;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .notification-message {
+            color: #0f0;
+            font-size: 12px;
+        }
+
+        /* Button */
+        .btn {
+            background: transparent;
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+            transition: all 0.3s;
+            margin: 2px;
+        }
+
+        .btn:hover {
+            background: #0f0;
+            color: #000;
+            box-shadow: 0 0 15px #0f0;
+        }
+
+        /* Mail Badge */
+        .mail-badge {
+            display: inline-block;
+            background: #f00;
+            color: #fff;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            text-align: center;
+            line-height: 18px;
+            font-size: 10px;
+            animation: pulse 1s infinite;
+        }
+
+        /* Scan Animation */
+        @keyframes scan-line {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
+        .scanning {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scanning::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 2px;
+            background: #0f0;
+            box-shadow: 0 0 10px #0f0;
+            animation: scan-line 2s linear infinite;
+        }
+
+        /* Glitch Effect */
+        @keyframes glitch {
+            0% { transform: translate(0); }
+            20% { transform: translate(-2px, 2px); }
+            40% { transform: translate(-2px, -2px); }
+            60% { transform: translate(2px, 2px); }
+            80% { transform: translate(2px, -2px); }
+            100% { transform: translate(0); }
+        }
+
+        .glitch {
+            animation: glitch 0.3s infinite;
+        }
+
+        /* Connection Status */
+        .connection-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .connection-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .connection-dot.connected {
+            background: #0f0;
+            box-shadow: 0 0 10px #0f0;
+            animation: pulse 2s infinite;
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            #sidebar {
+                width: 300px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            #sidebar {
+                position: absolute;
+                right: 0;
+                top: 0;
+                height: 100%;
+                z-index: 10;
+                width: 80%;
+            }
+
+            #sidebar.collapsed {
+                transform: translateX(100%);
+            }
+        }
+    </style>
+</head>
+<body class="crt">
+    <canvas id="matrix-canvas"></canvas>
+
+    <div id="app">
+        <!-- HUD -->
+        <div id="hud">
+            <div class="hud-section">
+                <div class="hud-item">
+                    <span class="hud-label">CREDITS:</span>
+                    <span class="hud-value" id="credits-display">1000</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">REP:</span>
+                    <span class="hud-value" id="rep-display">0</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label">TRACE:</span>
+                    <div class="trace-bar">
+                        <div class="trace-fill" id="trace-fill"></div>
+                        <div class="trace-text" id="trace-text">0%</div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-section">
+                <div class="hud-item connection-indicator">
+                    <div class="connection-dot" id="connection-dot"></div>
+                    <span class="hud-label" id="connection-status">OFFLINE</span>
+                </div>
+                <div class="hud-item">
+                    <span class="hud-label" id="mail-indicator">MAIL</span>
+                </div>
+                <button class="btn" id="toggle-sidebar-btn">TOGGLE PANEL</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div id="content">
+            <!-- Terminal -->
+            <div id="terminal-container">
+                <div id="terminal-output"></div>
+                <div id="terminal-input-container">
+                    <span id="terminal-prompt-text">guest@phantom:~$</span>
+                    <input type="text" id="terminal-input" autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div id="sidebar">
+                <!-- Network Map -->
+                <div class="sidebar-section">
+                    <div class="sidebar-title">NETWORK MAP</div>
+                    <div id="network-map"></div>
+                </div>
+
+                <!-- Active Contract -->
+                <div class="sidebar-section">
+                    <div class="sidebar-title">ACTIVE CONTRACT</div>
+                    <div id="active-contract-display">No active contract</div>
+                </div>
+
+                <!-- Available Contracts -->
+                <div class="sidebar-section">
+                    <div class="sidebar-title">AVAILABLE CONTRACTS</div>
+                    <div id="contracts-list"></div>
+                </div>
+
+                <!-- Tools -->
+                <div class="sidebar-section">
+                    <div class="sidebar-title">INSTALLED TOOLS</div>
+                    <div id="tools-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shop Modal -->
+    <div id="shop-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" id="shop-close">&times;</span>
+            <div class="modal-title">[ TOOL SHOP ]</div>
+            <div id="shop-items"></div>
+        </div>
+    </div>
+
+    <!-- Mail Modal -->
+    <div id="mail-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" id="mail-close">&times;</span>
+            <div class="modal-title">[ SECURE MAILBOX ]</div>
+            <div id="mail-content"></div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification">
+        <div class="notification-title" id="notification-title"></div>
+        <div class="notification-message" id="notification-message"></div>
+    </div>
+
+    <script>
+        // ============================================
+        // GLOBAL STATE
+        // ============================================
+        const STATE = {
+            credits: 1000,
+            reputation: 0,
+            trace: 0,
+            traceRate: 0,
+            connected: false,
+            currentServer: null,
+            currentPath: '/',
+            ownedServers: [],
+            scannedServers: [],
+            activeContract: null,
+            completedContracts: [],
+            tools: ['scanner_basic', 'cracker_basic'],
+            campaignProgress: 0,
+            commandHistory: [],
+            historyIndex: -1,
+            proxyChain: [],
+            unreadMail: 0,
+            autoSaveInterval: null
+        };
+
+        // ============================================
+        // SERVERS DATABASE
+        // ============================================
+        const SERVERS = {};
+
+        function generateIP() {
+            return `${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}`;
+        }
+
+        function generateServer(type, securityLevel) {
+            const ip = generateIP();
+            const ports = [22];
+            if (Math.random() > 0.5) ports.push(80);
+            if (Math.random() > 0.7) ports.push(443);
+            if (Math.random() > 0.8) ports.push(3306);
+
+            const files = generateFileSystem(type, securityLevel);
+
+            return {
+                ip,
+                type,
+                securityLevel,
+                ports,
+                cracked: false,
+                password: generatePassword(securityLevel),
+                files,
+                ice: generateICE(securityLevel),
+                connectedServers: []
+            };
+        }
+
+        function generatePassword(level) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            const length = 4 + level;
+            let pass = '';
+            for (let i = 0; i < length; i++) {
+                pass += chars[Math.floor(Math.random() * chars.length)];
+            }
+            return pass;
+        }
+
+        function generateFileSystem(type, level) {
+            const files = {
+                '/': {
+                    type: 'dir',
+                    children: ['home', 'var', 'etc']
+                },
+                '/home': {
+                    type: 'dir',
+                    children: ['user']
+                },
+                '/home/user': {
+                    type: 'dir',
+                    children: ['documents', 'downloads']
+                },
+                '/home/user/documents': {
+                    type: 'dir',
+                    children: []
+                },
+                '/home/user/downloads': {
+                    type: 'dir',
+                    children: []
+                },
+                '/var': {
+                    type: 'dir',
+                    children: ['log']
+                },
+                '/var/log': {
+                    type: 'dir',
+                    children: ['access.log']
+                },
+                '/var/log/access.log': {
+                    type: 'file',
+                    content: 'System access log:\n' + generateLogContent()
+                },
+                '/etc': {
+                    type: 'dir',
+                    children: ['config']
+                },
+                '/etc/config': {
+                    type: 'dir',
+                    children: ['settings.cfg']
+                },
+                '/etc/config/settings.cfg': {
+                    type: 'file',
+                    content: generateConfigContent()
+                }
+            };
+
+            // Add type-specific files
+            if (type === 'corporate') {
+                files['/home/user/documents'].children.push('financials.xlsx', 'employees.db', 'memo.txt');
+                files['/home/user/documents/financials.xlsx'] = {
+                    type: 'file',
+                    content: 'Q4 Financial Report:\nRevenue: $4.2M\nExpenses: $3.1M\nProfit: $1.1M\nProjected Growth: 15%'
+                };
+                files['/home/user/documents/employees.db'] = {
+                    type: 'file',
+                    content: generateEmployeeData()
+                };
+                files['/home/user/documents/memo.txt'] = {
+                    type: 'file',
+                    content: generateMemo()
+                };
+            } else if (type === 'government') {
+                files['/home/user/documents'].children.push('classified.txt.enc', 'budget.xlsx', 'surveillance.log');
+                files['/home/user/documents/classified.txt.enc'] = {
+                    type: 'file',
+                    encrypted: true,
+                    content: '[ENCRYPTED DATA - REQUIRES DECRYPTOR TOOL]',
+                    decryptedContent: generateClassifiedContent()
+                };
+                files['/home/user/documents/budget.xlsx'] = {
+                    type: 'file',
+                    content: 'Department Budget FY2087:\nDefense: $850B\nIntelligence: $92B\nBlack Projects: [REDACTED]'
+                };
+                files['/home/user/documents/surveillance.log'] = {
+                    type: 'file',
+                    content: generateSurveillanceLog()
+                };
+            } else if (type === 'criminal') {
+                files['/home/user/documents'].children.push('ledger.txt', 'contacts.db', 'plans.txt.enc');
+                files['/home/user/documents/ledger.txt'] = {
+                    type: 'file',
+                    content: generateCriminalLedger()
+                };
+                files['/home/user/documents/contacts.db'] = {
+                    type: 'file',
+                    content: generateContactsDB()
+                };
+                files['/home/user/documents/plans.txt.enc'] = {
+                    type: 'file',
+                    encrypted: true,
+                    content: '[ENCRYPTED DATA]',
+                    decryptedContent: 'Next shipment arrives at Dock 7 on the 15th. Usual payment terms. -V'
+                };
+            }
+
+            // Sometimes add passwords to other servers
+            if (Math.random() > 0.6) {
+                files['/home/user/documents'].children.push('passwords.txt');
+                files['/home/user/documents/passwords.txt'] = {
+                    type: 'file',
+                    content: generatePasswordFile()
+                };
+            }
+
+            return files;
+        }
+
+        function generateLogContent() {
+            const entries = [];
+            for (let i = 0; i < 5; i++) {
+                entries.push(`[2087-02-0${i + 1}] User login from ${generateIP()}`);
+            }
+            return entries.join('\n');
+        }
+
+        function generateConfigContent() {
+            return `system_name=server_${Math.floor(Math.random() * 9999)}\nfirewall=enabled\nencryption=AES-256\nbackup=daily`;
+        }
+
+        function generateEmployeeData() {
+            const employees = ['Alice Johnson', 'Bob Smith', 'Carol Davis', 'David Chen', 'Emma Wilson'];
+            return employees.map(name => `${name} - Access Level ${Math.floor(Math.random() * 5) + 1}`).join('\n');
+        }
+
+        function generateMemo() {
+            const memos = [
+                'MEMO: All employees must update security credentials by end of week.',
+                'REMINDER: Server maintenance scheduled for this weekend.',
+                'NOTICE: New VPN access protocols in effect immediately.',
+                'CONFIDENTIAL: Project Phoenix timeline has been accelerated.'
+            ];
+            return memos[Math.floor(Math.random() * memos.length)];
+        }
+
+        function generateClassifiedContent() {
+            return 'PROJECT NIGHTFALL\nStatus: Active\nClearance Required: Level 9\nObjective: [REDACTED]\nAssets Deployed: 47\nEstimated Completion: Q3 2087';
+        }
+
+        function generateSurveillanceLog() {
+            const targets = ['Target Alpha', 'Subject 47', 'Asset Phoenix', 'Contact Indigo'];
+            return targets.map(t => `${t}: Last seen ${generateIP()} - Status: Active`).join('\n');
+        }
+
+        function generateCriminalLedger() {
+            return 'Transactions:\n2087-02-01: +$45,000 (Data sale)\n2087-02-03: -$12,000 (Equipment)\n2087-02-05: +$88,000 (Contract completion)\nBalance: $121,000';
+        }
+
+        function generateContactsDB() {
+            const contacts = ['Wraith', 'Cipher', 'Ghost_Protocol', 'Dark_Net_77', 'Zero_Cool'];
+            return contacts.map(c => `${c}: [ENCRYPTED CONTACT INFO]`).join('\n');
+        }
+
+        function generatePasswordFile() {
+            const ips = [generateIP(), generateIP()];
+            return `Backup server logins:\n${ips[0]}: password123\n${ips[1]}: admin2087`;
+        }
+
+        function generateICE(level) {
+            if (level < 3) return null;
+
+            const types = ['passive', 'active', 'killer'];
+            const type = level < 5 ? 'passive' : level < 8 ? 'active' : types[Math.floor(Math.random() * types.length)];
+
+            return {
+                type,
+                strength: level,
+                active: false
+            };
+        }
+
+        // Initialize network
+        function initializeNetwork() {
+            // Player's home server
+            const homeIP = '127.0.0.1';
+            SERVERS[homeIP] = {
+                ip: homeIP,
+                type: 'personal',
+                securityLevel: 0,
+                ports: [22],
+                cracked: true,
+                password: '',
+                files: {
+                    '/': { type: 'dir', children: ['home'] },
+                    '/home': { type: 'dir', children: ['phantom'] },
+                    '/home/phantom': { type: 'dir', children: ['downloads', 'tools'] },
+                    '/home/phantom/downloads': { type: 'dir', children: [] },
+                    '/home/phantom/tools': { type: 'dir', children: [] }
+                },
+                ice: null,
+                connectedServers: []
+            };
+            STATE.ownedServers.push(homeIP);
+
+            // Generate network
+            const types = ['corporate', 'government', 'personal', 'criminal', 'financial'];
+
+            // Tutorial/easy servers
+            for (let i = 0; i < 5; i++) {
+                const server = generateServer(types[Math.floor(Math.random() * types.length)], 1 + Math.floor(Math.random() * 2));
+                SERVERS[server.ip] = server;
+                SERVERS[homeIP].connectedServers.push(server.ip);
+            }
+
+            // Medium difficulty servers
+            for (let i = 0; i < 10; i++) {
+                const server = generateServer(types[Math.floor(Math.random() * types.length)], 3 + Math.floor(Math.random() * 3));
+                SERVERS[server.ip] = server;
+                const randomConnectedServer = Object.keys(SERVERS)[Math.floor(Math.random() * Object.keys(SERVERS).length)];
+                SERVERS[randomConnectedServer].connectedServers.push(server.ip);
+            }
+
+            // Hard servers
+            for (let i = 0; i < 5; i++) {
+                const server = generateServer(types[Math.floor(Math.random() * types.length)], 6 + Math.floor(Math.random() * 4));
+                SERVERS[server.ip] = server;
+                const keys = Object.keys(SERVERS);
+                const randomConnectedServer = keys[Math.floor(Math.random() * keys.length)];
+                SERVERS[randomConnectedServer].connectedServers.push(server.ip);
+            }
+        }
+
+        // ============================================
+        // CONTRACTS
+        // ============================================
+        const CONTRACT_TEMPLATES = {
+            data_theft: {
+                objectives: [
+                    { file: 'financials.xlsx', description: 'Download financial records' },
+                    { file: 'employees.db', description: 'Steal employee database' },
+                    { file: 'classified.txt', description: 'Extract classified document' },
+                    { file: 'ledger.txt', description: 'Copy transaction ledger' }
+                ],
+                paymentRange: [500, 2000],
+                repReward: [5, 15]
+            },
+            sabotage: {
+                objectives: [
+                    { file: 'access.log', description: 'Delete access logs' },
+                    { file: 'employees.db', description: 'Corrupt employee database' },
+                    { file: 'settings.cfg', description: 'Wipe configuration files' }
+                ],
+                paymentRange: [800, 2500],
+                repReward: [8, 20]
+            },
+            surveillance: {
+                objectives: [
+                    { description: 'Install backdoor for ongoing access' }
+                ],
+                paymentRange: [1000, 3000],
+                repReward: [10, 25]
+            }
+        };
+
+        const CAMPAIGN_MISSIONS = [
+            {
+                id: 'campaign_1',
+                title: 'GHOST IN THE WIRE',
+                client: 'UNKNOWN',
+                objective: 'Download memo.txt from any corporate server',
+                targetType: 'corporate',
+                targetFile: 'memo.txt',
+                payment: 2000,
+                rep: 30,
+                story: 'Someone wants you to prove your skills. Find any corporate server and steal a memo. Simple. Too simple?'
+            },
+            {
+                id: 'campaign_2',
+                title: 'FOLLOW THE MONEY',
+                client: 'WHISTLEBLOWER',
+                objective: 'Locate and download ledger.txt from a criminal server',
+                targetType: 'criminal',
+                targetFile: 'ledger.txt',
+                payment: 3500,
+                rep: 40,
+                story: 'A criminal organization is moving money. Find their ledger. Someone wants them exposed.'
+            },
+            {
+                id: 'campaign_3',
+                title: 'BLACK BUDGET',
+                client: 'CONCERNED_CITIZEN',
+                objective: 'Steal budget.xlsx from a government server',
+                targetType: 'government',
+                targetFile: 'budget.xlsx',
+                payment: 5000,
+                rep: 50,
+                story: 'Where do tax dollars really go? Find a government budget document. The public deserves to know.'
+            },
+            {
+                id: 'campaign_4',
+                title: 'NIGHTFALL PROTOCOL',
+                client: 'INSIDER',
+                objective: 'Decrypt and download classified.txt.enc from any government server',
+                targetType: 'government',
+                targetFile: 'classified.txt.enc',
+                payment: 8000,
+                rep: 70,
+                story: 'PROJECT NIGHTFALL. You\'ve heard whispers. Someone inside wants it leaked. Time to find out what they\'re hiding.'
+            },
+            {
+                id: 'campaign_5',
+                title: 'PHANTOM PROTOCOL',
+                client: '???',
+                objective: 'You will know when the time comes',
+                payment: 15000,
+                rep: 100,
+                story: 'The final piece of the puzzle awaits. Are you ready to see the truth?'
+            }
+        ];
+
+        function generateContracts() {
+            const contracts = [];
+            const numContracts = 3 + Math.floor(Math.random() * 2);
+
+            for (let i = 0; i < numContracts; i++) {
+                const types = Object.keys(CONTRACT_TEMPLATES);
+                const type = types[Math.floor(Math.random() * types.length)];
+                const template = CONTRACT_TEMPLATES[type];
+                const objective = template.objectives[Math.floor(Math.random() * template.objectives.length)];
+
+                // Find suitable target server
+                const suitableServers = Object.values(SERVERS).filter(s =>
+                    !STATE.ownedServers.includes(s.ip) &&
+                    s.securityLevel <= STATE.reputation / 10 + 3
+                );
+
+                if (suitableServers.length === 0) continue;
+
+                const target = suitableServers[Math.floor(Math.random() * suitableServers.length)];
+
+                const payment = template.paymentRange[0] + Math.floor(Math.random() * (template.paymentRange[1] - template.paymentRange[0]));
+                const rep = template.repReward[0] + Math.floor(Math.random() * (template.repReward[1] - template.repReward[0]));
+
+                contracts.push({
+                    id: `contract_${Date.now()}_${i}`,
+                    type,
+                    title: generateContractTitle(type),
+                    client: generateClientName(),
+                    objective: objective.description,
+                    targetIP: target.ip,
+                    targetFile: objective.file,
+                    payment,
+                    rep,
+                    difficulty: target.securityLevel,
+                    expires: Date.now() + 600000 // 10 minutes
+                });
+            }
+
+            // Add campaign mission if available
+            if (STATE.campaignProgress < CAMPAIGN_MISSIONS.length) {
+                const mission = CAMPAIGN_MISSIONS[STATE.campaignProgress];
+                contracts.unshift({
+                    id: mission.id,
+                    type: 'campaign',
+                    title: mission.title,
+                    client: mission.client,
+                    objective: mission.objective,
+                    targetType: mission.targetType,
+                    targetFile: mission.targetFile,
+                    payment: mission.payment,
+                    rep: mission.rep,
+                    difficulty: STATE.campaignProgress + 2,
+                    story: mission.story,
+                    campaign: true
+                });
+            }
+
+            return contracts;
+        }
+
+        function generateContractTitle(type) {
+            const titles = {
+                data_theft: ['DATA EXTRACTION', 'INTEL GRAB', 'INFORMATION RETRIEVAL', 'COPY MISSION'],
+                sabotage: ['SYSTEM SABOTAGE', 'DATA CORRUPTION', 'CLEANUP JOB', 'EVIDENCE REMOVAL'],
+                surveillance: ['BACKDOOR INSTALL', 'LONG TERM ACCESS', 'SURVEILLANCE SETUP', 'PERSISTENT ACCESS']
+            };
+            const options = titles[type];
+            return options[Math.floor(Math.random() * options.length)];
+        }
+
+        function generateClientName() {
+            const names = ['ANON_7734', 'GHOST_WIRE', 'CIPHER_X', 'DARK_PHOENIX', 'ZERO_DAY', 'CRYPTO_KING', 'SHADOW_NET', 'NEXUS_77'];
+            return names[Math.floor(Math.random() * names.length)];
+        }
+
+        let AVAILABLE_CONTRACTS = [];
+
+        function refreshContracts() {
+            AVAILABLE_CONTRACTS = generateContracts();
+            renderContracts();
+            showNotification('NEW CONTRACTS', 'Contract board updated');
+        }
+
+        // ============================================
+        // TOOLS
+        // ============================================
+        const TOOLS_DATABASE = {
+            scanner_basic: {
+                name: 'Basic Scanner',
+                description: 'Scan targets for open ports',
+                price: 0,
+                owned: true
+            },
+            cracker_basic: {
+                name: 'Basic Cracker',
+                description: 'Crack passwords (slow)',
+                price: 0,
+                owned: true
+            },
+            cracker_v2: {
+                name: 'Cracker v2.0',
+                description: 'Faster password cracking',
+                price: 2000,
+                owned: false
+            },
+            cracker_v3: {
+                name: 'Cracker v3.0',
+                description: 'Advanced cracking algorithms',
+                price: 5000,
+                owned: false
+            },
+            stealth_module: {
+                name: 'Stealth Module',
+                description: 'Reduces trace generation by 30%',
+                price: 3000,
+                owned: false
+            },
+            decryptor: {
+                name: 'Decryptor',
+                description: 'Decrypt encrypted files',
+                price: 4000,
+                owned: false
+            },
+            ice_breaker: {
+                name: 'ICE Breaker',
+                description: 'Counter active ICE',
+                price: 6000,
+                owned: false
+            },
+            proxy_advanced: {
+                name: 'Advanced Proxy',
+                description: 'Multi-hop proxy chains',
+                price: 3500,
+                owned: false
+            },
+            worm: {
+                name: 'Auto-Worm',
+                description: 'Automatically spread to connected servers',
+                price: 8000,
+                owned: false
+            },
+            ghost_protocol: {
+                name: 'Ghost Protocol',
+                description: 'Freeze trace for 60 seconds (consumable)',
+                price: 5000,
+                owned: false,
+                consumable: true
+            }
+        };
+
+        // ============================================
+        // AUDIO
+        // ============================================
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            const now = audioContext.currentTime;
+
+            switch(type) {
+                case 'type':
+                    oscillator.frequency.value = 800;
+                    gainNode.gain.setValueAtTime(0.05, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.05);
+                    break;
+                case 'scan':
+                    oscillator.frequency.value = 600;
+                    gainNode.gain.setValueAtTime(0.1, now);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.1);
+                    break;
+                case 'crack':
+                    oscillator.frequency.value = 400 + Math.random() * 200;
+                    gainNode.gain.setValueAtTime(0.08, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.15);
+                    break;
+                case 'alert':
+                    oscillator.frequency.value = 1200;
+                    gainNode.gain.setValueAtTime(0.2, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.3);
+                    break;
+                case 'success':
+                    oscillator.frequency.value = 800;
+                    gainNode.gain.setValueAtTime(0.15, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(1200, now + 0.2);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.2);
+                    break;
+                case 'connect':
+                    oscillator.frequency.value = 400;
+                    gainNode.gain.setValueAtTime(0.1, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(800, now + 0.15);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.15);
+                    break;
+                case 'disconnect':
+                    oscillator.frequency.value = 800;
+                    gainNode.gain.setValueAtTime(0.1, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.15);
+                    break;
+                case 'ice':
+                    oscillator.frequency.value = 100;
+                    oscillator.type = 'sawtooth';
+                    gainNode.gain.setValueAtTime(0.15, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.5);
+                    break;
+            }
+        }
+
+        // ============================================
+        // TERMINAL
+        // ============================================
+        const terminalOutput = document.getElementById('terminal-output');
+        const terminalInput = document.getElementById('terminal-input');
+        const terminalPrompt = document.getElementById('terminal-prompt-text');
+
+        function print(text, className = '') {
+            const line = document.createElement('div');
+            line.className = `terminal-line ${className}`;
+            line.textContent = text;
+            terminalOutput.appendChild(line);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
+
+        function printHTML(html) {
+            const line = document.createElement('div');
+            line.className = 'terminal-line';
+            line.innerHTML = html;
+            terminalOutput.appendChild(line);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
+
+        function clear() {
+            terminalOutput.innerHTML = '';
+        }
+
+        function updatePrompt() {
+            if (STATE.connected && STATE.currentServer) {
+                const server = SERVERS[STATE.currentServer];
+                terminalPrompt.textContent = `root@${STATE.currentServer}:${STATE.currentPath}$`;
+                document.getElementById('connection-dot').classList.add('connected');
+                document.getElementById('connection-status').textContent = `CONNECTED: ${STATE.currentServer}`;
+            } else {
+                terminalPrompt.textContent = 'guest@phantom:~$';
+                document.getElementById('connection-dot').classList.remove('connected');
+                document.getElementById('connection-status').textContent = 'OFFLINE';
+            }
+        }
+
+        // Boot sequence
+        function bootSequence() {
+            const bootMessages = [
+                '[BOOTING PHANTOM OS v7.3]',
+                'Initializing secure kernel...',
+                'Loading stealth modules...',
+                'Establishing encrypted connection...',
+                'Connecting to darknet relays...',
+                '',
+                '████████████████████████████████████████',
+                '█  PHANTOM PROTOCOL TERMINAL v7.3     █',
+                '█  Unauthorized access is unauthorized █',
+                '█  Type "help" for command list       █',
+                '████████████████████████████████████████',
+                '',
+                'Welcome back, Phantom.',
+                'You have new contracts available.',
+                'Type "mail" to check your secure inbox.',
+                ''
+            ];
+
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i < bootMessages.length) {
+                    print(bootMessages[i], 'success');
+                    playSound('type');
+                    i++;
+                } else {
+                    clearInterval(interval);
+                    terminalInput.focus();
+                }
+            }, 100);
+        }
+
+        // Command handling
+        terminalInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const command = terminalInput.value.trim();
+                if (command) {
+                    print(`${terminalPrompt.textContent} ${command}`, 'command');
+                    STATE.commandHistory.unshift(command);
+                    STATE.historyIndex = -1;
+                    executeCommand(command);
+                    terminalInput.value = '';
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (STATE.historyIndex < STATE.commandHistory.length - 1) {
+                    STATE.historyIndex++;
+                    terminalInput.value = STATE.commandHistory[STATE.historyIndex];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (STATE.historyIndex > 0) {
+                    STATE.historyIndex--;
+                    terminalInput.value = STATE.commandHistory[STATE.historyIndex];
+                } else if (STATE.historyIndex === 0) {
+                    STATE.historyIndex = -1;
+                    terminalInput.value = '';
+                }
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                // Tab completion logic here
+            }
+        });
+
+        terminalInput.addEventListener('input', () => {
+            playSound('type');
+        });
+
+        function executeCommand(input) {
+            const parts = input.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const args = parts.slice(1);
+
+            const commands = {
+                help: cmdHelp,
+                clear: () => clear(),
+                scan: cmdScan,
+                probe: cmdProbe,
+                crack: cmdCrack,
+                ssh: cmdSSH,
+                disconnect: cmdDisconnect,
+                ls: cmdLS,
+                cd: cmdCD,
+                cat: cmdCat,
+                rm: cmdRM,
+                download: cmdDownload,
+                upload: cmdUpload,
+                proxy: cmdProxy,
+                wipe: cmdWipe,
+                decrypt: cmdDecrypt,
+                inject: cmdInject,
+                trace: cmdTrace,
+                mail: cmdMail,
+                contract: cmdContract,
+                shop: cmdShop,
+                status: cmdStatus,
+                save: cmdSave,
+                load: cmdLoad
+            };
+
+            if (commands[cmd]) {
+                commands[cmd](args);
+            } else {
+                print(`Command not found: ${cmd}`, 'error');
+                print('Type "help" for available commands', 'info');
+            }
+        }
+
+        function cmdHelp() {
+            print('═══════════════════════════════════════════════════════════════', 'success');
+            print('  PHANTOM PROTOCOL - COMMAND REFERENCE', 'success');
+            print('═══════════════════════════════════════════════════════════════', 'success');
+            print('');
+            print('NETWORK COMMANDS:', 'info');
+            print('  scan <ip>        - Scan target for open ports');
+            print('  probe <ip> <port>- Get service information');
+            print('  crack <ip>       - Brute force password');
+            print('  ssh <ip>         - Connect to cracked server');
+            print('  disconnect       - Drop current connection');
+            print('  proxy <ip>       - Route through compromised server');
+            print('');
+            print('FILE COMMANDS:', 'info');
+            print('  ls [path]        - List directory contents');
+            print('  cd <path>        - Change directory');
+            print('  cat <file>       - Display file contents');
+            print('  rm <file>        - Delete file (sabotage)');
+            print('  download <file>  - Copy file to your system');
+            print('  upload <file>    - Upload payload to server');
+            print('  decrypt <file>   - Decrypt encrypted file');
+            print('');
+            print('STEALTH COMMANDS:', 'info');
+            print('  wipe             - Clear your logs from server');
+            print('  trace            - Show current trace level');
+            print('');
+            print('SYSTEM COMMANDS:', 'info');
+            print('  contract         - View available contracts');
+            print('  mail             - Check secure mailbox');
+            print('  shop             - Open tool shop');
+            print('  status           - Show system status');
+            print('  save             - Save game state');
+            print('  load             - Load saved game');
+            print('  clear            - Clear terminal');
+            print('  help             - Show this help');
+            print('═══════════════════════════════════════════════════════════════', 'success');
+        }
+
+        function cmdScan(args) {
+            if (args.length === 0) {
+                print('Usage: scan <ip>', 'error');
+                return;
+            }
+
+            const ip = args[0];
+            if (!SERVERS[ip]) {
+                print(`Host ${ip} not found`, 'error');
+                return;
+            }
+
+            if (!STATE.scannedServers.includes(ip)) {
+                STATE.scannedServers.push(ip);
+            }
+
+            playSound('scan');
+            print(`Scanning ${ip}<span class="loading"></span>`, 'info');
+
+            setTimeout(() => {
+                const server = SERVERS[ip];
+                print('═══════════════════════════════════════', 'success');
+                print(`HOST: ${ip}`, 'success');
+                print(`TYPE: ${server.type.toUpperCase()}`, 'success');
+                print(`SECURITY: ${'█'.repeat(server.securityLevel)}${'░'.repeat(10-server.securityLevel)} [${server.securityLevel}/10]`, 'success');
+                print(`PORTS: ${server.ports.join(', ')}`, 'success');
+                if (server.ice) {
+                    print(`ICE DETECTED: ${server.ice.type.toUpperCase()} [LEVEL ${server.ice.strength}]`, 'warning');
+                }
+                print('═══════════════════════════════════════', 'success');
+
+                renderNetworkMap();
+            }, 1500);
+        }
+
+        function cmdProbe(args) {
+            if (args.length < 2) {
+                print('Usage: probe <ip> <port>', 'error');
+                return;
+            }
+
+            const ip = args[0];
+            const port = parseInt(args[1]);
+
+            if (!SERVERS[ip]) {
+                print(`Host ${ip} not found`, 'error');
+                return;
+            }
+
+            const server = SERVERS[ip];
+            if (!server.ports.includes(port)) {
+                print(`Port ${port} is closed on ${ip}`, 'error');
+                return;
+            }
+
+            playSound('scan');
+            print(`Probing ${ip}:${port}<span class="loading"></span>`, 'info');
+
+            setTimeout(() => {
+                const services = {
+                    22: 'SSH - OpenSSH 8.9',
+                    80: 'HTTP - Apache 2.4',
+                    443: 'HTTPS - nginx 1.21',
+                    3306: 'MySQL 8.0.27'
+                };
+
+                print(`Port ${port}/tcp OPEN`, 'success');
+                print(`Service: ${services[port] || 'Unknown'}`, 'success');
+
+                if (port === 22) {
+                    print('Vulnerability: Weak password authentication', 'warning');
+                    print('Exploit: Use "crack" command', 'info');
+                }
+            }, 1000);
+        }
+
+        function cmdCrack(args) {
+            if (args.length === 0) {
+                print('Usage: crack <ip>', 'error');
+                return;
+            }
+
+            const ip = args[0];
+            if (!SERVERS[ip]) {
+                print(`Host ${ip} not found`, 'error');
+                return;
+            }
+
+            const server = SERVERS[ip];
+            if (server.cracked) {
+                print(`${ip} is already cracked`, 'warning');
+                return;
+            }
+
+            if (!STATE.scannedServers.includes(ip)) {
+                print('You must scan the target first', 'error');
+                return;
+            }
+
+            const crackerSpeed = STATE.tools.includes('cracker_v3') ? 3 : STATE.tools.includes('cracker_v2') ? 2 : 1;
+            const crackTime = Math.max(2000, server.securityLevel * 1000 / crackerSpeed);
+
+            print(`Initiating brute force attack on ${ip}<span class="loading"></span>`, 'info');
+            print('This may take a while...', 'warning');
+
+            const progressBar = document.createElement('div');
+            progressBar.className = 'progress-bar';
+            progressBar.innerHTML = '<div class="progress-fill" style="width: 0%"></div><div class="progress-text">0%</div>';
+            terminalOutput.appendChild(progressBar);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 5;
+                progressBar.querySelector('.progress-fill').style.width = progress + '%';
+                progressBar.querySelector('.progress-text').textContent = progress + '%';
+                playSound('crack');
+
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    server.cracked = true;
+                    STATE.ownedServers.push(ip);
+                    playSound('success');
+                    print(`PASSWORD CRACKED: ${server.password}`, 'success');
+                    print(`${ip} has been compromised`, 'success');
+                    renderNetworkMap();
+                }
+            }, crackTime / 20);
+        }
+
+        function cmdSSH(args) {
+            if (args.length === 0) {
+                print('Usage: ssh <ip>', 'error');
+                return;
+            }
+
+            const ip = args[0];
+            if (!SERVERS[ip]) {
+                print(`Host ${ip} not found`, 'error');
+                return;
+            }
+
+            const server = SERVERS[ip];
+            if (!server.cracked && ip !== '127.0.0.1') {
+                print(`Access denied: You must crack ${ip} first`, 'error');
+                return;
+            }
+
+            playSound('connect');
+            print(`Establishing secure connection to ${ip}<span class="loading"></span>`, 'info');
+
+            setTimeout(() => {
+                STATE.connected = true;
+                STATE.currentServer = ip;
+                STATE.currentPath = '/';
+                STATE.traceRate = server.securityLevel * 0.5;
+
+                if (server.ice && Math.random() > 0.5) {
+                    server.ice.active = true;
+                    print('⚠ ICE DETECTED - INTRUSION COUNTERMEASURES ACTIVE', 'error');
+                    playSound('ice');
+                    STATE.traceRate *= 2;
+                }
+
+                print('Connection established', 'success');
+                print(`Welcome to ${server.type} server ${ip}`, 'success');
+                updatePrompt();
+                renderNetworkMap();
+                startTraceTimer();
+            }, 1000);
+        }
+
+        function cmdDisconnect() {
+            if (!STATE.connected) {
+                print('Not connected to any server', 'warning');
+                return;
+            }
+
+            playSound('disconnect');
+            print(`Disconnecting from ${STATE.currentServer}...`, 'info');
+
+            stopTraceTimer();
+            STATE.connected = false;
+            STATE.currentServer = null;
+            STATE.currentPath = '/';
+            STATE.trace = Math.max(0, STATE.trace - 10);
+
+            updatePrompt();
+            updateHUD();
+            renderNetworkMap();
+            print('Connection closed', 'success');
+        }
+
+        function cmdLS(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            const path = args.length > 0 ? resolvePath(args[0]) : STATE.currentPath;
+            const server = SERVERS[STATE.currentServer];
+            const item = server.files[path];
+
+            if (!item) {
+                print(`ls: cannot access '${path}': No such file or directory`, 'error');
+                return;
+            }
+
+            if (item.type !== 'dir') {
+                print(`ls: ${path}: Not a directory`, 'error');
+                return;
+            }
+
+            increaseTrace(2);
+
+            print(`Contents of ${path}:`, 'info');
+            if (item.children.length === 0) {
+                print('  (empty)', 'warning');
+            } else {
+                item.children.forEach(child => {
+                    const childPath = path === '/' ? `/${child}` : `${path}/${child}`;
+                    const childItem = server.files[childPath];
+                    const icon = childItem.type === 'dir' ? '📁' : '📄';
+                    const color = childItem.type === 'dir' ? 'info' : childItem.encrypted ? 'warning' : 'success';
+                    print(`  ${icon} ${child}`, color);
+                });
+            }
+        }
+
+        function cmdCD(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (args.length === 0) {
+                STATE.currentPath = '/';
+                updatePrompt();
+                return;
+            }
+
+            const path = resolvePath(args[0]);
+            const server = SERVERS[STATE.currentServer];
+            const item = server.files[path];
+
+            if (!item) {
+                print(`cd: ${path}: No such file or directory`, 'error');
+                return;
+            }
+
+            if (item.type !== 'dir') {
+                print(`cd: ${path}: Not a directory`, 'error');
+                return;
+            }
+
+            STATE.currentPath = path;
+            updatePrompt();
+            increaseTrace(1);
+        }
+
+        function cmdCat(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (args.length === 0) {
+                print('Usage: cat <file>', 'error');
+                return;
+            }
+
+            const path = resolvePath(args[0]);
+            const server = SERVERS[STATE.currentServer];
+            const item = server.files[path];
+
+            if (!item) {
+                print(`cat: ${path}: No such file or directory`, 'error');
+                return;
+            }
+
+            if (item.type === 'dir') {
+                print(`cat: ${path}: Is a directory`, 'error');
+                return;
+            }
+
+            increaseTrace(3);
+
+            if (item.encrypted && !STATE.tools.includes('decryptor')) {
+                print('═══════════════════════════════════════', 'warning');
+                print(item.content, 'warning');
+                print('═══════════════════════════════════════', 'warning');
+                print('File is encrypted. Use "decrypt" command or purchase Decryptor tool.', 'error');
+                return;
+            }
+
+            print('═══════════════════════════════════════', 'success');
+            print(item.encrypted && item.decryptedContent ? item.decryptedContent : item.content, 'success');
+            print('═══════════════════════════════════════', 'success');
+        }
+
+        function cmdRM(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (args.length === 0) {
+                print('Usage: rm <file>', 'error');
+                return;
+            }
+
+            const path = resolvePath(args[0]);
+            const server = SERVERS[STATE.currentServer];
+            const item = server.files[path];
+
+            if (!item) {
+                print(`rm: cannot remove '${path}': No such file or directory`, 'error');
+                return;
+            }
+
+            if (item.type === 'dir') {
+                print(`rm: cannot remove '${path}': Is a directory`, 'error');
+                return;
+            }
+
+            increaseTrace(5);
+
+            const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
+            const fileName = path.substring(path.lastIndexOf('/') + 1);
+            const parent = server.files[parentPath];
+            parent.children = parent.children.filter(c => c !== fileName);
+            delete server.files[path];
+
+            playSound('success');
+            print(`File ${path} deleted`, 'success');
+
+            // Check if this completes a contract
+            checkContractProgress('delete', fileName);
+        }
+
+        function cmdDownload(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (args.length === 0) {
+                print('Usage: download <file>', 'error');
+                return;
+            }
+
+            const path = resolvePath(args[0]);
+            const server = SERVERS[STATE.currentServer];
+            const item = server.files[path];
+
+            if (!item) {
+                print(`download: ${path}: No such file or directory`, 'error');
+                return;
+            }
+
+            if (item.type === 'dir') {
+                print(`download: ${path}: Is a directory`, 'error');
+                return;
+            }
+
+            increaseTrace(8);
+
+            print(`Downloading ${path}<span class="loading"></span>`, 'info');
+
+            const progressBar = document.createElement('div');
+            progressBar.className = 'progress-bar';
+            progressBar.innerHTML = '<div class="progress-fill" style="width: 0%"></div><div class="progress-text">0%</div>';
+            terminalOutput.appendChild(progressBar);
+
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                progressBar.querySelector('.progress-fill').style.width = progress + '%';
+                progressBar.querySelector('.progress-text').textContent = progress + '%';
+
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    playSound('success');
+                    print(`File downloaded to /home/phantom/downloads/${args[0]}`, 'success');
+
+                    // Add to home server
+                    const homeServer = SERVERS['127.0.0.1'];
+                    const fileName = path.substring(path.lastIndexOf('/') + 1);
+                    if (!homeServer.files['/home/phantom/downloads'].children.includes(fileName)) {
+                        homeServer.files['/home/phantom/downloads'].children.push(fileName);
+                        homeServer.files[`/home/phantom/downloads/${fileName}`] = {
+                            type: 'file',
+                            content: item.content,
+                            encrypted: item.encrypted,
+                            decryptedContent: item.decryptedContent
+                        };
+                    }
+
+                    // Check contract completion
+                    checkContractProgress('download', fileName);
+                }
+            }, 200);
+        }
+
+        function cmdUpload(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (args.length === 0) {
+                print('Usage: upload <payload>', 'error');
+                return;
+            }
+
+            increaseTrace(10);
+            print('Uploading payload<span class="loading"></span>', 'info');
+
+            setTimeout(() => {
+                playSound('success');
+                print('Payload uploaded successfully', 'success');
+                print('Backdoor installed for persistent access', 'success');
+
+                checkContractProgress('upload', args[0]);
+            }, 1500);
+        }
+
+        function cmdProxy(args) {
+            if (args.length === 0) {
+                print('Usage: proxy <ip>', 'error');
+                return;
+            }
+
+            const ip = args[0];
+            if (!SERVERS[ip]) {
+                print(`Host ${ip} not found`, 'error');
+                return;
+            }
+
+            if (!STATE.ownedServers.includes(ip)) {
+                print('You must own this server to use it as a proxy', 'error');
+                return;
+            }
+
+            STATE.proxyChain.push(ip);
+            playSound('success');
+            print(`Routing traffic through ${ip}`, 'success');
+            print(`Proxy chain: ${STATE.proxyChain.join(' -> ')}`, 'info');
+            print('Trace generation reduced', 'success');
+        }
+
+        function cmdWipe() {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            print('Wiping access logs<span class="loading"></span>', 'info');
+
+            setTimeout(() => {
+                const reduction = 20 + (STATE.tools.includes('stealth_module') ? 10 : 0);
+                STATE.trace = Math.max(0, STATE.trace - reduction);
+                updateHUD();
+                playSound('success');
+                print(`Logs wiped. Trace reduced by ${reduction}%`, 'success');
+            }, 1000);
+        }
+
+        function cmdDecrypt(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (!STATE.tools.includes('decryptor')) {
+                print('Decryptor tool not installed', 'error');
+                print('Purchase from shop using "shop" command', 'info');
+                return;
+            }
+
+            if (args.length === 0) {
+                print('Usage: decrypt <file>', 'error');
+                return;
+            }
+
+            const path = resolvePath(args[0]);
+            const server = SERVERS[STATE.currentServer];
+            const item = server.files[path];
+
+            if (!item) {
+                print(`decrypt: ${path}: No such file or directory`, 'error');
+                return;
+            }
+
+            if (!item.encrypted) {
+                print('File is not encrypted', 'warning');
+                return;
+            }
+
+            increaseTrace(6);
+            print('Decrypting file<span class="loading"></span>', 'info');
+
+            setTimeout(() => {
+                item.encrypted = false;
+                playSound('success');
+                print('File decrypted successfully', 'success');
+                print('═══════════════════════════════════════', 'success');
+                print(item.decryptedContent, 'success');
+                print('═══════════════════════════════════════', 'success');
+            }, 2000);
+        }
+
+        function cmdInject(args) {
+            if (!STATE.connected) {
+                print('Must be connected to a server', 'error');
+                return;
+            }
+
+            if (!STATE.tools.includes('worm')) {
+                print('Auto-Worm tool not installed', 'error');
+                return;
+            }
+
+            increaseTrace(15);
+            print('Injecting worm payload<span class="loading"></span>', 'info');
+
+            setTimeout(() => {
+                const server = SERVERS[STATE.currentServer];
+                let infected = 0;
+
+                server.connectedServers.forEach(ip => {
+                    if (!STATE.ownedServers.includes(ip) && Math.random() > 0.5) {
+                        SERVERS[ip].cracked = true;
+                        STATE.ownedServers.push(ip);
+                        infected++;
+                    }
+                });
+
+                playSound('success');
+                print(`Worm deployed successfully`, 'success');
+                print(`${infected} connected servers compromised`, 'success');
+                renderNetworkMap();
+            }, 2000);
+        }
+
+        function cmdTrace() {
+            print('═══════════════════════════════════════', 'info');
+            print(`CURRENT TRACE: ${STATE.trace.toFixed(1)}%`, STATE.trace > 70 ? 'error' : STATE.trace > 40 ? 'warning' : 'success');
+            print(`TRACE RATE: ${STATE.traceRate.toFixed(1)}%/s`, 'info');
+            print(`ACTIVE PROXIES: ${STATE.proxyChain.length}`, 'info');
+            if (STATE.connected) {
+                const server = SERVERS[STATE.currentServer];
+                if (server.ice && server.ice.active) {
+                    print(`ICE STATUS: ACTIVE [${server.ice.type.toUpperCase()}]`, 'error');
+                }
+            }
+            print('═══════════════════════════════════════', 'info');
+        }
+
+        function cmdMail() {
+            openMailModal();
+        }
+
+        function cmdContract() {
+            print('═══════════════════════════════════════', 'info');
+            print('AVAILABLE CONTRACTS:', 'info');
+            print('═══════════════════════════════════════', 'info');
+
+            AVAILABLE_CONTRACTS.forEach((contract, i) => {
+                print(`[${i + 1}] ${contract.title}`, contract.campaign ? 'warning' : 'success');
+                print(`    Client: ${contract.client}`, 'info');
+                print(`    Objective: ${contract.objective}`, 'info');
+                print(`    Payment: ${contract.payment} credits | Rep: +${contract.rep}`, 'success');
+                print(`    Difficulty: ${'★'.repeat(contract.difficulty)}${'☆'.repeat(5-contract.difficulty)}`, 'warning');
+                if (contract.story) {
+                    print(`    ${contract.story}`, 'info');
+                }
+                print('');
+            });
+
+            if (STATE.activeContract) {
+                print('═══════════════════════════════════════', 'warning');
+                print(`ACTIVE CONTRACT: ${STATE.activeContract.title}`, 'warning');
+                print(`Target: ${STATE.activeContract.targetIP || 'See objective'}`, 'warning');
+                print('═══════════════════════════════════════', 'warning');
+            }
+        }
+
+        function cmdShop() {
+            openShopModal();
+        }
+
+        function cmdStatus() {
+            print('═══════════════════════════════════════', 'info');
+            print('SYSTEM STATUS', 'info');
+            print('═══════════════════════════════════════', 'info');
+            print(`Credits: ${STATE.credits}`, 'success');
+            print(`Reputation: ${STATE.reputation}/100`, 'success');
+            print(`Owned Servers: ${STATE.ownedServers.length}`, 'success');
+            print(`Completed Contracts: ${STATE.completedContracts.length}`, 'success');
+            print(`Campaign Progress: ${STATE.campaignProgress}/${CAMPAIGN_MISSIONS.length}`, 'info');
+            print('');
+            print('INSTALLED TOOLS:', 'info');
+            STATE.tools.forEach(tool => {
+                const toolData = TOOLS_DATABASE[tool];
+                if (toolData) {
+                    print(`  • ${toolData.name}`, 'success');
+                }
+            });
+            print('═══════════════════════════════════════', 'info');
+        }
+
+        function cmdSave() {
+            saveGame();
+            print('Game saved successfully', 'success');
+            playSound('success');
+        }
+
+        function cmdLoad() {
+            if (loadGame()) {
+                print('Game loaded successfully', 'success');
+                playSound('success');
+                updateHUD();
+                renderContracts();
+                renderTools();
+                renderNetworkMap();
+            } else {
+                print('No saved game found', 'error');
+            }
+        }
+
+        // Helper functions
+        function resolvePath(path) {
+            if (path.startsWith('/')) {
+                return path;
+            }
+
+            if (path === '.') {
+                return STATE.currentPath;
+            }
+
+            if (path === '..') {
+                if (STATE.currentPath === '/') return '/';
+                return STATE.currentPath.substring(0, STATE.currentPath.lastIndexOf('/')) || '/';
+            }
+
+            return STATE.currentPath === '/' ? `/${path}` : `${STATE.currentPath}/${path}`;
+        }
+
+        function increaseTrace(amount) {
+            const proxyReduction = STATE.proxyChain.length * 0.3;
+            const stealthReduction = STATE.tools.includes('stealth_module') ? 0.3 : 0;
+            const multiplier = 1 - proxyReduction - stealthReduction;
+
+            STATE.trace = Math.min(100, STATE.trace + amount * multiplier);
+            updateHUD();
+
+            if (STATE.trace >= 100) {
+                handleTraceCaught();
+            } else if (STATE.trace >= 80) {
+                playSound('alert');
+                print('⚠ WARNING: TRACE CRITICAL', 'error');
+            } else if (STATE.trace >= 60) {
+                print('⚠ TRACE LEVEL HIGH', 'warning');
+            }
+        }
+
+        let traceTimer = null;
+
+        function startTraceTimer() {
+            if (traceTimer) return;
+
+            traceTimer = setInterval(() => {
+                if (STATE.connected && STATE.trace < 100) {
+                    increaseTrace(STATE.traceRate);
+                }
+            }, 1000);
+        }
+
+        function stopTraceTimer() {
+            if (traceTimer) {
+                clearInterval(traceTimer);
+                traceTimer = null;
+            }
+        }
+
+        function handleTraceCaught() {
+            stopTraceTimer();
+            playSound('alert');
+
+            print('', 'error');
+            print('█████████████████████████████████████████', 'error');
+            print('█  INTRUSION DETECTED                   █', 'error');
+            print('█  CONNECTION TERMINATED                █', 'error');
+            print('█  SECURITY FORCES DISPATCHED           █', 'error');
+            print('█████████████████████████████████████████', 'error');
+            print('', 'error');
+
+            STATE.connected = false;
+            STATE.currentServer = null;
+            STATE.currentPath = '/';
+            STATE.trace = 0;
+            STATE.traceRate = 0;
+            STATE.proxyChain = [];
+
+            // Penalties
+            STATE.credits = Math.max(0, STATE.credits - 500);
+            STATE.reputation = Math.max(0, STATE.reputation - 10);
+
+            if (STATE.activeContract) {
+                print('Contract failed', 'error');
+                STATE.activeContract = null;
+            }
+
+            print('You lost 500 credits and 10 reputation', 'error');
+            print('All connections severed', 'error');
+
+            updatePrompt();
+            updateHUD();
+            renderNetworkMap();
+        }
+
+        function checkContractProgress(action, target) {
+            if (!STATE.activeContract) return;
+
+            const contract = STATE.activeContract;
+            let completed = false;
+
+            if (contract.type === 'data_theft' && action === 'download') {
+                if (contract.targetFile && target.includes(contract.targetFile.split('.')[0])) {
+                    completed = true;
+                }
+            } else if (contract.type === 'sabotage' && action === 'delete') {
+                if (contract.targetFile && target.includes(contract.targetFile.split('.')[0])) {
+                    completed = true;
+                }
+            } else if (contract.type === 'surveillance' && action === 'upload') {
+                completed = true;
+            }
+
+            // Campaign mission checks
+            if (contract.campaign && action === 'download') {
+                if (contract.targetFile && target.includes(contract.targetFile.split('.')[0])) {
+                    // Check if current server matches target type
+                    const server = SERVERS[STATE.currentServer];
+                    if (server.type === contract.targetType) {
+                        completed = true;
+                    }
+                }
+            }
+
+            if (completed) {
+                completeContract(contract);
+            }
+        }
+
+        function completeContract(contract) {
+            playSound('success');
+
+            print('', 'success');
+            print('█████████████████████████████████████████', 'success');
+            print('█  CONTRACT COMPLETED                   █', 'success');
+            print('█████████████████████████████████████████', 'success');
+            print('', 'success');
+            print(`Payment received: ${contract.payment} credits`, 'success');
+            print(`Reputation gained: +${contract.rep}`, 'success');
+
+            STATE.credits += contract.payment;
+            STATE.reputation = Math.min(100, STATE.reputation + contract.rep);
+            STATE.completedContracts.push(contract.id);
+            STATE.activeContract = null;
+
+            if (contract.campaign) {
+                STATE.campaignProgress++;
+                print('', 'warning');
+                print('CAMPAIGN PROGRESS: ' + STATE.campaignProgress + '/' + CAMPAIGN_MISSIONS.length, 'warning');
+
+                if (STATE.campaignProgress >= CAMPAIGN_MISSIONS.length) {
+                    print('', 'success');
+                    print('█████████████████████████████████████████', 'success');
+                    print('█  CAMPAIGN COMPLETE!                   █', 'success');
+                    print('█  THE TRUTH IS REVEALED                █', 'success');
+                    print('█████████████████████████████████████████', 'success');
+                }
+            }
+
+            AVAILABLE_CONTRACTS = AVAILABLE_CONTRACTS.filter(c => c.id !== contract.id);
+
+            updateHUD();
+            renderContracts();
+            showNotification('CONTRACT COMPLETE', `Earned ${contract.payment} credits!`);
+        }
+
+        // ============================================
+        // UI RENDERING
+        // ============================================
+        function updateHUD() {
+            document.getElementById('credits-display').textContent = STATE.credits;
+            document.getElementById('rep-display').textContent = STATE.reputation;
+
+            const traceFill = document.getElementById('trace-fill');
+            const traceText = document.getElementById('trace-text');
+            traceFill.style.width = STATE.trace + '%';
+            traceText.textContent = STATE.trace.toFixed(0) + '%';
+
+            const traceValue = document.getElementById('trace-text');
+            if (STATE.trace > 80) {
+                traceValue.parentElement.classList.add('danger');
+                traceValue.parentElement.classList.remove('warning');
+            } else if (STATE.trace > 50) {
+                traceValue.parentElement.classList.add('warning');
+                traceValue.parentElement.classList.remove('danger');
+            } else {
+                traceValue.parentElement.classList.remove('warning', 'danger');
+            }
+
+            // Mail indicator
+            const mailIndicator = document.getElementById('mail-indicator');
+            if (STATE.unreadMail > 0) {
+                mailIndicator.innerHTML = `MAIL <span class="mail-badge">${STATE.unreadMail}</span>`;
+            } else {
+                mailIndicator.textContent = 'MAIL';
+            }
+        }
+
+        function renderContracts() {
+            const list = document.getElementById('contracts-list');
+            list.innerHTML = '';
+
+            if (AVAILABLE_CONTRACTS.length === 0) {
+                list.innerHTML = '<div style="color: #666; padding: 10px;">No contracts available</div>';
+                return;
+            }
+
+            AVAILABLE_CONTRACTS.forEach(contract => {
+                const card = document.createElement('div');
+                card.className = 'contract-card';
+                if (STATE.activeContract && STATE.activeContract.id === contract.id) {
+                    card.classList.add('active');
+                }
+
+                card.innerHTML = `
+                    <div class="contract-title">${contract.title}${contract.campaign ? ' [CAMPAIGN]' : ''}</div>
+                    <div class="contract-client">Client: ${contract.client}</div>
+                    <div class="contract-objective">${contract.objective}</div>
+                    <div class="contract-footer">
+                        <span class="contract-payment">${contract.payment}₡</span>
+                        <span class="contract-difficulty">${'★'.repeat(contract.difficulty)}${'☆'.repeat(5-contract.difficulty)}</span>
+                    </div>
+                `;
+
+                card.addEventListener('click', () => {
+                    STATE.activeContract = contract;
+                    renderContracts();
+                    renderActiveContract();
+                    showNotification('CONTRACT ACCEPTED', contract.title);
+                });
+
+                list.appendChild(card);
+            });
+        }
+
+        function renderActiveContract() {
+            const display = document.getElementById('active-contract-display');
+
+            if (!STATE.activeContract) {
+                display.innerHTML = '<div style="color: #666;">No active contract</div>';
+                return;
+            }
+
+            const contract = STATE.activeContract;
+            display.innerHTML = `
+                <div style="margin-bottom: 10px;">
+                    <div style="color: #0ff; margin-bottom: 5px;">${contract.title}</div>
+                    <div style="color: #0a0; font-size: 11px; margin-bottom: 5px;">Client: ${contract.client}</div>
+                    <div style="color: #0f0; font-size: 11px; margin-bottom: 8px;">${contract.objective}</div>
+                    ${contract.targetIP ? `<div style="color: #ff0; font-size: 11px;">Target: ${contract.targetIP}</div>` : ''}
+                    ${contract.story ? `<div style="color: #0af; font-size: 10px; margin-top: 8px; font-style: italic;">${contract.story}</div>` : ''}
+                    <div style="margin-top: 10px;">
+                        <button class="btn" onclick="STATE.activeContract = null; renderContracts(); renderActiveContract();">CANCEL</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTools() {
+            const list = document.getElementById('tools-list');
+            list.innerHTML = '';
+
+            STATE.tools.forEach(toolId => {
+                const tool = TOOLS_DATABASE[toolId];
+                if (tool) {
+                    const item = document.createElement('div');
+                    item.className = 'tool-item';
+                    item.innerHTML = `
+                        <div class="tool-name">${tool.name}</div>
+                        <div class="tool-description">${tool.description}</div>
+                    `;
+                    list.appendChild(item);
+                }
+            });
+        }
+
+        function renderNetworkMap() {
+            const map = document.getElementById('network-map');
+            map.innerHTML = '';
+
+            const width = map.offsetWidth;
+            const height = map.offsetHeight;
+
+            // Create lines first (so they're behind nodes)
+            Object.values(SERVERS).forEach(server => {
+                const fromIndex = Object.keys(SERVERS).indexOf(server.ip);
+                const fromX = (fromIndex % 6) * (width / 6) + (width / 12);
+                const fromY = Math.floor(fromIndex / 6) * (height / 3) + (height / 6);
+
+                server.connectedServers.forEach(connectedIP => {
+                    const toIndex = Object.keys(SERVERS).indexOf(connectedIP);
+                    const toX = (toIndex % 6) * (width / 6) + (width / 12);
+                    const toY = Math.floor(toIndex / 6) * (height / 3) + (height / 6);
+
+                    const line = document.createElement('div');
+                    line.className = 'network-line';
+                    const length = Math.sqrt(Math.pow(toX - fromX, 2) + Math.pow(toY - fromY, 2));
+                    const angle = Math.atan2(toY - fromY, toX - fromX) * 180 / Math.PI;
+
+                    line.style.width = length + 'px';
+                    line.style.left = fromX + 'px';
+                    line.style.top = fromY + 'px';
+                    line.style.transform = `rotate(${angle}deg)`;
+
+                    map.appendChild(line);
+                });
+            });
+
+            // Create nodes
+            Object.values(SERVERS).forEach((server, index) => {
+                const node = document.createElement('div');
+                node.className = 'network-node';
+
+                // Position
+                const x = (index % 6) * (width / 6) + (width / 12);
+                const y = Math.floor(index / 6) * (height / 3) + (height / 6);
+                node.style.left = (x - 15) + 'px';
+                node.style.top = (y - 15) + 'px';
+
+                // Status
+                if (STATE.ownedServers.includes(server.ip)) {
+                    node.classList.add('owned');
+                } else if (STATE.scannedServers.includes(server.ip)) {
+                    node.classList.add('scanned');
+                } else {
+                    node.classList.add('unknown');
+                }
+
+                if (STATE.currentServer === server.ip) {
+                    node.classList.add('target');
+                }
+
+                if (STATE.activeContract && STATE.activeContract.targetIP === server.ip) {
+                    node.classList.add('target');
+                }
+
+                node.title = server.ip;
+                node.textContent = server.ip.split('.')[3];
+
+                node.addEventListener('click', () => {
+                    print(`Server: ${server.ip}`, 'info');
+                    print(`Type: ${server.type}`, 'info');
+                    if (STATE.scannedServers.includes(server.ip)) {
+                        print(`Security: ${server.securityLevel}/10`, 'info');
+                        print(`Status: ${server.cracked ? 'OWNED' : 'LOCKED'}`, server.cracked ? 'success' : 'warning');
+                    } else {
+                        print('Run "scan ' + server.ip + '" for more info', 'warning');
+                    }
+                });
+
+                map.appendChild(node);
+            });
+        }
+
+        // ============================================
+        // MODALS
+        // ============================================
+        function openShopModal() {
+            const modal = document.getElementById('shop-modal');
+            const itemsContainer = document.getElementById('shop-items');
+            itemsContainer.innerHTML = '';
+
+            Object.entries(TOOLS_DATABASE).forEach(([id, tool]) => {
+                if (STATE.tools.includes(id)) return; // Already owned
+
+                const item = document.createElement('div');
+                item.className = 'shop-item';
+
+                const canAfford = STATE.credits >= tool.price;
+
+                item.innerHTML = `
+                    <div class="shop-item-header">
+                        <span class="shop-item-name">${tool.name}</span>
+                        <span class="shop-item-price">${tool.price}₡</span>
+                    </div>
+                    <div class="shop-item-description">${tool.description}</div>
+                    <button class="shop-buy-btn" ${!canAfford ? 'disabled' : ''}>
+                        ${canAfford ? 'PURCHASE' : 'INSUFFICIENT FUNDS'}
+                    </button>
+                `;
+
+                const btn = item.querySelector('.shop-buy-btn');
+                if (canAfford) {
+                    btn.addEventListener('click', () => {
+                        STATE.credits -= tool.price;
+                        STATE.tools.push(id);
+                        updateHUD();
+                        renderTools();
+                        playSound('success');
+                        showNotification('PURCHASE COMPLETE', tool.name);
+                        openShopModal(); // Refresh shop
+                    });
+                }
+
+                itemsContainer.appendChild(item);
+            });
+
+            modal.classList.add('active');
+        }
+
+        function openMailModal() {
+            const modal = document.getElementById('mail-modal');
+            const content = document.getElementById('mail-content');
+
+            const messages = [
+                {
+                    from: 'SYSTEM',
+                    subject: 'Welcome to PHANTOM PROTOCOL',
+                    body: 'Welcome, Phantom. Your reputation precedes you. This secure terminal is your gateway to the darknet. Take contracts, infiltrate systems, build your legend. But remember: every action leaves a trace. Stay ghost.'
+                },
+                {
+                    from: 'ANON_7734',
+                    subject: 'New Contracts Available',
+                    body: 'Fresh contracts on the board. Credits waiting for skilled operators. Check the contract panel for details.'
+                }
+            ];
+
+            if (STATE.campaignProgress > 0) {
+                messages.push({
+                    from: '???',
+                    subject: 'You\'re getting closer',
+                    body: 'PROJECT NIGHTFALL is bigger than you think. Keep digging. The truth wants to be free.'
+                });
+            }
+
+            content.innerHTML = messages.map(msg => `
+                <div style="background: rgba(0,20,0,0.8); border: 1px solid #0f0; padding: 15px; margin-bottom: 15px;">
+                    <div style="color: #0ff; font-size: 14px; margin-bottom: 5px;">FROM: ${msg.from}</div>
+                    <div style="color: #0a0; font-size: 12px; margin-bottom: 10px;">SUBJECT: ${msg.subject}</div>
+                    <div style="color: #0f0; font-size: 11px; line-height: 1.5;">${msg.body}</div>
+                </div>
+            `).join('');
+
+            STATE.unreadMail = 0;
+            updateHUD();
+            modal.classList.add('active');
+        }
+
+        document.getElementById('shop-close').addEventListener('click', () => {
+            document.getElementById('shop-modal').classList.remove('active');
+        });
+
+        document.getElementById('mail-close').addEventListener('click', () => {
+            document.getElementById('mail-modal').classList.remove('active');
+        });
+
+        // ============================================
+        // NOTIFICATIONS
+        // ============================================
+        function showNotification(title, message) {
+            const notification = document.getElementById('notification');
+            document.getElementById('notification-title').textContent = title;
+            document.getElementById('notification-message').textContent = message;
+
+            notification.classList.add('show');
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // ============================================
+        // SAVE/LOAD
+        // ============================================
+        function saveGame() {
+            const saveData = {
+                credits: STATE.credits,
+                reputation: STATE.reputation,
+                ownedServers: STATE.ownedServers,
+                scannedServers: STATE.scannedServers,
+                completedContracts: STATE.completedContracts,
+                tools: STATE.tools,
+                campaignProgress: STATE.campaignProgress,
+                servers: SERVERS
+            };
+
+            localStorage.setItem('phantom_protocol_save', JSON.stringify(saveData));
+        }
+
+        function loadGame() {
+            const saveData = localStorage.getItem('phantom_protocol_save');
+            if (!saveData) return false;
+
+            const data = JSON.parse(saveData);
+            STATE.credits = data.credits;
+            STATE.reputation = data.reputation;
+            STATE.ownedServers = data.ownedServers;
+            STATE.scannedServers = data.scannedServers;
+            STATE.completedContracts = data.completedContracts;
+            STATE.tools = data.tools;
+            STATE.campaignProgress = data.campaignProgress;
+
+            Object.keys(data.servers).forEach(ip => {
+                SERVERS[ip] = data.servers[ip];
+            });
+
+            return true;
+        }
+
+        function autoSave() {
+            saveGame();
+        }
+
+        // ============================================
+        // MATRIX RAIN
+        // ============================================
+        const canvas = document.getElementById('matrix-canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+        const fontSize = 14;
+        const columns = canvas.width / fontSize;
+        const drops = [];
+
+        for (let i = 0; i < columns; i++) {
+            drops[i] = Math.random() * -100;
+        }
+
+        function drawMatrix() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#0f0';
+            ctx.font = fontSize + 'px monospace';
+
+            for (let i = 0; i < drops.length; i++) {
+                const text = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+
+                drops[i]++;
+            }
+        }
+
+        setInterval(drawMatrix, 50);
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // ============================================
+        // UI CONTROLS
+        // ============================================
+        document.getElementById('toggle-sidebar-btn').addEventListener('click', () => {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+        });
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        function init() {
+            // Try to load saved game
+            const loaded = loadGame();
+
+            if (!loaded) {
+                // New game
+                initializeNetwork();
+            }
+
+            bootSequence();
+            refreshContracts();
+            renderTools();
+            renderNetworkMap();
+            updateHUD();
+            renderActiveContract();
+
+            // Auto-save every 30 seconds
+            STATE.autoSaveInterval = setInterval(autoSave, 30000);
+
+            // Refresh contracts every 5 minutes
+            setInterval(refreshContracts, 300000);
+
+            // New mail notification
+            setTimeout(() => {
+                STATE.unreadMail = 2;
+                updateHUD();
+                showNotification('NEW MAIL', 'You have unread messages');
+            }, 5000);
+        }
+
+        init();
+    </script>
+</body>
+</html>

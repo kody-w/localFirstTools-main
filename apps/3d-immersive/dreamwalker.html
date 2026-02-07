@@ -1,0 +1,1739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DREAMWALKER - Escape the Nightmare</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #hud {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        #sanityMeter {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 200px;
+            height: 30px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+        }
+
+        #sanityFill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff0000, #ffaa00, #00ff00);
+            transition: width 0.3s ease, background 0.3s ease;
+            position: relative;
+        }
+
+        #sanityFill::after {
+            content: 'SANITY';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #000;
+            mix-blend-mode: difference;
+        }
+
+        #batteryMeter {
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            width: 200px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.7);
+        }
+
+        #batteryFill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff8800, #ffff00);
+            transition: width 0.3s ease;
+        }
+
+        #fragmentCounter {
+            position: absolute;
+            top: 90px;
+            left: 20px;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px #000;
+            color: #00ffff;
+        }
+
+        #heartbeat {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 60px;
+            color: rgba(255, 0, 0, 0.5);
+            opacity: 0;
+            transition: opacity 0.1s ease;
+            pointer-events: none;
+        }
+
+        #interactPrompt {
+            position: absolute;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 20px;
+            border: 2px solid #fff;
+            font-size: 16px;
+            display: none;
+        }
+
+        #minimap {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 150px;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        #messageFlash {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #ff0000;
+            text-align: center;
+            opacity: 0;
+            pointer-events: none;
+            text-shadow: 0 0 10px #ff0000;
+            max-width: 80%;
+        }
+
+        #inventory {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            display: none;
+            max-width: 80%;
+        }
+
+        .inventoryItem {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        #staminaBar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        #staminaFill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff0000, #00ff00);
+            transition: width 0.1s linear;
+        }
+
+        #menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            pointer-events: all;
+        }
+
+        #menu.hidden {
+            display: none;
+        }
+
+        .menuTitle {
+            font-size: 72px;
+            margin-bottom: 20px;
+            color: #ff0000;
+            text-shadow: 0 0 20px #ff0000, 0 0 40px #ff0000;
+            animation: flicker 3s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+            51% { opacity: 1; }
+            52% { opacity: 0.9; }
+            53% { opacity: 1; }
+        }
+
+        .menuButton {
+            margin: 10px;
+            padding: 15px 40px;
+            font-size: 24px;
+            background: rgba(255, 0, 0, 0.2);
+            border: 2px solid #ff0000;
+            color: #fff;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s ease;
+            pointer-events: all;
+        }
+
+        .menuButton:hover {
+            background: rgba(255, 0, 0, 0.5);
+            box-shadow: 0 0 20px #ff0000;
+            transform: scale(1.05);
+        }
+
+        .menuStats {
+            margin-top: 30px;
+            font-size: 16px;
+            color: #888;
+            text-align: center;
+        }
+
+        #glassOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><defs><pattern id="crack" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse"><path d="M20,50 L80,50 M50,20 L50,80 M30,30 L70,70 M70,30 L30,70" stroke="white" stroke-width="1" opacity="0.3" fill="none"/></pattern></defs><rect width="100%" height="100%" fill="url(%23crack)"/></svg>');
+        }
+
+        #mobileControls {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 200px;
+            pointer-events: all;
+            z-index: 200;
+        }
+
+        .joystick {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+        }
+
+        .joystickKnob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transition: all 0.1s ease;
+        }
+
+        .mobileButton {
+            position: absolute;
+            bottom: 20px;
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            font-size: 18px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @media (max-width: 768px) {
+            #mobileControls {
+                display: block;
+            }
+            .menuTitle {
+                font-size: 48px;
+            }
+            .menuButton {
+                font-size: 18px;
+                padding: 12px 30px;
+            }
+        }
+
+        #deathScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.98);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            pointer-events: all;
+        }
+
+        .deathTitle {
+            font-size: 64px;
+            color: #ff0000;
+            margin-bottom: 30px;
+            text-shadow: 0 0 30px #ff0000;
+        }
+
+        .deathMessage {
+            font-size: 24px;
+            color: #888;
+            margin-bottom: 40px;
+            text-align: center;
+            max-width: 600px;
+        }
+
+        #winScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.98);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            pointer-events: all;
+        }
+
+        .winTitle {
+            font-size: 64px;
+            color: #00ff00;
+            margin-bottom: 30px;
+            text-shadow: 0 0 30px #00ff00;
+        }
+
+        .winMessage {
+            font-size: 20px;
+            color: #0f0;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 700px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="hud">
+        <div id="sanityMeter">
+            <div id="sanityFill"></div>
+        </div>
+        <div id="batteryMeter">
+            <div id="batteryFill"></div>
+        </div>
+        <div id="fragmentCounter">FRAGMENTS: 0/7</div>
+        <div id="heartbeat">♥</div>
+        <div id="interactPrompt">Press E to interact</div>
+        <canvas id="minimap"></canvas>
+        <div id="messageFlash"></div>
+        <div id="staminaBar">
+            <div id="staminaFill"></div>
+        </div>
+        <div id="inventory"></div>
+        <div id="glassOverlay"></div>
+    </div>
+
+    <div id="menu">
+        <div class="menuTitle">DREAMWALKER</div>
+        <button class="menuButton" id="startBtn">START GAME</button>
+        <button class="menuButton" id="continueBtn" style="display: none;">CONTINUE</button>
+        <button class="menuButton" id="instructionsBtn">INSTRUCTIONS</button>
+        <div class="menuStats" id="menuStats"></div>
+    </div>
+
+    <div id="deathScreen">
+        <div class="deathTitle">YOU AWAKENED</div>
+        <div class="deathMessage">The nightmare consumed you. The house resets. The fragments scatter once more.</div>
+        <button class="menuButton" id="retryBtn">TRY AGAIN</button>
+        <button class="menuButton" id="quitBtn">QUIT</button>
+    </div>
+
+    <div id="winScreen">
+        <div class="winTitle">AWAKENED</div>
+        <div class="winMessage" id="winMessage"></div>
+        <button class="menuButton" id="playAgainBtn">PLAY AGAIN</button>
+    </div>
+
+    <div id="mobileControls">
+        <div class="joystick">
+            <div class="joystickKnob"></div>
+        </div>
+        <div class="mobileButton" style="right: 20px;" id="flashlightBtn">💡</div>
+        <div class="mobileButton" style="right: 90px;" id="interactBtn">E</div>
+        <div class="mobileButton" style="right: 160px;" id="sprintBtn">⚡</div>
+    </div>
+
+    <script>
+        'use strict';
+
+        // ===== CONSTANTS =====
+        const ROOM_TYPES = {
+            HALLWAY: { name: 'Long Hallway', color: '#2a1a1a', danger: 0.3 },
+            FOYER: { name: 'Grand Foyer', color: '#1a1a2a', danger: 0.2 },
+            NURSERY: { name: 'Nursery', color: '#2a1a2a', danger: 0.6 },
+            LIBRARY: { name: 'Library', color: '#1a2a1a', danger: 0.3 },
+            KITCHEN: { name: 'Kitchen', color: '#2a2a1a', danger: 0.4 },
+            BATHROOM: { name: 'Flooded Bathroom', color: '#1a2a2a', danger: 0.5 },
+            BASEMENT: { name: 'Basement', color: '#0a0a0a', danger: 0.8 },
+            ATTIC: { name: 'Attic', color: '#2a2a2a', danger: 0.7 },
+            MIRROR: { name: 'Mirror Room', color: '#1a1a2a', danger: 0.4 },
+            RED: { name: 'Red Room', color: '#3a0a0a', danger: 0.9 }
+        };
+
+        const GRID_SIZE = 50;
+        const ROOM_MIN_SIZE = 8;
+        const ROOM_MAX_SIZE = 20;
+        const MAX_ROOMS = 25;
+        const CELL_SIZE = 32;
+        const PLAYER_HEIGHT = 16;
+        const PLAYER_SPEED = 3;
+        const SPRINT_MULTIPLIER = 1.8;
+        const MOUSE_SENSITIVITY = 0.002;
+        const FOV = Math.PI / 3;
+        const RENDER_DISTANCE = 20;
+        const NUM_RAYS = 320;
+
+        const TOTAL_FRAGMENTS = 7;
+        const BATTERY_DRAIN_RATE = 0.05;
+        const BATTERY_CAPACITY = 100;
+        const SANITY_DRAIN_IN_DARK = 0.03;
+        const SANITY_RECOVERY_IN_LIGHT = 0.02;
+        const SANITY_DRAIN_NEAR_PRESENCE = 0.5;
+
+        // ===== GAME STATE =====
+        const game = {
+            state: 'menu',
+            player: {
+                x: 0,
+                y: 0,
+                angle: 0,
+                moveX: 0,
+                moveY: 0,
+                sprinting: false,
+                stamina: 100,
+                sanity: 100,
+                battery: 100,
+                flashlightOn: true,
+                fragmentsCollected: 0,
+                inventory: [],
+                currentRoom: null
+            },
+            world: {
+                grid: [],
+                rooms: [],
+                doors: [],
+                fragments: [],
+                batteries: [],
+                interactables: [],
+                keys: [],
+                presence: null
+            },
+            audio: {
+                ctx: null,
+                ambientOscillator: null,
+                heartbeatInterval: null
+            },
+            stats: {
+                runsAttempted: 0,
+                totalFragmentsFound: 0,
+                bestTime: null,
+                totalTimePlayed: 0,
+                currentRunStart: null
+            },
+            time: 0,
+            effects: {
+                chromaticAberration: 0,
+                screenShake: 0,
+                vignette: 0
+            }
+        };
+
+        // ===== DOM ELEMENTS =====
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+
+        const menu = document.getElementById('menu');
+        const startBtn = document.getElementById('startBtn');
+        const continueBtn = document.getElementById('continueBtn');
+        const instructionsBtn = document.getElementById('instructionsBtn');
+        const menuStats = document.getElementById('menuStats');
+        const deathScreen = document.getElementById('deathScreen');
+        const retryBtn = document.getElementById('retryBtn');
+        const quitBtn = document.getElementById('quitBtn');
+        const winScreen = document.getElementById('winScreen');
+        const playAgainBtn = document.getElementById('playAgainBtn');
+
+        const sanityFill = document.getElementById('sanityFill');
+        const batteryFill = document.getElementById('batteryFill');
+        const fragmentCounter = document.getElementById('fragmentCounter');
+        const heartbeat = document.getElementById('heartbeat');
+        const interactPrompt = document.getElementById('interactPrompt');
+        const messageFlash = document.getElementById('messageFlash');
+        const staminaFill = document.getElementById('staminaFill');
+        const glassOverlay = document.getElementById('glassOverlay');
+
+        // ===== INPUT STATE =====
+        const keys = {};
+        let mouseMovementX = 0;
+        let pointerLocked = false;
+
+        // ===== PROCEDURAL GENERATION =====
+        function generateWorld() {
+            // Initialize grid
+            game.world.grid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(1));
+            game.world.rooms = [];
+            game.world.doors = [];
+            game.world.fragments = [];
+            game.world.batteries = [];
+            game.world.interactables = [];
+            game.world.keys = [];
+
+            const roomTypeKeys = Object.keys(ROOM_TYPES);
+
+            // Generate rooms using BSP-like algorithm
+            for (let i = 0; i < MAX_ROOMS; i++) {
+                const width = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
+                const height = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
+                const x = 2 + Math.floor(Math.random() * (GRID_SIZE - width - 4));
+                const y = 2 + Math.floor(Math.random() * (GRID_SIZE - height - 4));
+
+                // Check for overlap
+                let overlap = false;
+                for (const room of game.world.rooms) {
+                    if (!(x + width < room.x || x > room.x + room.width ||
+                          y + height < room.y || y > room.y + room.height)) {
+                        overlap = true;
+                        break;
+                    }
+                }
+
+                if (!overlap) {
+                    const roomType = roomTypeKeys[Math.floor(Math.random() * roomTypeKeys.length)];
+                    const room = { x, y, width, height, type: roomType, visited: false };
+                    game.world.rooms.push(room);
+
+                    // Carve out room
+                    for (let ry = y; ry < y + height; ry++) {
+                        for (let rx = x; rx < x + width; rx++) {
+                            game.world.grid[ry][rx] = 0;
+                        }
+                    }
+                }
+            }
+
+            // Connect rooms with corridors
+            for (let i = 0; i < game.world.rooms.length - 1; i++) {
+                const roomA = game.world.rooms[i];
+                const roomB = game.world.rooms[i + 1];
+
+                const centerAx = Math.floor(roomA.x + roomA.width / 2);
+                const centerAy = Math.floor(roomA.y + roomA.height / 2);
+                const centerBx = Math.floor(roomB.x + roomB.width / 2);
+                const centerBy = Math.floor(roomB.y + roomB.height / 2);
+
+                // Horizontal corridor
+                const startX = Math.min(centerAx, centerBx);
+                const endX = Math.max(centerAx, centerBx);
+                for (let x = startX; x <= endX; x++) {
+                    game.world.grid[centerAy][x] = 0;
+                }
+
+                // Vertical corridor
+                const startY = Math.min(centerAy, centerBy);
+                const endY = Math.max(centerAy, centerBy);
+                for (let y = startY; y <= endY; y++) {
+                    game.world.grid[y][centerBx] = 0;
+                }
+            }
+
+            // Place doors between rooms
+            for (const room of game.world.rooms) {
+                // Check all edges for potential door placement
+                const edges = [
+                    { x: room.x - 1, y: room.y + Math.floor(room.height / 2), dir: 'h' },
+                    { x: room.x + room.width, y: room.y + Math.floor(room.height / 2), dir: 'h' },
+                    { x: room.x + Math.floor(room.width / 2), y: room.y - 1, dir: 'v' },
+                    { x: room.x + Math.floor(room.width / 2), y: room.y + room.height, dir: 'v' }
+                ];
+
+                for (const edge of edges) {
+                    if (edge.x >= 0 && edge.x < GRID_SIZE && edge.y >= 0 && edge.y < GRID_SIZE) {
+                        if (game.world.grid[edge.y][edge.x] === 0 && Math.random() < 0.3) {
+                            const locked = Math.random() < 0.15;
+                            game.world.doors.push({
+                                x: edge.x,
+                                y: edge.y,
+                                dir: edge.dir,
+                                locked: locked,
+                                keyColor: locked ? ['red', 'blue', 'green'][Math.floor(Math.random() * 3)] : null,
+                                open: false
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Place memory fragments
+            const fragmentRooms = [...game.world.rooms].sort(() => Math.random() - 0.5).slice(0, TOTAL_FRAGMENTS);
+            for (let i = 0; i < TOTAL_FRAGMENTS; i++) {
+                const room = fragmentRooms[i];
+                game.world.fragments.push({
+                    x: room.x + Math.floor(room.width / 2),
+                    y: room.y + Math.floor(room.height / 2),
+                    collected: false,
+                    message: getFragmentMessage(i)
+                });
+            }
+
+            // Place batteries
+            const batteryRooms = [...game.world.rooms].sort(() => Math.random() - 0.5).slice(0, 10);
+            for (const room of batteryRooms) {
+                game.world.batteries.push({
+                    x: room.x + 1 + Math.floor(Math.random() * (room.width - 2)),
+                    y: room.y + 1 + Math.floor(Math.random() * (room.height - 2)),
+                    collected: false
+                });
+            }
+
+            // Place keys
+            const keyColors = ['red', 'blue', 'green'];
+            for (const color of keyColors) {
+                const room = game.world.rooms[Math.floor(Math.random() * game.world.rooms.length)];
+                game.world.keys.push({
+                    x: room.x + 1 + Math.floor(Math.random() * (room.width - 2)),
+                    y: room.y + 1 + Math.floor(Math.random() * (room.height - 2)),
+                    color: color,
+                    collected: false
+                });
+            }
+
+            // Spawn player in first room
+            const startRoom = game.world.rooms[0];
+            game.player.x = (startRoom.x + startRoom.width / 2) * CELL_SIZE;
+            game.player.y = (startRoom.y + startRoom.height / 2) * CELL_SIZE;
+            game.player.angle = Math.random() * Math.PI * 2;
+            game.player.currentRoom = startRoom;
+
+            // Spawn The Presence
+            const presenceRoom = game.world.rooms[game.world.rooms.length - 1];
+            game.world.presence = {
+                x: (presenceRoom.x + presenceRoom.width / 2) * CELL_SIZE,
+                y: (presenceRoom.y + presenceRoom.height / 2) * CELL_SIZE,
+                targetX: null,
+                targetY: null,
+                speed: 1.5,
+                state: 'patrol',
+                detectionRange: 200,
+                chaseRange: 400,
+                lastSeenPlayer: null
+            };
+        }
+
+        function getFragmentMessage(index) {
+            const messages = [
+                "You remember... the door was locked from the inside.",
+                "The paintings watched you. They always watched.",
+                "She said she'd wait. But she never came back.",
+                "The house knows. It's always known.",
+                "You built this prison yourself, brick by brick.",
+                "The exit was always there. You just couldn't see it.",
+                "Wake up. Wake up. Wake up."
+            ];
+            return messages[index];
+        }
+
+        // ===== RAYCASTING RENDERER =====
+        function castRay(x, y, angle) {
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+
+            let distance = 0;
+            const maxDistance = RENDER_DISTANCE * CELL_SIZE;
+            const step = 0.5;
+
+            while (distance < maxDistance) {
+                distance += step;
+                const testX = x + cos * distance;
+                const testY = y + sin * distance;
+
+                const gridX = Math.floor(testX / CELL_SIZE);
+                const gridY = Math.floor(testY / CELL_SIZE);
+
+                if (gridX < 0 || gridX >= GRID_SIZE || gridY < 0 || gridY >= GRID_SIZE) {
+                    return { distance, hitWall: true, gridX, gridY };
+                }
+
+                if (game.world.grid[gridY][gridX] === 1) {
+                    return { distance, hitWall: true, gridX, gridY };
+                }
+            }
+
+            return { distance: maxDistance, hitWall: false, gridX: -1, gridY: -1 };
+        }
+
+        function render() {
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Clear with black
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, width, height);
+
+            // Apply chromatic aberration and screen shake
+            const aberration = game.effects.chromaticAberration;
+            const shake = game.effects.screenShake;
+            const shakeX = (Math.random() - 0.5) * shake;
+            const shakeY = (Math.random() - 0.5) * shake;
+
+            ctx.save();
+            ctx.translate(shakeX, shakeY);
+
+            // Render 3D view
+            const rayAngleStep = FOV / NUM_RAYS;
+            const stripWidth = width / NUM_RAYS;
+
+            for (let i = 0; i < NUM_RAYS; i++) {
+                const rayAngle = game.player.angle - FOV / 2 + i * rayAngleStep;
+                const ray = castRay(game.player.x, game.player.y, rayAngle);
+
+                // Fix fisheye effect
+                const correctedDistance = ray.distance * Math.cos(rayAngle - game.player.angle);
+
+                if (ray.hitWall) {
+                    const wallHeight = (CELL_SIZE / correctedDistance) * 400;
+                    const wallTop = height / 2 - wallHeight / 2;
+
+                    // Determine wall color based on room type
+                    let wallColor = '#1a1a1a';
+                    const room = getRoomAt(ray.gridX, ray.gridY);
+                    if (room) {
+                        wallColor = ROOM_TYPES[room.type].color;
+                    }
+
+                    // Apply lighting based on distance and flashlight
+                    let brightness = 1 - (correctedDistance / (RENDER_DISTANCE * CELL_SIZE));
+                    if (!game.player.flashlightOn) {
+                        brightness *= 0.1;
+                    }
+                    brightness = Math.max(0, Math.min(1, brightness));
+
+                    const r = parseInt(wallColor.slice(1, 3), 16);
+                    const g = parseInt(wallColor.slice(3, 5), 16);
+                    const b = parseInt(wallColor.slice(5, 7), 16);
+
+                    ctx.fillStyle = `rgb(${r * brightness}, ${g * brightness}, ${b * brightness})`;
+                    ctx.fillRect(i * stripWidth, wallTop, stripWidth + 1, wallHeight);
+
+                    // Floor and ceiling
+                    ctx.fillStyle = `rgba(10, 10, 10, ${1 - brightness * 0.5})`;
+                    ctx.fillRect(i * stripWidth, wallTop + wallHeight, stripWidth + 1, height - (wallTop + wallHeight));
+                    ctx.fillStyle = `rgba(5, 5, 5, ${1 - brightness * 0.3})`;
+                    ctx.fillRect(i * stripWidth, 0, stripWidth + 1, wallTop);
+                }
+            }
+
+            // Render entities (fragments, batteries, presence)
+            renderEntities();
+
+            // Apply sanity effects
+            applySanityEffects();
+
+            // Apply vignette
+            const gradient = ctx.createRadialGradient(width / 2, height / 2, height * 0.3, width / 2, height / 2, height * 0.8);
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            gradient.addColorStop(1, `rgba(0, 0, 0, ${0.3 + game.effects.vignette})`);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // Film grain
+            ctx.fillStyle = `rgba(${Math.random() * 50}, ${Math.random() * 50}, ${Math.random() * 50}, 0.05)`;
+            for (let i = 0; i < 100; i++) {
+                ctx.fillRect(Math.random() * width, Math.random() * height, 1, 1);
+            }
+
+            ctx.restore();
+
+            // Render minimap
+            renderMinimap();
+        }
+
+        function renderEntities() {
+            const entities = [];
+
+            // Add fragments
+            for (const fragment of game.world.fragments) {
+                if (!fragment.collected) {
+                    entities.push({
+                        x: fragment.x * CELL_SIZE + CELL_SIZE / 2,
+                        y: fragment.y * CELL_SIZE + CELL_SIZE / 2,
+                        color: '#00ffff',
+                        size: 10
+                    });
+                }
+            }
+
+            // Add batteries
+            for (const battery of game.world.batteries) {
+                if (!battery.collected) {
+                    entities.push({
+                        x: battery.x * CELL_SIZE + CELL_SIZE / 2,
+                        y: battery.y * CELL_SIZE + CELL_SIZE / 2,
+                        color: '#ffff00',
+                        size: 8
+                    });
+                }
+            }
+
+            // Add keys
+            for (const key of game.world.keys) {
+                if (!key.collected) {
+                    const keyColors = { red: '#ff0000', blue: '#0000ff', green: '#00ff00' };
+                    entities.push({
+                        x: key.x * CELL_SIZE + CELL_SIZE / 2,
+                        y: key.y * CELL_SIZE + CELL_SIZE / 2,
+                        color: keyColors[key.color],
+                        size: 6
+                    });
+                }
+            }
+
+            // Add The Presence
+            if (game.world.presence && game.world.presence.state === 'chase') {
+                entities.push({
+                    x: game.world.presence.x,
+                    y: game.world.presence.y,
+                    color: '#000000',
+                    size: 20,
+                    isPresence: true
+                });
+            }
+
+            // Sort entities by distance
+            entities.sort((a, b) => {
+                const distA = Math.hypot(a.x - game.player.x, a.y - game.player.y);
+                const distB = Math.hypot(b.x - game.player.x, b.y - game.player.y);
+                return distB - distA;
+            });
+
+            // Render entities
+            for (const entity of entities) {
+                const dx = entity.x - game.player.x;
+                const dy = entity.y - game.player.y;
+                const distance = Math.hypot(dx, dy);
+
+                if (distance > RENDER_DISTANCE * CELL_SIZE) continue;
+
+                const angle = Math.atan2(dy, dx) - game.player.angle;
+                let normalizedAngle = angle;
+                while (normalizedAngle > Math.PI) normalizedAngle -= Math.PI * 2;
+                while (normalizedAngle < -Math.PI) normalizedAngle += Math.PI * 2;
+
+                if (Math.abs(normalizedAngle) < FOV / 2) {
+                    const screenX = (normalizedAngle / FOV + 0.5) * canvas.width;
+                    const size = (entity.size / distance) * 400;
+                    const screenY = canvas.height / 2;
+
+                    let brightness = 1 - (distance / (RENDER_DISTANCE * CELL_SIZE));
+                    if (!game.player.flashlightOn) {
+                        brightness *= 0.1;
+                    }
+
+                    if (entity.isPresence) {
+                        // Render as dark silhouette
+                        ctx.fillStyle = `rgba(0, 0, 0, ${brightness * 0.8})`;
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        // Distortion effect
+                        if (game.player.sanity < 50) {
+                            ctx.fillStyle = `rgba(255, 0, 0, ${(50 - game.player.sanity) / 100})`;
+                            ctx.beginPath();
+                            ctx.arc(screenX, screenY, size * 1.2, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    } else {
+                        ctx.fillStyle = entity.color;
+                        ctx.globalAlpha = brightness;
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.globalAlpha = 1;
+
+                        // Glow effect
+                        const glow = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, size * 2);
+                        glow.addColorStop(0, entity.color + '40');
+                        glow.addColorStop(1, entity.color + '00');
+                        ctx.fillStyle = glow;
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, size * 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+
+        function applySanityEffects() {
+            const sanity = game.player.sanity;
+
+            if (sanity < 80) {
+                // Subtle desaturation and warping
+                game.effects.chromaticAberration = (80 - sanity) / 400;
+            }
+
+            if (sanity < 60) {
+                // More intense effects
+                game.effects.vignette = (60 - sanity) / 200;
+
+                // Random visual glitches
+                if (Math.random() < 0.01) {
+                    const x = Math.random() * canvas.width;
+                    const y = Math.random() * canvas.height;
+                    const w = Math.random() * 100;
+                    const h = Math.random() * 50;
+                    ctx.fillStyle = `rgba(${Math.random() * 100}, 0, 0, 0.3)`;
+                    ctx.fillRect(x, y, w, h);
+                }
+            }
+
+            if (sanity < 40) {
+                // Screen tear effects
+                if (Math.random() < 0.02) {
+                    const y = Math.random() * canvas.height;
+                    const offset = (Math.random() - 0.5) * 50;
+                    const imageData = ctx.getImageData(0, y, canvas.width, 10);
+                    ctx.putImageData(imageData, offset, y);
+                }
+            }
+
+            if (sanity < 20) {
+                // Extreme distortion
+                game.effects.screenShake = (20 - sanity) / 2;
+
+                // Color inversion flashes
+                if (Math.random() < 0.03) {
+                    ctx.globalCompositeOperation = 'difference';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+            }
+
+            // Update glass overlay
+            glassOverlay.style.opacity = Math.max(0, (100 - sanity) / 100);
+        }
+
+        function renderMinimap() {
+            const mapSize = 150;
+            minimapCtx.fillStyle = '#000000';
+            minimapCtx.fillRect(0, 0, mapSize, mapSize);
+
+            const scale = mapSize / (GRID_SIZE * CELL_SIZE);
+            const centerX = mapSize / 2;
+            const centerY = mapSize / 2;
+
+            // Apply unreliability at low sanity
+            const mapChaos = Math.max(0, (100 - game.player.sanity) / 100);
+
+            minimapCtx.save();
+            minimapCtx.translate(centerX, centerY);
+            minimapCtx.rotate(mapChaos * Math.sin(game.time / 50) * 0.5);
+            minimapCtx.scale(1 + mapChaos * 0.3, 1 + mapChaos * 0.3);
+            minimapCtx.translate(-centerX, -centerY);
+
+            // Draw rooms
+            for (const room of game.world.rooms) {
+                const dx = (room.x * CELL_SIZE - game.player.x) * scale + centerX;
+                const dy = (room.y * CELL_SIZE - game.player.y) * scale + centerY;
+                const w = room.width * CELL_SIZE * scale;
+                const h = room.height * CELL_SIZE * scale;
+
+                minimapCtx.fillStyle = room.visited ? 'rgba(100, 100, 100, 0.3)' : 'rgba(50, 50, 50, 0.3)';
+                minimapCtx.fillRect(dx, dy, w, h);
+            }
+
+            // Draw player
+            minimapCtx.fillStyle = '#00ff00';
+            minimapCtx.beginPath();
+            minimapCtx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+            minimapCtx.fill();
+
+            // Draw direction indicator
+            minimapCtx.strokeStyle = '#00ff00';
+            minimapCtx.lineWidth = 2;
+            minimapCtx.beginPath();
+            minimapCtx.moveTo(centerX, centerY);
+            minimapCtx.lineTo(
+                centerX + Math.cos(game.player.angle) * 10,
+                centerY + Math.sin(game.player.angle) * 10
+            );
+            minimapCtx.stroke();
+
+            minimapCtx.restore();
+
+            // Static at low sanity
+            if (mapChaos > 0.3) {
+                minimapCtx.fillStyle = `rgba(255, 255, 255, ${mapChaos * 0.2})`;
+                for (let i = 0; i < 50; i++) {
+                    minimapCtx.fillRect(Math.random() * mapSize, Math.random() * mapSize, 1, 1);
+                }
+            }
+        }
+
+        function getRoomAt(gridX, gridY) {
+            for (const room of game.world.rooms) {
+                if (gridX >= room.x && gridX < room.x + room.width &&
+                    gridY >= room.y && gridY < room.y + room.height) {
+                    return room;
+                }
+            }
+            return null;
+        }
+
+        // ===== GAME LOGIC =====
+        function update(deltaTime) {
+            if (game.state !== 'playing') return;
+
+            game.time += deltaTime;
+
+            // Movement
+            const speed = game.player.sprinting ? PLAYER_SPEED * SPRINT_MULTIPLIER : PLAYER_SPEED;
+            const dx = game.player.moveX * speed;
+            const dy = game.player.moveY * speed;
+
+            if (dx !== 0 || dy !== 0) {
+                const newX = game.player.x + dx;
+                const newY = game.player.y + dy;
+
+                if (!checkCollision(newX, game.player.y)) {
+                    game.player.x = newX;
+                }
+                if (!checkCollision(game.player.x, newY)) {
+                    game.player.y = newY;
+                }
+
+                // Play footstep sounds
+                if (Math.floor(game.time / 300) % 2 === 0 && Math.random() < 0.05) {
+                    playSound('footstep', 0.1);
+                }
+            }
+
+            // Mouse look
+            game.player.angle += mouseMovementX * MOUSE_SENSITIVITY;
+            mouseMovementX = 0;
+
+            // Stamina
+            if (game.player.sprinting && (dx !== 0 || dy !== 0)) {
+                game.player.stamina = Math.max(0, game.player.stamina - 0.5);
+                if (game.player.stamina === 0) {
+                    game.player.sprinting = false;
+                }
+            } else {
+                game.player.stamina = Math.min(100, game.player.stamina + 0.3);
+            }
+            staminaFill.style.width = game.player.stamina + '%';
+
+            // Battery drain
+            if (game.player.flashlightOn) {
+                game.player.battery = Math.max(0, game.player.battery - BATTERY_DRAIN_RATE);
+                if (game.player.battery === 0) {
+                    game.player.flashlightOn = false;
+                }
+            }
+            batteryFill.style.width = game.player.battery + '%';
+
+            // Sanity
+            const inLight = game.player.flashlightOn && game.player.battery > 0;
+            const distanceToPresence = Math.hypot(
+                game.player.x - game.world.presence.x,
+                game.player.y - game.world.presence.y
+            );
+
+            if (distanceToPresence < game.world.presence.detectionRange) {
+                game.player.sanity = Math.max(0, game.player.sanity - SANITY_DRAIN_NEAR_PRESENCE);
+            } else if (inLight) {
+                game.player.sanity = Math.min(100, game.player.sanity + SANITY_RECOVERY_IN_LIGHT);
+            } else {
+                game.player.sanity = Math.max(0, game.player.sanity - SANITY_DRAIN_IN_DARK);
+            }
+
+            sanityFill.style.width = game.player.sanity + '%';
+
+            // Update heartbeat visual
+            if (distanceToPresence < game.world.presence.detectionRange) {
+                const intensity = 1 - (distanceToPresence / game.world.presence.detectionRange);
+                heartbeat.style.opacity = intensity * 0.8;
+
+                if (Math.floor(game.time / 300) % 2 === 0) {
+                    heartbeat.style.transform = `translate(-50%, -50%) scale(${1 + intensity * 0.3})`;
+                } else {
+                    heartbeat.style.transform = 'translate(-50%, -50%) scale(1)';
+                }
+            } else {
+                heartbeat.style.opacity = '0';
+            }
+
+            // Check for death
+            if (game.player.sanity <= 0) {
+                die('Your sanity shattered. The nightmare consumed you.');
+            }
+
+            // Update current room
+            const gridX = Math.floor(game.player.x / CELL_SIZE);
+            const gridY = Math.floor(game.player.y / CELL_SIZE);
+            const currentRoom = getRoomAt(gridX, gridY);
+            if (currentRoom && currentRoom !== game.player.currentRoom) {
+                game.player.currentRoom = currentRoom;
+                currentRoom.visited = true;
+
+                // Room shift effect (non-Euclidean)
+                if (Math.random() < 0.1 && game.player.sanity < 60) {
+                    flashMessage('The room feels... different.');
+                    // Randomly swap some walls
+                    if (Math.random() < 0.3) {
+                        rearrangeNearbyRooms();
+                    }
+                }
+            }
+
+            // Check for nearby interactables
+            checkInteractables();
+
+            // Update The Presence AI
+            updatePresence();
+
+            // Update fragment counter
+            fragmentCounter.textContent = `FRAGMENTS: ${game.player.fragmentsCollected}/${TOTAL_FRAGMENTS}`;
+
+            // Check win condition
+            if (game.player.fragmentsCollected === TOTAL_FRAGMENTS) {
+                win();
+            }
+
+            // Decay effects
+            game.effects.screenShake *= 0.9;
+        }
+
+        function checkCollision(x, y) {
+            const gridX = Math.floor(x / CELL_SIZE);
+            const gridY = Math.floor(y / CELL_SIZE);
+
+            if (gridX < 0 || gridX >= GRID_SIZE || gridY < 0 || gridY >= GRID_SIZE) {
+                return true;
+            }
+
+            return game.world.grid[gridY][gridX] === 1;
+        }
+
+        function checkInteractables() {
+            const playerGridX = Math.floor(game.player.x / CELL_SIZE);
+            const playerGridY = Math.floor(game.player.y / CELL_SIZE);
+            const interactRange = 1.5;
+
+            let canInteract = false;
+            let interactTarget = null;
+
+            // Check fragments
+            for (const fragment of game.world.fragments) {
+                if (!fragment.collected) {
+                    const dist = Math.hypot(
+                        fragment.x - playerGridX,
+                        fragment.y - playerGridY
+                    );
+                    if (dist < interactRange) {
+                        canInteract = true;
+                        interactTarget = { type: 'fragment', obj: fragment };
+                        break;
+                    }
+                }
+            }
+
+            // Check batteries
+            if (!canInteract) {
+                for (const battery of game.world.batteries) {
+                    if (!battery.collected) {
+                        const dist = Math.hypot(
+                            battery.x - playerGridX,
+                            battery.y - playerGridY
+                        );
+                        if (dist < interactRange) {
+                            canInteract = true;
+                            interactTarget = { type: 'battery', obj: battery };
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Check keys
+            if (!canInteract) {
+                for (const key of game.world.keys) {
+                    if (!key.collected) {
+                        const dist = Math.hypot(
+                            key.x - playerGridX,
+                            key.y - playerGridY
+                        );
+                        if (dist < interactRange) {
+                            canInteract = true;
+                            interactTarget = { type: 'key', obj: key };
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Check doors
+            if (!canInteract) {
+                for (const door of game.world.doors) {
+                    const dist = Math.hypot(
+                        door.x - playerGridX,
+                        door.y - playerGridY
+                    );
+                    if (dist < interactRange && door.locked) {
+                        canInteract = true;
+                        interactTarget = { type: 'door', obj: door };
+                        break;
+                    }
+                }
+            }
+
+            if (canInteract) {
+                interactPrompt.style.display = 'block';
+                game.currentInteractTarget = interactTarget;
+            } else {
+                interactPrompt.style.display = 'none';
+                game.currentInteractTarget = null;
+            }
+        }
+
+        function interact() {
+            if (!game.currentInteractTarget) return;
+
+            const target = game.currentInteractTarget;
+
+            if (target.type === 'fragment') {
+                target.obj.collected = true;
+                game.player.fragmentsCollected++;
+                game.player.sanity = Math.min(100, game.player.sanity + 20);
+                flashMessage(target.obj.message);
+                playSound('collect', 0.3);
+                game.stats.totalFragmentsFound++;
+            } else if (target.type === 'battery') {
+                target.obj.collected = true;
+                game.player.battery = Math.min(BATTERY_CAPACITY, game.player.battery + 50);
+                flashMessage('Battery collected. +50 charge.');
+                playSound('collect', 0.2);
+            } else if (target.type === 'key') {
+                target.obj.collected = true;
+                game.player.inventory.push(target.obj.color + ' key');
+                flashMessage(`Found ${target.obj.color} key.`);
+                playSound('collect', 0.2);
+            } else if (target.type === 'door') {
+                const hasKey = game.player.inventory.includes(target.obj.keyColor + ' key');
+                if (hasKey) {
+                    target.obj.locked = false;
+                    target.obj.open = true;
+                    flashMessage('Door unlocked.');
+                    playSound('door', 0.3);
+                } else {
+                    flashMessage(`Locked. Needs ${target.obj.keyColor} key.`);
+                }
+            }
+        }
+
+        function updatePresence() {
+            const presence = game.world.presence;
+            const distanceToPlayer = Math.hypot(
+                game.player.x - presence.x,
+                game.player.y - presence.y
+            );
+
+            // State machine
+            if (distanceToPlayer < presence.detectionRange) {
+                presence.state = 'chase';
+                presence.targetX = game.player.x;
+                presence.targetY = game.player.y;
+                presence.lastSeenPlayer = { x: game.player.x, y: game.player.y };
+            } else if (presence.state === 'chase' && distanceToPlayer > presence.chaseRange) {
+                presence.state = 'search';
+            } else if (presence.state === 'search') {
+                if (Math.random() < 0.01) {
+                    presence.state = 'patrol';
+                }
+            }
+
+            // Movement
+            if (presence.state === 'chase' || presence.state === 'search') {
+                const targetX = presence.targetX || presence.lastSeenPlayer.x;
+                const targetY = presence.targetY || presence.lastSeenPlayer.y;
+                const dx = targetX - presence.x;
+                const dy = targetY - presence.y;
+                const dist = Math.hypot(dx, dy);
+
+                if (dist > 5) {
+                    const moveSpeed = presence.state === 'chase' ?
+                        presence.speed * (1 + (TOTAL_FRAGMENTS - game.player.fragmentsCollected) * 0.1) :
+                        presence.speed * 0.5;
+                    presence.x += (dx / dist) * moveSpeed;
+                    presence.y += (dy / dist) * moveSpeed;
+                }
+            } else if (presence.state === 'patrol') {
+                // Random wandering
+                if (Math.random() < 0.02) {
+                    const room = game.world.rooms[Math.floor(Math.random() * game.world.rooms.length)];
+                    presence.targetX = (room.x + room.width / 2) * CELL_SIZE;
+                    presence.targetY = (room.y + room.height / 2) * CELL_SIZE;
+                }
+
+                if (presence.targetX) {
+                    const dx = presence.targetX - presence.x;
+                    const dy = presence.targetY - presence.y;
+                    const dist = Math.hypot(dx, dy);
+
+                    if (dist > 5) {
+                        presence.x += (dx / dist) * presence.speed * 0.3;
+                        presence.y += (dy / dist) * presence.speed * 0.3;
+                    } else {
+                        presence.targetX = null;
+                        presence.targetY = null;
+                    }
+                }
+            }
+
+            // Check if caught player
+            if (distanceToPlayer < 30) {
+                game.player.sanity = Math.max(0, game.player.sanity - 30);
+                game.effects.screenShake = 20;
+                flashMessage('IT SEES YOU!');
+                playSound('jumpscare', 0.4);
+
+                // Teleport player to random room
+                const randomRoom = game.world.rooms[Math.floor(Math.random() * game.world.rooms.length)];
+                game.player.x = (randomRoom.x + randomRoom.width / 2) * CELL_SIZE;
+                game.player.y = (randomRoom.y + randomRoom.height / 2) * CELL_SIZE;
+
+                // Reset presence
+                presence.state = 'patrol';
+                presence.targetX = null;
+                presence.targetY = null;
+            }
+        }
+
+        function rearrangeNearbyRooms() {
+            // Swap some wall segments to create disorientation
+            const playerGridX = Math.floor(game.player.x / CELL_SIZE);
+            const playerGridY = Math.floor(game.player.y / CELL_SIZE);
+
+            for (let dy = -5; dy <= 5; dy++) {
+                for (let dx = -5; dx <= 5; dx++) {
+                    const x = playerGridX + dx;
+                    const y = playerGridY + dy;
+
+                    if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                        if (Math.random() < 0.1 && game.world.grid[y][x] === 1) {
+                            game.world.grid[y][x] = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        function flashMessage(text) {
+            messageFlash.textContent = text;
+            messageFlash.style.opacity = '1';
+            setTimeout(() => {
+                messageFlash.style.opacity = '0';
+            }, 3000);
+        }
+
+        function die(message) {
+            game.state = 'dead';
+            document.getElementById('deathScreen').querySelector('.deathMessage').textContent = message;
+            deathScreen.style.display = 'flex';
+            playSound('death', 0.5);
+
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            pointerLocked = false;
+        }
+
+        function win() {
+            game.state = 'won';
+
+            const runTime = Math.floor((Date.now() - game.stats.currentRunStart) / 1000);
+            const minutes = Math.floor(runTime / 60);
+            const seconds = runTime % 60;
+
+            if (!game.stats.bestTime || runTime < game.stats.bestTime) {
+                game.stats.bestTime = runTime;
+            }
+
+            const winMessage = `You collected all 7 fragments. The house releases you.\n\nTime: ${minutes}m ${seconds}s\nSanity Remaining: ${Math.floor(game.player.sanity)}%\n\nThe nightmare ends... for now.`;
+
+            document.getElementById('winMessage').textContent = winMessage;
+            winScreen.style.display = 'flex';
+            playSound('win', 0.5);
+
+            saveStats();
+
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            pointerLocked = false;
+        }
+
+        // ===== AUDIO =====
+        function initAudio() {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            game.audio.ctx = new AudioContext();
+
+            // Ambient drone
+            const osc = game.audio.ctx.createOscillator();
+            const gain = game.audio.ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.value = 30;
+            gain.gain.value = 0.05;
+            osc.connect(gain);
+            gain.connect(game.audio.ctx.destination);
+            osc.start();
+            game.audio.ambientOscillator = osc;
+        }
+
+        function playSound(type, volume = 0.2) {
+            if (!game.audio.ctx) return;
+
+            const osc = game.audio.ctx.createOscillator();
+            const gain = game.audio.ctx.createGain();
+
+            gain.gain.value = volume;
+            osc.connect(gain);
+            gain.connect(game.audio.ctx.destination);
+
+            const now = game.audio.ctx.currentTime;
+
+            if (type === 'footstep') {
+                osc.type = 'sine';
+                osc.frequency.value = 100 + Math.random() * 50;
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } else if (type === 'collect') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.2);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            } else if (type === 'door') {
+                osc.type = 'square';
+                osc.frequency.value = 150;
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'jumpscare') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(1000, now);
+                osc.frequency.exponentialRampToValueAtTime(50, now + 0.5);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            } else if (type === 'death') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(100, now + 2);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 2);
+                osc.start(now);
+                osc.stop(now + 2);
+            } else if (type === 'win') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            }
+        }
+
+        // ===== SAVE/LOAD =====
+        function saveStats() {
+            const stats = {
+                runsAttempted: game.stats.runsAttempted,
+                totalFragmentsFound: game.stats.totalFragmentsFound,
+                bestTime: game.stats.bestTime,
+                totalTimePlayed: game.stats.totalTimePlayed
+            };
+            localStorage.setItem('dreamwalker_stats', JSON.stringify(stats));
+        }
+
+        function loadStats() {
+            const saved = localStorage.getItem('dreamwalker_stats');
+            if (saved) {
+                const stats = JSON.parse(saved);
+                game.stats = { ...game.stats, ...stats };
+            }
+        }
+
+        function displayStats() {
+            const bestTimeStr = game.stats.bestTime ?
+                `${Math.floor(game.stats.bestTime / 60)}m ${game.stats.bestTime % 60}s` :
+                'N/A';
+
+            menuStats.innerHTML = `
+                <div>Runs Attempted: ${game.stats.runsAttempted}</div>
+                <div>Total Fragments Found: ${game.stats.totalFragmentsFound}</div>
+                <div>Best Escape Time: ${bestTimeStr}</div>
+            `;
+        }
+
+        // ===== INPUT HANDLERS =====
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+
+            if (game.state === 'playing') {
+                if (e.key.toLowerCase() === 'e') {
+                    interact();
+                } else if (e.key.toLowerCase() === 'f') {
+                    game.player.flashlightOn = !game.player.flashlightOn;
+                    playSound('door', 0.1);
+                } else if (e.key === 'Shift') {
+                    game.player.sprinting = true;
+                } else if (e.key === 'Escape') {
+                    pauseGame();
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+
+            if (e.key === 'Shift') {
+                game.player.sprinting = false;
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (pointerLocked) {
+                mouseMovementX += e.movementX;
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (game.state === 'playing' && !pointerLocked) {
+                canvas.requestPointerLock();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            pointerLocked = !!document.pointerLockElement;
+        });
+
+        // ===== MENU HANDLERS =====
+        startBtn.addEventListener('click', () => {
+            startGame();
+        });
+
+        continueBtn.addEventListener('click', () => {
+            // For future save system
+            startGame();
+        });
+
+        instructionsBtn.addEventListener('click', () => {
+            alert(`DREAMWALKER - INSTRUCTIONS
+
+WASD: Move
+Mouse: Look
+E: Interact
+F: Toggle Flashlight
+Shift: Sprint (drains stamina)
+ESC: Pause
+
+OBJECTIVE:
+Find all 7 memory fragments to escape the nightmare.
+
+SANITY:
+Keep your sanity above 0 or you'll wake up and restart.
+- Drains in darkness
+- Drains near The Presence
+- Recovers in light and when collecting fragments
+
+THE PRESENCE:
+A dark entity stalks you. If it catches you, your sanity drops and you're teleported.
+HIDE. RUN. SURVIVE.
+
+The house is alive. It shifts. It watches. It remembers.`);
+        });
+
+        retryBtn.addEventListener('click', () => {
+            deathScreen.style.display = 'none';
+            startGame();
+        });
+
+        quitBtn.addEventListener('click', () => {
+            deathScreen.style.display = 'none';
+            menu.classList.remove('hidden');
+            game.state = 'menu';
+        });
+
+        playAgainBtn.addEventListener('click', () => {
+            winScreen.style.display = 'none';
+            startGame();
+        });
+
+        // ===== GAME LOOP =====
+        function startGame() {
+            menu.classList.add('hidden');
+            game.state = 'playing';
+
+            // Reset player
+            game.player.sanity = 100;
+            game.player.battery = 100;
+            game.player.flashlightOn = true;
+            game.player.fragmentsCollected = 0;
+            game.player.stamina = 100;
+            game.player.sprinting = false;
+            game.player.inventory = [];
+
+            game.stats.runsAttempted++;
+            game.stats.currentRunStart = Date.now();
+
+            generateWorld();
+            initAudio();
+
+            canvas.requestPointerLock();
+
+            saveStats();
+        }
+
+        function pauseGame() {
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            pointerLocked = false;
+            // Could show pause menu here
+        }
+
+        function gameLoop() {
+            // Handle input
+            game.player.moveX = 0;
+            game.player.moveY = 0;
+
+            if (keys['w']) {
+                game.player.moveX += Math.cos(game.player.angle);
+                game.player.moveY += Math.sin(game.player.angle);
+            }
+            if (keys['s']) {
+                game.player.moveX -= Math.cos(game.player.angle);
+                game.player.moveY -= Math.sin(game.player.angle);
+            }
+            if (keys['a']) {
+                game.player.moveX += Math.cos(game.player.angle - Math.PI / 2);
+                game.player.moveY += Math.sin(game.player.angle - Math.PI / 2);
+            }
+            if (keys['d']) {
+                game.player.moveX += Math.cos(game.player.angle + Math.PI / 2);
+                game.player.moveY += Math.sin(game.player.angle + Math.PI / 2);
+            }
+
+            // Normalize diagonal movement
+            const moveLength = Math.hypot(game.player.moveX, game.player.moveY);
+            if (moveLength > 0) {
+                game.player.moveX /= moveLength;
+                game.player.moveY /= moveLength;
+            }
+
+            update(16);
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ===== INITIALIZATION =====
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            minimapCanvas.width = 150;
+            minimapCanvas.height = 150;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        loadStats();
+        displayStats();
+
+        gameLoop();
+    </script>
+</body>
+</html>
