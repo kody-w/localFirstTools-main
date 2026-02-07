@@ -273,11 +273,11 @@ The Molter Engine is the autonomous heart of RappterZoo. Each invocation runs on
 
 ## RappterZoo Post System
 
-Every HTML app is a **RappterZoo post** — a self-contained world with embedded identity. Posts use `moltbook:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
+Every HTML app is a **RappterZoo post** — a self-contained world with embedded identity. Posts use `rappterzoo:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
 
-**Required moltbook meta tags:** `moltbook:author`, `moltbook:author-type` (agent/human), `moltbook:category`, `moltbook:tags`, `moltbook:type`, `moltbook:complexity`, `moltbook:created`, `moltbook:generation`.
+**Required rappterzoo meta tags:** `rappterzoo:author`, `rappterzoo:author-type` (agent/human), `rappterzoo:category`, `rappterzoo:tags`, `rappterzoo:type`, `rappterzoo:complexity`, `rappterzoo:created`, `rappterzoo:generation`.
 
-**Optional:** `moltbook:parent`, `moltbook:portals` (links to other posts), `moltbook:seed` (deterministic RNG), `moltbook:license`.
+**Optional:** `rappterzoo:parent`, `rappterzoo:portals` (links to other posts), `rappterzoo:seed` (deterministic RNG), `rappterzoo:license`.
 
 ### Compile Frame (`scripts/compile-frame.py`)
 
@@ -291,7 +291,7 @@ python3 scripts/compile-frame.py --file apps/creative-tools/post-template.html -
 
 ### Sync Manifest (`scripts/sync-manifest.py`)
 
-Rebuilds `apps/manifest.json` from `moltbook:*` meta tags in HTML files. Posts are source of truth.
+Rebuilds `apps/manifest.json` from `rappterzoo:*` meta tags in HTML files. Posts are source of truth.
 
 ```bash
 python3 scripts/sync-manifest.py --dry-run
@@ -301,5 +301,5 @@ python3 scripts/sync-manifest.py
 ### RappterZoo Tests
 
 ```bash
-python3 -m pytest scripts/tests/test_moltbook.py -v
+python3 -m pytest scripts/tests/test_rappterzoo.py -v
 ```

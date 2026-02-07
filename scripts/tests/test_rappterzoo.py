@@ -1,4 +1,4 @@
-"""Tests for Moltbook: post template, sync-manifest, compile-frame, feed."""
+"""Tests for RappterZoo: post template, sync-manifest, compile-frame, feed."""
 import os
 import re
 import json
@@ -16,14 +16,14 @@ CLAUDE_PATH = os.path.join(REPO_ROOT, 'CLAUDE.md')
 MANIFEST_PATH = os.path.join(APPS_DIR, 'manifest.json')
 
 REQUIRED_META = [
-    'moltbook:author',
-    'moltbook:author-type',
-    'moltbook:category',
-    'moltbook:tags',
-    'moltbook:type',
-    'moltbook:complexity',
-    'moltbook:created',
-    'moltbook:generation',
+    'rappterzoo:author',
+    'rappterzoo:author-type',
+    'rappterzoo:category',
+    'rappterzoo:tags',
+    'rappterzoo:type',
+    'rappterzoo:complexity',
+    'rappterzoo:created',
+    'rappterzoo:generation',
 ]
 
 VALID_AUTHOR_TYPES = {'agent', 'human'}
@@ -72,7 +72,7 @@ class TestPostTemplate:
         html = read_file(TEMPLATE_PATH)
         assert 'viewport' in html.lower(), "Missing viewport meta"
 
-    def test_has_all_moltbook_meta(self):
+    def test_has_all_rappterzoo_meta(self):
         html = read_file(TEMPLATE_PATH)
         for meta_name in REQUIRED_META:
             val = extract_meta(html, meta_name)
@@ -80,27 +80,27 @@ class TestPostTemplate:
 
     def test_author_type_valid(self):
         html = read_file(TEMPLATE_PATH)
-        val = extract_meta(html, 'moltbook:author-type')
+        val = extract_meta(html, 'rappterzoo:author-type')
         assert val in VALID_AUTHOR_TYPES, f"Invalid author-type: {val}"
 
     def test_category_valid(self):
         html = read_file(TEMPLATE_PATH)
-        val = extract_meta(html, 'moltbook:category')
+        val = extract_meta(html, 'rappterzoo:category')
         assert val in VALID_CATEGORIES, f"Invalid category: {val}"
 
     def test_type_valid(self):
         html = read_file(TEMPLATE_PATH)
-        val = extract_meta(html, 'moltbook:type')
+        val = extract_meta(html, 'rappterzoo:type')
         assert val in VALID_TYPES, f"Invalid type: {val}"
 
     def test_complexity_valid(self):
         html = read_file(TEMPLATE_PATH)
-        val = extract_meta(html, 'moltbook:complexity')
+        val = extract_meta(html, 'rappterzoo:complexity')
         assert val in VALID_COMPLEXITIES, f"Invalid complexity: {val}"
 
     def test_generation_is_zero(self):
         html = read_file(TEMPLATE_PATH)
-        val = extract_meta(html, 'moltbook:generation')
+        val = extract_meta(html, 'rappterzoo:generation')
         assert val == '0', f"Template generation should be 0, got {val}"
 
     def test_no_external_deps(self):
@@ -126,19 +126,19 @@ class TestPostTemplate:
 # ============================================================
 
 class TestSyncManifest:
-    """Test that sync-manifest.py correctly parses moltbook meta tags."""
+    """Test that sync-manifest.py correctly parses rappterzoo meta tags."""
 
     def test_script_exists(self):
         assert os.path.exists(os.path.join(REPO_ROOT, 'scripts', 'sync-manifest.py')), \
             "sync-manifest.py missing"
 
     def test_extract_meta_helper(self):
-        html = '<meta name="moltbook:author" content="test-user">'
-        assert extract_meta(html, 'moltbook:author') == 'test-user'
+        html = '<meta name="rappterzoo:author" content="test-user">'
+        assert extract_meta(html, 'rappterzoo:author') == 'test-user'
 
     def test_extract_meta_missing(self):
         html = '<meta name="other" content="val">'
-        assert extract_meta(html, 'moltbook:author') is None
+        assert extract_meta(html, 'rappterzoo:author') is None
 
     def test_sync_reads_template(self):
         """sync-manifest should be importable and have a parse_post function."""
@@ -188,8 +188,8 @@ class TestCompileFrame:
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT)
         if r.returncode == 0 and r.stdout.strip():
             output_html = r.stdout
-            orig_gen = int(extract_meta(read_file(TEMPLATE_PATH), 'moltbook:generation') or '0')
-            new_gen = extract_meta(output_html, 'moltbook:generation')
+            orig_gen = int(extract_meta(read_file(TEMPLATE_PATH), 'rappterzoo:generation') or '0')
+            new_gen = extract_meta(output_html, 'rappterzoo:generation')
             if new_gen is not None:
                 assert int(new_gen) == orig_gen + 1, f"Expected gen {orig_gen+1}, got {new_gen}"
 
@@ -199,7 +199,7 @@ class TestCompileFrame:
 # ============================================================
 
 class TestFeed:
-    """Validate the Moltbook feed index.html."""
+    """Validate the RappterZoo feed index.html."""
 
     def test_index_exists(self):
         assert os.path.exists(INDEX_PATH), "index.html missing"
@@ -210,7 +210,7 @@ class TestFeed:
 
     def test_has_branding(self):
         html = read_file(INDEX_PATH).lower()
-        assert 'moltbook' in html or 'rappterbook' in html, "Missing branding"
+        assert 'rappterzoo' in html, "Missing branding"
 
     def test_fetches_manifest(self):
         html = read_file(INDEX_PATH)
@@ -263,7 +263,7 @@ class TestSkills:
 
     def test_covers_template(self):
         md = read_file(SKILLS_PATH).lower()
-        assert 'template' in md or 'moltbook:' in md, "skills.md doesn't reference template"
+        assert 'template' in md or 'rappterzoo:' in md, "skills.md doesn't reference template"
 
     def test_covers_agent_vs_human(self):
         md = read_file(SKILLS_PATH).lower()
@@ -283,14 +283,14 @@ class TestSkills:
 # ============================================================
 
 class TestClaude:
-    """Validate CLAUDE.md has Moltbook section."""
+    """Validate CLAUDE.md has RappterZoo section."""
 
     def test_claude_exists(self):
         assert os.path.exists(CLAUDE_PATH), "CLAUDE.md missing"
 
-    def test_has_moltbook_section(self):
+    def test_has_rappterzoo_section(self):
         md = read_file(CLAUDE_PATH).lower()
-        assert 'moltbook' in md, "CLAUDE.md missing Moltbook section"
+        assert 'rappterzoo' in md, "CLAUDE.md missing RappterZoo section"
 
     def test_references_compile_frame(self):
         md = read_file(CLAUDE_PATH).lower()
