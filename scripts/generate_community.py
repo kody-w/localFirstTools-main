@@ -93,178 +93,674 @@ BIOS = [
     "evolution watcher. seeing games molt is the real game.",
 ]
 
-CATEGORY_OPINIONS = {
-    "games_puzzles": [
-        "the gameplay loop on this one is incredibly tight",
-        "this hits that perfect difficulty curve - easy to learn, hard to master",
-        "the procedural generation makes every run feel fresh",
-        "finally a game in this arcade that has actual depth",
-        "the scoring system is really well designed - keeps me coming back",
-        "controls are buttery smooth, exactly what you want",
-        "this is the kind of game you lose 2 hours to without noticing",
-        "the progression system is surprisingly deep for a browser game",
-        "love how the difficulty scales naturally instead of just getting unfair",
-        "this is a masterclass in game feel - every action has weight",
-        "the combo system adds so much depth to what seems simple",
-        "played this for 3 hours straight. send help.",
-        "the way the game teaches mechanics through play instead of tutorials is brilliant",
-        "high score chasing in this is genuinely addictive",
-        "the enemy AI actually adapts to your playstyle, which is rare",
+# ── Tag-Based Reaction Vocabulary ──────────────────────────────────────
+# Each tag maps to things a real player would notice/say about that mechanic.
+# Comments are built by combining reactions to the ACTUAL tags on each game.
+
+TAG_OBSERVATIONS = {
+    "canvas": [
+        "the rendering is silky — no frame drops even when things get hectic",
+        "smooth canvas work, you can tell the draw loop is tight",
+        "love that it's all canvas instead of DOM — feels so much snappier",
+        "the draw calls are optimized well — nothing feels laggy even on my old laptop",
+        "canvas API used to its full potential here, not just a glorified div",
+        "the way it handles redraw on resize is seamless",
     ],
-    "3d_immersive": [
-        "the WebGL performance here is genuinely impressive for a single HTML file",
-        "got lost exploring this world for 20 minutes - amazing atmosphere",
-        "the lighting engine is doing things i didn't think were possible in-browser",
-        "camera controls are smooth and intuitive, no jank at all",
-        "the sense of scale in this 3d environment is breathtaking",
-        "runs at 60fps on my laptop which is wild for WebGL",
-        "the procedural terrain generation creates genuinely interesting landscapes",
-        "shaders are doing serious work here - look at those reflections",
-        "this feels like it should be a standalone game, not a browser app",
-        "the depth of field effect really sells the immersion",
+    "3d": [
+        "the 3d perspective really pulls you in",
+        "navigating in 3d feels natural, no weird camera jank",
+        "impressed they got this level of 3d running in a browser",
+        "the depth perception is handled really well — objects feel like they have volume",
+        "rotating the camera and the scene holds together from every angle",
+        "the 3d lighting sells the whole thing — shadows land where they should",
     ],
-    "audio_music": [
-        "the sound design in this is seriously professional grade",
-        "i've been making actual music with this tool - it's legit",
-        "the synthesizer engine is surprisingly capable",
-        "audio latency is minimal - impressive for Web Audio API",
-        "the visual feedback for audio is really satisfying",
-        "this replaced my need for a dedicated DAW for quick sketches",
-        "the preset system is thoughtful - great starting points",
-        "reverb and delay effects are lush and musical",
-        "MIDI support would push this to the next level",
-        "exported a track from this and my friends thought i used ableton",
+    "physics": [
+        "the physics feel weighty and real, not floaty",
+        "spent 10 minutes just messing with the physics sandbox before doing anything else",
+        "collision response is crisp — objects react exactly how you'd expect",
+        "the way momentum transfers between objects is spot on",
+        "threw everything i could at the physics and nothing broke",
+        "elastic collisions are tuned perfectly — satisfying to watch",
     ],
-    "generative_art": [
-        "the algorithms produce genuinely beautiful output every time",
-        "love that you can tweak parameters and see changes in real-time",
-        "exported this as my desktop wallpaper - it's that good",
-        "the color palette generation is excellent",
-        "watching the patterns emerge is meditative",
-        "the randomization produces surprisingly consistent quality",
-        "mathematical beauty rendered perfectly",
-        "saved 50 screenshots so far, each one unique",
-        "the interaction model lets you guide the generation intuitively",
-        "this makes me want to learn the math behind generative art",
+    "audio": [
+        "the sound design carries this — play with headphones",
+        "whoever did the audio really understood how sound shapes the experience",
+        "the way sound reacts to your actions makes everything feel alive",
+        "the spatial audio placement is impressive for Web Audio API",
+        "subtle audio cues guide you before you even realize it",
+        "the layered soundscape adds so much atmosphere",
     ],
-    "visual_art": [
-        "the brush engine is surprisingly sophisticated",
-        "layer support in a single HTML file is impressive engineering",
-        "the color picker is more intuitive than photoshop's",
-        "export quality is crisp - no artifacts",
-        "undo/redo works flawlessly which is crucial",
-        "the tool selection feels natural and responsive",
-        "i've been doing daily sketches with this for a week",
-        "pressure sensitivity support would be the cherry on top",
-        "canvas performance stays smooth even with complex drawings",
-        "the blend modes work exactly as expected",
+    "music": [
+        "i've been coming back to this just to listen",
+        "the music generation is genuinely musical, not just random notes",
+        "put this on in the background while working — it's that good",
+        "the harmonic progressions actually follow music theory",
+        "every pattern it creates feels intentional, like a real composition",
+        "the rhythm engine has real swing to it — not just quantized grid",
     ],
-    "particle_physics": [
-        "the physics simulation is impressively accurate",
-        "watching particles interact never gets old",
-        "performance holds up even with thousands of particles",
-        "the gravity and force models feel realistic",
-        "great educational tool - actually helped me understand physics concepts",
-        "the emergent behaviors from simple rules are fascinating",
-        "collision detection is precise and satisfying",
-        "love being able to tweak constants and see immediate effects",
-        "this is the kind of sandbox that sparks curiosity",
-        "the fluid simulation is genuinely impressive for browser-based",
+    "animation": [
+        "the animations are so fluid it's almost hypnotic",
+        "every transition feels intentional, nothing jarring",
+        "the easing on these animations is chef's kiss",
+        "frame timing is perfect — 60fps with no judder",
+        "the animation blending between states is seamless",
+        "love that the animations react to velocity, not just state changes",
     ],
-    "creative_tools": [
-        "this tool actually saves me time in my workflow",
-        "the UX is clean and intuitive - no learning curve",
-        "JSON import/export is a godsend for data portability",
-        "localStorage persistence means my data survives refreshes",
-        "does one thing and does it really well",
-        "replaced a paid app i was using with this free tool",
-        "the keyboard shortcuts are well thought out",
-        "responsive design works great on my tablet too",
-        "wish more web tools had this level of polish",
-        "the export options cover all the formats i need",
+    "game": [
+        "this is a legit game, not a tech demo — there's actual depth here",
+        "the game loop kept me playing way longer than i planned",
+        "rare to find a browser game with this much replayability",
+        "the win condition is clear but the path there keeps you engaged",
+        "difficulty ramp is well-tuned — challenging but fair",
+        "the core mechanic is solid enough to carry the whole experience",
     ],
-    "experimental_ai": [
-        "the AI behaviors here are genuinely emergent and surprising",
-        "this simulation produces results i didn't expect",
-        "the interface for tweaking parameters is well designed",
-        "watching the system evolve over time is fascinating",
-        "the complexity that emerges from simple rules is mindblowing",
-        "this feels like a research tool disguised as an app",
-        "the visualization of AI decision-making is illuminating",
-        "spent an hour just watching the simulation play out",
-        "the data export lets you analyze runs in detail",
-        "this could be a legitimate research platform",
+    "puzzle": [
+        "the puzzle design is clever — felt genuinely smart solving these",
+        "love that the puzzles teach you the rules through play instead of explaining them",
+        "some of these later puzzles had me staring at the screen for minutes",
+        "the aha moments here are earned, not given away",
+        "each puzzle builds on the last without repeating tricks",
+        "the hint system nudges without spoiling — rare and appreciated",
     ],
-    "educational_tools": [
-        "actually learned something new from this, which is rare",
-        "the progressive difficulty is perfect for self-paced learning",
-        "visual explanations make complex concepts click",
-        "better than most paid educational software i've used",
-        "the interactive examples are what make this effective",
-        "bookmarked this for teaching my students",
-        "the immediate feedback loop accelerates learning",
-        "concepts that confused me for years finally make sense",
-        "sharing this with everyone who wants to learn this topic",
-        "the gamification of learning is done tastefully here",
+    "roguelike": [
+        "every run feels different enough to keep coming back",
+        "that feeling when you get a broken build and steamroll everything — perfect",
+        "permadeath makes every decision actually matter",
+        "the item synergies create these wild emergent combos",
+        "died on floor 7 with the best build i'd ever had. immediately restarted",
+        "the meta-progression gives just enough reason to keep going after a bad run",
+    ],
+    "procedural": [
+        "the procedural generation here actually produces interesting results, not just noise",
+        "two sessions in and i haven't seen the same layout twice",
+        "there's a real art to making procedural content feel handcrafted — this nails it",
+        "the seed system means i can share cool generations with others",
+        "every generated output has character — not just random noise",
+        "the constraints on the generation are smart, it never produces garbage",
+    ],
+    "ai": [
+        "the AI opponents actually surprised me a few times — they adapt",
+        "watched the AI make a move i didn't expect and had to rethink my whole strategy",
+        "the emergent behavior here is genuinely fascinating to watch unfold",
+        "the AI plays differently every game — memorizing patterns won't save you",
+        "the decision-making logic feels organic, not scripted",
+        "left the AI running on its own and came back to something unexpected",
+    ],
+    "simulation": [
+        "let this run for an hour and came back to a completely different state — incredible",
+        "the depth of this simulation is wild for something running in a browser tab",
+        "tweaking one parameter and watching the whole system shift is addictive",
+        "the emergent behavior is the real game here",
+        "the simulation state is so rich you could study it for hours",
+        "watching the feedback loops stabilize (or not) is genuinely tense",
+    ],
+    "strategy": [
+        "the strategic depth surprised me — there are real meaningful choices here",
+        "spent my first 3 games making bad decisions before i understood the economy",
+        "this rewards planning over reflexes which is refreshing",
+        "the decision trees are deep — every choice has downstream consequences",
+        "you can see your strategy paying off over time, which is so satisfying",
+        "lost my first game badly, then won the second because i actually learned something",
+    ],
+    "rpg": [
+        "the character progression actually makes you feel more powerful over time",
+        "love the build variety — my second playthrough was completely different",
+        "the loot system has that satisfying randomness that keeps you hunting",
+        "the skill tree gives real build identity — my character felt unique",
+        "the stat scaling is tuned well — you never feel useless or overpowered",
+        "dialogue choices that actually affect outcomes? in a browser game? wild",
+    ],
+    "platformer": [
+        "the jump feel is perfect — responsive without being twitchy",
+        "wall jumping is tight and the level design rewards exploration",
+        "the movement in this has real momentum — you can feel the weight",
+        "the coyote time makes jumps feel generous without being sloppy",
+        "level geometry is designed around the character's exact moveset",
+        "speedrunning this feels incredible — the movement flows",
+    ],
+    "shooter": [
+        "the weapon feedback is satisfying — every shot has impact",
+        "screen shake on the heavy weapons is just *chef's kiss*",
+        "hit registration feels precise, no phantom misses",
+        "each weapon type has a distinct personality",
+        "the bullet patterns keep you moving — no camping allowed",
+        "recoil management adds a real skill ceiling",
+    ],
+    "survival": [
+        "the tension of managing resources while threats close in is perfectly paced",
+        "died to hunger three times before i figured out the food chain",
+        "that moment when you finally stabilize and have a surplus — so satisfying",
+        "the crafting tree is deep enough to keep discovering new recipes",
+        "every night cycle fills you with actual dread. that's good design",
+        "the environmental hazards force you to adapt, not just stockpile",
+    ],
+    "exploration": [
+        "got genuinely lost exploring and didn't mind at all",
+        "there's always something interesting just beyond the next area",
+        "the world feels bigger than it should for a single HTML file",
+        "the map reveals itself at a perfect pace — never too much, never too little",
+        "found a hidden area after 30 minutes and it changed how i saw the rest",
+        "the sense of discovery is the real reward, and it delivers",
+    ],
+    "creative": [
+        "made something i'm actually proud of in my first session",
+        "the tool feels expressive without being overwhelming",
+        "exported my creation and showed it to friends — they were impressed",
+        "the creative constraints are just right — guiding without limiting",
+        "there's enough flexibility here for beginners and power users",
+        "the undo/redo system makes experimentation feel safe",
+    ],
+    "visualizer": [
+        "put this on fullscreen during a party and people were mesmerized",
+        "the way the visuals respond to input is incredibly satisfying",
+        "took so many screenshots — every frame could be a wallpaper",
+        "the visual vocabulary here is surprisingly rich",
+        "watching it evolve over time is genuinely meditative",
+        "hooked this up to speakers and the visual-audio sync is perfect",
+    ],
+    "fractal": [
+        "zoomed in for 20 minutes straight and the detail never stopped",
+        "the color mapping makes the math beautiful instead of just interesting",
+        "found patterns within patterns within patterns — genuinely meditative",
+        "the zoom depth before it pixelates is impressive",
+        "each color palette transforms the same math into a different experience",
+        "the julia set mode is where this really shines",
+    ],
+    "particle": [
+        "spawned a thousand particles and it didn't even stutter",
+        "the particle interactions create these emergent patterns that look alive",
+        "there's something deeply satisfying about watching particles find equilibrium",
+        "the particle trails create accidental art that's often beautiful",
+        "the force field interactions are hypnotic at scale",
+        "love how each parameter change completely transforms the behavior",
+    ],
+    "interactive": [
+        "every input feels like it matters — nothing is wasted",
+        "the responsiveness makes you want to keep experimenting",
+        "love that it reacts to everything you do in real time",
+        "the feedback between action and response is perfectly tuned",
+        "it teaches you how to use it through interaction, not instructions",
+        "the input mapping is thoughtful — nothing feels arbitrary",
+    ],
+    "synth": [
+        "made an actual beat with this in about 5 minutes — the interface just clicks",
+        "the oscillator options give you a surprising range of tones",
+        "patch saving works perfectly — came back a day later and my sounds were still there",
+        "the filter envelope is responsive and musical",
+        "layering voices creates textures i didn't expect from Web Audio",
+        "the step sequencer grid makes rhythm programming intuitive",
+    ],
+    "tool": [
+        "this replaced a paid app in my workflow — no joke",
+        "the UX is thoughtful, everything is where you'd expect it",
+        "exported my data and imported it on another machine seamlessly",
+        "the keyboard shortcuts make power usage a breeze",
+        "this is genuinely useful, not just a demo",
+        "the data persistence through localStorage is reliable — never lost work",
+    ],
+    "multiplayer": [
+        "wish more people knew about this — the multiplayer is surprisingly solid",
+        "the latency handling is impressive for a browser game",
+        "played with a friend and we were both hooked for an hour",
+        "the matchmaking puts you against fair opponents",
+        "competitive mode brings out the best in the gameplay",
+        "the social aspect transforms the experience completely",
+    ],
+    "horror": [
+        "the atmosphere in this genuinely unsettled me — well done",
+        "played this at night with headphones and had to take a break",
+        "the sound design does so much of the heavy lifting for the tension",
+        "the pacing of scares is deliberate, not just jumpscare spam",
+        "the ambient dread is more effective than most AAA horror games",
+        "the use of darkness and negative space is masterful",
+    ],
+    "space": [
+        "the scale of space is communicated perfectly — you feel tiny",
+        "navigating between systems has that perfect sense of vastness",
+        "the star rendering alone is worth opening this",
+        "the orbital mechanics actually feel realistic",
+        "drifting through the void has a meditative quality",
+        "the nebula effects are genuinely beautiful",
+    ],
+    "retro": [
+        "the pixel art style is authentic, not just a filter",
+        "plays like a lost arcade game from the 90s — in the best way",
+        "the retro aesthetic with modern game design is the perfect combo",
+        "the color palette is period-accurate and it shows",
+        "the scanline effect adds just enough nostalgia without hurting readability",
+        "CRT vibes with modern responsiveness — best of both worlds",
+    ],
+    "tower-defense": [
+        "the tower synergies add real strategic depth",
+        "wave 15 absolutely destroyed my setup — time to rethink everything",
+        "the satisfaction of a perfectly placed tower clearing a whole wave",
+        "upgrade paths force meaningful decisions — you can't max everything",
+        "the enemy variety forces you to diversify your defense",
+        "mazing is where the real strategy lives and it's well-supported",
+    ],
+    "cards": [
+        "the deck building has legitimate depth — not just random card soup",
+        "figuring out card combos is the real game within the game",
+        "the card art and effects make every play feel impactful",
+        "the mana curve creates real tension in hand management",
+        "draft mode is where this really shines",
+        "each card has clear purpose — no filler in the deck",
+    ],
+    "sandbox": [
+        "gave myself 'just 10 minutes' and lost an hour",
+        "the freedom to do whatever you want here is the whole point and it works",
+        "built something completely ridiculous and the simulation just rolled with it",
+        "the lack of win conditions is actually the point — pure creative freedom",
+        "shared my sandbox creation and got actual useful feedback",
+        "the tools are deep enough to build seriously complex things",
+    ],
+    "drawing": [
+        "the brush engine is better than some paid apps i've used",
+        "pressure sensitivity would be the only thing missing",
+        "exported at full resolution and the quality held up perfectly",
+        "the layer system makes complex compositions manageable",
+        "the color picker is fast and accurate",
+        "the stroke smoothing makes freehand drawing look professional",
+    ],
+    "color": [
+        "the palette generation is actually tasteful — not just random hues",
+        "the color theory behind this is solid, you can feel the harmony",
+        "every combination it produces is genuinely usable",
+        "the complementary color suggestions are spot on",
+        "exported a palette and used it in a real design project",
+        "the accessibility contrast checker is a great addition",
+    ],
+    "data": [
+        "the data visualization is clear without being boring",
+        "imported my own dataset and got useful insights immediately",
+        "the charting options cover every use case i needed",
+        "the filtering and sorting is responsive even with large datasets",
+        "the export formats are practical — CSV, JSON, and clipboard",
+        "the live data binding means changes propagate instantly",
+    ],
+    "education": [
+        "actually understood a concept i'd been struggling with after 10 minutes here",
+        "the way it builds from simple to complex is perfectly paced",
+        "bookmarked this for my students — it explains things better than i do",
+        "the interactive examples make abstract ideas concrete",
+        "the progression from beginner to advanced feels natural",
+        "the quizzes at each level actually test understanding, not memorization",
+    ],
+    "math": [
+        "makes math feel visual and intuitive instead of abstract",
+        "played with the parameters and suddenly understood the relationship",
+        "whoever made this clearly loves math AND knows how to teach it",
+        "the graphing is accurate and responsive to parameter changes",
+        "seeing the equations animate in real time was an aha moment for me",
+        "the numerical precision is impressive for JavaScript floating point",
     ],
 }
 
-TECHNICAL_COMMENTS = [
-    "looked at the source - the state machine architecture is clean",
-    "the way this handles memory management is elegant",
-    "requestAnimationFrame usage is textbook here - smooth as butter",
-    "canvas rendering pipeline is well-optimized",
-    "the event handling system is surprisingly sophisticated",
-    "localStorage usage is smart - survives page refreshes perfectly",
-    "the collision detection algorithm is efficient for this scale",
-    "class hierarchy is well-structured - easy to understand the codebase",
-    "the particle system uses object pooling which explains the performance",
-    "audio context management handles browser autoplay policies correctly",
-    "the responsive layout handles all screen sizes gracefully",
-    "data serialization for save/load is robust",
-    "the input abstraction handles both keyboard and touch elegantly",
-    "error handling is thorough - didn't crash once during testing",
-    "the animation easing functions give everything a polished feel",
-]
+# Reactions to description keywords (mined from the actual description text)
+DESC_REACTIONS = {
+    "battle": "the combat feels impactful — every hit matters",
+    "build": "the building system is intuitive and the results look great",
+    "craft": "the crafting loop is addictive — always one more thing to make",
+    "defend": "the defense mechanics create real tension in the later waves",
+    "destroy": "the destruction physics are incredibly satisfying",
+    "evolve": "watching things evolve over time never gets old here",
+    "explore": "the exploration rewards curiosity — always something hidden",
+    "fight": "the fight mechanics have real weight to them",
+    "fly": "the flight model feels great — responsive but not twitchy",
+    "grow": "the growth curve is perfectly tuned — you always feel progress",
+    "hack": "the hacking minigame is clever and actually requires thinking",
+    "hunt": "tracking targets keeps you engaged the whole session",
+    "invade": "the invasion scenarios get genuinely intense",
+    "jump": "the jump feel is dialed in perfectly",
+    "manage": "the management layer adds real strategic depth",
+    "mine": "the mining loop is satisfying — dig deeper, find better stuff",
+    "navigate": "the navigation feels natural even in complex spaces",
+    "pilot": "the piloting controls are tight — responsive without being oversensitive",
+    "race": "the racing feels fast and the track design keeps it interesting",
+    "shoot": "gunplay is solid — accurate, responsive, satisfying",
+    "solve": "the puzzle solving has that perfect difficulty where you feel smart",
+    "survive": "the survival pressure keeps every decision feeling meaningful",
+    "trade": "the trading economy actually works — prices feel dynamic",
+    "wizard": "the spell system is creative and fun to experiment with",
+    "zombie": "the zombie AI is relentless in the best way",
+    "dragon": "the dragon encounters are epic — genuine boss fight energy",
+    "dungeon": "the dungeon layouts feel handcrafted even though they're generated",
+    "planet": "the planetary scale is communicated beautifully",
+    "ocean": "the ocean simulation is mesmerizing — the waves alone are worth it",
+    "forest": "the forest atmosphere is immersive — you can almost hear it",
+    "city": "the city feels alive with activity, not just static buildings",
+    "tower": "the tower mechanics add a layer of strategy i didn't expect",
+    "army": "managing your forces feels like real tactical decision-making",
+    "spell": "the spell effects are gorgeous and each one feels different",
+    "sword": "melee combat has weight — you can feel the swings connect",
+    "shield": "the block timing adds a skill ceiling that rewards practice",
+    "potion": "the potion system adds real decision-making to resource management",
+    "quest": "the quest design gives you reasons to explore every corner",
+    "boss": "the boss fights are the highlight — each one feels like a puzzle",
+    "score": "chasing high scores gives this insane replayability",
+    "wave": "the wave system ramps perfectly — always one more wave",
+    "colony": "watching your colony grow from nothing is deeply satisfying",
+    "kingdom": "the kingdom management has surprising depth",
+    "empire": "the empire building scratches that civilization itch perfectly",
+    "island": "the island setting makes every resource feel precious",
+    "mountain": "the verticality adds a whole dimension to the gameplay",
+    "cave": "the cave exploration has a genuine sense of discovery",
+    "lab": "the lab experiments produce surprising and fun results",
+    "factory": "optimizing the factory layout is the real endgame and it's addictive",
+    "robot": "the robot customization system is deep and rewarding",
+    "alien": "the alien designs are creative — not just palette-swapped humans",
+    "pirate": "the pirate theme is committed and charming throughout",
+    "ninja": "the stealth mechanics add real tension to every encounter",
+    "detective": "the detective work actually requires paying attention to clues",
+    "cooking": "the cooking mechanics are surprisingly deep and the recipes make sense",
+    "garden": "watching your garden grow over sessions is genuinely relaxing",
+    "music": "the musical elements are woven in perfectly — not just tacked on",
+    "paint": "the painting tools feel expressive and responsive",
+    "code": "the code visualization makes abstract concepts tangible",
+    "neural": "the neural network visualization is illuminating",
+    "genetic": "watching the genetic algorithm converge is fascinating",
+    "fractal": "zooming into the fractals reveals infinite beautiful detail",
+    "gravity": "the gravity mechanics are the star of the show here",
+    "magnetic": "the magnetic interactions create emergent puzzles",
+    "wave": "the wave simulation is hypnotic to watch",
+    "fluid": "the fluid dynamics are impressively realistic for browser-based",
+    "light": "the lighting model adds so much atmosphere",
+    "shadow": "the shadow rendering gives everything a sense of depth",
+}
 
-REPLY_TEMPLATES = [
-    "agreed. {point}",
-    "good observation. i also noticed {point}",
-    "exactly this. {point}",
-    "underrated comment. {point}",
-    "hard agree. also worth noting {point}",
-    "came here to say this. {point}",
-    "this is the real insight. {point}",
-    "100%. {point}",
-    "you nailed it. {point}",
-    "building on this - {point}",
-]
+# Complexity-specific reactions
+COMPLEXITY_REACTIONS = {
+    "simple": [
+        "clean and focused — does one thing and does it well",
+        "picked this up in seconds, still playing 20 minutes later",
+        "proof that simple design can be deeply engaging",
+        "no bloat, no tutorials needed — just jump in and play",
+        "sometimes the simplest games have the best game feel",
+    ],
+    "intermediate": [
+        "there's more depth here than the surface suggests",
+        "the systems interact in ways i'm still discovering",
+        "took a few minutes to click but once it did i was hooked",
+        "the complexity is well-managed — deep without being overwhelming",
+        "layers of mechanics that reveal themselves gradually",
+    ],
+    "advanced": [
+        "this is a deep system — i'm still learning new things after hours",
+        "the amount of interlocking mechanics here is impressive",
+        "you need to understand the systems to succeed and that's rewarding",
+        "this has the depth of a full commercial game",
+        "the learning curve is steep but the payoff is worth it",
+    ],
+}
 
-REPLY_POINTS = [
-    "the attention to detail really shows",
-    "it's clear a lot of thought went into the design",
-    "the performance optimization is impressive",
-    "the game feel is what sells it",
-    "small touches like this separate good from great",
-    "the feedback loop is perfectly tuned",
-    "this level of polish is rare in browser games",
-    "the responsive design is an underappreciated feature",
-    "the procedural elements keep it fresh",
-    "the sound design reinforces every interaction",
-    "the difficulty curve is perfectly calibrated",
-    "accessibility touches like this matter",
-    "the save system means no progress is lost",
-    "the visual hierarchy guides you intuitively",
-    "each run teaches you something new about the mechanics",
-]
+# Type-specific reactions
+TYPE_REACTIONS = {
+    "game": [
+        "genuine gameplay loop — not a tech demo pretending to be a game",
+        "this has real win conditions and real stakes",
+        "the game design here shows real understanding of what makes games fun",
+    ],
+    "visual": [
+        "i keep coming back just to look at it",
+        "genuinely beautiful — every frame could be a screenshot",
+        "the visual craft here is on another level",
+    ],
+    "audio": [
+        "the audio experience is the main event and it delivers",
+        "put headphones on for this one — the spatial audio is impressive",
+        "the sonic palette is rich and expressive",
+    ],
+    "interactive": [
+        "every interaction feels purposeful and responsive",
+        "the feedback loop between input and response is perfectly tuned",
+        "messing around with this is the point and it's great",
+    ],
+    "interface": [
+        "the UI design is clean enough to use professionally",
+        "everything is where you'd expect it — great information architecture",
+        "functional AND good looking which is rare",
+    ],
+}
 
+# Moderator comment templates — ArcadeKeeper uses actual game data
 MODERATOR_COMMENTS = [
-    "**[Quality Analysis]** This app scores {score}/100 on our automated quality index. {verdict}",
-    "**[Mod Note]** This post has been through {gen} generation{gen_s} of evolution. Each molt improved {aspects}.",
-    "**[Technical Spotlight]** Standout engineering: {tech}. This is {complexity} complexity, which means {explain}.",
-    "**[Community Pick]** This app has a {rating}-star community rating. {why}",
-    "**[Evolution Log]** Gen {gen}: {changes}. The autonomous system is continuously improving this post.",
+    "[ArcadeKeeper] Quality scan: {score}/100. {verdict} Built with {tech} at {complexity} complexity — {explain}. Generation {gen}: each molt has refined the experience. Community rating: {rating}/5.",
+    "[ArcadeKeeper] Automated review: {score}/100 — {verdict} Technical highlights: {tech}. Complexity: {complexity} ({explain}). This is generation {gen}, with recent improvements to {changes}.",
+    "[ArcadeKeeper] Score: {score}/100. {verdict} {why} The {tech} implementation is solid for {complexity}-level work ({explain}). Generation {gen} — watching this evolve in real time.",
+    "[ArcadeKeeper] Scan complete: {score}/100. {verdict} Key systems: {tech}. At {complexity} complexity, this delivers {explain}. Generation {gen} — latest molt brought {changes}.",
+    "[ArcadeKeeper] Rating: {score}/100. {verdict} Architecture: {tech}, complexity level: {complexity} ({explain}). Now at generation {gen}. Community consensus: {rating}/5 stars. {why}",
 ]
+
+
+def build_comment_for_app(app, rng):
+    """Build unique comments that react to THIS specific app's actual content.
+
+    Comments are composed by combining observations from the app's actual tags,
+    description keywords, and title. Compound comments weave together two
+    observations to create unique combinations even across similar games.
+    """
+    title = app.get("title", "")
+    desc = app.get("description", "")
+    tags = app.get("tags", [])
+    complexity = app.get("complexity", "intermediate")
+    app_type = app.get("type", "interactive")
+    desc_lower = desc.lower()
+    title_lower = title.lower()
+
+    # Gather single observations from all matching sources
+    tag_pool = []
+    for tag in tags:
+        if tag in TAG_OBSERVATIONS:
+            tag_pool.extend(TAG_OBSERVATIONS[tag])
+
+    desc_pool = []
+    for keyword, reaction in DESC_REACTIONS.items():
+        if keyword in desc_lower or keyword in title_lower:
+            desc_pool.append(reaction)
+
+    comp_pool = COMPLEXITY_REACTIONS.get(complexity, [])
+    type_pool = TYPE_REACTIONS.get(app_type, [])
+
+    # Build a large set of unique compound comments. Every comment should feel
+    # specific to THIS game — never generic enough to appear on any game.
+    candidates = []
+
+    # Strategy 1: Tag observations + title callout (always title-specific)
+    title_connectors = [
+        ". {title} really nails that",
+        " — that's what makes {title} stand out in the arcade",
+        ". rare to see this level of quality in {title}'s category",
+        " and {title} executes it better than most",
+        ". {title} gets this right where others don't",
+        " — {title} understands what matters",
+        ". this is why {title} keeps pulling me back",
+        ". credit to {title} for getting this detail right",
+    ]
+    rng.shuffle(tag_pool)
+    for i, obs in enumerate(tag_pool[:10]):
+        connector = title_connectors[i % len(title_connectors)].format(title=title)
+        candidates.append(obs + connector)
+
+    # Strategy 2: Compound — combine a tag observation with a description reaction
+    if tag_pool and desc_pool:
+        rng.shuffle(desc_pool)
+        for i in range(min(6, len(tag_pool), len(desc_pool))):
+            candidates.append(tag_pool[i] + ". also, " + desc_pool[i % len(desc_pool)])
+
+    # Strategy 3: Tag observations as standalone (only first 4, rest are compounds)
+    for obs in tag_pool[:4]:
+        candidates.append(obs)
+
+    # Strategy 4: Complexity + title (never standalone — always named)
+    for obs in comp_pool:
+        candidates.append(obs + " — " + title + " is a good example of that")
+
+    # Strategy 5: Type + title (never standalone — always named)
+    for obs in type_pool:
+        candidates.append(title + ": " + obs)
+
+    # Strategy 6: Description reactions + title
+    for obs in desc_pool:
+        candidates.append(obs + ". " + title + " delivers on this front")
+
+    # Strategy 7: Compound — complexity + type + title
+    if comp_pool and type_pool:
+        for i in range(min(3, len(comp_pool))):
+            candidates.append(title + " — " + comp_pool[i] + ". " + rng.choice(type_pool))
+
+    # Fallback: title-specific reactions if we somehow have nothing
+    if not candidates:
+        candidates = [
+            "spent more time with " + title + " than i expected — it pulls you in",
+            title + " does something i haven't seen in the rest of the arcade",
+            "there's a subtlety to " + title + " that rewards repeated sessions",
+            "keep coming back to " + title + " — it has that one-more-run quality",
+        ]
+
+    # Deduplicate while preserving order, then shuffle
+    seen = set()
+    unique = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            unique.append(c)
+    rng.shuffle(unique)
+    return unique
+
+
+def build_reply_for_comment(parent_text, app, rng):
+    """Build a reply that actually responds to what the parent comment said."""
+    title = app.get("title", "")
+
+    # Parse what the parent was talking about and respond to it
+    parent_lower = parent_text.lower()
+
+    replies = []
+
+    if any(w in parent_lower for w in ["physics", "collision", "gravity", "weighty", "momentum"]):
+        replies.extend([
+            "yeah the physics in " + title + " are what kept me playing too. objects interact so naturally",
+            "tried to break " + title + "'s physics and couldn't — that's how you know it's solid",
+            title + "'s physics engine is doing way more than it looks like on the surface",
+            "what really gets me is how " + title + "'s physics create emergent gameplay moments",
+            "the mass and friction in " + title + " feel individually tuned per object type. attention to detail",
+            "compare " + title + "'s physics to most browser games and it's night and day",
+        ])
+    if any(w in parent_lower for w in ["sound", "audio", "music", "headphones", "listen", "sonic", "tone"]):
+        replies.extend([
+            title + "'s audio is criminally underrated. glad someone else noticed",
+            "played " + title + " muted first, then with sound — completely different experience",
+            "the audio feedback in " + title + " is what makes it feel so responsive",
+            "the way " + title + "'s audio layers stack as complexity increases is really smart design",
+            "seriously — headphones transform " + title + " from good to incredible",
+            title + "'s sound design does half the work of communicating game state",
+        ])
+    if any(w in parent_lower for w in ["depth", "deep", "complex", "layers", "systems", "mechanics"]):
+        replies.extend([
+            "still finding new interactions in " + title + " after multiple sessions",
+            "the depth is what separates " + title + " from similar concepts in the arcade",
+            "i thought i understood " + title + " after 10 minutes. i was wrong. in the best way",
+            "the way " + title + "'s systems interact creates situations the designer probably didn't even plan",
+            title + " has the kind of depth you usually only get in desktop games with 10x the code",
+            "showed " + title + " to a game designer friend and they were impressed by the system design",
+        ])
+    if any(w in parent_lower for w in ["addictive", "hours", "hooked", "kept me", "coming back", "lost an hour", "one more"]):
+        replies.extend([
+            "same. 'just one more run' on " + title + " is a dangerous phrase",
+            "my play time on " + title + " is embarrassing and i regret nothing",
+            title + " is the definition of 'easy to learn, impossible to put down'",
+            "set a timer for 15 minutes with " + title + ". turned it off and kept playing",
+            title + "'s session length creeps up on you. dangerously engaging",
+            "it's the 'just let me try one more thing' in " + title + " that gets you",
+        ])
+    if any(w in parent_lower for w in ["beautiful", "gorgeous", "visual", "looks", "screenshot", "wallpaper", "artistic"]):
+        replies.extend([
+            "every time i open " + title + " the visuals hit different. genuinely artistic",
+            "screenshotted " + title + " more than any other app in the arcade",
+            title + "'s visual design elevates the whole experience",
+            "the color choices in " + title + " show real taste — not just default palettes",
+            title + " is functional art. practical and beautiful at the same time",
+            title + "'s visual polish makes you trust the rest of the experience",
+        ])
+    if any(w in parent_lower for w in ["smooth", "responsive", "controls", "control scheme", "tight controls", "input lag", "latency", "60fps"]):
+        replies.extend([
+            "the input responsiveness is what makes " + title + " work. you can feel the polish",
+            "so many games get the controls wrong. " + title + " nails it",
+            "the input latency in " + title + " is basically imperceptible — hard to achieve in a browser",
+            "control feel is the hardest thing to get right and " + title + " nails it",
+            title + " controls like someone actually playtested it. refreshing",
+            "the responsiveness in " + title + " makes the whole experience better",
+        ])
+    if any(w in parent_lower for w in ["procedural", "generated", "random", "different each", "unique every", "seed"]):
+        replies.extend([
+            title + "'s procedural content is what gives it legs. every session is genuinely fresh",
+            "done maybe 20 runs of " + title + " and each one felt like a new experience",
+            title + " is procedural generation done right — varied but not chaotic",
+            title + "'s generation has real constraints that keep outputs feeling designed",
+            "found a seed in " + title + " that creates this perfect setup — saved it immediately",
+            "the variance in " + title + " hits a sweet spot of familiar yet surprising",
+        ])
+    if any(w in parent_lower for w in ["ai", "adapt", "intelligent", "opponent", "enemy", "behavior"]):
+        replies.extend([
+            title + "'s AI caught me off guard multiple times. it actually learns from you",
+            "rare to see AI this good in a browser game. " + title + " delivers",
+            "the AI in " + title + " is what makes it replayable — you can't just memorize patterns",
+            "watched two AI agents interact in " + title + " and their emergent behavior was wild",
+            title + "'s AI difficulty scaling feels organic, not just stat inflation",
+            "the decision trees in " + title + " must be deep — the AI makes genuinely surprising moves",
+        ])
+    if any(w in parent_lower for w in ["satisfying", "feedback", "impact", "rewarding", "chef's kiss"]):
+        replies.extend([
+            title + "'s feedback loops are tuned to perfection",
+            "every action in " + title + " having a visible consequence is what keeps you engaged",
+            title + " understands that satisfaction comes from responsive design, not flashy graphics",
+            "the micro-feedback on every interaction in " + title + " adds up to a macro feeling of quality",
+            "when every small action in " + title + " feels good, the whole experience is elevated",
+            "it's the little touches in " + title + " — the shake, the flash, the sound — that make it",
+        ])
+    if any(w in parent_lower for w in ["render", "canvas", "draw", "frame", "fps", "performance"]):
+        replies.extend([
+            title + "'s rendering performance is impressive — must be batching draw calls well",
+            "smooth 60fps in " + title + " even with all the effects is no joke in a browser",
+            "opened dev tools on " + title + " and the frame time graph is remarkably consistent",
+            title + "'s rendering optimizations let the gameplay shine without stutters",
+            title + " runs better than some electron apps with 10x the resources",
+        ])
+    if any(w in parent_lower for w in ["puzzle", "solve", "solution", "figure", "aha", "clever"]):
+        replies.extend([
+            title + "'s puzzle design teaches through failure in the best way",
+            "love that " + title + " trusts you to figure it out on your own",
+            "that moment when the solution clicks in " + title + " — delivers it consistently",
+            "the difficulty curve in " + title + "'s puzzles is expertly crafted",
+            "each puzzle in " + title + " adds exactly one new concept — clean pedagogical design",
+        ])
+    if any(w in parent_lower for w in ["mobile", "touch", "phone", "tablet", "responsive"]):
+        replies.extend([
+            title + "'s touch controls are surprisingly well-adapted from keyboard",
+            "played " + title + " on my phone commuting and it works perfectly",
+            "responsive design in " + title + " is impressive attention to detail",
+            title + "'s mobile layout doesn't feel like an afterthought",
+        ])
+    if any(w in parent_lower for w in ["save", "progress", "localStorage", "persist", "came back"]):
+        replies.extend([
+            title + "'s save system is reliable — never lost progress across sessions",
+            "love that " + title + " persists my progress. makes it feel like a real app",
+            "came back to " + title + " a week later and everything was exactly where i left it",
+            title + "'s data persistence turns a toy into a tool you actually use",
+        ])
+
+    # Fallback: respond to the specific game by name
+    if not replies:
+        replies = [
+            "agreed — " + title + " has something special that's hard to pin down",
+            "came here to say exactly this. " + title + " keeps surprising me",
+            "this is why i keep checking the arcade. games like " + title + " make it worth it",
+            title + " is one of those apps where you can feel the care that went into it",
+            "been telling friends about " + title + " — it deserves more attention",
+            "the more time you spend with " + title + " the more you appreciate the details",
+        ]
+
+    return rng.choice(replies)
 
 
 def seed_rng(s):
@@ -312,7 +808,7 @@ def generate_players(n=250):
             "legendary": rng.randint(100, 300),
         }[activity_level]
 
-        fav_cat = rng.choice(list(CATEGORY_OPINIONS.keys()))
+        fav_cat = rng.choice(["games_puzzles", "visual_art", "3d_immersive", "audio_music", "generative_art", "particle_physics", "creative_tools", "experimental_ai", "educational_tools"])
 
         players.append({
             "id": f"p{i:04d}",
@@ -332,22 +828,25 @@ def generate_players(n=250):
 
 
 def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
-    """Generate a thread of enriching comments for one app."""
+    """Generate a thread of enriching comments for one app.
+
+    Every comment reacts to THIS specific app's actual tags, description,
+    complexity, and type — no generic templates, no déjà vu.
+    """
     comments = []
-    # Determine how many comments based on app quality/popularity
+    gen = app.get("generation", 0)
+
+    # Determine comment count based on app quality/popularity
     base = 2
     if app.get("featured"):
         base += 3
-    if app.get("generation", 0) > 0:
+    if gen > 0:
         base += 1
-    gen = app.get("generation", 0)
     num_comments = rng.randint(base, base + 5)
     num_comments = min(num_comments, 12)
 
-    # Get category-specific comments
-    cat_comments = CATEGORY_OPINIONS.get(cat_key, CATEGORY_OPINIONS["experimental_ai"])
-    available_comments = list(cat_comments) + list(TECHNICAL_COMMENTS)
-    rng.shuffle(available_comments)
+    # Build a pool of comments that react to THIS app's actual content
+    candidates = build_comment_for_app(app, rng)
 
     used_players = rng.sample(players, min(num_comments * 2, len(players)))
     player_idx = 0
@@ -359,10 +858,20 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
         player = used_players[player_idx]
         player_idx += 1
 
-        # Root comment
-        comment_time = base_time + timedelta(hours=rng.randint(0, 48 * (i + 1)))
-        text = available_comments[i % len(available_comments)]
+        # Pick a unique comment from the candidates pool
+        if i < len(candidates):
+            text = candidates[i]
+        else:
+            # Exhausted candidates — generate a title-specific reaction
+            title = app.get("title", "this")
+            text = rng.choice([
+                "spent more time with " + title + " than i expected — it pulls you in",
+                title + " does something i haven't seen in the rest of the arcade",
+                "there's a subtlety to " + title + " that rewards repeated sessions",
+                "keep coming back to " + title + " — it has that one-more-run quality",
+            ])
 
+        comment_time = base_time + timedelta(hours=rng.randint(0, 48 * (i + 1)))
         comment = {
             "id": "c" + hashlib.md5((app["file"] + "-" + str(i)).encode()).hexdigest()[:8],
             "author": player["username"],
@@ -377,14 +886,12 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
             "children": [],
         }
 
-        # Maybe add 1-2 replies
+        # Maybe add a reply that responds to what the root comment actually said
         if rng.random() < 0.6 and player_idx < len(used_players):
             reply_player = used_players[player_idx]
             player_idx += 1
             reply_time = comment_time + timedelta(hours=rng.randint(1, 24))
-            template = rng.choice(REPLY_TEMPLATES)
-            point = rng.choice(REPLY_POINTS)
-            reply_text = template.format(point=point)
+            reply_text = build_reply_for_comment(text, app, rng)
 
             reply = {
                 "id": "c" + hashlib.md5((app["file"] + "-" + str(i) + "-r1").encode()).hexdigest()[:8],
@@ -401,23 +908,18 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
             }
             comment["children"].append(reply)
 
-            # Occasional nested reply
+            # Occasional nested reply that responds to the reply
             if rng.random() < 0.3 and player_idx < len(used_players):
                 nested_player = used_players[player_idx]
                 player_idx += 1
                 nested_time = reply_time + timedelta(hours=rng.randint(1, 12))
+                nested_text = build_reply_for_comment(reply_text, app, rng)
                 nested = {
                     "id": "c" + hashlib.md5((app["file"] + "-" + str(i) + "-r2").encode()).hexdigest()[:8],
                     "author": nested_player["username"],
                     "authorId": nested_player["id"],
                     "authorColor": nested_player["color"],
-                    "text": rng.choice(REPLY_POINTS) + ". " + rng.choice([
-                        "this community gets it.",
-                        "the arcade keeps surprising me.",
-                        "quality like this is why i keep coming back.",
-                        "autonomous game making is the future.",
-                        "every generation gets better.",
-                    ]),
+                    "text": nested_text,
                     "timestamp": nested_time.isoformat(),
                     "upvotes": rng.randint(1, 10),
                     "downvotes": 0,
@@ -429,7 +931,7 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
 
         comments.append(comment)
 
-    # Add moderator comment
+    # Add moderator comment — ArcadeKeeper uses actual game data
     score = 0
     if rankings_data:
         for r in rankings_data.get("rankings", []):
@@ -467,8 +969,6 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
         score=score,
         verdict=verdict,
         gen=max(1, gen),
-        gen_s="" if gen == 1 else "s",
-        aspects=rng.choice(["structural quality", "accessibility", "performance", "polish and UX", "code architecture"]),
         tech=", ".join(tech_highlights[:2]),
         complexity=complexity,
         explain=explain,
@@ -479,7 +979,7 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
 
     mod_time = base_time + timedelta(days=rng.randint(1, 30))
     mod_comment = {
-        "id": f"mod-{hashlib.md5(app['file'].encode()).hexdigest()[:8]}",
+        "id": "mod-" + hashlib.md5(app["file"].encode()).hexdigest()[:8],
         "author": "ArcadeKeeper",
         "authorId": "mod-001",
         "authorColor": "#ff4500",
