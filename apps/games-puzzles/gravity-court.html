@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Court - Basketball with Rotating Gravity</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff88;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #gameCanvas {
+            border: 3px solid #00ff88;
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+            background: #000;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 100;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        h1 {
+            font-size: 4rem;
+            text-shadow: 0 0 20px #00ff88, 0 0 40px #00ff88;
+            margin-bottom: 2rem;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .btn {
+            background: transparent;
+            border: 2px solid #00ff88;
+            color: #00ff88;
+            padding: 1rem 2rem;
+            margin: 0.5rem;
+            font-size: 1.2rem;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+
+        .btn:hover {
+            background: #00ff88;
+            color: #000;
+            box-shadow: 0 0 20px #00ff88;
+        }
+
+        .character-select {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .character-card {
+            border: 2px solid #00ff88;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 200px;
+        }
+
+        .character-card:hover, .character-card.selected {
+            background: rgba(0, 255, 136, 0.2);
+            box-shadow: 0 0 15px #00ff88;
+        }
+
+        .character-name {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+            color: #00ff88;
+        }
+
+        .character-ability {
+            font-size: 0.9rem;
+            color: #00cc66;
+            margin-bottom: 0.3rem;
+        }
+
+        .character-stats {
+            font-size: 0.8rem;
+            color: #00aa55;
+        }
+
+        .hud {
+            position: absolute;
+            color: #00ff88;
+            font-size: 1.2rem;
+            text-shadow: 0 0 5px #000;
+            z-index: 50;
+        }
+
+        #score-hud {
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        #timer-hud {
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.5rem;
+        }
+
+        #gravity-hud {
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1rem;
+            color: #ff00ff;
+        }
+
+        #commentary {
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border: 1px solid #00ff88;
+        }
+
+        #controls-hud {
+            top: 100px;
+            right: 20px;
+            font-size: 0.8rem;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border: 1px solid #00ff88;
+        }
+
+        .stat-display {
+            margin: 1rem 0;
+            font-size: 1.1rem;
+        }
+
+        .bracket {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            max-width: 90%;
+        }
+
+        .bracket-match {
+            border: 1px solid #00ff88;
+            padding: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .team-info {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: rgba(0, 255, 136, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1200" height="700"></canvas>
+
+    <div id="titleScreen" class="screen">
+        <h1>GRAVITY COURT</h1>
+        <p style="font-size: 1.2rem; margin-bottom: 2rem;">Basketball where gravity rotates every possession</p>
+        <button class="btn" onclick="game.showCharacterSelect()">Quick Match</button>
+        <button class="btn" onclick="game.showTournament()">Tournament Mode</button>
+        <button class="btn" onclick="game.showSeason()">Season Mode</button>
+        <button class="btn" onclick="game.loadGame()">Load Game</button>
+        <button class="btn" onclick="game.showInstructions()">Instructions</button>
+    </div>
+
+    <div id="characterScreen" class="screen hidden">
+        <h1>SELECT YOUR CHARACTER</h1>
+        <div class="character-select" id="characterGrid"></div>
+        <button class="btn" onclick="game.startQuickMatch()">Start Match</button>
+        <button class="btn" onclick="game.showTitle()">Back</button>
+    </div>
+
+    <div id="tournamentScreen" class="screen hidden">
+        <h1>TOURNAMENT BRACKET</h1>
+        <div class="bracket" id="bracket"></div>
+        <button class="btn" onclick="game.showCharacterSelect()">Start Tournament</button>
+        <button class="btn" onclick="game.showTitle()">Back</button>
+    </div>
+
+    <div id="seasonScreen" class="screen hidden">
+        <h1>SEASON MODE</h1>
+        <div id="seasonInfo"></div>
+        <button class="btn" onclick="game.showCharacterSelect()">Start Season</button>
+        <button class="btn" onclick="game.showTitle()">Back</button>
+    </div>
+
+    <div id="pauseScreen" class="screen hidden">
+        <h1>PAUSED</h1>
+        <button class="btn" onclick="game.resume()">Resume</button>
+        <button class="btn" onclick="game.saveGame()">Save Game</button>
+        <button class="btn" onclick="game.showTitle()">Quit to Menu</button>
+    </div>
+
+    <div id="gameOverScreen" class="screen hidden">
+        <h1 id="gameOverTitle">GAME OVER</h1>
+        <div id="gameStats"></div>
+        <button class="btn" onclick="game.showTitle()">Main Menu</button>
+    </div>
+
+    <div id="instructionsScreen" class="screen hidden">
+        <h1>HOW TO PLAY</h1>
+        <div style="text-align: left; max-width: 600px; font-size: 1rem; line-height: 1.8;">
+            <p><strong>CONTROLS:</strong></p>
+            <p>A/D - Move Left/Right</p>
+            <p>W - Jump</p>
+            <p>SPACE - Shoot (hold for power)</p>
+            <p>E - Pass to teammate</p>
+            <p>Q - Block/Steal</p>
+            <p>P - Pause</p>
+            <p>1-6 - Switch controlled player</p>
+            <br>
+            <p><strong>GRAVITY MECHANICS:</strong></p>
+            <p>Every time possession changes, gravity rotates 90° clockwise.</p>
+            <p>Players and ball adapt to new gravity direction.</p>
+            <p>Master all four orientations to dominate!</p>
+            <br>
+            <p><strong>SCORING:</strong></p>
+            <p>2 points - Regular basket</p>
+            <p>3 points - Long range shot</p>
+            <p>+1 bonus - Swish (perfect shot)</p>
+            <p>+2 bonus - Dunk</p>
+            <p>+3 bonus - Trick shot</p>
+        </div>
+        <button class="btn" onclick="game.showTitle()">Back</button>
+    </div>
+
+    <div id="score-hud" class="hud hidden">0 - 0</div>
+    <div id="timer-hud" class="hud hidden">5:00</div>
+    <div id="gravity-hud" class="hud hidden">GRAVITY: DOWN</div>
+    <div id="commentary" class="hud hidden">Game start!</div>
+    <div id="controls-hud" class="hud hidden">
+        A/D: Move | W: Jump | SPACE: Shoot | E: Pass | Q: Block | P: Pause
+    </div>
+
+    <script>
+        // Sound System
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        const sounds = {
+            playTone(freq, duration, type = 'sine', volume = 0.1) {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.type = type;
+                osc.frequency.value = freq;
+                gain.gain.value = volume;
+                osc.start();
+                osc.stop(audioContext.currentTime + duration);
+            },
+
+            bounce() {
+                this.playTone(200, 0.05, 'square', 0.05);
+            },
+
+            swish() {
+                this.playTone(800, 0.2, 'sine', 0.08);
+                setTimeout(() => this.playTone(600, 0.15, 'sine', 0.06), 50);
+            },
+
+            dunk() {
+                this.playTone(100, 0.3, 'sawtooth', 0.15);
+                setTimeout(() => this.playTone(150, 0.2, 'square', 0.1), 100);
+            },
+
+            buzzer() {
+                this.playTone(300, 0.5, 'square', 0.15);
+            },
+
+            pass() {
+                this.playTone(400, 0.1, 'sine', 0.06);
+            },
+
+            steal() {
+                this.playTone(600, 0.15, 'triangle', 0.08);
+            },
+
+            gravityShift() {
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => this.playTone(400 + i * 100, 0.1, 'sine', 0.08), i * 50);
+                }
+            }
+        };
+
+        // Character definitions
+        const characters = [
+            {
+                id: 'magnetron',
+                name: 'MAGNETRON',
+                ability: 'Magnetic Hands',
+                description: 'Ball attracts to hands when nearby',
+                speed: 5,
+                jump: 8,
+                shooting: 7,
+                defense: 6,
+                color: '#ff00ff'
+            },
+            {
+                id: 'skywalker',
+                name: 'SKYWALKER',
+                ability: 'Double Jump',
+                description: 'Jump twice in mid-air',
+                speed: 7,
+                jump: 9,
+                shooting: 6,
+                defense: 5,
+                color: '#00ffff'
+            },
+            {
+                id: 'chronos',
+                name: 'CHRONOS',
+                ability: 'Gravity Freeze',
+                description: 'Freeze gravity for 3 seconds',
+                speed: 6,
+                jump: 7,
+                shooting: 8,
+                defense: 6,
+                color: '#ffff00'
+            },
+            {
+                id: 'flash',
+                name: 'FLASH',
+                ability: 'Super Speed',
+                description: 'Move 2x faster for 5 seconds',
+                speed: 10,
+                jump: 6,
+                shooting: 7,
+                defense: 7,
+                color: '#ff6600'
+            },
+            {
+                id: 'titan',
+                name: 'TITAN',
+                ability: 'Giant Mode',
+                description: 'Grow to 2x size for 4 seconds',
+                speed: 4,
+                jump: 5,
+                shooting: 6,
+                defense: 10,
+                color: '#ff0000'
+            },
+            {
+                id: 'phantom',
+                name: 'PHANTOM',
+                ability: 'Teleport',
+                description: 'Teleport to ball location',
+                speed: 6,
+                jump: 7,
+                shooting: 9,
+                defense: 6,
+                color: '#9900ff'
+            }
+        ];
+
+        // Game state
+        const game = {
+            canvas: null,
+            ctx: null,
+            state: 'title',
+            mode: null,
+            selectedCharacter: null,
+            score: { home: 0, away: 0 },
+            timeLeft: 300,
+            gravity: { x: 0, y: 1 },
+            gravityRotation: 0,
+            gravityTransition: 0,
+            possession: 'home',
+            players: [],
+            ball: null,
+            particles: [],
+            trails: [],
+            court: null,
+            difficulty: 3,
+            paused: false,
+            controlledPlayer: 0,
+            commentary: [],
+            gameStats: {
+                dunks: 0,
+                blocks: 0,
+                steals: 0,
+                swishes: 0,
+                trickShots: 0
+            },
+            tournament: null,
+            season: null,
+
+            init() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.setupCourt();
+                this.loadProgress();
+                this.setupCharacterSelect();
+                this.render();
+            },
+
+            setupCourt() {
+                this.court = {
+                    width: 1200,
+                    height: 700,
+                    hoopLeft: { x: 100, y: 200, radius: 30 },
+                    hoopRight: { x: 1100, y: 200, radius: 30 }
+                };
+            },
+
+            setupCharacterSelect() {
+                const grid = document.getElementById('characterGrid');
+                grid.innerHTML = '';
+                characters.forEach(char => {
+                    const card = document.createElement('div');
+                    card.className = 'character-card';
+                    card.innerHTML = `
+                        <div class="character-name">${char.name}</div>
+                        <div class="character-ability">${char.ability}</div>
+                        <div class="character-stats">SPD:${char.speed} JMP:${char.jump} SHT:${char.shooting} DEF:${char.defense}</div>
+                    `;
+                    card.onclick = () => this.selectCharacter(char, card);
+                    grid.appendChild(card);
+                });
+            },
+
+            selectCharacter(char, element) {
+                document.querySelectorAll('.character-card').forEach(c => c.classList.remove('selected'));
+                element.classList.add('selected');
+                this.selectedCharacter = char;
+            },
+
+            showTitle() {
+                this.hideAllScreens();
+                document.getElementById('titleScreen').classList.remove('hidden');
+                this.state = 'title';
+            },
+
+            showCharacterSelect() {
+                this.hideAllScreens();
+                document.getElementById('characterScreen').classList.remove('hidden');
+                this.state = 'characterSelect';
+            },
+
+            showTournament() {
+                this.hideAllScreens();
+                this.setupTournamentBracket();
+                document.getElementById('tournamentScreen').classList.remove('hidden');
+                this.mode = 'tournament';
+            },
+
+            showSeason() {
+                this.hideAllScreens();
+                this.setupSeason();
+                document.getElementById('seasonScreen').classList.remove('hidden');
+                this.mode = 'season';
+            },
+
+            showInstructions() {
+                this.hideAllScreens();
+                document.getElementById('instructionsScreen').classList.remove('hidden');
+            },
+
+            hideAllScreens() {
+                document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+                document.querySelectorAll('.hud').forEach(h => h.classList.add('hidden'));
+            },
+
+            setupTournamentBracket() {
+                const teams = ['GRAVITY KINGS', 'ORBIT DUNKERS', 'ZERO-G WARRIORS', 'SPIN MASTERS',
+                              'ROTATION SQUAD', 'FLIP BALLERS', 'COSMIC COURT', 'VOID VIPERS'];
+                this.tournament = {
+                    round: 1,
+                    teams: teams,
+                    matches: [],
+                    currentMatch: 0
+                };
+
+                const bracket = document.getElementById('bracket');
+                bracket.innerHTML = '<h2>QUARTERFINALS</h2>';
+                for (let i = 0; i < teams.length; i += 2) {
+                    const match = document.createElement('div');
+                    match.className = 'bracket-match';
+                    match.innerHTML = `
+                        <div class="team-info">${teams[i]}</div>
+                        <div style="text-align: center;">VS</div>
+                        <div class="team-info">${teams[i + 1]}</div>
+                    `;
+                    bracket.appendChild(match);
+                }
+            },
+
+            setupSeason() {
+                this.season = {
+                    game: 1,
+                    totalGames: 16,
+                    wins: 0,
+                    losses: 0,
+                    standings: []
+                };
+
+                const info = document.getElementById('seasonInfo');
+                info.innerHTML = `
+                    <div class="stat-display">Season: Game 1 of 16</div>
+                    <div class="stat-display">Record: 0-0</div>
+                    <div class="stat-display">Win the season to make the playoffs!</div>
+                `;
+            },
+
+            startQuickMatch() {
+                if (!this.selectedCharacter) {
+                    alert('Please select a character!');
+                    return;
+                }
+                this.hideAllScreens();
+                this.initGame();
+            },
+
+            initGame() {
+                this.state = 'playing';
+                this.score = { home: 0, away: 0 };
+                this.timeLeft = 300;
+                this.gravityRotation = 0;
+                this.gravity = { x: 0, y: 1 };
+                this.possession = 'home';
+                this.controlledPlayer = 0;
+
+                // Create players
+                this.players = [];
+                for (let i = 0; i < 3; i++) {
+                    this.players.push(this.createPlayer(200 + i * 100, 500, 'home', i === 0 ? this.selectedCharacter : characters[i]));
+                }
+                for (let i = 0; i < 3; i++) {
+                    this.players.push(this.createPlayer(900 + i * 100, 500, 'away', characters[3 + i]));
+                }
+
+                // Create ball
+                this.ball = {
+                    x: 600,
+                    y: 350,
+                    vx: 0,
+                    vy: 0,
+                    radius: 15,
+                    held: false,
+                    holder: null
+                };
+
+                this.particles = [];
+                this.trails = [];
+                this.commentary = ['Game start! First possession to home team!'];
+
+                // Show HUD
+                document.getElementById('score-hud').classList.remove('hidden');
+                document.getElementById('timer-hud').classList.remove('hidden');
+                document.getElementById('gravity-hud').classList.remove('hidden');
+                document.getElementById('commentary').classList.remove('hidden');
+                document.getElementById('controls-hud').classList.remove('hidden');
+
+                this.lastTime = Date.now();
+            },
+
+            createPlayer(x, y, team, character) {
+                return {
+                    x, y,
+                    vx: 0, vy: 0,
+                    width: 30,
+                    height: 60,
+                    team,
+                    character,
+                    jumping: false,
+                    canDoubleJump: character.id === 'skywalker',
+                    hasDoubleJumped: false,
+                    abilityActive: false,
+                    abilityCooldown: 0,
+                    abilityDuration: 0,
+                    onGround: false
+                };
+            },
+
+            update(dt) {
+                if (this.state !== 'playing' || this.paused) return;
+
+                // Update timer
+                this.timeLeft -= dt;
+                if (this.timeLeft <= 0) {
+                    this.endGame();
+                    return;
+                }
+
+                // Update gravity transition
+                if (this.gravityTransition > 0) {
+                    this.gravityTransition -= dt * 2;
+                    const angle = this.gravityRotation * Math.PI / 2;
+                    this.gravity.x = Math.sin(angle);
+                    this.gravity.y = Math.cos(angle);
+                } else {
+                    this.gravityTransition = 0;
+                }
+
+                // Update players
+                this.players.forEach((p, i) => {
+                    this.updatePlayer(p, dt, i < 3 ? i : null);
+                });
+
+                // Update ball
+                this.updateBall(dt);
+
+                // Update particles
+                this.particles = this.particles.filter(p => {
+                    p.life -= dt;
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.vy += this.gravity.y * 500 * dt;
+                    p.vx += this.gravity.x * 500 * dt;
+                    return p.life > 0;
+                });
+
+                // Update trails
+                this.trails = this.trails.filter(t => {
+                    t.life -= dt;
+                    return t.life > 0;
+                });
+
+                // Add ball trail
+                if (this.ball && !this.ball.held) {
+                    this.trails.push({
+                        x: this.ball.x,
+                        y: this.ball.y,
+                        life: 0.3
+                    });
+                }
+
+                // Update HUD
+                this.updateHUD();
+            },
+
+            updatePlayer(player, dt, controlIndex) {
+                // Ability cooldowns
+                if (player.abilityCooldown > 0) {
+                    player.abilityCooldown -= dt;
+                }
+                if (player.abilityDuration > 0) {
+                    player.abilityDuration -= dt;
+                    if (player.abilityDuration <= 0) {
+                        player.abilityActive = false;
+                    }
+                }
+
+                // Speed modifiers
+                let speed = player.character.speed * 80;
+                if (player.character.id === 'flash' && player.abilityActive) {
+                    speed *= 2;
+                }
+                if (player.character.id === 'titan' && player.abilityActive) {
+                    speed *= 0.5;
+                }
+
+                // AI or player control
+                if (controlIndex === this.controlledPlayer) {
+                    // Player controls handled in keydown
+                } else {
+                    // Simple AI
+                    this.updateAI(player, dt);
+                }
+
+                // Apply gravity
+                player.vx += this.gravity.x * 1000 * dt;
+                player.vy += this.gravity.y * 1000 * dt;
+
+                // Friction
+                player.vx *= 0.9;
+
+                // Update position
+                player.x += player.vx * dt;
+                player.y += player.vy * dt;
+
+                // Ground collision based on gravity
+                player.onGround = false;
+                if (this.gravityRotation === 0 && player.y > this.court.height - player.height) {
+                    player.y = this.court.height - player.height;
+                    player.vy = 0;
+                    player.onGround = true;
+                    player.hasDoubleJumped = false;
+                } else if (this.gravityRotation === 2 && player.y < 0) {
+                    player.y = 0;
+                    player.vy = 0;
+                    player.onGround = true;
+                    player.hasDoubleJumped = false;
+                } else if (this.gravityRotation === 1 && player.x > this.court.width - player.width) {
+                    player.x = this.court.width - player.width;
+                    player.vx = 0;
+                    player.onGround = true;
+                    player.hasDoubleJumped = false;
+                } else if (this.gravityRotation === 3 && player.x < 0) {
+                    player.x = 0;
+                    player.vx = 0;
+                    player.onGround = true;
+                    player.hasDoubleJumped = false;
+                }
+
+                // Bounds
+                player.x = Math.max(0, Math.min(this.court.width - player.width, player.x));
+                player.y = Math.max(0, Math.min(this.court.height - player.height, player.y));
+
+                // Magnetic hands ability
+                if (player.character.id === 'magnetron' && !this.ball.held) {
+                    const dx = this.ball.x - player.x;
+                    const dy = this.ball.y - player.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 100) {
+                        this.ball.vx += (player.x - this.ball.x) * 2 * dt;
+                        this.ball.vy += (player.y - this.ball.y) * 2 * dt;
+                    }
+                }
+            },
+
+            updateAI(player, dt) {
+                // Simple AI: chase ball if on same team as possession, defend otherwise
+                const targetIsAlly = (player.team === 'home' && this.possession === 'home') ||
+                                    (player.team === 'away' && this.possession === 'away');
+
+                let targetX, targetY;
+                if (targetIsAlly) {
+                    targetX = this.ball.x;
+                    targetY = this.ball.y;
+                } else {
+                    // Defend the hoop
+                    targetX = player.team === 'home' ? 200 : 1000;
+                    targetY = 350;
+                }
+
+                const dx = targetX - player.x;
+                const dy = targetY - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist > 50) {
+                    if (this.gravityRotation === 0 || this.gravityRotation === 2) {
+                        player.vx += (dx > 0 ? 1 : -1) * player.character.speed * 60 * dt;
+                    } else {
+                        player.vy += (dy > 0 ? 1 : -1) * player.character.speed * 60 * dt;
+                    }
+                }
+
+                // Random jump
+                if (player.onGround && Math.random() < 0.01) {
+                    this.playerJump(player);
+                }
+
+                // Try to shoot if has ball
+                if (this.ball.held && this.ball.holder === player && Math.random() < 0.005) {
+                    this.shoot(player, Math.random() * Math.PI * 2, 0.5 + Math.random() * 0.5);
+                }
+            },
+
+            updateBall(dt) {
+                if (this.ball.held) {
+                    // Ball follows holder
+                    const holder = this.ball.holder;
+                    this.ball.x = holder.x + holder.width / 2;
+                    this.ball.y = holder.y + holder.height / 2;
+                    this.ball.vx = holder.vx;
+                    this.ball.vy = holder.vy;
+                } else {
+                    // Ball physics
+                    this.ball.vx += this.gravity.x * 800 * dt;
+                    this.ball.vy += this.gravity.y * 800 * dt;
+                    this.ball.x += this.ball.vx * dt;
+                    this.ball.y += this.ball.vy * dt;
+
+                    // Damping
+                    this.ball.vx *= 0.98;
+                    this.ball.vy *= 0.98;
+
+                    // Bounds with bounce
+                    if (this.ball.x < this.ball.radius) {
+                        this.ball.x = this.ball.radius;
+                        this.ball.vx *= -0.7;
+                        sounds.bounce();
+                    }
+                    if (this.ball.x > this.court.width - this.ball.radius) {
+                        this.ball.x = this.court.width - this.ball.radius;
+                        this.ball.vx *= -0.7;
+                        sounds.bounce();
+                    }
+                    if (this.ball.y < this.ball.radius) {
+                        this.ball.y = this.ball.radius;
+                        this.ball.vy *= -0.7;
+                        sounds.bounce();
+                    }
+                    if (this.ball.y > this.court.height - this.ball.radius) {
+                        this.ball.y = this.court.height - this.ball.radius;
+                        this.ball.vy *= -0.7;
+                        sounds.bounce();
+                    }
+
+                    // Check player pickup
+                    this.players.forEach(p => {
+                        const dx = this.ball.x - (p.x + p.width / 2);
+                        const dy = this.ball.y - (p.y + p.height / 2);
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 40) {
+                            this.ball.held = true;
+                            this.ball.holder = p;
+                            const wasOtherTeam = (p.team !== this.possession);
+                            this.possession = p.team;
+                            if (wasOtherTeam) {
+                                this.shiftGravity();
+                                this.addCommentary('STEAL! Possession changes!');
+                                this.gameStats.steals++;
+                                sounds.steal();
+                            }
+                        }
+                    });
+                }
+
+                // Check scoring
+                this.checkScoring();
+            },
+
+            checkScoring() {
+                const hoops = [this.court.hoopLeft, this.court.hoopRight];
+                hoops.forEach((hoop, i) => {
+                    const team = i === 0 ? 'away' : 'home'; // Score in opposite team's hoop
+                    const dx = this.ball.x - hoop.x;
+                    const dy = this.ball.y - hoop.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < hoop.radius && this.ball.vy > 0 && Math.abs(this.ball.vx) < 100) {
+                        let points = 2;
+                        let bonus = '';
+
+                        // Check for swish (perfect shot)
+                        if (Math.abs(this.ball.vx) < 20) {
+                            points += 1;
+                            bonus = ' SWISH!';
+                            this.gameStats.swishes++;
+                            sounds.swish();
+                        } else {
+                            sounds.swish();
+                        }
+
+                        // Check for dunk (high speed)
+                        if (this.ball.vy > 400) {
+                            points += 2;
+                            bonus += ' DUNK!';
+                            this.gameStats.dunks++;
+                            sounds.dunk();
+                            this.screenShake = 10;
+                            for (let j = 0; j < 30; j++) {
+                                this.createParticle(hoop.x, hoop.y, '#ffff00');
+                            }
+                        }
+
+                        this.score[team] += points;
+                        this.addCommentary(`${team.toUpperCase()} SCORES ${points} POINTS!${bonus}`);
+                        this.resetBall();
+                        this.possession = team === 'home' ? 'away' : 'home';
+                        this.shiftGravity();
+                    }
+                });
+            },
+
+            shiftGravity() {
+                this.gravityRotation = (this.gravityRotation + 1) % 4;
+                this.gravityTransition = 1;
+                sounds.gravityShift();
+
+                const dirs = ['DOWN', 'RIGHT', 'UP', 'LEFT'];
+                this.addCommentary(`GRAVITY SHIFT: ${dirs[this.gravityRotation]}!`);
+            },
+
+            resetBall() {
+                this.ball.x = 600;
+                this.ball.y = 350;
+                this.ball.vx = 0;
+                this.ball.vy = 0;
+                this.ball.held = false;
+                this.ball.holder = null;
+            },
+
+            playerJump(player) {
+                if (player.onGround) {
+                    const jumpPower = player.character.jump * 50;
+                    if (this.gravityRotation === 0) player.vy = -jumpPower;
+                    else if (this.gravityRotation === 2) player.vy = jumpPower;
+                    else if (this.gravityRotation === 1) player.vx = -jumpPower;
+                    else if (this.gravityRotation === 3) player.vx = jumpPower;
+                    player.onGround = false;
+                } else if (player.canDoubleJump && !player.hasDoubleJumped) {
+                    const jumpPower = player.character.jump * 40;
+                    if (this.gravityRotation === 0) player.vy = -jumpPower;
+                    else if (this.gravityRotation === 2) player.vy = jumpPower;
+                    else if (this.gravityRotation === 1) player.vx = -jumpPower;
+                    else if (this.gravityRotation === 3) player.vx = jumpPower;
+                    player.hasDoubleJumped = true;
+                }
+            },
+
+            shoot(player, angle, power) {
+                if (!this.ball.held || this.ball.holder !== player) return;
+
+                this.ball.held = false;
+                this.ball.holder = null;
+
+                const shootPower = power * player.character.shooting * 100;
+                this.ball.vx = Math.cos(angle) * shootPower;
+                this.ball.vy = Math.sin(angle) * shootPower;
+
+                this.addCommentary(`${player.character.name} shoots!`);
+                sounds.pass();
+            },
+
+            pass(player) {
+                if (!this.ball.held || this.ball.holder !== player) return;
+
+                // Find nearest teammate
+                const teammates = this.players.filter(p => p.team === player.team && p !== player);
+                if (teammates.length === 0) return;
+
+                let nearest = teammates[0];
+                let minDist = Infinity;
+                teammates.forEach(t => {
+                    const dx = t.x - player.x;
+                    const dy = t.y - player.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nearest = t;
+                    }
+                });
+
+                this.ball.held = false;
+                this.ball.holder = null;
+
+                const dx = nearest.x - player.x;
+                const dy = nearest.y - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                this.ball.vx = (dx / dist) * 500;
+                this.ball.vy = (dy / dist) * 500;
+
+                sounds.pass();
+                this.addCommentary('Nice pass!');
+            },
+
+            activateAbility(player) {
+                if (player.abilityCooldown > 0 || player.abilityActive) return;
+
+                player.abilityActive = true;
+                player.abilityCooldown = 10;
+
+                switch (player.character.id) {
+                    case 'magnetron':
+                        player.abilityDuration = 5;
+                        this.addCommentary('MAGNETIC HANDS ACTIVATED!');
+                        break;
+                    case 'skywalker':
+                        player.canDoubleJump = true;
+                        this.addCommentary('DOUBLE JUMP READY!');
+                        break;
+                    case 'chronos':
+                        player.abilityDuration = 3;
+                        this.gravityTransition = 3;
+                        this.addCommentary('GRAVITY FROZEN!');
+                        break;
+                    case 'flash':
+                        player.abilityDuration = 5;
+                        this.addCommentary('SUPER SPEED!');
+                        break;
+                    case 'titan':
+                        player.abilityDuration = 4;
+                        player.width = 60;
+                        player.height = 120;
+                        this.addCommentary('TITAN MODE!');
+                        break;
+                    case 'phantom':
+                        player.x = this.ball.x;
+                        player.y = this.ball.y;
+                        this.addCommentary('TELEPORT!');
+                        break;
+                }
+            },
+
+            createParticle(x, y, color) {
+                this.particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 200,
+                    vy: (Math.random() - 0.5) * 200,
+                    life: 1,
+                    color
+                });
+            },
+
+            addCommentary(text) {
+                this.commentary.unshift(text);
+                if (this.commentary.length > 1) {
+                    this.commentary = this.commentary.slice(0, 1);
+                }
+            },
+
+            updateHUD() {
+                document.getElementById('score-hud').textContent = `${this.score.home} - ${this.score.away}`;
+                const mins = Math.floor(this.timeLeft / 60);
+                const secs = Math.floor(this.timeLeft % 60);
+                document.getElementById('timer-hud').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+                const dirs = ['DOWN', 'RIGHT', 'UP', 'LEFT'];
+                document.getElementById('gravity-hud').textContent = `GRAVITY: ${dirs[this.gravityRotation]}`;
+
+                if (this.commentary.length > 0) {
+                    document.getElementById('commentary').textContent = this.commentary[0];
+                }
+            },
+
+            render() {
+                requestAnimationFrame(() => this.render());
+
+                const now = Date.now();
+                const dt = Math.min((now - (this.lastTime || now)) / 1000, 0.05);
+                this.lastTime = now;
+
+                this.update(dt);
+
+                const ctx = this.ctx;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, this.court.width, this.court.height);
+
+                if (this.state === 'playing') {
+                    this.renderGame(ctx);
+                }
+            },
+
+            renderGame(ctx) {
+                // Court lines
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(10, 10, this.court.width - 20, this.court.height - 20);
+                ctx.beginPath();
+                ctx.moveTo(this.court.width / 2, 10);
+                ctx.lineTo(this.court.width / 2, this.court.height - 10);
+                ctx.stroke();
+
+                // Hoops
+                ctx.strokeStyle = '#ff6600';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(this.court.hoopLeft.x, this.court.hoopLeft.y, this.court.hoopLeft.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(this.court.hoopRight.x, this.court.hoopRight.y, this.court.hoopRight.radius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Trails
+                this.trails.forEach(t => {
+                    ctx.fillStyle = `rgba(255, 255, 0, ${t.life})`;
+                    ctx.fillRect(t.x - 3, t.y - 3, 6, 6);
+                });
+
+                // Particles
+                this.particles.forEach(p => {
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.life;
+                    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+                    ctx.globalAlpha = 1;
+                });
+
+                // Players
+                this.players.forEach((p, i) => {
+                    let width = p.width;
+                    let height = p.height;
+                    if (p.character.id === 'titan' && p.abilityActive) {
+                        width = 60;
+                        height = 120;
+                    }
+
+                    ctx.fillStyle = p.character.color;
+                    if (i === this.controlledPlayer) {
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = p.character.color;
+                    }
+                    ctx.fillRect(p.x, p.y, width, height);
+                    ctx.shadowBlur = 0;
+
+                    // Name tag
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(p.character.name.substring(0, 3), p.x + width / 2, p.y - 5);
+                });
+
+                // Ball
+                ctx.fillStyle = '#ffff00';
+                ctx.beginPath();
+                ctx.arc(this.ball.x, this.ball.y, this.ball.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ff6600';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            },
+
+            endGame() {
+                this.state = 'gameOver';
+                this.hideAllScreens();
+
+                const winner = this.score.home > this.score.away ? 'HOME' : 'AWAY';
+                document.getElementById('gameOverTitle').textContent = winner + ' WINS!';
+
+                const stats = document.getElementById('gameStats');
+                stats.innerHTML = `
+                    <div class="stat-display">Final Score: ${this.score.home} - ${this.score.away}</div>
+                    <div class="stat-display">Dunks: ${this.gameStats.dunks}</div>
+                    <div class="stat-display">Swishes: ${this.gameStats.swishes}</div>
+                    <div class="stat-display">Steals: ${this.gameStats.steals}</div>
+                    <div class="stat-display">Blocks: ${this.gameStats.blocks}</div>
+                    <div class="stat-display">Trick Shots: ${this.gameStats.trickShots}</div>
+                `;
+
+                document.getElementById('gameOverScreen').classList.remove('hidden');
+
+                if (this.gameStats.dunks >= 10) {
+                    stats.innerHTML += '<div class="stat-display" style="color: #ffff00;">ENDING: DUNK MASTER</div>';
+                } else if (this.gameStats.swishes >= 15) {
+                    stats.innerHTML += '<div class="stat-display" style="color: #ffff00;">ENDING: SHARPSHOOTER</div>';
+                } else if (this.score.home + this.score.away > 150) {
+                    stats.innerHTML += '<div class="stat-display" style="color: #ffff00;">ENDING: GRAVITY LEGEND</div>';
+                }
+
+                sounds.buzzer();
+            },
+
+            pause() {
+                if (this.state !== 'playing') return;
+                this.paused = true;
+                document.getElementById('pauseScreen').classList.remove('hidden');
+            },
+
+            resume() {
+                this.paused = false;
+                document.getElementById('pauseScreen').classList.add('hidden');
+                this.lastTime = Date.now();
+            },
+
+            saveGame() {
+                const saveData = {
+                    score: this.score,
+                    timeLeft: this.timeLeft,
+                    gravityRotation: this.gravityRotation,
+                    stats: this.gameStats,
+                    character: this.selectedCharacter.id,
+                    mode: this.mode,
+                    tournament: this.tournament,
+                    season: this.season
+                };
+                localStorage.setItem('gravityCourt_save', JSON.stringify(saveData));
+                alert('Game saved!');
+            },
+
+            loadGame() {
+                const saved = localStorage.getItem('gravityCourt_save');
+                if (!saved) {
+                    alert('No saved game found!');
+                    return;
+                }
+
+                const data = JSON.parse(saved);
+                this.selectedCharacter = characters.find(c => c.id === data.character);
+                this.score = data.score;
+                this.timeLeft = data.timeLeft;
+                this.gravityRotation = data.gravityRotation;
+                this.gameStats = data.stats;
+                this.mode = data.mode;
+                this.tournament = data.tournament;
+                this.season = data.season;
+
+                this.initGame();
+                alert('Game loaded!');
+            },
+
+            loadProgress() {
+                const progress = localStorage.getItem('gravityCourt_progress');
+                if (progress) {
+                    const data = JSON.parse(progress);
+                    // Load unlocks, achievements, etc.
+                }
+            }
+        };
+
+        // Keyboard controls
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+
+            if (game.state !== 'playing' || game.paused) return;
+
+            const player = game.players[game.controlledPlayer];
+            if (!player) return;
+
+            // Movement
+            if (e.key.toLowerCase() === 'a') {
+                if (game.gravityRotation === 0 || game.gravityRotation === 2) {
+                    player.vx = -player.character.speed * 80;
+                } else {
+                    player.vy = -player.character.speed * 80;
+                }
+            }
+            if (e.key.toLowerCase() === 'd') {
+                if (game.gravityRotation === 0 || game.gravityRotation === 2) {
+                    player.vx = player.character.speed * 80;
+                } else {
+                    player.vy = player.character.speed * 80;
+                }
+            }
+
+            // Jump
+            if (e.key.toLowerCase() === 'w') {
+                game.playerJump(player);
+            }
+
+            // Shoot
+            if (e.key === ' ') {
+                e.preventDefault();
+                const hoop = player.team === 'home' ? game.court.hoopRight : game.court.hoopLeft;
+                const dx = hoop.x - player.x;
+                const dy = hoop.y - player.y;
+                const angle = Math.atan2(dy, dx);
+                game.shoot(player, angle, 0.8);
+            }
+
+            // Pass
+            if (e.key.toLowerCase() === 'e') {
+                game.pass(player);
+            }
+
+            // Block/Steal
+            if (e.key.toLowerCase() === 'q') {
+                // Simple implementation: if near opponent with ball, chance to steal
+                const opponents = game.players.filter(p => p.team !== player.team);
+                opponents.forEach(opp => {
+                    if (game.ball.held && game.ball.holder === opp) {
+                        const dx = opp.x - player.x;
+                        const dy = opp.y - player.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 60 && Math.random() < 0.3) {
+                            game.ball.held = false;
+                            game.ball.holder = null;
+                            game.ball.vx = (Math.random() - 0.5) * 200;
+                            game.ball.vy = (Math.random() - 0.5) * 200;
+                            game.gameStats.blocks++;
+                            game.addCommentary('BLOCK!');
+                            sounds.steal();
+                        }
+                    }
+                });
+            }
+
+            // Pause
+            if (e.key.toLowerCase() === 'p') {
+                game.pause();
+            }
+
+            // Switch player
+            if (e.key >= '1' && e.key <= '3') {
+                game.controlledPlayer = parseInt(e.key) - 1;
+            }
+
+            // Ability
+            if (e.key.toLowerCase() === 'f') {
+                game.activateAbility(player);
+            }
+        });
+
+        window.addEventListener('keyup', e => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        // Initialize
+        window.addEventListener('load', () => {
+            game.init();
+        });
+    </script>
+</body>
+</html>

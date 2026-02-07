@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Price - Everything Has a Cost</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #gameContainer {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #gameCanvas {
+            flex: 1;
+            background: #000;
+            cursor: crosshair;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            border-bottom: 2px solid #333;
+            display: none;
+        }
+
+        .resource-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            max-width: 900px;
+        }
+
+        .resource-bar {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .resource-label {
+            font-size: 11px;
+            color: #aaa;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .resource-track {
+            height: 8px;
+            background: #222;
+            border: 1px solid #444;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .resource-fill {
+            height: 100%;
+            transition: width 0.3s ease, background-color 0.3s ease;
+        }
+
+        .resource-fill.steps { background: linear-gradient(90deg, #4a9eff, #2e5f9e); }
+        .resource-fill.breaths { background: linear-gradient(90deg, #ff4a4a, #9e2e2e); }
+        .resource-fill.thoughts { background: linear-gradient(90deg, #9d4aff, #5e2e9e); }
+        .resource-fill.sight { background: linear-gradient(90deg, #ffeb4a, #9e8e2e); }
+        .resource-fill.words { background: linear-gradient(90deg, #4affeb, #2e9e8e); }
+        .resource-fill.memory { background: linear-gradient(90deg, #ff4aeb, #9e2e8e); }
+
+        .resource-fill.critical {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        #titleScreen, #pauseMenu, #gameOver, #dialogBox, #tradeMenu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #pauseMenu, #gameOver, #dialogBox, #tradeMenu {
+            display: none;
+        }
+
+        .title {
+            font-size: 64px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: #888;
+            margin-bottom: 40px;
+            text-align: center;
+            max-width: 600px;
+            line-height: 1.6;
+        }
+
+        .menu-btn {
+            background: transparent;
+            border: 2px solid #fff;
+            color: #fff;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .menu-btn:hover {
+            background: #fff;
+            color: #000;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .menu-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .controls {
+            margin-top: 40px;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+        }
+
+        .warning {
+            color: #ff4a4a;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+
+        #dialogBox {
+            justify-content: flex-start;
+            padding-top: 100px;
+        }
+
+        .dialog-content {
+            background: #111;
+            border: 2px solid #fff;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+        }
+
+        .dialog-speaker {
+            font-size: 20px;
+            color: #4a9eff;
+            margin-bottom: 15px;
+        }
+
+        .dialog-text {
+            font-size: 16px;
+            line-height: 1.8;
+            margin-bottom: 20px;
+            white-space: pre-wrap;
+        }
+
+        .dialog-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .dialog-option {
+            background: transparent;
+            border: 1px solid #666;
+            color: #fff;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s ease;
+        }
+
+        .dialog-option:hover {
+            border-color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .dialog-cost {
+            color: #ff4a4a;
+            font-size: 12px;
+        }
+
+        #tradeMenu .dialog-content {
+            max-width: 700px;
+        }
+
+        .trade-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .trade-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid #444;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .trade-item:hover {
+            border-color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .trade-title {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .trade-details {
+            font-size: 13px;
+            color: #888;
+        }
+
+        .trade-gain {
+            color: #4aff4a;
+        }
+
+        .trade-loss {
+            color: #ff4a4a;
+        }
+
+        .notification {
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid #fff;
+            padding: 15px 30px;
+            font-size: 14px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 200;
+        }
+
+        .notification.show {
+            opacity: 1;
+        }
+
+        .ending-screen {
+            max-width: 800px;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .ending-title {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .ending-text {
+            font-size: 16px;
+            line-height: 1.8;
+            color: #ccc;
+            margin-bottom: 30px;
+        }
+
+        .stats {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid #444;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+
+        .stat-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .pause-content {
+            text-align: center;
+        }
+
+        .pause-title {
+            font-size: 36px;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="hud">
+            <div class="resource-grid">
+                <div class="resource-bar">
+                    <div class="resource-label">
+                        <span>STEPS</span>
+                        <span id="stepsValue">100/100</span>
+                    </div>
+                    <div class="resource-track">
+                        <div class="resource-fill steps" id="stepsFill"></div>
+                    </div>
+                </div>
+                <div class="resource-bar">
+                    <div class="resource-label">
+                        <span>BREATHS</span>
+                        <span id="breathsValue">100/100</span>
+                    </div>
+                    <div class="resource-track">
+                        <div class="resource-fill breaths" id="breathsFill"></div>
+                    </div>
+                </div>
+                <div class="resource-bar">
+                    <div class="resource-label">
+                        <span>THOUGHTS</span>
+                        <span id="thoughtsValue">100/100</span>
+                    </div>
+                    <div class="resource-track">
+                        <div class="resource-fill thoughts" id="thoughtsFill"></div>
+                    </div>
+                </div>
+                <div class="resource-bar">
+                    <div class="resource-label">
+                        <span>SIGHT</span>
+                        <span id="sightValue">100/100</span>
+                    </div>
+                    <div class="resource-track">
+                        <div class="resource-fill sight" id="sightFill"></div>
+                    </div>
+                </div>
+                <div class="resource-bar">
+                    <div class="resource-label">
+                        <span>WORDS</span>
+                        <span id="wordsValue">100/100</span>
+                    </div>
+                    <div class="resource-track">
+                        <div class="resource-fill words" id="wordsFill"></div>
+                    </div>
+                </div>
+                <div class="resource-bar">
+                    <div class="resource-label">
+                        <span>MEMORY</span>
+                        <span id="memoryValue">100/100</span>
+                    </div>
+                    <div class="resource-track">
+                        <div class="resource-fill memory" id="memoryFill"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="titleScreen">
+            <div class="title">THE PRICE</div>
+            <div class="subtitle">
+                Everything has a hidden cost.<br>
+                Every action drains a resource.<br>
+                Even pausing. Even saving.<br>
+                How long can you survive in a world where existence itself has a price?
+            </div>
+            <button class="menu-btn" onclick="game.startGame()">BEGIN</button>
+            <button class="menu-btn" id="continueBtn" onclick="game.loadGame()" disabled>CONTINUE (Costs Memory)</button>
+            <div class="controls">
+                WASD/ARROWS: Move (costs Steps) | SPACE: Interact (costs various) | ESC: Pause (costs Thoughts)
+            </div>
+        </div>
+
+        <div id="pauseMenu">
+            <div class="pause-content">
+                <div class="pause-title">PAUSED</div>
+                <div class="warning">Opening this menu cost 5 Thoughts</div>
+                <button class="menu-btn" onclick="game.resume()">RESUME</button>
+                <button class="menu-btn" onclick="game.saveGame()">SAVE (Costs 10 Memory)</button>
+                <button class="menu-btn" onclick="game.returnToTitle()">QUIT TO TITLE</button>
+            </div>
+        </div>
+
+        <div id="gameOver">
+            <div class="ending-screen">
+                <div class="ending-title" id="endingTitle">THE END</div>
+                <div class="ending-text" id="endingText"></div>
+                <div class="stats" id="endingStats"></div>
+                <button class="menu-btn" onclick="game.returnToTitle()">RETURN TO TITLE</button>
+            </div>
+        </div>
+
+        <div id="dialogBox">
+            <div class="dialog-content">
+                <div class="dialog-speaker" id="dialogSpeaker"></div>
+                <div class="dialog-text" id="dialogText"></div>
+                <div class="dialog-options" id="dialogOptions"></div>
+            </div>
+        </div>
+
+        <div id="tradeMenu">
+            <div class="dialog-content">
+                <div class="dialog-speaker" id="tradeSpeaker"></div>
+                <div class="trade-list" id="tradeList"></div>
+                <button class="menu-btn" onclick="game.closeTradeMenu()">CLOSE</button>
+            </div>
+        </div>
+
+        <div class="notification" id="notification"></div>
+    </div>
+
+    <script>
+        const game = {
+            canvas: null,
+            ctx: null,
+            width: 0,
+            height: 0,
+
+            state: 'title', // title, playing, paused, ended
+
+            player: {
+                x: 0,
+                y: 0,
+                size: 16,
+                speed: 3,
+                color: '#fff'
+            },
+
+            camera: {
+                x: 0,
+                y: 0
+            },
+
+            resources: {
+                steps: { current: 100, max: 100, color: '#4a9eff' },
+                breaths: { current: 100, max: 100, color: '#ff4a4a' },
+                thoughts: { current: 100, max: 100, color: '#9d4aff' },
+                sight: { current: 100, max: 100, color: '#ffeb4a' },
+                words: { current: 100, max: 100, color: '#4affeb' },
+                memory: { current: 100, max: 100, color: '#ff4aeb' }
+            },
+
+            costs: {
+                move: { steps: 0.3 },
+                interact: { thoughts: 2 },
+                pause: { thoughts: 5 },
+                save: { memory: 10 },
+                talk: { words: 5 }
+            },
+
+            breathDrainRate: 0.05, // per second
+            lastBreathDrain: 0,
+
+            world: {
+                size: 3000,
+                tiles: [],
+                entities: [],
+                wells: [],
+                npcs: [],
+                totems: []
+            },
+
+            keys: {},
+            mouse: { x: 0, y: 0, worldX: 0, worldY: 0 },
+
+            discoveredZones: new Set(),
+            stats: {
+                stepsWalked: 0,
+                wellsUsed: 0,
+                npcsSpokenTo: 0,
+                totemsActivated: 0,
+                dealsMade: 0,
+                timePlayed: 0
+            },
+
+            audioContext: null,
+            sounds: {},
+
+            lastFrameTime: 0,
+            deltaTime: 0,
+
+            currentDialog: null,
+            currentTrade: null,
+
+            efficiencyMultipliers: {
+                move: 1,
+                interact: 1,
+                pause: 1,
+                save: 1,
+                talk: 1
+            },
+
+            init() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+
+                window.addEventListener('keydown', (e) => {
+                    this.keys[e.key.toLowerCase()] = true;
+
+                    if (e.key === 'Escape' && this.state === 'playing') {
+                        this.pause();
+                    } else if (e.key === ' ' && this.state === 'playing') {
+                        e.preventDefault();
+                        this.interact();
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key.toLowerCase()] = false;
+                });
+
+                this.canvas.addEventListener('mousemove', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.mouse.x = e.clientX - rect.left;
+                    this.mouse.y = e.clientY - rect.top;
+                    this.mouse.worldX = this.mouse.x + this.camera.x;
+                    this.mouse.worldY = this.mouse.y + this.camera.y;
+                });
+
+                this.initAudio();
+                this.checkSaveData();
+
+                requestAnimationFrame((t) => this.gameLoop(t));
+            },
+
+            initAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.warn('Web Audio API not supported');
+                }
+            },
+
+            playHeartbeat() {
+                if (!this.audioContext) return;
+
+                const osc = this.audioContext.createOscillator();
+                const gain = this.audioContext.createGain();
+
+                osc.connect(gain);
+                gain.connect(this.audioContext.destination);
+
+                osc.frequency.value = 60;
+                osc.type = 'sine';
+
+                gain.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.1);
+
+                osc.start();
+                osc.stop(this.audioContext.currentTime + 0.1);
+            },
+
+            playTone(freq, duration = 0.1, volume = 0.1) {
+                if (!this.audioContext) return;
+
+                const osc = this.audioContext.createOscillator();
+                const gain = this.audioContext.createGain();
+
+                osc.connect(gain);
+                gain.connect(this.audioContext.destination);
+
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+
+                gain.gain.setValueAtTime(volume, this.audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+
+                osc.start();
+                osc.stop(this.audioContext.currentTime + duration);
+            },
+
+            resize() {
+                this.width = this.canvas.width = window.innerWidth;
+                this.height = this.canvas.height = window.innerHeight;
+            },
+
+            checkSaveData() {
+                const saveData = localStorage.getItem('thePriceSave');
+                const continueBtn = document.getElementById('continueBtn');
+                if (saveData) {
+                    continueBtn.disabled = false;
+                }
+            },
+
+            startGame() {
+                document.getElementById('titleScreen').style.display = 'none';
+                document.getElementById('hud').style.display = 'block';
+
+                this.state = 'playing';
+                this.generateWorld();
+                this.player.x = this.world.size / 2;
+                this.player.y = this.world.size / 2;
+                this.lastFrameTime = performance.now();
+
+                this.notify('You awaken in the void. Everything costs something.');
+            },
+
+            generateWorld() {
+                this.world.entities = [];
+                this.world.wells = [];
+                this.world.npcs = [];
+                this.world.totems = [];
+
+                // Generate zones
+                const zones = [
+                    { name: 'Quiet Market', x: 1500, y: 1500, size: 400, color: '#2a4a6a' },
+                    { name: 'Endless Road', x: 500, y: 1500, size: 800, color: '#4a2a2a' },
+                    { name: 'Library of Costs', x: 2500, y: 1500, size: 300, color: '#4a2a6a' },
+                    { name: 'Breath Gardens', x: 1500, y: 500, size: 350, color: '#2a6a4a' },
+                    { name: 'Memory Palace', x: 2500, y: 500, size: 400, color: '#6a2a4a' },
+                    { name: 'The Final Price', x: 1500, y: 2500, size: 200, color: '#6a6a2a' }
+                ];
+
+                zones.forEach(zone => {
+                    this.world.entities.push({
+                        type: 'zone',
+                        ...zone
+                    });
+                });
+
+                // Generate resource wells
+                const wellTypes = [
+                    { gain: 'steps', loss: 'breaths', amount: 30 },
+                    { gain: 'breaths', loss: 'sight', amount: 40 },
+                    { gain: 'thoughts', loss: 'steps', amount: 25 },
+                    { gain: 'sight', loss: 'memory', amount: 35 },
+                    { gain: 'words', loss: 'thoughts', amount: 30 },
+                    { gain: 'memory', loss: 'words', amount: 25 }
+                ];
+
+                for (let i = 0; i < 20; i++) {
+                    const wellType = wellTypes[Math.floor(Math.random() * wellTypes.length)];
+                    this.world.wells.push({
+                        type: 'well',
+                        x: Math.random() * this.world.size,
+                        y: Math.random() * this.world.size,
+                        size: 20,
+                        wellType: wellType,
+                        used: false
+                    });
+                }
+
+                // Generate NPCs
+                const npcTypes = [
+                    {
+                        name: 'The Merchant',
+                        color: '#4a9eff',
+                        dialog: 'Everything can be traded. What do you need?',
+                        trades: [
+                            { gain: { steps: 50 }, loss: { memory: 20 }, name: 'Forget the journey' },
+                            { gain: { thoughts: 40 }, loss: { breaths: 30 }, name: 'Breathless contemplation' },
+                            { gain: { sight: 60 }, loss: { words: 25 }, name: 'Silent vision' }
+                        ]
+                    },
+                    {
+                        name: 'The Dealer',
+                        color: '#ff4a4a',
+                        dialog: 'I offer... permanent solutions. Are you desperate enough?',
+                        trades: [
+                            {
+                                gain: { steps: 200 },
+                                loss: { breaths: -50 },
+                                name: 'Faustian Bargain: Reduce max Breaths by 50',
+                                permanent: true
+                            },
+                            {
+                                gain: { sight: 200 },
+                                loss: { memory: -40 },
+                                name: 'Faustian Bargain: Reduce max Memory by 40',
+                                permanent: true
+                            }
+                        ]
+                    },
+                    {
+                        name: 'The Guide',
+                        color: '#9d4aff',
+                        dialog: 'There are ways to break free from the costs. But knowledge itself has a price.',
+                        trades: [
+                            { gain: { thoughts: 30 }, loss: { words: 15 }, name: 'Wordless wisdom' }
+                        ]
+                    }
+                ];
+
+                for (let i = 0; i < 8; i++) {
+                    const npcType = npcTypes[Math.floor(Math.random() * npcTypes.length)];
+                    this.world.npcs.push({
+                        type: 'npc',
+                        x: Math.random() * this.world.size,
+                        y: Math.random() * this.world.size,
+                        size: 16,
+                        ...npcType,
+                        spoken: false
+                    });
+                }
+
+                // Generate efficiency totems
+                const totemTypes = ['move', 'interact', 'talk', 'pause', 'save'];
+                for (let i = 0; i < 10; i++) {
+                    this.world.totems.push({
+                        type: 'totem',
+                        x: Math.random() * this.world.size,
+                        y: Math.random() * this.world.size,
+                        size: 15,
+                        totemType: totemTypes[Math.floor(Math.random() * totemTypes.length)],
+                        activated: false,
+                        reduction: 0.8
+                    });
+                }
+            },
+
+            loadGame() {
+                const saveData = localStorage.getItem('thePriceSave');
+                if (!saveData) return;
+
+                try {
+                    const data = JSON.parse(saveData);
+                    this.resources = data.resources;
+                    this.player = data.player;
+                    this.stats = data.stats;
+                    this.discoveredZones = new Set(data.discoveredZones);
+                    this.efficiencyMultipliers = data.efficiencyMultipliers;
+                    this.world = data.world;
+
+                    document.getElementById('titleScreen').style.display = 'none';
+                    document.getElementById('hud').style.display = 'block';
+                    this.state = 'playing';
+                    this.lastFrameTime = performance.now();
+
+                    this.notify('Save loaded. Memories restored.');
+                } catch (e) {
+                    this.notify('Save data corrupted.');
+                }
+            },
+
+            saveGame() {
+                if (this.resources.memory.current < this.costs.save.memory) {
+                    this.notify('Insufficient Memory to save.');
+                    return;
+                }
+
+                this.consumeResource('memory', this.costs.save.memory);
+
+                const saveData = {
+                    resources: this.resources,
+                    player: this.player,
+                    stats: this.stats,
+                    discoveredZones: Array.from(this.discoveredZones),
+                    efficiencyMultipliers: this.efficiencyMultipliers,
+                    world: this.world
+                };
+
+                localStorage.setItem('thePriceSave', JSON.stringify(saveData));
+                this.notify('Game saved. Memory consumed.');
+                this.playTone(440, 0.1);
+            },
+
+            pause() {
+                if (this.resources.thoughts.current < this.costs.pause.thoughts * this.efficiencyMultipliers.pause) {
+                    this.notify('Insufficient Thoughts to pause.');
+                    return;
+                }
+
+                this.consumeResource('thoughts', this.costs.pause.thoughts * this.efficiencyMultipliers.pause);
+                this.state = 'paused';
+                document.getElementById('pauseMenu').style.display = 'flex';
+            },
+
+            resume() {
+                this.state = 'playing';
+                document.getElementById('pauseMenu').style.display = 'none';
+                this.lastFrameTime = performance.now();
+            },
+
+            returnToTitle() {
+                this.state = 'title';
+                document.getElementById('pauseMenu').style.display = 'none';
+                document.getElementById('gameOver').style.display = 'none';
+                document.getElementById('titleScreen').style.display = 'flex';
+                document.getElementById('hud').style.display = 'none';
+
+                // Reset game
+                this.resources = {
+                    steps: { current: 100, max: 100, color: '#4a9eff' },
+                    breaths: { current: 100, max: 100, color: '#ff4a4a' },
+                    thoughts: { current: 100, max: 100, color: '#9d4aff' },
+                    sight: { current: 100, max: 100, color: '#ffeb4a' },
+                    words: { current: 100, max: 100, color: '#4affeb' },
+                    memory: { current: 100, max: 100, color: '#ff4aeb' }
+                };
+                this.discoveredZones = new Set();
+                this.stats = {
+                    stepsWalked: 0,
+                    wellsUsed: 0,
+                    npcsSpokenTo: 0,
+                    totemsActivated: 0,
+                    dealsMade: 0,
+                    timePlayed: 0
+                };
+                this.efficiencyMultipliers = {
+                    move: 1,
+                    interact: 1,
+                    pause: 1,
+                    save: 1,
+                    talk: 1
+                };
+            },
+
+            consumeResource(resource, amount) {
+                this.resources[resource].current = Math.max(0, this.resources[resource].current - amount);
+                this.checkResourceDeath();
+            },
+
+            gainResource(resource, amount) {
+                this.resources[resource].current = Math.min(
+                    this.resources[resource].max,
+                    this.resources[resource].current + amount
+                );
+            },
+
+            checkResourceDeath() {
+                if (this.resources.breaths.current <= 0) {
+                    this.endGame('bankruptcy', 'OUT OF BREATH',
+                        'You took your last breath in the void.\n\nThe price of existence was too high.\n\nYou managed ' +
+                        Math.floor(this.stats.timePlayed) + ' seconds before the inevitable.');
+                }
+            },
+
+            interact() {
+                // Check for nearby interactable entities
+                const interactDistance = 40;
+
+                // Check wells
+                for (let well of this.world.wells) {
+                    const dist = Math.hypot(this.player.x - well.x, this.player.y - well.y);
+                    if (dist < interactDistance && !well.used) {
+                        this.useWell(well);
+                        return;
+                    }
+                }
+
+                // Check NPCs
+                for (let npc of this.world.npcs) {
+                    const dist = Math.hypot(this.player.x - npc.x, this.player.y - npc.y);
+                    if (dist < interactDistance) {
+                        this.talkToNPC(npc);
+                        return;
+                    }
+                }
+
+                // Check totems
+                for (let totem of this.world.totems) {
+                    const dist = Math.hypot(this.player.x - totem.x, this.player.y - totem.y);
+                    if (dist < interactDistance && !totem.activated) {
+                        this.activateTotem(totem);
+                        return;
+                    }
+                }
+            },
+
+            useWell(well) {
+                this.consumeResource(well.wellType.loss, well.wellType.amount);
+                this.gainResource(well.wellType.gain, well.wellType.amount);
+                well.used = true;
+                this.stats.wellsUsed++;
+
+                this.notify(`Gained ${well.wellType.amount} ${well.wellType.gain.toUpperCase()}, lost ${well.wellType.amount} ${well.wellType.loss.toUpperCase()}`);
+                this.playTone(600, 0.2);
+            },
+
+            talkToNPC(npc) {
+                const cost = this.costs.talk.words * this.efficiencyMultipliers.talk;
+                if (this.resources.words.current < cost) {
+                    this.notify('Insufficient Words to speak.');
+                    return;
+                }
+
+                this.consumeResource('words', cost);
+
+                if (!npc.spoken) {
+                    npc.spoken = true;
+                    this.stats.npcsSpokenTo++;
+                }
+
+                if (npc.trades && npc.trades.length > 0) {
+                    this.openTradeMenu(npc);
+                } else {
+                    this.showDialog(npc.name, npc.dialog, [
+                        { text: 'Leave', action: () => this.closeDialog() }
+                    ]);
+                }
+            },
+
+            openTradeMenu(npc) {
+                this.currentTrade = npc;
+                document.getElementById('tradeSpeaker').textContent = npc.name;
+
+                const tradeList = document.getElementById('tradeList');
+                tradeList.innerHTML = '';
+
+                npc.trades.forEach((trade, index) => {
+                    const tradeItem = document.createElement('div');
+                    tradeItem.className = 'trade-item';
+
+                    const gainText = Object.entries(trade.gain)
+                        .map(([res, amt]) => `+${amt} ${res.toUpperCase()}`)
+                        .join(', ');
+                    const lossText = Object.entries(trade.loss)
+                        .map(([res, amt]) => `${amt > 0 ? '-' : ''}${Math.abs(amt)} ${res.toUpperCase()}`)
+                        .join(', ');
+
+                    tradeItem.innerHTML = `
+                        <div class="trade-title">${trade.name}</div>
+                        <div class="trade-details">
+                            <span class="trade-gain">${gainText}</span> |
+                            <span class="trade-loss">${lossText}</span>
+                        </div>
+                    `;
+
+                    tradeItem.onclick = () => this.executeTrade(trade, npc);
+                    tradeList.appendChild(tradeItem);
+                });
+
+                document.getElementById('tradeMenu').style.display = 'flex';
+                this.state = 'paused';
+            },
+
+            closeTradeMenu() {
+                document.getElementById('tradeMenu').style.display = 'none';
+                this.currentTrade = null;
+                this.state = 'playing';
+                this.lastFrameTime = performance.now();
+            },
+
+            executeTrade(trade, npc) {
+                // Check if player can afford
+                for (let [resource, amount] of Object.entries(trade.loss)) {
+                    if (amount > 0 && this.resources[resource].current < amount) {
+                        this.notify('Insufficient resources for this trade.');
+                        return;
+                    }
+                }
+
+                // Execute trade
+                for (let [resource, amount] of Object.entries(trade.loss)) {
+                    if (amount > 0) {
+                        this.consumeResource(resource, amount);
+                    } else {
+                        // Permanent reduction
+                        this.resources[resource].max += amount;
+                        this.resources[resource].current = Math.min(
+                            this.resources[resource].current,
+                            this.resources[resource].max
+                        );
+                    }
+                }
+
+                for (let [resource, amount] of Object.entries(trade.gain)) {
+                    this.gainResource(resource, amount);
+                }
+
+                if (npc.name === 'The Dealer') {
+                    this.stats.dealsMade++;
+                }
+
+                this.notify('Trade completed.');
+                this.playTone(500, 0.15);
+                this.closeTradeMenu();
+
+                // Check for endings
+                this.checkEndings();
+            },
+
+            activateTotem(totem) {
+                totem.activated = true;
+                this.efficiencyMultipliers[totem.totemType] *= totem.reduction;
+                this.stats.totemsActivated++;
+
+                this.notify(`Efficiency Totem activated: ${totem.totemType} costs reduced by 20%`);
+                this.playTone(800, 0.2);
+            },
+
+            showDialog(speaker, text, options) {
+                document.getElementById('dialogSpeaker').textContent = speaker;
+                document.getElementById('dialogText').textContent = text;
+
+                const optionsContainer = document.getElementById('dialogOptions');
+                optionsContainer.innerHTML = '';
+
+                options.forEach(option => {
+                    const btn = document.createElement('button');
+                    btn.className = 'dialog-option';
+                    btn.textContent = option.text;
+                    if (option.cost) {
+                        btn.innerHTML += `<br><span class="dialog-cost">Costs: ${option.cost}</span>`;
+                    }
+                    btn.onclick = option.action;
+                    optionsContainer.appendChild(btn);
+                });
+
+                document.getElementById('dialogBox').style.display = 'flex';
+                this.state = 'paused';
+            },
+
+            closeDialog() {
+                document.getElementById('dialogBox').style.display = 'none';
+                this.state = 'playing';
+                this.lastFrameTime = performance.now();
+            },
+
+            checkEndings() {
+                // Break the Economy: all efficiency multipliers below 0.3
+                const allEfficient = Object.values(this.efficiencyMultipliers).every(m => m <= 0.3);
+                if (allEfficient && this.stats.totemsActivated >= 8) {
+                    this.endGame('economy', 'BREAK THE ECONOMY',
+                        'You discovered every efficiency. Every loophole.\n\nThe costs no longer bind you.\n\n' +
+                        'You broke the system that demanded payment for existence.\n\n' +
+                        'You are free.');
+                    return;
+                }
+
+                // The Auditor: made 3+ Faustian bargains
+                if (this.stats.dealsMade >= 3) {
+                    this.endGame('auditor', 'THE AUDITOR',
+                        'You made too many deals.\n\nThe Auditor has come to collect.\n\n' +
+                        'Every bargain had a clause you didn\'t read.\n\n' +
+                        'The price was always your soul.');
+                    return;
+                }
+            },
+
+            endGame(endingType, title, text) {
+                this.state = 'ended';
+
+                document.getElementById('endingTitle').textContent = title;
+                document.getElementById('endingText').textContent = text;
+
+                const statsHTML = `
+                    <div class="stat-line"><span>Time Survived:</span><span>${Math.floor(this.stats.timePlayed)}s</span></div>
+                    <div class="stat-line"><span>Steps Walked:</span><span>${Math.floor(this.stats.stepsWalked)}</span></div>
+                    <div class="stat-line"><span>Wells Used:</span><span>${this.stats.wellsUsed}</span></div>
+                    <div class="stat-line"><span>NPCs Spoken To:</span><span>${this.stats.npcsSpokenTo}</span></div>
+                    <div class="stat-line"><span>Totems Activated:</span><span>${this.stats.totemsActivated}</span></div>
+                    <div class="stat-line"><span>Deals Made:</span><span>${this.stats.dealsMade}</span></div>
+                `;
+                document.getElementById('endingStats').innerHTML = statsHTML;
+
+                document.getElementById('gameOver').style.display = 'flex';
+            },
+
+            notify(message) {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.classList.add('show');
+
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            },
+
+            update(dt) {
+                if (this.state !== 'playing') return;
+
+                this.stats.timePlayed += dt;
+
+                // Passive breath drain
+                this.resources.breaths.current -= this.breathDrainRate * dt;
+                this.checkResourceDeath();
+
+                // Heartbeat sound when low on breaths
+                if (this.resources.breaths.current < 30 &&
+                    performance.now() - this.lastBreathDrain > 1000) {
+                    this.playHeartbeat();
+                    this.lastBreathDrain = performance.now();
+                }
+
+                // Movement
+                let dx = 0, dy = 0;
+
+                if (this.keys['w'] || this.keys['arrowup']) dy -= 1;
+                if (this.keys['s'] || this.keys['arrowdown']) dy += 1;
+                if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
+                if (this.keys['d'] || this.keys['arrowright']) dx += 1;
+
+                if (dx !== 0 || dy !== 0) {
+                    const moveCost = this.costs.move.steps * this.efficiencyMultipliers.move * dt;
+
+                    if (this.resources.steps.current >= moveCost) {
+                        // Normalize diagonal movement
+                        const length = Math.sqrt(dx * dx + dy * dy);
+                        dx /= length;
+                        dy /= length;
+
+                        this.player.x += dx * this.player.speed;
+                        this.player.y += dy * this.player.speed;
+
+                        // Clamp to world bounds
+                        this.player.x = Math.max(0, Math.min(this.world.size, this.player.x));
+                        this.player.y = Math.max(0, Math.min(this.world.size, this.player.y));
+
+                        this.consumeResource('steps', moveCost);
+                        this.stats.stepsWalked += moveCost;
+                    }
+                }
+
+                // Update camera
+                this.camera.x = this.player.x - this.width / 2;
+                this.camera.y = this.player.y - this.height / 2;
+
+                // Check for zone discovery
+                for (let entity of this.world.entities) {
+                    if (entity.type === 'zone') {
+                        const dist = Math.hypot(this.player.x - entity.x, this.player.y - entity.y);
+                        if (dist < entity.size && !this.discoveredZones.has(entity.name)) {
+                            this.discoveredZones.add(entity.name);
+                            this.notify(`Discovered: ${entity.name}`);
+                            this.playTone(700, 0.2);
+                        }
+                    }
+                }
+
+                this.updateHUD();
+            },
+
+            updateHUD() {
+                for (let [name, resource] of Object.entries(this.resources)) {
+                    const percent = (resource.current / resource.max) * 100;
+                    const fill = document.getElementById(`${name}Fill`);
+                    const value = document.getElementById(`${name}Value`);
+
+                    fill.style.width = percent + '%';
+                    value.textContent = `${Math.floor(resource.current)}/${resource.max}`;
+
+                    if (percent < 20) {
+                        fill.classList.add('critical');
+                    } else {
+                        fill.classList.remove('critical');
+                    }
+                }
+            },
+
+            render() {
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, this.width, this.height);
+
+                if (this.state === 'title' || this.state === 'ended') return;
+
+                // Calculate sight radius based on sight resource
+                const sightPercent = this.resources.sight.current / this.resources.sight.max;
+                const sightRadius = 200 + (sightPercent * 400);
+
+                // Fill background (void)
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, this.width, this.height);
+
+                ctx.save();
+                ctx.translate(-this.camera.x, -this.camera.y);
+
+                // Draw zones
+                for (let entity of this.world.entities) {
+                    if (entity.type === 'zone') {
+                        const dist = Math.hypot(this.player.x - entity.x, this.player.y - entity.y);
+                        if (dist < sightRadius + entity.size) {
+                            ctx.fillStyle = entity.color + '33';
+                            ctx.beginPath();
+                            ctx.arc(entity.x, entity.y, entity.size, 0, Math.PI * 2);
+                            ctx.fill();
+
+                            if (dist < sightRadius) {
+                                ctx.fillStyle = '#fff';
+                                ctx.font = '14px Courier New';
+                                ctx.textAlign = 'center';
+                                ctx.fillText(entity.name, entity.x, entity.y - entity.size - 10);
+                            }
+                        }
+                    }
+                }
+
+                // Draw wells
+                for (let well of this.world.wells) {
+                    const dist = Math.hypot(this.player.x - well.x, this.player.y - well.y);
+                    if (dist < sightRadius) {
+                        const alpha = well.used ? 0.3 : 1;
+                        ctx.fillStyle = this.resources[well.wellType.gain].color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                        ctx.strokeStyle = this.resources[well.wellType.loss].color;
+                        ctx.lineWidth = 2;
+
+                        ctx.beginPath();
+                        ctx.arc(well.x, well.y, well.size, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        if (dist < 60 && !well.used) {
+                            ctx.fillStyle = '#fff';
+                            ctx.font = '10px Courier New';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(`+${well.wellType.gain}`, well.x, well.y - 30);
+                            ctx.fillText(`-${well.wellType.loss}`, well.x, well.y + 40);
+                        }
+                    }
+                }
+
+                // Draw totems
+                for (let totem of this.world.totems) {
+                    const dist = Math.hypot(this.player.x - totem.x, this.player.y - totem.y);
+                    if (dist < sightRadius) {
+                        const alpha = totem.activated ? 0.3 : 1;
+                        ctx.strokeStyle = '#ffeb4a' + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                        ctx.lineWidth = 3;
+
+                        ctx.beginPath();
+                        ctx.moveTo(totem.x, totem.y - totem.size);
+                        ctx.lineTo(totem.x + totem.size, totem.y + totem.size);
+                        ctx.lineTo(totem.x - totem.size, totem.y + totem.size);
+                        ctx.closePath();
+                        ctx.stroke();
+
+                        if (dist < 60 && !totem.activated) {
+                            ctx.fillStyle = '#fff';
+                            ctx.font = '10px Courier New';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(totem.totemType, totem.x, totem.y + 30);
+                        }
+                    }
+                }
+
+                // Draw NPCs
+                for (let npc of this.world.npcs) {
+                    const dist = Math.hypot(this.player.x - npc.x, this.player.y - npc.y);
+                    if (dist < sightRadius) {
+                        ctx.fillStyle = npc.color;
+                        ctx.beginPath();
+                        ctx.arc(npc.x, npc.y, npc.size, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        if (dist < 60) {
+                            ctx.fillStyle = '#fff';
+                            ctx.font = '12px Courier New';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(npc.name, npc.x, npc.y - 25);
+                        }
+                    }
+                }
+
+                // Draw player
+                ctx.fillStyle = this.player.color;
+                ctx.beginPath();
+                ctx.arc(this.player.x, this.player.y, this.player.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+
+                // Apply fog of war
+                const gradient = ctx.createRadialGradient(
+                    this.width / 2, this.height / 2, sightRadius * 0.6,
+                    this.width / 2, this.height / 2, sightRadius
+                );
+                gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                gradient.addColorStop(0.7, 'rgba(0, 0, 0, 0.3)');
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, this.width, this.height);
+            },
+
+            gameLoop(timestamp) {
+                const dt = Math.min((timestamp - this.lastFrameTime) / 1000, 0.1);
+                this.deltaTime = dt;
+                this.lastFrameTime = timestamp;
+
+                this.update(dt);
+                this.render();
+
+                requestAnimationFrame((t) => this.gameLoop(t));
+            }
+        };
+
+        window.addEventListener('load', () => {
+            game.init();
+        });
+    </script>
+</body>
+</html>

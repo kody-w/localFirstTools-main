@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dream Auction - Trade Dreams in a Surreal Marketplace</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', serif;
+            background: linear-gradient(135deg, #1a0033 0%, #2d1b4e 50%, #1a0033 100%);
+            color: #e8d9ff;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #gameCanvas {
+            display: block;
+            max-width: 100%;
+            max-height: 100vh;
+            box-shadow: 0 0 60px rgba(138, 43, 226, 0.6);
+            cursor: pointer;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+    <script>
+        // ===== GAME CONSTANTS =====
+        const CANVAS_WIDTH = 1280;
+        const CANVAS_HEIGHT = 720;
+        const MAX_ROUNDS = 30;
+        const STARTING_GOLD = 500;
+        const STARTING_REPUTATION = 0;
+        const DREAM_FADE_RATE = 0.02;
+        const MAX_INVENTORY = 15;
+
+        const DREAM_TYPES = [
+            'vivid', 'lucid', 'nightmare', 'prophetic', 'nostalgic',
+            'recurring', 'shared', 'forbidden', 'chaotic', 'serene'
+        ];
+
+        const DREAM_QUALITIES = ['vividness', 'coherence', 'emotion', 'duration', 'rarity'];
+
+        const AI_BUYERS = [
+            { name: 'Nightmare Collector', preference: 'nightmare', aggression: 0.8, budget: 300, wealth: 2000 },
+            { name: 'Nostalgia Addict', preference: 'nostalgic', aggression: 0.6, budget: 250, wealth: 1800 },
+            { name: 'Prophetic Seeker', preference: 'prophetic', aggression: 0.7, budget: 400, wealth: 2500 },
+            { name: 'Chaos Lover', preference: 'chaotic', aggression: 0.9, budget: 200, wealth: 1500 },
+            { name: 'Perfectionist', preference: 'lucid', aggression: 0.5, budget: 350, wealth: 2200 }
+        ];
+
+        const CLIENT_NAMES = [
+            'Dr. Morpheus', 'Luna Somnia', 'Rex Oneiros', 'Mira Hypnos',
+            'Zephyr Night', 'Celeste Dream', 'Nox Umbra', 'Aurora Lux',
+            'Phantom Edge', 'Vesper Shade', 'Astral Quinn', 'Echo Void',
+            'Sable Moon', 'Iris Veil', 'Raven Dusk', 'Opal Mist',
+            'Sterling Haze', 'Violet Trance', 'Jade Sleep', 'Crimson Reverie'
+        ];
+
+        // ===== GAME STATE =====
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = {
+            screen: 'title',
+            round: 1,
+            gold: STARTING_GOLD,
+            reputation: STARTING_REPUTATION,
+            inventory: [],
+            gallery: [],
+            currentAuction: null,
+            auctionPhase: 'browse',
+            currentBid: 0,
+            highestBidder: null,
+            aiDecisions: [],
+            clients: [],
+            marketTrends: {},
+            particles: [],
+            mouseX: 0,
+            mouseY: 0,
+            biddingTimer: 0,
+            messages: [],
+            totalEarnings: 0,
+            totalSpent: 0,
+            dreamsCrafted: 0,
+            dreamsAuctioned: 0,
+            buttons: [],
+            craftingMode: false,
+            selectedForCraft: []
+        };
+
+        // ===== AUDIO SYSTEM =====
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let isMuted = false;
+
+        function playTone(frequency, duration, type = 'sine', volume = 0.3) {
+            if (isMuted) return;
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc.connect(gain);
+            gain.connect(audioContext.destination);
+            osc.frequency.value = frequency;
+            osc.type = type;
+            gain.gain.value = volume;
+            osc.start(audioContext.currentTime);
+            osc.stop(audioContext.currentTime + duration);
+        }
+
+        function playAuctionBell() {
+            playTone(880, 0.1, 'sine', 0.2);
+            setTimeout(() => playTone(1046, 0.1, 'sine', 0.2), 100);
+        }
+
+        function playPurchaseChime() {
+            playTone(523, 0.15, 'sine', 0.25);
+            setTimeout(() => playTone(659, 0.15, 'sine', 0.25), 150);
+            setTimeout(() => playTone(784, 0.2, 'sine', 0.25), 300);
+        }
+
+        function playNightmareStatic() {
+            if (isMuted) return;
+            const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.3, audioContext.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < buffer.length; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            const source = audioContext.createBufferSource();
+            const filter = audioContext.createBiquadFilter();
+            const gain = audioContext.createGain();
+            source.buffer = buffer;
+            filter.type = 'lowpass';
+            filter.frequency.value = 2000;
+            gain.gain.value = 0.1;
+            source.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioContext.destination);
+            source.start();
+        }
+
+        function playAmbientDrone() {
+            if (isMuted) return;
+            const osc1 = audioContext.createOscillator();
+            const osc2 = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc1.connect(gain);
+            osc2.connect(gain);
+            gain.connect(audioContext.destination);
+            osc1.frequency.value = 110;
+            osc2.frequency.value = 165;
+            osc1.type = 'sine';
+            osc2.type = 'sine';
+            gain.gain.value = 0.05;
+            osc1.start(audioContext.currentTime);
+            osc2.start(audioContext.currentTime);
+            osc1.stop(audioContext.currentTime + 2);
+            osc2.stop(audioContext.currentTime + 2);
+        }
+
+        // ===== PARTICLE SYSTEM =====
+        class Particle {
+            constructor(x, y, color, size = 2, speedX = 0, speedY = -1) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = size;
+                this.speedX = speedX + (Math.random() - 0.5) * 0.5;
+                this.speedY = speedY + (Math.random() - 0.5) * 0.5;
+                this.life = 1;
+                this.decay = 0.01 + Math.random() * 0.02;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= this.decay;
+                this.speedY += 0.02;
+            }
+
+            draw() {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        function spawnParticles(x, y, count, color) {
+            for (let i = 0; i < count; i++) {
+                gameState.particles.push(new Particle(
+                    x, y, color,
+                    Math.random() * 3 + 1,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2 - 1
+                ));
+            }
+        }
+
+        // ===== DREAM GENERATION =====
+        function generateDream(round = 1) {
+            const type = DREAM_TYPES[Math.floor(Math.random() * DREAM_TYPES.length)];
+            const qualities = {};
+
+            DREAM_QUALITIES.forEach(quality => {
+                qualities[quality] = Math.random() * 0.7 + 0.3;
+            });
+
+            const boost = Math.min(round / MAX_ROUNDS, 0.5);
+            Object.keys(qualities).forEach(key => {
+                qualities[key] = Math.min(qualities[key] + boost * Math.random(), 1.0);
+            });
+
+            const baseValue = calculateDreamValue(type, qualities);
+
+            return {
+                id: Date.now() + Math.random(),
+                type,
+                qualities,
+                baseValue,
+                currentValue: baseValue,
+                fade: 1.0,
+                description: generateDreamDescription(type, qualities)
+            };
+        }
+
+        function generateDreamDescription(type, qualities) {
+            const descriptors = {
+                vivid: ['crystalline', 'ultra-detailed', 'hyper-real', 'brilliant'],
+                lucid: ['controlled', 'self-aware', 'navigable', 'conscious'],
+                nightmare: ['terrifying', 'visceral', 'haunting', 'dark'],
+                prophetic: ['prescient', 'future-seeing', 'oracular', 'revealing'],
+                nostalgic: ['bittersweet', 'memory-laden', 'wistful', 'yearning'],
+                recurring: ['cyclical', 'persistent', 'eternal', 'looping'],
+                shared: ['collective', 'multi-consciousness', 'bonded', 'linked'],
+                forbidden: ['taboo', 'illegal', 'dangerous', 'censored'],
+                chaotic: ['unpredictable', 'wild', 'random', 'anarchic'],
+                serene: ['peaceful', 'calm', 'tranquil', 'gentle']
+            };
+
+            const scenes = [
+                'floating city', 'infinite library', 'crystal ocean', 'burning forest',
+                'mirror maze', 'time loop', 'childhood home', 'alien landscape',
+                'cosmic void', 'garden of eyes', 'clockwork cathedral', 'liquid sky'
+            ];
+
+            const desc = descriptors[type][Math.floor(Math.random() * descriptors[type].length)];
+            const scene = scenes[Math.floor(Math.random() * scenes.length)];
+
+            return `A ${desc} dream of ${scene}`;
+        }
+
+        function calculateDreamValue(type, qualities) {
+            const typeValues = {
+                vivid: 80, lucid: 100, nightmare: 90, prophetic: 150,
+                nostalgic: 70, recurring: 120, shared: 110, forbidden: 200,
+                chaotic: 60, serene: 75
+            };
+
+            let value = typeValues[type] || 50;
+
+            const avgQuality = Object.values(qualities).reduce((a, b) => a + b, 0) / DREAM_QUALITIES.length;
+            value *= (0.5 + avgQuality);
+
+            if (gameState.marketTrends[type]) {
+                value *= gameState.marketTrends[type];
+            }
+
+            return Math.floor(value);
+        }
+
+        function fadeDreams() {
+            gameState.inventory.forEach(dream => {
+                if (dream.type !== 'recurring') {
+                    dream.fade -= DREAM_FADE_RATE;
+                    dream.fade = Math.max(0, dream.fade);
+                    dream.currentValue = Math.floor(dream.baseValue * dream.fade);
+                }
+            });
+
+            gameState.inventory = gameState.inventory.filter(d => d.fade > 0);
+        }
+
+        // ===== CLIENT SYSTEM =====
+        function generateClients(count = 3) {
+            const clients = [];
+            for (let i = 0; i < count; i++) {
+                const name = CLIENT_NAMES[Math.floor(Math.random() * CLIENT_NAMES.length)];
+                const requestedType = DREAM_TYPES[Math.floor(Math.random() * DREAM_TYPES.length)];
+                const minQuality = 0.5 + Math.random() * 0.3;
+                const payment = Math.floor((100 + Math.random() * 200) * (1 + gameState.round / 10));
+                const turnsLeft = 5 + Math.floor(Math.random() * 5);
+
+                clients.push({
+                    name,
+                    requestedType,
+                    minQuality,
+                    payment,
+                    turnsLeft,
+                    id: Date.now() + Math.random() + i
+                });
+            }
+            return clients;
+        }
+
+        function checkClientRequests() {
+            let fulfilled = [];
+            gameState.clients.forEach(client => {
+                const matchingDream = gameState.inventory.find(dream =>
+                    dream.type === client.requestedType &&
+                    dream.fade >= client.minQuality
+                );
+                if (matchingDream) {
+                    fulfilled.push({ client, dream: matchingDream });
+                }
+            });
+            return fulfilled;
+        }
+
+        function fulfillClientRequest(client, dream) {
+            gameState.gold += client.payment;
+            gameState.reputation += 10;
+            gameState.totalEarnings += client.payment;
+            gameState.inventory = gameState.inventory.filter(d => d.id !== dream.id);
+            gameState.clients = gameState.clients.filter(c => c.id !== client.id);
+            addMessage(`${client.name} purchased ${dream.type} for ${client.payment}g!`, '#90EE90');
+            playPurchaseChime();
+        }
+
+        function updateClients() {
+            gameState.clients.forEach(client => {
+                client.turnsLeft--;
+            });
+            gameState.clients = gameState.clients.filter(c => c.turnsLeft > 0);
+
+            if (gameState.clients.length < 3 && Math.random() < 0.4) {
+                gameState.clients.push(...generateClients(1));
+            }
+        }
+
+        // ===== MARKET TRENDS =====
+        function updateMarketTrends() {
+            DREAM_TYPES.forEach(type => {
+                if (!gameState.marketTrends[type]) {
+                    gameState.marketTrends[type] = 1.0;
+                }
+                const change = (Math.random() - 0.5) * 0.2;
+                gameState.marketTrends[type] += change;
+                gameState.marketTrends[type] = Math.max(0.5, Math.min(2.0, gameState.marketTrends[type]));
+            });
+        }
+
+        // ===== AUCTION SYSTEM =====
+        function startAuction() {
+            gameState.currentAuction = generateDream(gameState.round);
+            gameState.auctionPhase = 'browse';
+            gameState.currentBid = Math.floor(gameState.currentAuction.baseValue * 0.3);
+            gameState.highestBidder = null;
+            gameState.biddingTimer = 0;
+            gameState.aiDecisions = [];
+            playAuctionBell();
+        }
+
+        function startBidding() {
+            gameState.auctionPhase = 'bidding';
+            gameState.biddingTimer = 180;
+
+            AI_BUYERS.forEach(buyer => {
+                const interest = calculateAIInterest(buyer, gameState.currentAuction);
+                gameState.aiDecisions.push({
+                    buyer: buyer.name,
+                    interest,
+                    maxBid: Math.floor(buyer.budget * interest * (0.8 + Math.random() * 0.4)),
+                    aggressive: buyer.aggression
+                });
+            });
+        }
+
+        function calculateAIInterest(buyer, dream) {
+            let interest = 0.3;
+            if (dream.type === buyer.preference) {
+                interest += 0.5;
+            }
+            const avgQuality = Object.values(dream.qualities).reduce((a, b) => a + b, 0) / DREAM_QUALITIES.length;
+            interest += avgQuality * 0.3;
+            interest += Math.random() * 0.2;
+            return Math.min(interest, 1.0);
+        }
+
+        function updateBidding() {
+            if (gameState.biddingTimer > 0) {
+                gameState.biddingTimer--;
+
+                if (gameState.biddingTimer % 30 === 0 && gameState.biddingTimer > 0) {
+                    gameState.aiDecisions.forEach(decision => {
+                        if (decision.interest > 0.5 && decision.maxBid > gameState.currentBid) {
+                            const shouldBid = Math.random() < (decision.aggressive * decision.interest);
+                            if (shouldBid) {
+                                const increment = Math.floor(gameState.currentAuction.baseValue * 0.1);
+                                gameState.currentBid += increment;
+                                gameState.highestBidder = decision.buyer;
+                                playTone(440, 0.05, 'square', 0.1);
+                                addMessage(`${decision.buyer} bids ${gameState.currentBid}`, '#FFD700');
+                            }
+                        }
+                    });
+                }
+            } else {
+                endBidding();
+            }
+        }
+
+        function playerBid() {
+            const increment = Math.floor(gameState.currentAuction.baseValue * 0.15);
+            const newBid = gameState.currentBid + increment;
+
+            if (newBid > gameState.gold) {
+                addMessage('Not enough gold!', '#FF6B6B');
+                playTone(200, 0.2, 'sawtooth', 0.2);
+                return;
+            }
+
+            gameState.currentBid = newBid;
+            gameState.highestBidder = 'You';
+            playTone(523, 0.1, 'sine', 0.2);
+            addMessage(`You bid ${gameState.currentBid}`, '#90EE90');
+            gameState.biddingTimer = Math.max(gameState.biddingTimer, 60);
+        }
+
+        function endBidding() {
+            gameState.auctionPhase = 'result';
+
+            if (gameState.highestBidder === 'You') {
+                if (gameState.inventory.length >= MAX_INVENTORY) {
+                    addMessage('Inventory full! Dream lost.', '#FF6B6B');
+                    playNightmareStatic();
+                } else {
+                    gameState.gold -= gameState.currentBid;
+                    gameState.totalSpent += gameState.currentBid;
+                    gameState.inventory.push(gameState.currentAuction);
+                    gameState.dreamsAuctioned++;
+                    addMessage(`Won ${gameState.currentAuction.type} dream!`, '#90EE90');
+                    playPurchaseChime();
+                    spawnParticles(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 20, '#BA55D3');
+                }
+            } else if (gameState.highestBidder) {
+                addMessage(`${gameState.highestBidder} won the auction.`, '#FFA07A');
+            } else {
+                addMessage('No bids. Dream vanished.', '#999');
+            }
+
+            setTimeout(() => {
+                gameState.round++;
+                if (gameState.round <= MAX_ROUNDS) {
+                    startNewRound();
+                } else {
+                    endGame();
+                }
+            }, 2000);
+        }
+
+        // ===== DREAM CRAFTING =====
+        function craftDream(dream1, dream2) {
+            if (!dream1 || !dream2) return null;
+
+            const newType = Math.random() < 0.7 ? dream1.type : dream2.type;
+            const qualities = {};
+
+            DREAM_QUALITIES.forEach(quality => {
+                qualities[quality] = (dream1.qualities[quality] + dream2.qualities[quality]) / 2;
+                qualities[quality] = Math.min(qualities[quality] + 0.1, 1.0);
+            });
+
+            const baseValue = calculateDreamValue(newType, qualities) * 1.3;
+
+            gameState.inventory = gameState.inventory.filter(d =>
+                d.id !== dream1.id && d.id !== dream2.id
+            );
+
+            const craftedDream = {
+                id: Date.now() + Math.random(),
+                type: newType,
+                qualities,
+                baseValue: Math.floor(baseValue),
+                currentValue: Math.floor(baseValue),
+                fade: 1.0,
+                description: generateDreamDescription(newType, qualities) + ' (Crafted)'
+            };
+
+            gameState.inventory.push(craftedDream);
+            gameState.dreamsCrafted++;
+            gameState.reputation += 5;
+
+            addMessage(`Crafted premium ${newType} dream!`, '#FFD700');
+            playPurchaseChime();
+            spawnParticles(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 30, '#FFD700');
+
+            return craftedDream;
+        }
+
+        // ===== ROUND MANAGEMENT =====
+        function startNewRound() {
+            fadeDreams();
+            updateMarketTrends();
+            updateClients();
+
+            if (gameState.clients.length < 3) {
+                gameState.clients.push(...generateClients(3 - gameState.clients.length));
+            }
+
+            startAuction();
+            playAmbientDrone();
+        }
+
+        function endGame() {
+            gameState.screen = 'gameOver';
+
+            let ending = 'The Dreamer\'s Nightmare';
+            if (gameState.reputation >= 500 && gameState.gold >= 3000) {
+                ending = 'Dream Mogul';
+            } else if (gameState.dreamsCrafted >= 10 && gameState.gallery.length >= 5) {
+                ending = 'Dream Artist';
+            } else if (gameState.reputation >= 300) {
+                ending = 'Awakened';
+            }
+
+            gameState.ending = ending;
+            playAmbientDrone();
+        }
+
+        // ===== MESSAGE SYSTEM =====
+        function addMessage(text, color = '#E8D9FF') {
+            gameState.messages.push({
+                text,
+                color,
+                life: 180,
+                id: Date.now() + Math.random()
+            });
+
+            if (gameState.messages.length > 5) {
+                gameState.messages.shift();
+            }
+        }
+
+        // ===== DRAWING FUNCTIONS =====
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            gradient.addColorStop(0, '#1a0033');
+            gradient.addColorStop(0.5, '#2d1b4e');
+            gradient.addColorStop(1, '#1a0033');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            const time = Date.now() / 1000;
+            for (let i = 0; i < 50; i++) {
+                const x = (i * 137.5 + time * 10) % CANVAS_WIDTH;
+                const y = (i * 73.2 + Math.sin(time + i) * 50) % CANVAS_HEIGHT;
+                const alpha = 0.1 + Math.sin(time * 2 + i) * 0.1;
+
+                ctx.fillStyle = `rgba(186, 85, 211, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(x, y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawGlassPanel(x, y, width, height, alpha = 0.15) {
+            ctx.fillStyle = `rgba(138, 43, 226, ${alpha})`;
+            ctx.strokeStyle = 'rgba(186, 85, 211, 0.3)';
+            ctx.lineWidth = 2;
+            roundRect(x, y, width, height, 15);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        function roundRect(x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+
+        function drawButton(x, y, width, height, text, color = '#BA55D3') {
+            const isHovered = gameState.mouseX >= x && gameState.mouseX <= x + width &&
+                              gameState.mouseY >= y && gameState.mouseY <= y + height;
+
+            ctx.fillStyle = isHovered ? `${color}40` : `${color}20`;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            roundRect(x, y, width, height, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = isHovered ? '#FFF' : '#E8D9FF';
+            ctx.font = 'bold 18px Georgia';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + width / 2, y + height / 2);
+
+            return isHovered;
+        }
+
+        function drawDream(x, y, width, height, dream) {
+            drawGlassPanel(x, y, width, height);
+
+            const typeColors = {
+                vivid: '#00CED1', lucid: '#9370DB', nightmare: '#8B0000',
+                prophetic: '#FFD700', nostalgic: '#FF8C69', recurring: '#32CD32',
+                shared: '#FF69B4', forbidden: '#DC143C', chaotic: '#FF4500',
+                serene: '#87CEEB'
+            };
+
+            const color = typeColors[dream.type] || '#BA55D3';
+            const centerX = x + width / 2;
+            const centerY = y + 50;
+            const time = Date.now() / 1000;
+
+            ctx.save();
+            ctx.globalAlpha = dream.fade;
+
+            for (let i = 0; i < 5; i++) {
+                const radius = 20 + i * 8 - Math.sin(time * 2 + i) * 3;
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = (0.3 - i * 0.05) * dream.fade;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+
+            ctx.fillStyle = '#E8D9FF';
+            ctx.font = 'bold 16px Georgia';
+            ctx.textAlign = 'left';
+            ctx.fillText(dream.type.toUpperCase(), x + 10, y + 110);
+
+            ctx.font = '12px Georgia';
+            ctx.fillText(`Value: ${dream.currentValue}g`, x + 10, y + 130);
+            ctx.fillText(`Fade: ${Math.floor(dream.fade * 100)}%`, x + 10, y + 145);
+
+            ctx.font = 'italic 11px Georgia';
+            ctx.fillStyle = '#CCC';
+            wrapText(dream.description, x + 10, y + 165, width - 20, 14);
+        }
+
+        function wrapText(text, x, y, maxWidth, lineHeight) {
+            const words = text.split(' ');
+            let line = '';
+            let lineY = y;
+
+            words.forEach(word => {
+                const testLine = line + word + ' ';
+                const metrics = ctx.measureText(testLine);
+
+                if (metrics.width > maxWidth && line !== '') {
+                    ctx.fillText(line, x, lineY);
+                    line = word + ' ';
+                    lineY += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            });
+
+            ctx.fillText(line, x, lineY);
+        }
+
+        function drawHUD() {
+            drawGlassPanel(10, 10, CANVAS_WIDTH - 20, 80);
+
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 24px Georgia';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Gold: ${gameState.gold}`, 30, 40);
+
+            ctx.fillStyle = '#BA55D3';
+            ctx.fillText(`Reputation: ${gameState.reputation}`, 30, 70);
+
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Round ${gameState.round} / ${MAX_ROUNDS}`, CANVAS_WIDTH / 2, 40);
+
+            ctx.textAlign = 'left';
+            ctx.fillText(`Inventory: ${gameState.inventory.length} / ${MAX_INVENTORY}`, CANVAS_WIDTH - 300, 40);
+
+            ctx.font = '14px Georgia';
+            ctx.fillText(`Gallery: ${gameState.gallery.length}`, CANVAS_WIDTH - 300, 70);
+        }
+
+        function drawMessages() {
+            const startY = 110;
+            gameState.messages.forEach((msg, index) => {
+                msg.life--;
+                const alpha = Math.min(msg.life / 60, 1);
+
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = msg.color;
+                ctx.font = 'bold 16px Georgia';
+                ctx.textAlign = 'left';
+                ctx.fillText(msg.text, 30, startY + index * 25);
+                ctx.globalAlpha = 1;
+            });
+
+            gameState.messages = gameState.messages.filter(m => m.life > 0);
+        }
+
+        function drawTitleScreen() {
+            drawBackground();
+
+            const time = Date.now() / 1000;
+
+            ctx.save();
+            ctx.translate(CANVAS_WIDTH / 2, 200);
+            ctx.rotate(Math.sin(time * 0.5) * 0.05);
+
+            ctx.font = 'bold 72px Georgia';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.shadowColor = '#BA55D3';
+            ctx.shadowBlur = 30;
+            ctx.fillStyle = '#E8D9FF';
+            ctx.fillText('DREAM AUCTION', 0, 0);
+
+            ctx.shadowBlur = 0;
+            ctx.restore();
+
+            ctx.font = 'italic 24px Georgia';
+            ctx.fillStyle = '#CCC';
+            ctx.textAlign = 'center';
+            ctx.fillText('Buy and Sell Dreams in a Surreal Marketplace', CANVAS_WIDTH / 2, 280);
+
+            const instructions = [
+                'As a Dream Broker, you will:',
+                '• Bid on dreams with unique properties',
+                '• Compete against AI buyers with different tastes',
+                '• Fulfill client requests for specific dreams',
+                '• Craft premium dreams by combining fragments',
+                '• Watch your inventory fade over time',
+                '• Navigate market trends and build reputation'
+            ];
+
+            ctx.font = '16px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'left';
+            instructions.forEach((line, i) => {
+                ctx.fillText(line, CANVAS_WIDTH / 2 - 300, 340 + i * 30);
+            });
+
+            gameState.buttons = [];
+
+            const startHovered = drawButton(CANVAS_WIDTH / 2 - 150, 560, 300, 60, 'START DREAMING', '#BA55D3');
+            gameState.buttons.push({
+                x: CANVAS_WIDTH / 2 - 150,
+                y: 560,
+                width: 300,
+                height: 60,
+                action: 'start',
+                hovered: startHovered
+            });
+
+            ctx.font = '12px Georgia';
+            ctx.fillStyle = '#888';
+            ctx.textAlign = 'center';
+            ctx.fillText('Click to begin | Audio enabled | LocalStorage auto-save', CANVAS_WIDTH / 2, 660);
+        }
+
+        function drawGameScreen() {
+            drawBackground();
+
+            gameState.particles.forEach(p => p.update());
+            gameState.particles.forEach(p => p.draw());
+            gameState.particles = gameState.particles.filter(p => !p.isDead());
+
+            drawHUD();
+            drawMessages();
+
+            if (gameState.auctionPhase === 'browse') {
+                drawBrowsePhase();
+            } else if (gameState.auctionPhase === 'bidding') {
+                drawBiddingPhase();
+            } else if (gameState.auctionPhase === 'result') {
+                drawResultPhase();
+            }
+
+            drawInventoryPanel();
+            drawClientsPanel();
+            drawMarketPanel();
+        }
+
+        function drawBrowsePhase() {
+            const dream = gameState.currentAuction;
+
+            drawGlassPanel(CANVAS_WIDTH / 2 - 250, 200, 500, 350);
+
+            ctx.font = 'bold 28px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'center';
+            ctx.fillText('Current Dream', CANVAS_WIDTH / 2, 230);
+
+            drawDream(CANVAS_WIDTH / 2 - 200, 260, 400, 220, dream);
+
+            let qy = 490;
+            DREAM_QUALITIES.forEach(quality => {
+                const value = dream.qualities[quality];
+                ctx.fillStyle = '#999';
+                ctx.font = '12px Georgia';
+                ctx.textAlign = 'left';
+                ctx.fillText(quality.charAt(0).toUpperCase() + quality.slice(1), CANVAS_WIDTH / 2 - 200, qy);
+
+                ctx.fillStyle = '#333';
+                ctx.fillRect(CANVAS_WIDTH / 2 - 80, qy - 10, 150, 12);
+
+                const barColor = `hsl(${value * 120}, 70%, 50%)`;
+                ctx.fillStyle = barColor;
+                ctx.fillRect(CANVAS_WIDTH / 2 - 80, qy - 10, 150 * value, 12);
+
+                qy += 18;
+            });
+
+            gameState.buttons = [];
+            const bidHovered = drawButton(CANVAS_WIDTH / 2 - 100, 600, 200, 50, 'START BIDDING', '#32CD32');
+            gameState.buttons.push({
+                x: CANVAS_WIDTH / 2 - 100,
+                y: 600,
+                width: 200,
+                height: 50,
+                action: 'startBidding',
+                hovered: bidHovered
+            });
+        }
+
+        function drawBiddingPhase() {
+            const dream = gameState.currentAuction;
+
+            updateBidding();
+
+            drawGlassPanel(CANVAS_WIDTH / 2 - 300, 150, 600, 450);
+
+            ctx.font = 'bold 32px Georgia';
+            ctx.fillStyle = '#FFD700';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Current Bid: ${gameState.currentBid}g`, CANVAS_WIDTH / 2, 190);
+
+            ctx.font = '20px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.fillText(`Highest Bidder: ${gameState.highestBidder || 'None'}`, CANVAS_WIDTH / 2, 220);
+
+            const timerSec = (gameState.biddingTimer / 60).toFixed(1);
+            ctx.font = 'bold 24px Georgia';
+            ctx.fillStyle = gameState.biddingTimer < 60 ? '#FF6B6B' : '#90EE90';
+            ctx.fillText(`Time: ${timerSec}s`, CANVAS_WIDTH / 2, 250);
+
+            drawDream(CANVAS_WIDTH / 2 - 150, 280, 300, 220, dream);
+
+            let ay = 520;
+            gameState.aiDecisions.slice(0, 3).forEach(decision => {
+                ctx.font = '14px Georgia';
+                ctx.fillStyle = '#CCC';
+                ctx.textAlign = 'left';
+                ctx.fillText(`${decision.buyer}: ${Math.floor(decision.interest * 100)}% interest`, CANVAS_WIDTH / 2 - 280, ay);
+                ay += 20;
+            });
+
+            gameState.buttons = [];
+            const canBid = gameState.currentBid + Math.floor(dream.baseValue * 0.15) <= gameState.gold;
+            const bidHovered = drawButton(CANVAS_WIDTH / 2 - 80, 560, 160, 50,
+                `BID (+${Math.floor(dream.baseValue * 0.15)})`,
+                canBid ? '#FFD700' : '#666');
+
+            if (canBid) {
+                gameState.buttons.push({
+                    x: CANVAS_WIDTH / 2 - 80,
+                    y: 560,
+                    width: 160,
+                    height: 50,
+                    action: 'placeBid',
+                    hovered: bidHovered
+                });
+            }
+        }
+
+        function drawResultPhase() {
+            drawGlassPanel(CANVAS_WIDTH / 2 - 200, 300, 400, 100);
+
+            ctx.font = 'bold 24px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'center';
+            ctx.fillText('Auction Complete!', CANVAS_WIDTH / 2, 340);
+
+            ctx.font = '18px Georgia';
+            if (gameState.highestBidder === 'You') {
+                ctx.fillStyle = '#90EE90';
+                ctx.fillText('You won the dream!', CANVAS_WIDTH / 2, 370);
+            } else {
+                ctx.fillStyle = '#FFA07A';
+                ctx.fillText(`${gameState.highestBidder || 'No one'} won.`, CANVAS_WIDTH / 2, 370);
+            }
+        }
+
+        function drawInventoryPanel() {
+            drawGlassPanel(20, 120, 280, 580);
+
+            ctx.font = 'bold 20px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'center';
+            ctx.fillText('INVENTORY', 160, 145);
+
+            if (gameState.inventory.length === 0) {
+                ctx.font = '14px Georgia';
+                ctx.fillStyle = '#888';
+                ctx.fillText('No dreams yet', 160, 180);
+            } else {
+                gameState.inventory.slice(0, 5).forEach((dream, i) => {
+                    const y = 165 + i * 110;
+                    drawDream(30, y, 240, 100, dream);
+                });
+
+                if (gameState.inventory.length > 5) {
+                    ctx.font = '12px Georgia';
+                    ctx.fillStyle = '#999';
+                    ctx.fillText(`+${gameState.inventory.length - 5} more...`, 160, 680);
+                }
+            }
+        }
+
+        function drawClientsPanel() {
+            drawGlassPanel(CANVAS_WIDTH - 300, 120, 280, 300);
+
+            ctx.font = 'bold 20px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'center';
+            ctx.fillText('CLIENTS', CANVAS_WIDTH - 160, 145);
+
+            if (gameState.clients.length === 0) {
+                ctx.font = '14px Georgia';
+                ctx.fillStyle = '#888';
+                ctx.fillText('No active requests', CANVAS_WIDTH - 160, 180);
+            } else {
+                gameState.clients.forEach((client, i) => {
+                    const y = 170 + i * 75;
+
+                    ctx.font = 'bold 14px Georgia';
+                    ctx.fillStyle = '#FFD700';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(client.name, CANVAS_WIDTH - 285, y);
+
+                    ctx.font = '12px Georgia';
+                    ctx.fillStyle = '#E8D9FF';
+                    ctx.fillText(`Wants: ${client.requestedType}`, CANVAS_WIDTH - 285, y + 18);
+                    ctx.fillText(`Quality: ${Math.floor(client.minQuality * 100)}%`, CANVAS_WIDTH - 285, y + 33);
+                    ctx.fillText(`Pays: ${client.payment}g`, CANVAS_WIDTH - 285, y + 48);
+                    ctx.fillText(`Expires: ${client.turnsLeft} rounds`, CANVAS_WIDTH - 285, y + 63);
+                });
+            }
+
+            const fulfillable = checkClientRequests();
+            if (fulfillable.length > 0 && gameState.auctionPhase === 'browse') {
+                gameState.buttons = gameState.buttons || [];
+                const fulfillHovered = drawButton(CANVAS_WIDTH - 280, 400, 260, 40,
+                    `FULFILL (${fulfillable.length})`, '#32CD32');
+
+                gameState.buttons.push({
+                    x: CANVAS_WIDTH - 280,
+                    y: 400,
+                    width: 260,
+                    height: 40,
+                    action: 'fulfillRequest',
+                    hovered: fulfillHovered
+                });
+            }
+        }
+
+        function drawMarketPanel() {
+            drawGlassPanel(CANVAS_WIDTH - 300, 440, 280, 260);
+
+            ctx.font = 'bold 20px Georgia';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.textAlign = 'center';
+            ctx.fillText('MARKET TRENDS', CANVAS_WIDTH - 160, 465);
+
+            const displayTypes = DREAM_TYPES.slice(0, 6);
+            displayTypes.forEach((type, i) => {
+                const y = 490 + i * 30;
+                const trend = gameState.marketTrends[type] || 1.0;
+                const trendPercent = Math.floor((trend - 1) * 100);
+
+                ctx.font = '13px Georgia';
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#CCC';
+                ctx.fillText(type, CANVAS_WIDTH - 285, y);
+
+                ctx.textAlign = 'right';
+                ctx.fillStyle = trend > 1 ? '#90EE90' : trend < 1 ? '#FF6B6B' : '#FFF';
+                ctx.fillText(`${trendPercent > 0 ? '+' : ''}${trendPercent}%`, CANVAS_WIDTH - 30, y);
+            });
+        }
+
+        function drawGameOverScreen() {
+            drawBackground();
+
+            ctx.font = 'bold 56px Georgia';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#E8D9FF';
+            ctx.shadowColor = '#BA55D3';
+            ctx.shadowBlur = 20;
+            ctx.fillText('AUCTION COMPLETE', CANVAS_WIDTH / 2, 150);
+            ctx.shadowBlur = 0;
+
+            ctx.font = 'italic 32px Georgia';
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText(`"${gameState.ending}"`, CANVAS_WIDTH / 2, 210);
+
+            drawGlassPanel(CANVAS_WIDTH / 2 - 300, 250, 600, 350);
+
+            const stats = [
+                `Final Gold: ${gameState.gold}`,
+                `Final Reputation: ${gameState.reputation}`,
+                `Total Earned: ${gameState.totalEarnings}g`,
+                `Total Spent: ${gameState.totalSpent}g`,
+                `Dreams Auctioned: ${gameState.dreamsAuctioned}`,
+                `Dreams Crafted: ${gameState.dreamsCrafted}`,
+                `Gallery Items: ${gameState.gallery.length}`,
+                `Final Inventory: ${gameState.inventory.length}`
+            ];
+
+            ctx.font = '24px Georgia';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#E8D9FF';
+
+            stats.forEach((stat, i) => {
+                ctx.fillText(stat, CANVAS_WIDTH / 2 - 250, 300 + i * 40);
+            });
+
+            gameState.buttons = [];
+
+            const restartHovered = drawButton(CANVAS_WIDTH / 2 - 150, 630, 300, 50, 'DREAM AGAIN', '#BA55D3');
+            gameState.buttons.push({
+                x: CANVAS_WIDTH / 2 - 150,
+                y: 630,
+                width: 300,
+                height: 50,
+                action: 'restart',
+                hovered: restartHovered
+            });
+        }
+
+        // ===== INPUT HANDLING =====
+        function handleClick(x, y) {
+            gameState.buttons.forEach(button => {
+                if (x >= button.x && x <= button.x + button.width &&
+                    y >= button.y && y <= button.y + button.height) {
+
+                    playTone(523, 0.1, 'sine', 0.2);
+
+                    switch (button.action) {
+                        case 'start':
+                            initGame();
+                            break;
+                        case 'startBidding':
+                            startBidding();
+                            break;
+                        case 'placeBid':
+                            playerBid();
+                            break;
+                        case 'fulfillRequest':
+                            const fulfillable = checkClientRequests();
+                            if (fulfillable.length > 0) {
+                                fulfillClientRequest(fulfillable[0].client, fulfillable[0].dream);
+                            }
+                            break;
+                        case 'restart':
+                            gameState.screen = 'title';
+                            break;
+                    }
+                }
+            });
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            handleClick(x, y);
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            gameState.mouseX = (e.clientX - rect.left) * scaleX;
+            gameState.mouseY = (e.clientY - rect.top) * scaleY;
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (gameState.screen === 'game') {
+                if (e.key === 'Escape' || e.key === 'p') {
+                    gameState.screen = 'pause';
+                }
+                if (e.key === ' ' && gameState.auctionPhase === 'bidding') {
+                    playerBid();
+                }
+            } else if (gameState.screen === 'pause') {
+                if (e.key === 'Escape' || e.key === 'p') {
+                    gameState.screen = 'game';
+                }
+            }
+        });
+
+        // ===== GAME INITIALIZATION =====
+        function initGame() {
+            gameState.screen = 'game';
+            gameState.round = 1;
+            gameState.gold = STARTING_GOLD;
+            gameState.reputation = STARTING_REPUTATION;
+            gameState.inventory = [];
+            gameState.gallery = [];
+            gameState.clients = generateClients(3);
+            gameState.marketTrends = {};
+            gameState.particles = [];
+            gameState.messages = [];
+            gameState.totalEarnings = 0;
+            gameState.totalSpent = 0;
+            gameState.dreamsCrafted = 0;
+            gameState.dreamsAuctioned = 0;
+
+            DREAM_TYPES.forEach(type => {
+                gameState.marketTrends[type] = 0.9 + Math.random() * 0.2;
+            });
+
+            startAuction();
+            addMessage('Welcome to the Dream Auction!', '#FFD700');
+            playAmbientDrone();
+
+            loadGame();
+        }
+
+        // ===== SAVE/LOAD =====
+        function saveGame() {
+            try {
+                const saveData = {
+                    round: gameState.round,
+                    gold: gameState.gold,
+                    reputation: gameState.reputation,
+                    inventory: gameState.inventory,
+                    gallery: gameState.gallery,
+                    clients: gameState.clients,
+                    marketTrends: gameState.marketTrends,
+                    totalEarnings: gameState.totalEarnings,
+                    totalSpent: gameState.totalSpent,
+                    dreamsCrafted: gameState.dreamsCrafted,
+                    dreamsAuctioned: gameState.dreamsAuctioned
+                };
+                localStorage.setItem('dreamAuctionSave', JSON.stringify(saveData));
+            } catch (e) {
+                console.warn('Failed to save game:', e);
+            }
+        }
+
+        function loadGame() {
+            try {
+                const saveData = localStorage.getItem('dreamAuctionSave');
+                if (saveData) {
+                    const data = JSON.parse(saveData);
+                    gameState.round = data.round || 1;
+                    gameState.gold = data.gold || STARTING_GOLD;
+                    gameState.reputation = data.reputation || STARTING_REPUTATION;
+                    gameState.inventory = data.inventory || [];
+                    gameState.gallery = data.gallery || [];
+                    gameState.clients = data.clients || [];
+                    gameState.marketTrends = data.marketTrends || {};
+                    gameState.totalEarnings = data.totalEarnings || 0;
+                    gameState.totalSpent = data.totalSpent || 0;
+                    gameState.dreamsCrafted = data.dreamsCrafted || 0;
+                    gameState.dreamsAuctioned = data.dreamsAuctioned || 0;
+                }
+            } catch (e) {
+                console.warn('Failed to load game:', e);
+            }
+        }
+
+        setInterval(() => {
+            if (gameState.screen === 'game') {
+                saveGame();
+            }
+        }, 5000);
+
+        // ===== MAIN GAME LOOP =====
+        function gameLoop() {
+            switch (gameState.screen) {
+                case 'title':
+                    drawTitleScreen();
+                    break;
+                case 'game':
+                    drawGameScreen();
+                    break;
+                case 'gameOver':
+                    drawGameOverScreen();
+                    break;
+                case 'pause':
+                    drawGameScreen();
+                    drawGlassPanel(CANVAS_WIDTH / 2 - 200, CANVAS_HEIGHT / 2 - 100, 400, 200);
+                    ctx.font = 'bold 48px Georgia';
+                    ctx.fillStyle = '#E8D9FF';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('PAUSED', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                    ctx.font = '18px Georgia';
+                    ctx.fillText('Press ESC or P to continue', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
+                    break;
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+
+        setTimeout(() => {
+            playAmbientDrone();
+        }, 500);
+    </script>
+</body>
+</html>
