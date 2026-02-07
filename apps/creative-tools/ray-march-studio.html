@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ray March Studio</title>
+<meta name="description" content="Real-time ray marching studio with procedural 3D worlds, volumetric rendering, and live GLSL shader editor">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;overflow:hidden;font-family:'Courier New',monospace}
+canvas{position:absolute;top:0;left:0}
+#editor{position:absolute;top:0;right:0;width:420px;height:100%;background:rgba(10,10,25,0.92);display:flex;flex-direction:column;z-index:5}
+#editor.hidden{display:none}
+#tabs{display:flex;gap:2px;padding:4px;background:#0a0a1a;flex-wrap:wrap}
+#tabs button{padding:4px 10px;background:#1a1a3e;color:#8af;border:1px solid #335;cursor:pointer;font-size:11px;font-family:inherit}
+#tabs button.active{background:#335;color:#fff}
+#code{flex:1;background:#0d0d1f;color:#8f8;border:none;padding:8px;font-size:12px;font-family:'Courier New',monospace;resize:none;outline:none;tab-size:2}
+#bar{display:flex;padding:4px;background:#0a0a1a;gap:4px;align-items:center}
+#bar button{padding:3px 8px;background:#1a1a3e;color:#8af;border:1px solid #335;cursor:pointer;font-size:11px}
+#bar span{color:#888;font-size:11px;flex:1}
+#err{color:#f66;font-size:11px;padding:4px;max-height:60px;overflow:auto;background:#1a0a0a}
+#help{position:absolute;bottom:10px;left:10px;color:#fff;font-size:12px;opacity:0.5;z-index:2;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="editor">
+<div id="tabs"></div>
+<textarea id="code" spellcheck="false"></textarea>
+<div id="err"></div>
+<div id="bar"><button onclick="compile()">Compile</button><button onclick="resetCam()">Reset Cam</button><button onclick="toggleFly()">AutoFly</button><span id="fps"></span></div>
+</div>
+<div id="help">WASD+Mouse: fly | Tab: toggle editor | Space/C: up/down</div>
+<script>
+
+const H=`precision highp float;
+uniform float t;
+uniform vec2 r;
+uniform vec3 cam;
+uniform mat3 camMat;
+// Noise
+vec3 hash3(vec3 p){p=vec3(dot(p,vec3(127.1,311.7,74.7)),dot(p,vec3(269.5,183.3,246.1)),dot(p,vec3(113.5,271.9,124.6)));return fract(sin(p)*43758.5453);}
+float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+  return mix(mix(mix(dot(hash3(i),f),dot(hash3(i+vec3(1,0,0)),f-vec3(1,0,0)),f.x),
+    mix(dot(hash3(i+vec3(0,1,0)),f-vec3(0,1,0)),dot(hash3(i+vec3(1,1,0)),f-vec3(1,1,0)),f.x),f.y),
+    mix(mix(dot(hash3(i+vec3(0,0,1)),f-vec3(0,0,1)),dot(hash3(i+vec3(1,0,1)),f-vec3(1,0,1)),f.x),
+    mix(dot(hash3(i+vec3(0,1,1)),f-vec3(0,1,1)),dot(hash3(i+vec3(1,1,1)),f-vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){float v=0.0,a=0.5;for(int i=0;i<5;i++){v+=a*noise3(p);p*=2.01;a*=0.5;}return v;}
+vec3 aces(vec3 x){return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);}
+`;
+const M=`
+vec3 calcNormal(vec3 p){vec2 e=vec2(0.001,0);return normalize(vec3(scene(p+e.xyy)-scene(p-e.xyy),scene(p+e.yxy)-scene(p-e.yxy),scene(p+e.yyx)-scene(p-e.yyx)));}
+float march(vec3 ro,vec3 rd,out vec3 p){float td=0.0;for(int i=0;i<128;i++){p=ro+rd*td;float d=scene(p);if(d<0.001)return td;td+=d;if(td>80.0)break;}return -1.0;}
+float softShadow(vec3 ro,vec3 rd,float k){float res=1.0,t=0.1;for(int i=0;i<32;i++){float h=scene(ro+rd*t);if(h<0.001)return 0.0;res=min(res,k*h/t);t+=clamp(h,0.02,0.5);}return res;}
+float calcAO(vec3 p,vec3 n){float ao=0.0,s=1.0;for(int i=0;i<5;i++){float d=0.01+0.12*float(i);ao+=s*(d-scene(p+n*d));s*=0.5;}return clamp(1.0-3.0*ao,0.0,1.0);}
+`;
+const PRESETS=[
+{name:"Crystal Caverns",src:H+`
+float scene(vec3 p){
+  float cave = -fbm(p*0.3)*3.0 + 1.2;
+  float stalactites = length(fract(p.xz*0.5)-0.5)*4.0 - fbm(p*2.0)*0.5 - 0.3;
+  stalactites = max(stalactites, -p.y-2.0);
+  float stalagmites = length(fract(p.xz*0.7+0.3)-0.5)*3.0 - fbm(p*1.5+10.0)*0.4 - 0.2;
+  stalagmites = max(stalagmites, p.y-3.0);
+  float crystals = length(mod(p,4.0)-2.0) - 0.3 - fbm(p*3.0)*0.15;
+  return min(min(cave, min(stalactites, stalagmites)), crystals);
+}
+`+M+`
+void main(){
+  vec2 uv=(gl_FragCoord.xy-r*0.5)/r.y;
+  vec3 rd=normalize(camMat*vec3(uv,1.2));
+  vec3 ro=cam;
+  vec3 p;float d=march(ro,rd,p);
+  vec3 col=vec3(0.02,0.01,0.03);
+  if(d>0.0){
+    vec3 n=calcNormal(p);
+    vec3 ldir=normalize(vec3(0.5,0.8,0.3));
+    float diff=max(dot(n,ldir),0.0);
+    float ao=calcAO(p,n);
+    float sh=softShadow(p+n*0.01,ldir,8.0);
+    // Crystal glow
+    float crystalD=length(mod(p,4.0)-2.0)-0.3;
+    vec3 cryCol=0.5+0.5*cos(6.28*(fbm(p*0.5)+vec3(0,0.33,0.67)));
+    float glow=exp(-crystalD*3.0)*0.5;
+    vec3 baseCol=mix(vec3(0.15,0.12,0.1),vec3(0.3,0.25,0.2),fbm(p*0.8));
+    col=baseCol*(diff*sh*0.8+0.15)*ao + cryCol*glow;
+    col*=exp(-d*0.03);
+  }
+  col=aces(col);col=pow(col,vec3(0.4545));
+  gl_FragColor=vec4(col,1);
+}
+`},
+{name:"Floating Islands",src:H+`
+float scene(vec3 p){
+  float islands=p.y - fbm(p.xz*0.15+vec3(0,0,t*0.02))*8.0 + 3.0;
+  float underside=-(p.y+2.0-fbm(p.xz*0.2+5.0)*3.0);
+  float base=max(islands,underside);
+  float pillars=length(mod(p.xz,12.0)-6.0)-1.5+fbm(p*0.5)*0.8;
+  pillars=max(pillars,abs(p.y)-8.0);
+  float clouds=-fbm(p*0.08+vec3(t*0.01,0,0))*2.0+1.5;
+  clouds=max(clouds,abs(p.y-10.0)-3.0);
+  return min(min(base,pillars),clouds);
+}
+`+M+`
+void main(){
+  vec2 uv=(gl_FragCoord.xy-r*0.5)/r.y;
+  vec3 rd=normalize(camMat*vec3(uv,1.2));
+  vec3 ro=cam;
+  vec3 p;float d=march(ro,rd,p);
+  vec3 sky=mix(vec3(0.4,0.6,1.0),vec3(0.1,0.15,0.4),rd.y*0.5+0.5);
+  sky+=vec3(1,0.8,0.5)*pow(max(dot(rd,normalize(vec3(1,0.5,0.3))),0.0),32.0);
+  vec3 col=sky;
+  if(d>0.0){
+    vec3 n=calcNormal(p);
+    vec3 ldir=normalize(vec3(1,0.5,0.3));
+    float diff=max(dot(n,ldir),0.0);
+    float ao=calcAO(p,n);
+    float sh=softShadow(p+n*0.01,ldir,6.0);
+    vec3 baseCol=mix(vec3(0.2,0.35,0.1),vec3(0.4,0.3,0.2),clamp(-n.y,0.0,1.0));
+    if(p.y>fbm(p.xz*0.15)*8.0-3.5)baseCol=mix(baseCol,vec3(0.15,0.4,0.1),0.7);
+    col=baseCol*(diff*sh*0.9+0.2)*ao;
+    col=mix(col,sky,clamp(d/60.0,0.0,1.0));
+  }
+  col=aces(col);col=pow(col,vec3(0.4545));
+  gl_FragColor=vec4(col,1);
+}
+`},
+{name:"Mandelbulb",src:H+`
+float scene(vec3 p){
+  vec3 z=p;float dr=1.0,r2=0.0;
+  float power=8.0+sin(t*0.2)*2.0;
+  for(int i=0;i<8;i++){
+    r2=dot(z,z);if(r2>4.0)break;
+    float r=length(z),theta=acos(z.y/r),phi=atan(z.z,z.x);
+    dr=pow(r,power-1.0)*power*dr+1.0;
+    float zr=pow(r,power);theta*=power;phi*=power;
+    z=p+zr*vec3(sin(theta)*cos(phi),cos(theta),sin(theta)*sin(phi));
+  }
+  return 0.5*log(r2)*sqrt(r2)/dr;
+}
+`+M+`
+void main(){
+  vec2 uv=(gl_FragCoord.xy-r*0.5)/r.y;
+  vec3 rd=normalize(camMat*vec3(uv,1.2));
+  vec3 ro=cam;
+  vec3 p;float d=march(ro,rd,p);
+  vec3 col=vec3(0.02);
+  if(d>0.0){
+    vec3 n=calcNormal(p);
+    vec3 ldir=normalize(vec3(0.5,0.8,-0.3));
+    float diff=max(dot(n,ldir),0.0);
+    float spec=pow(max(dot(reflect(-ldir,n),-rd),0.0),32.0);
+    float ao=calcAO(p,n);
+    vec3 baseCol=0.5+0.5*cos(6.28*(length(p)*0.3+vec3(0,0.33,0.67)));
+    col=(baseCol*diff*0.8+vec3(1)*spec*0.3+baseCol*0.1)*ao;
+    col*=exp(-d*0.15);
+  }
+  col=aces(col);col=pow(col,vec3(0.4545));
+  gl_FragColor=vec4(col,1);
+}
+`},
+{name:"SDF Playground",src:H+`
+float sdBox(vec3 p,vec3 b){vec3 q=abs(p)-b;return length(max(q,0.0))+min(max(q.x,max(q.y,q.z)),0.0);}
+float sdTorus(vec3 p,vec2 t2){vec2 q=vec2(length(p.xz)-t2.x,p.y);return length(q)-t2.y;}
+float scene(vec3 p){
+  float ground=p.y+1.0;
+  vec3 rp=p;rp.xz=mod(rp.xz+4.0,8.0)-4.0;
+  float box=sdBox(rp-vec3(0,sin(t+p.x*0.5)*0.5,0),vec3(0.8));
+  vec3 tp=p;tp.xz=mod(tp.xz+6.0,12.0)-6.0;
+  float torus=sdTorus(tp-vec3(0,1.5+sin(t*0.7)*0.3,0),vec2(1.2,0.3));
+  float sphere=length(mod(p+3.0,6.0)-3.0)-0.5-0.2*sin(t*2.0+p.y*3.0);
+  float shapes=min(min(box,torus),sphere);
+  return min(ground,shapes);
+}
+`+M+`
+void main(){
+  vec2 uv=(gl_FragCoord.xy-r*0.5)/r.y;
+  vec3 rd=normalize(camMat*vec3(uv,1.2));
+  vec3 ro=cam;
+  vec3 p;float d=march(ro,rd,p);
+  vec3 col=mix(vec3(0.1,0.1,0.2),vec3(0.3,0.2,0.4),rd.y*0.5+0.5);
+  if(d>0.0){
+    vec3 n=calcNormal(p);
+    vec3 ldir=normalize(vec3(0.7,0.9,0.4));
+    float diff=max(dot(n,ldir),0.0);
+    float spec=pow(max(dot(reflect(-ldir,n),-rd),0.0),16.0);
+    float ao=calcAO(p,n);
+    float sh=softShadow(p+n*0.01,ldir,8.0);
+    vec3 baseCol;
+    if(p.y<-0.99){baseCol=vec3(0.3)*((mod(floor(p.x)+floor(p.z),2.0)<1.0)?1.0:0.6);}
+    else{baseCol=0.5+0.5*cos(6.28*(p*0.2+vec3(0,0.33,0.67)));}
+    col=(baseCol*(diff*sh*0.8+0.15)+vec3(1)*spec*sh*0.2)*ao;
+    col=mix(col,vec3(0.2,0.15,0.3),clamp(d/50.0,0.0,1.0));
+  }
+  col=aces(col);col=pow(col,vec3(0.4545));
+  gl_FragColor=vec4(col,1);
+}
+`}
+];
+
+var cv=document.getElementById("cv"),gl=cv.getContext("webgl");
+var errEl=document.getElementById("err"),codeEl=document.getElementById("code"),tabsEl=document.getElementById("tabs"),fpsEl=document.getElementById("fps");
+var W,Ht;
+function resize(){W=cv.width=innerWidth;Ht=cv.height=innerHeight;gl.viewport(0,0,W,Ht)}
+resize();window.onresize=resize;
+var vsrc="attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}";
+var prog,uTime,uRes,uCam,uCamMat;
+var curPreset=0,autoFly=true;
+var camPos=[0,2,5],camYaw=0,camPitch=0;
+function createShader(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){var e=gl.getShaderInfoLog(s);gl.deleteShader(s);return{err:e}}return{shader:s}}
+function compile(src){
+  src=src||codeEl.value;errEl.textContent="";
+  var vs=createShader(gl.VERTEX_SHADER,vsrc);if(vs.err){errEl.textContent=vs.err;return}
+  var fs=createShader(gl.FRAGMENT_SHADER,src);if(fs.err){errEl.textContent=fs.err;return}
+  var p2=gl.createProgram();gl.attachShader(p2,vs.shader);gl.attachShader(p2,fs.shader);gl.linkProgram(p2);
+  if(!gl.getProgramParameter(p2,gl.LINK_STATUS)){errEl.textContent=gl.getProgramInfoLog(p2);return}
+  if(prog)gl.deleteProgram(prog);prog=p2;
+  gl.useProgram(prog);
+  uTime=gl.getUniformLocation(prog,"t");uRes=gl.getUniformLocation(prog,"r");
+  uCam=gl.getUniformLocation(prog,"cam");uCamMat=gl.getUniformLocation(prog,"camMat");
+  var pos=gl.getAttribLocation(prog,"p");gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+}
+function loadPreset(idx){
+  curPreset=idx;codeEl.value=PRESETS[idx].src;compile(PRESETS[idx].src);
+  document.querySelectorAll("#tabs button").forEach(function(b,i){b.className=i===idx?"active":""});
+  resetCam();
+}
+function resetCam(){
+  if(curPreset===0){camPos=[0,0,5];camYaw=0;camPitch=0}
+  else if(curPreset===1){camPos=[0,8,0];camYaw=0;camPitch=-0.3}
+  else if(curPreset===2){camPos=[0,0,3];camYaw=0;camPitch=0}
+  else{camPos=[0,3,8];camYaw=0;camPitch=-0.2}
+}
+// Build tabs
+PRESETS.forEach(function(pr,i){var b=document.createElement("button");b.textContent=pr.name;b.onclick=function(){loadPreset(i)};tabsEl.appendChild(b)});
+// Quad
+var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+loadPreset(0);
+// Input
+var keys={},pointerLocked=false;
+window.addEventListener("keydown",function(e){
+  keys[e.key.toLowerCase()]=true;
+  if(e.key==="Tab"){e.preventDefault();var ed=document.getElementById("editor");ed.className=ed.className==="hidden"?"":"hidden"}
+});
+window.addEventListener("keyup",function(e){keys[e.key.toLowerCase()]=false});
+window.addEventListener("blur",function(){for(var k in keys)keys[k]=false});
+cv.addEventListener("click",function(){cv.requestPointerLock()});
+document.addEventListener("pointerlockchange",function(){
+  pointerLocked=!!document.pointerLockElement;
+  if(!pointerLocked)for(var k in keys)keys[k]=false;
+});
+document.addEventListener("mousemove",function(e){
+  if(pointerLocked){camYaw+=e.movementX*0.003;camPitch-=e.movementY*0.003;
+    camPitch=Math.max(-1.5,Math.min(1.5,camPitch))}
+});
+function toggleFly(){autoFly=!autoFly}
+var startTime=performance.now(),lastFrame=startTime,frameCount=0;
+function loop(){
+  var now=performance.now(),dt=(now-lastFrame)/1000;lastFrame=now;
+  frameCount++;
+  if(frameCount%30===0)fpsEl.textContent=Math.round(1/dt)+" fps";
+  var time=(now-startTime)/1000;
+  // Camera movement
+  var speed=3*dt,cy=Math.cos(camYaw),sy=Math.sin(camYaw),cp=Math.cos(camPitch),sp=Math.sin(camPitch);
+  // Forward includes pitch for true 3D movement
+  var fx=sy*cp,fy=sp,fz=-cy*cp;
+  var rx=cy,rz=sy;
+  if(autoFly&&!pointerLocked){
+    camPos[0]+=fx*speed*0.3;camPos[1]+=fy*speed*0.3;camPos[2]+=fz*speed*0.3;
+    camYaw+=dt*0.1;camPitch=Math.sin(time*0.15)*0.3;
+  }
+  if(keys["w"]){camPos[0]+=fx*speed;camPos[1]+=fy*speed;camPos[2]+=fz*speed}
+  if(keys["s"]){camPos[0]-=fx*speed;camPos[1]-=fy*speed;camPos[2]-=fz*speed}
+  if(keys["a"]){camPos[0]-=rx*speed;camPos[2]-=rz*speed}
+  if(keys["d"]){camPos[0]+=rx*speed;camPos[2]+=rz*speed}
+  if(keys[" "]){camPos[1]+=speed}
+  if(keys["c"]){camPos[1]-=speed}
+  // Column-major rotation matrix: right, up, forward
+  var mat=[cy,0,sy, -sy*sp,cp,cy*sp, -sy*cp,-sp,cy*cp];
+  if(prog){
+    gl.uniform1f(uTime,time);gl.uniform2f(uRes,W,Ht);
+    gl.uniform3f(uCam,camPos[0],camPos[1],camPos[2]);
+    gl.uniformMatrix3fv(uCamMat,false,mat);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+// Auto-compile on edit with debounce
+var compileTimer=null;
+codeEl.addEventListener("input",function(){clearTimeout(compileTimer);compileTimer=setTimeout(function(){compile()},800)});
+</script>
+</body>
+</html>

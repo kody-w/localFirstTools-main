@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Planet Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+            cursor: grab;
+        }
+
+        #canvas:active {
+            cursor: grabbing;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            min-width: 280px;
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #4da6ff;
+            text-shadow: 0 0 10px rgba(77, 166, 255, 0.5);
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            outline: none;
+            border-radius: 3px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #4da6ff;
+            cursor: pointer;
+            border-radius: 50%;
+            box-shadow: 0 0 5px rgba(77, 166, 255, 0.8);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #4da6ff;
+            cursor: pointer;
+            border-radius: 50%;
+            box-shadow: 0 0 5px rgba(77, 166, 255, 0.8);
+        }
+
+        .value-display {
+            display: inline-block;
+            float: right;
+            color: #4da6ff;
+            font-weight: bold;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        #info {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        #info div {
+            margin-bottom: 5px;
+        }
+
+        .info-label {
+            color: #aaa;
+        }
+
+        .info-value {
+            color: #4da6ff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="controls">
+        <h1>Procedural Planet Generator</h1>
+
+        <div class="control-group">
+            <label>Seed <span class="value-display" id="seedValue">12345</span></label>
+            <input type="number" id="seed" value="12345" min="1" max="999999">
+        </div>
+
+        <div class="control-group">
+            <label>Ocean Level <span class="value-display" id="oceanValue">0.45</span></label>
+            <input type="range" id="oceanLevel" min="0" max="1" step="0.01" value="0.45">
+        </div>
+
+        <div class="control-group">
+            <label>Mountain Height <span class="value-display" id="mountainValue">0.35</span></label>
+            <input type="range" id="mountainHeight" min="0" max="1" step="0.01" value="0.35">
+        </div>
+
+        <div class="control-group">
+            <label>Rotation Speed <span class="value-display" id="rotationValue">0.10</span></label>
+            <input type="range" id="rotationSpeed" min="0" max="1" step="0.01" value="0.10">
+        </div>
+
+        <button id="randomize">Generate Random Planet</button>
+    </div>
+
+    <div id="info">
+        <div><span class="info-label">FPS:</span> <span class="info-value" id="fps">60</span></div>
+        <div><span class="info-label">Controls:</span></div>
+        <div style="color: #999; font-size: 11px; margin-top: 5px;">
+            Drag to orbit<br>
+            Scroll to zoom
+        </div>
+    </div>
+
+    <script>
+        // SimplexNoise implementation
+        class SimplexNoise {
+            constructor(seed = 0) {
+                this.grad3 = [
+                    [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                    [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                    [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
+                ];
+                this.p = [];
+                for(let i = 0; i < 256; i++) {
+                    this.p[i] = Math.floor(this.seededRandom(seed + i) * 256);
+                }
+                this.perm = [];
+                for(let i = 0; i < 512; i++) {
+                    this.perm[i] = this.p[i & 255];
+                }
+            }
+
+            seededRandom(seed) {
+                const x = Math.sin(seed) * 10000;
+                return x - Math.floor(x);
+            }
+
+            dot(g, x, y, z) {
+                return g[0] * x + g[1] * y + g[2] * z;
+            }
+
+            noise(xin, yin, zin) {
+                const F3 = 1.0 / 3.0;
+                const G3 = 1.0 / 6.0;
+
+                const s = (xin + yin + zin) * F3;
+                const i = Math.floor(xin + s);
+                const j = Math.floor(yin + s);
+                const k = Math.floor(zin + s);
+
+                const t = (i + j + k) * G3;
+                const X0 = i - t;
+                const Y0 = j - t;
+                const Z0 = k - t;
+                const x0 = xin - X0;
+                const y0 = yin - Y0;
+                const z0 = zin - Z0;
+
+                let i1, j1, k1, i2, j2, k2;
+                if(x0 >= y0) {
+                    if(y0 >= z0) { i1=1; j1=0; k1=0; i2=1; j2=1; k2=0; }
+                    else if(x0 >= z0) { i1=1; j1=0; k1=0; i2=1; j2=0; k2=1; }
+                    else { i1=0; j1=0; k1=1; i2=1; j2=0; k2=1; }
+                } else {
+                    if(y0 < z0) { i1=0; j1=0; k1=1; i2=0; j2=1; k2=1; }
+                    else if(x0 < z0) { i1=0; j1=1; k1=0; i2=0; j2=1; k2=1; }
+                    else { i1=0; j1=1; k1=0; i2=1; j2=1; k2=0; }
+                }
+
+                const x1 = x0 - i1 + G3;
+                const y1 = y0 - j1 + G3;
+                const z1 = z0 - k1 + G3;
+                const x2 = x0 - i2 + 2.0 * G3;
+                const y2 = y0 - j2 + 2.0 * G3;
+                const z2 = z0 - k2 + 2.0 * G3;
+                const x3 = x0 - 1.0 + 3.0 * G3;
+                const y3 = y0 - 1.0 + 3.0 * G3;
+                const z3 = z0 - 1.0 + 3.0 * G3;
+
+                const ii = i & 255;
+                const jj = j & 255;
+                const kk = k & 255;
+                const gi0 = this.perm[ii + this.perm[jj + this.perm[kk]]] % 12;
+                const gi1 = this.perm[ii + i1 + this.perm[jj + j1 + this.perm[kk + k1]]] % 12;
+                const gi2 = this.perm[ii + i2 + this.perm[jj + j2 + this.perm[kk + k2]]] % 12;
+                const gi3 = this.perm[ii + 1 + this.perm[jj + 1 + this.perm[kk + 1]]] % 12;
+
+                let t0 = 0.6 - x0*x0 - y0*y0 - z0*z0;
+                let n0 = t0 < 0 ? 0.0 : Math.pow(t0, 4) * this.dot(this.grad3[gi0], x0, y0, z0);
+
+                let t1 = 0.6 - x1*x1 - y1*y1 - z1*z1;
+                let n1 = t1 < 0 ? 0.0 : Math.pow(t1, 4) * this.dot(this.grad3[gi1], x1, y1, z1);
+
+                let t2 = 0.6 - x2*x2 - y2*y2 - z2*z2;
+                let n2 = t2 < 0 ? 0.0 : Math.pow(t2, 4) * this.dot(this.grad3[gi2], x2, y2, z2);
+
+                let t3 = 0.6 - x3*x3 - y3*y3 - z3*z3;
+                let n3 = t3 < 0 ? 0.0 : Math.pow(t3, 4) * this.dot(this.grad3[gi3], x3, y3, z3);
+
+                return 32.0 * (n0 + n1 + n2 + n3);
+            }
+        }
+
+        // WebGL Setup
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl', { antialias: true });
+
+        if (!gl) {
+            alert('WebGL not supported');
+        }
+
+        // Vertex Shader
+        const vertexShaderSource = `
+            attribute vec3 aPosition;
+            attribute vec3 aNormal;
+            attribute float aHeight;
+
+            uniform mat4 uModelViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            uniform mat4 uNormalMatrix;
+            uniform float uTime;
+            uniform float uOceanLevel;
+
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying float vHeight;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                vec3 pos = aPosition;
+
+                // Animate ocean waves
+                if (aHeight < uOceanLevel) {
+                    float wave = sin(pos.x * 10.0 + uTime * 2.0) * cos(pos.z * 10.0 + uTime * 1.5) * 0.01;
+                    pos += aNormal * wave;
+                }
+
+                vHeight = aHeight;
+                vNormal = normalize((uNormalMatrix * vec4(aNormal, 0.0)).xyz);
+                vPosition = (uModelViewMatrix * vec4(pos, 1.0)).xyz;
+                vWorldPosition = pos;
+                gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(pos, 1.0);
+            }
+        `;
+
+        // Fragment Shader
+        const fragmentShaderSource = `
+            precision highp float;
+
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying float vHeight;
+            varying vec3 vWorldPosition;
+
+            uniform vec3 uLightDirection;
+            uniform float uOceanLevel;
+            uniform float uTime;
+
+            vec3 hash3(vec3 p) {
+                p = fract(p * vec3(443.897, 441.423, 437.195));
+                p += dot(p, p.yxz + 19.19);
+                return fract((p.xxy + p.yxx) * p.zyx);
+            }
+
+            void main() {
+                vec3 normal = normalize(vNormal);
+                vec3 lightDir = normalize(uLightDirection);
+
+                // Biome coloring based on height
+                vec3 color;
+                float h = vHeight;
+
+                if (h < uOceanLevel - 0.1) {
+                    // Deep ocean
+                    color = vec3(0.02, 0.05, 0.15);
+                } else if (h < uOceanLevel) {
+                    // Shallow water
+                    float t = (h - (uOceanLevel - 0.1)) / 0.1;
+                    color = mix(vec3(0.02, 0.05, 0.15), vec3(0.1, 0.2, 0.5), t);
+                } else if (h < uOceanLevel + 0.02) {
+                    // Beach
+                    color = vec3(0.76, 0.7, 0.5);
+                } else if (h < uOceanLevel + 0.15) {
+                    // Grassland
+                    color = vec3(0.2, 0.5, 0.1);
+                } else if (h < uOceanLevel + 0.3) {
+                    // Mountain
+                    float t = (h - (uOceanLevel + 0.15)) / 0.15;
+                    color = mix(vec3(0.2, 0.5, 0.1), vec3(0.4, 0.35, 0.3), t);
+                } else {
+                    // Snow peaks
+                    float t = (h - (uOceanLevel + 0.3)) / 0.2;
+                    color = mix(vec3(0.4, 0.35, 0.3), vec3(0.95, 0.95, 1.0), t);
+                }
+
+                // Ocean shimmer
+                if (h < uOceanLevel) {
+                    float shimmer = sin(vWorldPosition.x * 50.0 + uTime * 3.0) *
+                                   cos(vWorldPosition.z * 50.0 + uTime * 2.0) * 0.1 + 0.9;
+                    color *= shimmer;
+                }
+
+                // City lights on dark side
+                float nightSide = max(0.0, -dot(normal, lightDir));
+                if (h > uOceanLevel && nightSide > 0.3) {
+                    vec3 h3 = hash3(vWorldPosition * 100.0);
+                    if (h3.x > 0.98) {
+                        float lightIntensity = nightSide * (0.5 + h3.y * 0.5);
+                        color += vec3(1.0, 0.9, 0.6) * lightIntensity * 0.5;
+                    }
+                }
+
+                // Lighting
+                float diffuse = max(dot(normal, lightDir), 0.0);
+                float ambient = 0.2;
+                float lighting = ambient + diffuse * 0.8;
+
+                color *= lighting;
+
+                // Atmosphere glow at limb
+                vec3 viewDir = normalize(-vPosition);
+                float rim = 1.0 - max(dot(viewDir, normal), 0.0);
+                rim = pow(rim, 3.0);
+                vec3 atmosphereColor = vec3(0.3, 0.5, 1.0) * rim * 0.4;
+
+                color += atmosphereColor;
+
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        // Star field shader
+        const starVertexShader = `
+            attribute vec3 aPosition;
+            uniform mat4 uViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            varying float vBrightness;
+
+            void main() {
+                vBrightness = aPosition.z; // Store brightness in z
+                gl_Position = uProjectionMatrix * uViewMatrix * vec4(aPosition.xy, -50.0, 1.0);
+                gl_PointSize = 2.0;
+            }
+        `;
+
+        const starFragmentShader = `
+            precision mediump float;
+            varying float vBrightness;
+
+            void main() {
+                gl_FragColor = vec4(1.0, 1.0, 1.0, vBrightness);
+            }
+        `;
+
+        // Compile shader
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        // Create program
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('Program link error:', gl.getProgramInfoLog(program));
+                gl.deleteProgram(program);
+                return null;
+            }
+            return program;
+        }
+
+        // Create planet shader program
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+        const program = createProgram(gl, vertexShader, fragmentShader);
+
+        // Create star shader program
+        const starVertShader = createShader(gl, gl.VERTEX_SHADER, starVertexShader);
+        const starFragShader = createShader(gl, gl.FRAGMENT_SHADER, starFragmentShader);
+        const starProgram = createProgram(gl, starVertShader, starFragShader);
+
+        // Get attribute and uniform locations
+        const positionLocation = gl.getAttribLocation(program, 'aPosition');
+        const normalLocation = gl.getAttribLocation(program, 'aNormal');
+        const heightLocation = gl.getAttribLocation(program, 'aHeight');
+        const modelViewMatrixLocation = gl.getUniformLocation(program, 'uModelViewMatrix');
+        const projectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
+        const normalMatrixLocation = gl.getUniformLocation(program, 'uNormalMatrix');
+        const lightDirectionLocation = gl.getUniformLocation(program, 'uLightDirection');
+        const timeLocation = gl.getUniformLocation(program, 'uTime');
+        const oceanLevelLocation = gl.getUniformLocation(program, 'uOceanLevel');
+
+        // Star shader locations
+        const starPositionLocation = gl.getAttribLocation(starProgram, 'aPosition');
+        const starViewMatrixLocation = gl.getUniformLocation(starProgram, 'uViewMatrix');
+        const starProjectionMatrixLocation = gl.getUniformLocation(starProgram, 'uProjectionMatrix');
+
+        // Matrix math utilities
+        function perspective(fovy, aspect, near, far) {
+            const f = 1.0 / Math.tan(fovy / 2);
+            const nf = 1 / (near - far);
+            return [
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (far + near) * nf, -1,
+                0, 0, 2 * far * near * nf, 0
+            ];
+        }
+
+        function lookAt(eye, center, up) {
+            const z = normalize([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]]);
+            const x = normalize(cross(up, z));
+            const y = cross(z, x);
+            return [
+                x[0], y[0], z[0], 0,
+                x[1], y[1], z[1], 0,
+                x[2], y[2], z[2], 0,
+                -dot(x, eye), -dot(y, eye), -dot(z, eye), 1
+            ];
+        }
+
+        function rotateY(angle) {
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            return [
+                c, 0, s, 0,
+                0, 1, 0, 0,
+                -s, 0, c, 0,
+                0, 0, 0, 1
+            ];
+        }
+
+        function multiply(a, b) {
+            const result = [];
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 4; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < 4; k++) {
+                        sum += a[i * 4 + k] * b[k * 4 + j];
+                    }
+                    result[i * 4 + j] = sum;
+                }
+            }
+            return result;
+        }
+
+        function normalize(v) {
+            const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            return len > 0 ? [v[0] / len, v[1] / len, v[2] / len] : [0, 0, 0];
+        }
+
+        function cross(a, b) {
+            return [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0]
+            ];
+        }
+
+        function dot(a, b) {
+            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        }
+
+        function transpose(m) {
+            return [
+                m[0], m[4], m[8], m[12],
+                m[1], m[5], m[9], m[13],
+                m[2], m[6], m[10], m[14],
+                m[3], m[7], m[11], m[15]
+            ];
+        }
+
+        function inverse3x3(m) {
+            const a00 = m[0], a01 = m[1], a02 = m[2];
+            const a10 = m[4], a11 = m[5], a12 = m[6];
+            const a20 = m[8], a21 = m[9], a22 = m[10];
+            const b01 = a22 * a11 - a12 * a21;
+            const b11 = -a22 * a10 + a12 * a20;
+            const b21 = a21 * a10 - a11 * a20;
+            const det = a00 * b01 + a01 * b11 + a02 * b21;
+            return [
+                b01 / det, (-a22 * a01 + a02 * a21) / det, (a12 * a01 - a02 * a11) / det, 0,
+                b11 / det, (a22 * a00 - a02 * a20) / det, (-a12 * a00 + a02 * a10) / det, 0,
+                b21 / det, (-a21 * a00 + a01 * a20) / det, (a11 * a00 - a01 * a10) / det, 0,
+                0, 0, 0, 1
+            ];
+        }
+
+        // Generate sphere geometry
+        function generateSphere(seed, resolution, oceanLevel, mountainHeight) {
+            const noise = new SimplexNoise(seed);
+            const positions = [];
+            const normals = [];
+            const heights = [];
+            const indices = [];
+
+            for (let lat = 0; lat <= resolution; lat++) {
+                const theta = lat * Math.PI / resolution;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+
+                for (let lon = 0; lon <= resolution; lon++) {
+                    const phi = lon * 2 * Math.PI / resolution;
+                    const sinPhi = Math.sin(phi);
+                    const cosPhi = Math.cos(phi);
+
+                    const x = cosPhi * sinTheta;
+                    const y = cosTheta;
+                    const z = sinPhi * sinTheta;
+
+                    // Multi-octave noise
+                    let height = 0;
+                    let amplitude = 1;
+                    let frequency = 1;
+                    for (let i = 0; i < 5; i++) {
+                        height += noise.noise(x * frequency * 2, y * frequency * 2, z * frequency * 2) * amplitude;
+                        amplitude *= 0.5;
+                        frequency *= 2;
+                    }
+                    height = height * 0.5 + 0.5; // Normalize to 0-1
+                    height *= mountainHeight;
+
+                    heights.push(height);
+
+                    const radius = 1.0 + height;
+                    positions.push(x * radius, y * radius, z * radius);
+                    normals.push(x, y, z);
+                }
+            }
+
+            for (let lat = 0; lat < resolution; lat++) {
+                for (let lon = 0; lon < resolution; lon++) {
+                    const first = lat * (resolution + 1) + lon;
+                    const second = first + resolution + 1;
+
+                    indices.push(first, second, first + 1);
+                    indices.push(second, second + 1, first + 1);
+                }
+            }
+
+            return { positions, normals, heights, indices };
+        }
+
+        // Generate stars
+        function generateStars(count) {
+            const stars = [];
+            for (let i = 0; i < count; i++) {
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const r = 100;
+                const x = r * Math.sin(phi) * Math.cos(theta);
+                const y = r * Math.sin(phi) * Math.sin(theta);
+                const brightness = 0.3 + Math.random() * 0.7;
+                stars.push(x, y, brightness);
+            }
+            return stars;
+        }
+
+        // Create star buffer
+        const starData = generateStars(1000);
+        const starBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, starBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(starData), gl.STATIC_DRAW);
+
+        // State
+        let currentSeed = 12345;
+        let oceanLevel = 0.45;
+        let mountainHeight = 0.35;
+        let rotationSpeed = 0.10;
+        let planetRotation = 0;
+        let cameraDistance = 4;
+        let cameraTheta = 0;
+        let cameraPhi = Math.PI / 4;
+
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        let positionBuffer, normalBuffer, heightBuffer, indexBuffer;
+        let sphereData;
+
+        function regeneratePlanet() {
+            sphereData = generateSphere(currentSeed, 100, oceanLevel, mountainHeight);
+
+            positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereData.positions), gl.STATIC_DRAW);
+
+            normalBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereData.normals), gl.STATIC_DRAW);
+
+            heightBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, heightBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereData.heights), gl.STATIC_DRAW);
+
+            indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(sphereData.indices), gl.STATIC_DRAW);
+        }
+
+        regeneratePlanet();
+
+        // Mouse controls
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const deltaX = e.clientX - lastMouseX;
+                const deltaY = e.clientY - lastMouseY;
+                cameraTheta += deltaX * 0.01;
+                cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPhi + deltaY * 0.01));
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            cameraDistance = Math.max(2, Math.min(10, cameraDistance + e.deltaY * 0.01));
+        });
+
+        // Touch controls
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDragging = true;
+            lastTouchX = e.touches[0].clientX;
+            lastTouchY = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isDragging) {
+                const deltaX = e.touches[0].clientX - lastTouchX;
+                const deltaY = e.touches[0].clientY - lastTouchY;
+                cameraTheta += deltaX * 0.01;
+                cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPhi + deltaY * 0.01));
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+        // UI Controls
+        document.getElementById('seed').addEventListener('input', (e) => {
+            currentSeed = parseInt(e.target.value);
+            document.getElementById('seedValue').textContent = currentSeed;
+            regeneratePlanet();
+        });
+
+        document.getElementById('oceanLevel').addEventListener('input', (e) => {
+            oceanLevel = parseFloat(e.target.value);
+            document.getElementById('oceanValue').textContent = oceanLevel.toFixed(2);
+        });
+
+        document.getElementById('mountainHeight').addEventListener('input', (e) => {
+            mountainHeight = parseFloat(e.target.value);
+            document.getElementById('mountainValue').textContent = mountainHeight.toFixed(2);
+            regeneratePlanet();
+        });
+
+        document.getElementById('rotationSpeed').addEventListener('input', (e) => {
+            rotationSpeed = parseFloat(e.target.value);
+            document.getElementById('rotationValue').textContent = rotationSpeed.toFixed(2);
+        });
+
+        document.getElementById('randomize').addEventListener('click', () => {
+            currentSeed = Math.floor(Math.random() * 999999) + 1;
+            document.getElementById('seed').value = currentSeed;
+            document.getElementById('seedValue').textContent = currentSeed;
+            regeneratePlanet();
+        });
+
+        // Resize
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // FPS counter
+        let frameCount = 0;
+        let lastTime = performance.now();
+        function updateFPS() {
+            const currentTime = performance.now();
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+            }
+        }
+
+        // Render loop
+        let startTime = Date.now();
+        function render() {
+            const time = (Date.now() - startTime) / 1000;
+
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            gl.enable(gl.DEPTH_TEST);
+            gl.enable(gl.CULL_FACE);
+
+            const aspect = canvas.width / canvas.height;
+            const projectionMatrix = perspective(Math.PI / 4, aspect, 0.1, 100);
+
+            // Camera position
+            const cameraX = cameraDistance * Math.sin(cameraPhi) * Math.cos(cameraTheta);
+            const cameraY = cameraDistance * Math.cos(cameraPhi);
+            const cameraZ = cameraDistance * Math.sin(cameraPhi) * Math.sin(cameraTheta);
+            const viewMatrix = lookAt([cameraX, cameraY, cameraZ], [0, 0, 0], [0, 1, 0]);
+
+            // Render stars
+            gl.useProgram(starProgram);
+            gl.bindBuffer(gl.ARRAY_BUFFER, starBuffer);
+            gl.enableVertexAttribArray(starPositionLocation);
+            gl.vertexAttribPointer(starPositionLocation, 3, gl.FLOAT, false, 0, 0);
+            gl.uniformMatrix4fv(starViewMatrixLocation, false, viewMatrix);
+            gl.uniformMatrix4fv(starProjectionMatrixLocation, false, projectionMatrix);
+            gl.drawArrays(gl.POINTS, 0, starData.length / 3);
+
+            // Render planet
+            gl.useProgram(program);
+
+            planetRotation += rotationSpeed * 0.01;
+            const modelMatrix = rotateY(planetRotation);
+            const modelViewMatrix = multiply(viewMatrix, modelMatrix);
+            const normalMatrix = transpose(inverse3x3(modelMatrix));
+
+            gl.uniformMatrix4fv(modelViewMatrixLocation, false, modelViewMatrix);
+            gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+            gl.uniformMatrix4fv(normalMatrixLocation, false, normalMatrix);
+            gl.uniform3f(lightDirectionLocation, 0.5, 0.5, 1);
+            gl.uniform1f(timeLocation, time);
+            gl.uniform1f(oceanLevelLocation, oceanLevel);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+            gl.enableVertexAttribArray(normalLocation);
+            gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, heightBuffer);
+            gl.enableVertexAttribArray(heightLocation);
+            gl.vertexAttribPointer(heightLocation, 1, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.drawElements(gl.TRIANGLES, sphereData.indices.length, gl.UNSIGNED_SHORT, 0);
+
+            updateFPS();
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+</html>
