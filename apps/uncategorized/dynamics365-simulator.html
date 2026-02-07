@@ -1,0 +1,1487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamics 365 Local Simulator</title>
+<meta name="description" content="Local-first Dynamics 365 CRM simulator with schema validation, JSON import/export, and live sync pipeline to real D365 instances">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#0f0f13;--surface:#1a1a24;--surface2:#22223a;--surface3:#2a2a44;
+--border:#333358;--text:#e0e0f0;--dim:#8888aa;--accent:#5b7fff;
+--accent2:#7b5bff;--green:#3ddc84;--red:#ff4466;--orange:#ffaa33;
+--yellow:#ffe066;--cyan:#00d4ff;
+--font:'Segoe UI',system-ui,-apple-system,sans-serif;
+--mono:'Cascadia Code','Fira Code','SF Mono',monospace;
+}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* Layout */
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:18px;font-weight:600;white-space:nowrap}
+header h1 span{color:var(--accent)}
+.header-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.mode-badge{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.mode-badge.edit{background:#3ddc8433;color:var(--green);border:1px solid var(--green)}
+.mode-badge.readonly{background:#ff446633;color:var(--red);border:1px solid var(--red)}
+
+.main{display:grid;grid-template-columns:220px 1fr 320px;overflow:hidden}
+
+/* Sidebar */
+.sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:8px 0}
+.sidebar-section{padding:4px 12px;margin-top:8px}
+.sidebar-section label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);font-weight:600}
+.entity-btn{display:flex;align-items:center;gap:10px;padding:10px 16px;width:100%;border:none;background:none;color:var(--text);cursor:pointer;font-size:13px;text-align:left;transition:.15s}
+.entity-btn:hover{background:var(--surface2)}
+.entity-btn.active{background:var(--accent)22;color:var(--accent);border-right:3px solid var(--accent)}
+.entity-btn .count{margin-left:auto;background:var(--surface3);color:var(--dim);font-size:11px;padding:1px 7px;border-radius:8px;font-weight:600}
+.entity-btn.active .count{background:var(--accent)33;color:var(--accent)}
+.entity-icon{width:20px;text-align:center;font-size:15px;opacity:.7}
+
+/* Content */
+.content{overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{padding:7px 14px;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--surface3);border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.15)}
+.btn.danger{border-color:var(--red);color:var(--red)}
+.btn.danger:hover{background:var(--red)22}
+.btn.success{border-color:var(--green);color:var(--green)}
+.btn.success:hover{background:var(--green)22}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.search-box{flex:1;min-width:150px;padding:7px 12px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:12px;font-family:var(--font)}
+.search-box:focus{outline:none;border-color:var(--accent)}
+
+/* Table */
+.table-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead{position:sticky;top:0;z-index:2}
+th{background:var(--surface2);padding:8px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:var(--accent)}
+th .sort-arrow{margin-left:4px;font-size:10px}
+td{padding:7px 12px;border-bottom:1px solid var(--border)33;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr:hover td{background:var(--surface2)88}
+tr.selected td{background:var(--accent)15;border-color:var(--accent)33}
+tr{cursor:pointer}
+.cell-id{font-family:var(--mono);font-size:10px;color:var(--dim)}
+.cell-status{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600}
+.cell-status.active{background:#3ddc8422;color:var(--green)}
+.cell-status.inactive{background:#ff446622;color:var(--red)}
+.cell-status.new{background:#5b7fff22;color:var(--accent)}
+.cell-status.synced{background:#3ddc8422;color:var(--green)}
+.cell-status.modified{background:#ffaa3322;color:var(--orange)}
+.cell-status.pending{background:#ffe06622;color:var(--yellow)}
+.cell-money{font-family:var(--mono);color:var(--green)}
+.cell-pct{font-family:var(--mono);color:var(--cyan)}
+
+.empty-state{text-align:center;padding:60px 20px;color:var(--dim)}
+.empty-state h3{margin-bottom:8px;color:var(--text)}
+
+/* Right Panel */
+.right-panel{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.panel-tabs{display:flex;border-bottom:1px solid var(--border)}
+.panel-tab{flex:1;padding:10px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;color:var(--dim);border-bottom:2px solid transparent;transition:.15s}
+.panel-tab:hover{color:var(--text)}
+.panel-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.panel-content{flex:1;overflow-y:auto;padding:12px}
+
+/* Record Editor */
+.field-group{margin-bottom:12px}
+.field-group label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);margin-bottom:4px;font-weight:600}
+.field-group input,.field-group select,.field-group textarea{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:5px;font-size:12px;font-family:var(--font)}
+.field-group input:focus,.field-group select:focus,.field-group textarea:focus{outline:none;border-color:var(--accent)}
+.field-group textarea{min-height:60px;resize:vertical}
+.field-group .validation-error{font-size:10px;color:var(--red);margin-top:2px}
+.field-group input.invalid,.field-group select.invalid{border-color:var(--red)}
+
+/* Pipeline */
+.pipeline-viz{padding:12px}
+.pipeline-step{display:flex;align-items:center;gap:10px;padding:10px;margin-bottom:8px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--border)}
+.pipeline-step.active{border-left-color:var(--accent);background:var(--accent)11}
+.pipeline-step.done{border-left-color:var(--green);background:var(--green)08}
+.pipeline-step.error{border-left-color:var(--red);background:var(--red)08}
+.pipeline-step .step-icon{font-size:18px;width:24px;text-align:center}
+.pipeline-step .step-info{flex:1}
+.pipeline-step .step-name{font-size:12px;font-weight:600}
+.pipeline-step .step-detail{font-size:10px;color:var(--dim);margin-top:2px}
+.pipeline-arrow{text-align:center;color:var(--dim);font-size:14px;padding:2px 0}
+
+/* Sync Config */
+.sync-section{margin-bottom:16px}
+.sync-section h4{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);margin-bottom:8px;font-weight:600}
+.sync-status{display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface2);border-radius:6px;margin-bottom:12px}
+.sync-dot{width:8px;height:8px;border-radius:50%}
+.sync-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green)}
+.sync-dot.disconnected{background:var(--red)}
+.sync-dot.syncing{background:var(--orange);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* Schema Viewer */
+.schema-tree{font-family:var(--mono);font-size:11px;line-height:1.6}
+.schema-field{padding:2px 0 2px 12px;border-left:1px solid var(--border)55}
+.schema-field .fname{color:var(--accent)}
+.schema-field .ftype{color:var(--orange)}
+.schema-field .freq{color:var(--red);font-size:9px}
+.schema-field .fopt{color:var(--dim);font-size:9px}
+
+/* Sync Log */
+.sync-log{font-family:var(--mono);font-size:10px;line-height:1.5;max-height:200px;overflow-y:auto;background:var(--bg);padding:8px;border-radius:6px;border:1px solid var(--border)}
+.log-entry{padding:1px 0}
+.log-entry .timestamp{color:var(--dim)}
+.log-entry.success{color:var(--green)}
+.log-entry.error{color:var(--red)}
+.log-entry.info{color:var(--cyan)}
+.log-entry.warn{color:var(--orange)}
+
+/* Stats bar */
+.stats-bar{display:flex;gap:16px;padding:8px 20px;background:var(--surface);border-top:1px solid var(--border);font-size:11px;color:var(--dim)}
+.stat{display:flex;gap:4px;align-items:center}
+.stat .val{color:var(--text);font-weight:600;font-family:var(--mono)}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:#000a;z-index:100;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s}
+.modal-overlay.open{opacity:1;pointer-events:auto}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:90%;max-width:500px;max-height:80vh;overflow-y:auto}
+.modal h3{margin-bottom:16px;font-size:16px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+
+/* AI Generate Buttons */
+.ai-btn{width:26px;height:26px;border:1px solid var(--accent2);background:var(--accent2)18;color:var(--accent2);border-radius:5px;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;justify-content:center;transition:.2s;flex-shrink:0;padding:0}
+.ai-btn:hover{background:var(--accent2);color:#fff;box-shadow:0 0 10px var(--accent2)66;transform:scale(1.1)}
+.ai-btn.generating{animation:sparkle .6s ease infinite;pointer-events:none}
+@keyframes sparkle{0%,100%{box-shadow:0 0 4px var(--accent2)44}50%{box-shadow:0 0 16px var(--accent2)aa;transform:scale(1.15)}}
+.field-row{display:flex;gap:6px;align-items:flex-start}
+.field-row>:first-child{flex:1}
+.field-row .ai-btn{margin-top:0}
+.ai-toolbar{display:flex;gap:6px;align-items:center;padding:8px 12px;background:var(--accent2)0d;border:1px solid var(--accent2)33;border-radius:8px}
+.ai-toolbar-label{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--accent2);font-weight:600}
+.ai-thinking{font-size:10px;color:var(--accent2);font-style:italic;margin-top:2px;min-height:14px}
+.ai-context-badge{font-size:9px;padding:2px 6px;border-radius:8px;background:var(--accent2)15;color:var(--accent2);font-weight:600;display:inline-flex;align-items:center;gap:3px}
+
+/* Responsive */
+@media(max-width:900px){
+.main{grid-template-columns:1fr}
+.sidebar,.right-panel{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+    <h1><span>D365</span> Local Simulator</h1>
+    <div class="mode-badge edit" id="modeBadge">EDIT MODE</div>
+    <div class="header-actions">
+        <button class="btn" onclick="toggleMode()" id="modeToggle">Switch to Read-Only</button>
+        <button class="btn" onclick="showImportModal()">Import JSON</button>
+        <button class="btn success" onclick="exportAll()">Export JSON</button>
+        <button class="btn primary" onclick="showSyncPanel()">Sync Pipeline</button>
+    </div>
+</header>
+
+<div class="main">
+    <!-- Sidebar: Entity Navigation -->
+    <nav class="sidebar">
+        <div class="sidebar-section"><label>CRM Entities</label></div>
+        <button class="entity-btn active" data-entity="accounts" onclick="switchEntity('accounts')">
+            <span class="entity-icon">&#9881;</span> Accounts <span class="count" id="count-accounts">0</span>
+        </button>
+        <button class="entity-btn" data-entity="contacts" onclick="switchEntity('contacts')">
+            <span class="entity-icon">&#9787;</span> Contacts <span class="count" id="count-contacts">0</span>
+        </button>
+        <button class="entity-btn" data-entity="opportunities" onclick="switchEntity('opportunities')">
+            <span class="entity-icon">&#9733;</span> Opportunities <span class="count" id="count-opportunities">0</span>
+        </button>
+        <button class="entity-btn" data-entity="leads" onclick="switchEntity('leads')">
+            <span class="entity-icon">&#9654;</span> Leads <span class="count" id="count-leads">0</span>
+        </button>
+        <button class="entity-btn" data-entity="incidents" onclick="switchEntity('incidents')">
+            <span class="entity-icon">&#9888;</span> Cases <span class="count" id="count-incidents">0</span>
+        </button>
+        <div class="sidebar-section" style="margin-top:20px"><label>Data Quality</label></div>
+        <button class="entity-btn" onclick="validateAll()">
+            <span class="entity-icon">&#10003;</span> Validate Schema
+        </button>
+        <button class="entity-btn" onclick="generateSampleData()">
+            <span class="entity-icon">&#9881;</span> Generate Sample Data
+        </button>
+        <button class="entity-btn" onclick="aiGenerateRecords()" style="color:var(--accent2)">
+            <span class="entity-icon">&#10024;</span> AI Generate Records
+        </button>
+        <div class="sidebar-section" style="margin-top:20px"><label>Sync</label></div>
+        <button class="entity-btn" onclick="showSyncPanel()">
+            <span class="entity-icon">&#8644;</span> Sync Pipeline
+        </button>
+    </nav>
+
+    <!-- Content: Data Table -->
+    <div class="content">
+        <div class="toolbar">
+            <button class="btn primary" id="addBtn" onclick="addRecord()">+ New Record</button>
+            <button class="btn danger" id="deleteBtn" onclick="deleteSelected()" disabled>Delete Selected</button>
+            <button class="btn" id="dupBtn" onclick="duplicateSelected()" disabled>Duplicate</button>
+            <button class="btn" style="border-color:var(--accent2);color:var(--accent2)" onclick="aiAddRecord()">&#10024; AI New Record</button>
+            <input type="text" class="search-box" placeholder="Search records..." oninput="filterRecords(this.value)" id="searchInput">
+            <span style="font-size:11px;color:var(--dim)" id="recordInfo">0 records</span>
+        </div>
+        <div class="table-wrap" id="tableWrap">
+            <table id="dataTable"><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+        </div>
+    </div>
+
+    <!-- Right Panel: Editor / Schema / Pipeline -->
+    <div class="right-panel">
+        <div class="panel-tabs">
+            <div class="panel-tab active" data-tab="editor" onclick="switchTab('editor')">Editor</div>
+            <div class="panel-tab" data-tab="schema" onclick="switchTab('schema')">Schema</div>
+            <div class="panel-tab" data-tab="pipeline" onclick="switchTab('pipeline')">Pipeline</div>
+        </div>
+        <div class="panel-content" id="panelContent"></div>
+    </div>
+</div>
+
+<div class="stats-bar">
+    <div class="stat">Entities: <span class="val" id="statEntities">5</span></div>
+    <div class="stat">Records: <span class="val" id="statRecords">0</span></div>
+    <div class="stat">Pending Sync: <span class="val" id="statPending">0</span></div>
+    <div class="stat">Last Export: <span class="val" id="statExport">Never</span></div>
+    <div class="stat" style="margin-left:auto">Schema: <span class="val" style="color:var(--green)" id="statSchema">D365 v9.2</span></div>
+</div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay" id="importModal">
+<div class="modal">
+    <h3>Import D365 Simulation Data</h3>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:16px">Import a previously exported JSON file. This will replace all current data.</p>
+    <div class="field-group">
+        <label>JSON File</label>
+        <input type="file" accept=".json" id="importFile" style="padding:10px">
+    </div>
+    <div class="field-group">
+        <label>Or Paste JSON</label>
+        <textarea id="importText" placeholder='{"_meta":{...},"accounts":[...],...}' style="min-height:120px;font-family:var(--mono);font-size:11px"></textarea>
+    </div>
+    <div class="modal-actions">
+        <button class="btn" onclick="closeImportModal()">Cancel</button>
+        <button class="btn primary" onclick="doImport()">Import</button>
+    </div>
+</div>
+</div>
+
+<!-- Sync Modal -->
+<div class="modal-overlay" id="syncModal">
+<div class="modal" style="max-width:600px">
+    <h3>Sync Pipeline Configuration</h3>
+    <div class="sync-status" id="syncStatus">
+        <div class="sync-dot disconnected" id="syncDot"></div>
+        <span style="font-size:12px" id="syncStatusText">Not Connected</span>
+    </div>
+    <div class="sync-section">
+        <h4>Dynamics 365 Endpoint</h4>
+        <div class="field-group">
+            <label>Organization URL</label>
+            <input type="text" id="syncOrgUrl" placeholder="https://yourorg.crm.dynamics.com">
+        </div>
+        <div class="field-group">
+            <label>API Version</label>
+            <select id="syncApiVersion">
+                <option value="v9.2" selected>v9.2 (Latest)</option>
+                <option value="v9.1">v9.1</option>
+                <option value="v9.0">v9.0</option>
+            </select>
+        </div>
+    </div>
+    <div class="sync-section">
+        <h4>Authentication</h4>
+        <div class="field-group">
+            <label>Auth Method</label>
+            <select id="syncAuthMethod">
+                <option value="oauth">OAuth 2.0 (Azure AD)</option>
+                <option value="token">Bearer Token (Manual)</option>
+            </select>
+        </div>
+        <div class="field-group" id="tokenField">
+            <label>Access Token</label>
+            <textarea id="syncToken" placeholder="Paste your Bearer token here..." style="min-height:50px;font-family:var(--mono);font-size:10px"></textarea>
+        </div>
+    </div>
+    <div class="sync-section">
+        <h4>Sync Options</h4>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="syncDryRun" checked> Dry Run (Preview Only)
+            </label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="syncUpsert" checked> Use Upsert (Create or Update)
+            </label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="syncBatch"> Batch Requests ($batch)
+            </label>
+        </div>
+    </div>
+    <div class="sync-section">
+        <h4>Entity Selection</h4>
+        <div style="display:flex;gap:12px;flex-wrap:wrap" id="syncEntityChecks"></div>
+    </div>
+
+    <div class="sync-section">
+        <h4>Pipeline Status</h4>
+        <div id="pipelineViz"></div>
+    </div>
+
+    <div class="sync-section">
+        <h4>Sync Log</h4>
+        <div class="sync-log" id="syncLog"><div class="log-entry info"><span class="timestamp">[--:--:--]</span> Ready. Configure endpoint and click Sync.</div></div>
+    </div>
+
+    <div class="modal-actions">
+        <button class="btn" onclick="closeSyncModal()">Close</button>
+        <button class="btn" onclick="testConnection()">Test Connection</button>
+        <button class="btn primary" onclick="startSync()" id="syncBtn">Start Sync</button>
+    </div>
+</div>
+</div>
+
+<script>
+"use strict";
+
+// ======================================
+// D365 ENTITY SCHEMAS (OData v4 / Web API v9.2)
+// ======================================
+const SCHEMAS = {
+    accounts: {
+        label: "Account",
+        plural: "Accounts",
+        primaryKey: "accountid",
+        primaryName: "name",
+        oDataSet: "accounts",
+        fields: {
+            accountid:       { type:"guid",   label:"Account ID",    required:true,  auto:true },
+            name:            { type:"string", label:"Account Name",   required:true,  maxLength:160 },
+            accountnumber:   { type:"string", label:"Account Number", required:false, maxLength:20 },
+            telephone1:      { type:"string", label:"Phone",          required:false, maxLength:50 },
+            emailaddress1:   { type:"string", label:"Email",          required:false, maxLength:100, format:"email" },
+            websiteurl:      { type:"string", label:"Website",        required:false, maxLength:200, format:"url" },
+            revenue:         { type:"money",  label:"Annual Revenue", required:false },
+            numberofemployees:{type:"int",    label:"Employees",      required:false },
+            address1_city:   { type:"string", label:"City",           required:false, maxLength:80 },
+            address1_stateorprovince:{ type:"string", label:"State/Province", required:false, maxLength:50 },
+            address1_country:{ type:"string", label:"Country",        required:false, maxLength:80 },
+            industrycode:    { type:"picklist",label:"Industry",      required:false, options:{1:"Accounting",2:"Agriculture",3:"Construction",4:"Consulting",5:"Education",6:"Finance",7:"Government",8:"Healthcare",9:"Hospitality",10:"Manufacturing",11:"Retail",12:"Technology",13:"Telecom",14:"Transportation",15:"Utilities"} },
+            statecode:       { type:"picklist",label:"Status",        required:false, options:{0:"Active",1:"Inactive"}, default:0 },
+            description:     { type:"text",   label:"Description",    required:false, maxLength:2000 },
+        },
+        tableColumns: ["name","accountnumber","telephone1","emailaddress1","revenue","address1_city","industrycode","statecode"],
+    },
+    contacts: {
+        label: "Contact",
+        plural: "Contacts",
+        primaryKey: "contactid",
+        primaryName: "fullname",
+        oDataSet: "contacts",
+        fields: {
+            contactid:     { type:"guid",   label:"Contact ID",  required:true,  auto:true },
+            firstname:     { type:"string", label:"First Name",  required:true,  maxLength:50 },
+            lastname:      { type:"string", label:"Last Name",   required:true,  maxLength:50 },
+            fullname:      { type:"string", label:"Full Name",   required:false, computed:true, maxLength:160 },
+            jobtitle:      { type:"string", label:"Job Title",   required:false, maxLength:100 },
+            emailaddress1: { type:"string", label:"Email",       required:false, maxLength:100, format:"email" },
+            telephone1:    { type:"string", label:"Business Phone",required:false,maxLength:50 },
+            mobilephone:   { type:"string", label:"Mobile Phone",required:false, maxLength:50 },
+            address1_city: { type:"string", label:"City",        required:false, maxLength:80 },
+            address1_stateorprovince:{ type:"string", label:"State", required:false, maxLength:50 },
+            _parentcustomerid_value:{ type:"lookup", label:"Company", required:false, target:"accounts" },
+            statecode:     { type:"picklist",label:"Status",     required:false, options:{0:"Active",1:"Inactive"}, default:0 },
+            description:   { type:"text",   label:"Description", required:false, maxLength:2000 },
+        },
+        tableColumns: ["fullname","jobtitle","emailaddress1","telephone1","_parentcustomerid_value","address1_city","statecode"],
+    },
+    opportunities: {
+        label: "Opportunity",
+        plural: "Opportunities",
+        primaryKey: "opportunityid",
+        primaryName: "name",
+        oDataSet: "opportunities",
+        fields: {
+            opportunityid:     { type:"guid",   label:"Opportunity ID", required:true, auto:true },
+            name:              { type:"string", label:"Topic",          required:true, maxLength:300 },
+            estimatedvalue:    { type:"money",  label:"Est. Revenue",   required:false },
+            closeprobability:  { type:"int",    label:"Probability (%)",required:false, min:0, max:100 },
+            estimatedclosedate:{ type:"date",   label:"Est. Close Date",required:false },
+            _parentaccountid_value:{ type:"lookup", label:"Account", required:false, target:"accounts" },
+            _parentcontactid_value:{ type:"lookup", label:"Contact", required:false, target:"contacts" },
+            stepname:          { type:"string", label:"Sales Stage",    required:false, maxLength:200 },
+            salesstagecode:    { type:"picklist",label:"Stage Code",    required:false, options:{0:"Qualify",1:"Develop",2:"Propose",3:"Close"} },
+            statecode:         { type:"picklist",label:"Status",        required:false, options:{0:"Open",1:"Won",2:"Lost"}, default:0 },
+            description:       { type:"text",   label:"Description",    required:false, maxLength:2000 },
+        },
+        tableColumns: ["name","estimatedvalue","closeprobability","estimatedclosedate","_parentaccountid_value","salesstagecode","statecode"],
+    },
+    leads: {
+        label: "Lead",
+        plural: "Leads",
+        primaryKey: "leadid",
+        primaryName: "fullname",
+        oDataSet: "leads",
+        fields: {
+            leadid:       { type:"guid",   label:"Lead ID",     required:true, auto:true },
+            firstname:    { type:"string", label:"First Name",  required:false, maxLength:50 },
+            lastname:     { type:"string", label:"Last Name",   required:true,  maxLength:50 },
+            fullname:     { type:"string", label:"Full Name",   required:false, computed:true, maxLength:160 },
+            companyname:  { type:"string", label:"Company",     required:false, maxLength:100 },
+            jobtitle:     { type:"string", label:"Job Title",   required:false, maxLength:100 },
+            emailaddress1:{ type:"string", label:"Email",       required:false, maxLength:100, format:"email" },
+            telephone1:   { type:"string", label:"Phone",       required:false, maxLength:50 },
+            address1_city:{ type:"string", label:"City",        required:false, maxLength:80 },
+            leadsourcecode:{ type:"picklist",label:"Lead Source",required:false, options:{1:"Advertisement",2:"Employee Referral",3:"External Referral",4:"Partner",5:"Public Relations",6:"Seminar",7:"Trade Show",8:"Web",9:"Word of Mouth",10:"Other"} },
+            leadqualitycode:{ type:"picklist",label:"Rating",   required:false, options:{1:"Hot",2:"Warm",3:"Cold"} },
+            statecode:    { type:"picklist",label:"Status",     required:false, options:{0:"Open",1:"Qualified",2:"Disqualified"}, default:0 },
+            description:  { type:"text",   label:"Description", required:false, maxLength:2000 },
+        },
+        tableColumns: ["fullname","companyname","emailaddress1","telephone1","leadsourcecode","leadqualitycode","statecode"],
+    },
+    incidents: {
+        label: "Case",
+        plural: "Cases",
+        primaryKey: "incidentid",
+        primaryName: "title",
+        oDataSet: "incidents",
+        fields: {
+            incidentid:    { type:"guid",    label:"Case ID",     required:true, auto:true },
+            title:         { type:"string",  label:"Case Title",  required:true, maxLength:200 },
+            ticketnumber:  { type:"string",  label:"Ticket #",    required:false, auto:true, maxLength:100 },
+            _customerid_value:{ type:"lookup",label:"Customer",   required:false, target:"contacts" },
+            caseorigincode:{ type:"picklist", label:"Origin",     required:false, options:{1:"Phone",2:"Email",3:"Web",4:"Facebook",5:"Twitter"} },
+            prioritycode:  { type:"picklist", label:"Priority",   required:false, options:{1:"High",2:"Normal",3:"Low"}, default:2 },
+            severitycode:  { type:"picklist", label:"Severity",   required:false, options:{1:"Default",2:"High",3:"Normal",4:"Low"}, default:3 },
+            statecode:     { type:"picklist", label:"Status",     required:false, options:{0:"Active",1:"Resolved",2:"Cancelled"}, default:0 },
+            description:   { type:"text",    label:"Description", required:false, maxLength:2000 },
+        },
+        tableColumns: ["title","ticketnumber","_customerid_value","caseorigincode","prioritycode","statecode"],
+    },
+};
+
+// ======================================
+// STATE
+// ======================================
+const STORAGE_KEY = "d365sim_data";
+const SYNC_KEY = "d365sim_sync";
+let data = { accounts:[], contacts:[], opportunities:[], leads:[], incidents:[] };
+let activeEntity = "accounts";
+let selectedId = null;
+let editMode = true;
+let searchFilter = "";
+let sortCol = null;
+let sortDir = 1;
+let syncConfig = {};
+let syncLog = [];
+let ticketCounter = 1000;
+
+// ======================================
+// PERSISTENCE
+// ======================================
+function save() {
+    const payload = {
+        _meta: {
+            version: "1.0.0",
+            schema: "D365-WebAPI-v9.2",
+            exported: new Date().toISOString(),
+            source: "D365-Local-Simulator",
+            ticketCounter,
+            recordCounts: {}
+        }
+    };
+    for (const ent of Object.keys(SCHEMAS)) {
+        payload[ent] = data[ent];
+        payload._meta.recordCounts[ent] = data[ent].length;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function load() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        for (const ent of Object.keys(SCHEMAS)) {
+            if (Array.isArray(parsed[ent])) data[ent] = parsed[ent];
+        }
+        if (parsed._meta && parsed._meta.ticketCounter) ticketCounter = parsed._meta.ticketCounter;
+    } catch(e) { console.warn("Failed to load data:", e); }
+
+    try {
+        const sc = localStorage.getItem(SYNC_KEY);
+        if (sc) syncConfig = JSON.parse(sc);
+    } catch(e) {}
+}
+
+function saveSyncConfig() {
+    localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
+}
+
+// ======================================
+// GUID GENERATOR
+// ======================================
+function newGuid() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random()*16|0;
+        return (c === 'x' ? r : (r&0x3|0x8)).toString(16);
+    });
+}
+
+// ======================================
+// SCHEMA VALIDATION
+// ======================================
+function validateRecord(entityName, record) {
+    const schema = SCHEMAS[entityName];
+    const errors = [];
+    for (const [fname, fdef] of Object.entries(schema.fields)) {
+        if (fdef.auto || fdef.computed) continue;
+        const val = record[fname];
+        if (fdef.required && (val === undefined || val === null || val === "")) {
+            errors.push({ field:fname, msg:`${fdef.label} is required` });
+            continue;
+        }
+        if (val === undefined || val === null || val === "") continue;
+        if (fdef.type === "string" && fdef.maxLength && String(val).length > fdef.maxLength) {
+            errors.push({ field:fname, msg:`${fdef.label} exceeds max length ${fdef.maxLength}` });
+        }
+        if (fdef.format === "email" && val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+            errors.push({ field:fname, msg:`${fdef.label} is not a valid email` });
+        }
+        if (fdef.type === "int" && val !== "" && isNaN(parseInt(val))) {
+            errors.push({ field:fname, msg:`${fdef.label} must be a number` });
+        }
+        if (fdef.type === "money" && val !== "" && isNaN(parseFloat(val))) {
+            errors.push({ field:fname, msg:`${fdef.label} must be a valid amount` });
+        }
+        if (fdef.type === "int" && fdef.min !== undefined && parseInt(val) < fdef.min) {
+            errors.push({ field:fname, msg:`${fdef.label} minimum is ${fdef.min}` });
+        }
+        if (fdef.type === "int" && fdef.max !== undefined && parseInt(val) > fdef.max) {
+            errors.push({ field:fname, msg:`${fdef.label} maximum is ${fdef.max}` });
+        }
+    }
+    return errors;
+}
+
+function validateAll() {
+    let totalErrors = 0;
+    let totalRecords = 0;
+    const results = {};
+    for (const ent of Object.keys(SCHEMAS)) {
+        results[ent] = [];
+        for (const rec of data[ent]) {
+            totalRecords++;
+            const errs = validateRecord(ent, rec);
+            if (errs.length) {
+                totalErrors += errs.length;
+                results[ent].push({ id: rec[SCHEMAS[ent].primaryKey], name: rec[SCHEMAS[ent].primaryName], errors: errs });
+            }
+        }
+    }
+    let msg = `Schema Validation Complete\n\n${totalRecords} records checked\n`;
+    if (totalErrors === 0) {
+        msg += "All records pass D365 v9.2 schema validation!";
+    } else {
+        msg += `${totalErrors} validation errors found:\n\n`;
+        for (const [ent, recs] of Object.entries(results)) {
+            if (!recs.length) continue;
+            msg += `--- ${SCHEMAS[ent].plural} ---\n`;
+            for (const r of recs) {
+                msg += `  ${r.name || r.id}: ${r.errors.map(e=>e.msg).join(", ")}\n`;
+            }
+        }
+    }
+    alert(msg);
+}
+
+// ======================================
+// DATA TABLE RENDERING
+// ======================================
+function getRecords() {
+    let recs = data[activeEntity] || [];
+    if (searchFilter) {
+        const q = searchFilter.toLowerCase();
+        recs = recs.filter(r => {
+            return Object.values(r).some(v => v !== null && v !== undefined && String(v).toLowerCase().includes(q));
+        });
+    }
+    if (sortCol) {
+        recs = [...recs].sort((a,b) => {
+            let va = a[sortCol], vb = b[sortCol];
+            if (va == null) va = "";
+            if (vb == null) vb = "";
+            if (typeof va === "number" && typeof vb === "number") return (va - vb) * sortDir;
+            return String(va).localeCompare(String(vb)) * sortDir;
+        });
+    }
+    return recs;
+}
+
+function formatCellValue(val, fieldDef) {
+    if (val === null || val === undefined || val === "") return '<span style="color:var(--dim)">--</span>';
+    if (fieldDef.type === "money") return `<span class="cell-money">$${Number(val).toLocaleString()}</span>`;
+    if (fieldDef.type === "int" && fieldDef.label && fieldDef.label.includes("%")) return `<span class="cell-pct">${val}%</span>`;
+    if (fieldDef.type === "picklist" && fieldDef.options) {
+        const label = fieldDef.options[val] || val;
+        if (fieldDef.label === "Status") {
+            const cls = val == 0 ? "active" : val == 1 ? (activeEntity === "opportunities" ? "active" : "inactive") : "inactive";
+            return `<span class="cell-status ${cls}">${label}</span>`;
+        }
+        return label;
+    }
+    if (fieldDef.type === "lookup") {
+        if (!val) return '<span style="color:var(--dim)">--</span>';
+        const target = fieldDef.target;
+        const targetSchema = SCHEMAS[target];
+        if (targetSchema) {
+            const rec = data[target].find(r => r[targetSchema.primaryKey] === val);
+            if (rec) return rec[targetSchema.primaryName] || val;
+        }
+        return String(val).substring(0,8) + "...";
+    }
+    if (fieldDef.type === "date") {
+        if (!val) return '<span style="color:var(--dim)">--</span>';
+        return new Date(val).toLocaleDateString();
+    }
+    return String(val);
+}
+
+function renderTable() {
+    const schema = SCHEMAS[activeEntity];
+    const cols = schema.tableColumns;
+    const fields = schema.fields;
+
+    // Header
+    let headHtml = "<tr>";
+    for (const col of cols) {
+        const f = fields[col];
+        const arrow = sortCol === col ? (sortDir === 1 ? " &#9650;" : " &#9660;") : "";
+        headHtml += `<th onclick="sortBy('${col}')">${f.label}<span class="sort-arrow">${arrow}</span></th>`;
+    }
+    headHtml += `<th style="width:50px">Sync</th></tr>`;
+    document.getElementById("tableHead").innerHTML = headHtml;
+
+    // Body
+    const recs = getRecords();
+    let bodyHtml = "";
+    if (recs.length === 0) {
+        const colSpan = cols.length + 1;
+        bodyHtml = `<tr><td colspan="${colSpan}" style="text-align:center;padding:40px;color:var(--dim)">No records found. ${editMode ? 'Click "+ New Record" to add one.' : ''}</td></tr>`;
+    } else {
+        for (const rec of recs) {
+            const pk = rec[schema.primaryKey];
+            const sel = pk === selectedId ? " selected" : "";
+            bodyHtml += `<tr class="${sel}" onclick="selectRecord('${pk}')" ondblclick="editRecord('${pk}')">`;
+            for (const col of cols) {
+                bodyHtml += `<td>${formatCellValue(rec[col], fields[col])}</td>`;
+            }
+            const syncState = rec._syncState || "new";
+            bodyHtml += `<td><span class="cell-status ${syncState}">${syncState}</span></td>`;
+            bodyHtml += "</tr>";
+        }
+    }
+    document.getElementById("tableBody").innerHTML = bodyHtml;
+    document.getElementById("recordInfo").textContent = `${recs.length} record${recs.length !== 1 ? 's' : ''}`;
+    updateCounts();
+}
+
+function updateCounts() {
+    for (const ent of Object.keys(SCHEMAS)) {
+        document.getElementById(`count-${ent}`).textContent = data[ent].length;
+    }
+    const total = Object.values(data).reduce((s,a) => s + a.length, 0);
+    document.getElementById("statRecords").textContent = total;
+    const pending = Object.values(data).reduce((s,a) => s + a.filter(r => r._syncState !== "synced").length, 0);
+    document.getElementById("statPending").textContent = pending;
+}
+
+function sortBy(col) {
+    if (sortCol === col) { sortDir *= -1; }
+    else { sortCol = col; sortDir = 1; }
+    renderTable();
+}
+
+function filterRecords(q) {
+    searchFilter = q;
+    renderTable();
+}
+
+// ======================================
+// RECORD OPERATIONS
+// ======================================
+function switchEntity(ent) {
+    activeEntity = ent;
+    selectedId = null;
+    searchFilter = "";
+    sortCol = null;
+    document.getElementById("searchInput").value = "";
+    document.querySelectorAll(".entity-btn").forEach(b => b.classList.toggle("active", b.dataset.entity === ent));
+    document.getElementById("deleteBtn").disabled = true;
+    document.getElementById("dupBtn").disabled = true;
+    renderTable();
+    renderPanel();
+}
+
+function selectRecord(id) {
+    selectedId = selectedId === id ? null : id;
+    document.getElementById("deleteBtn").disabled = !selectedId || !editMode;
+    document.getElementById("dupBtn").disabled = !selectedId || !editMode;
+    renderTable();
+    renderPanel();
+}
+
+function addRecord() {
+    if (!editMode) return;
+    const schema = SCHEMAS[activeEntity];
+    const rec = {};
+    rec[schema.primaryKey] = newGuid();
+    rec._syncState = "new";
+    rec._created = new Date().toISOString();
+    rec._modified = new Date().toISOString();
+    for (const [fname, fdef] of Object.entries(schema.fields)) {
+        if (fdef.auto) continue;
+        if (fdef.default !== undefined) rec[fname] = fdef.default;
+        else if (!rec[fname]) rec[fname] = null;
+    }
+    // Auto-generate ticket number for cases
+    if (activeEntity === "incidents") {
+        rec.ticketnumber = "CAS-" + (++ticketCounter);
+    }
+    // Compute fullname for contacts/leads
+    if (schema.fields.fullname) {
+        rec.fullname = [rec.firstname, rec.lastname].filter(Boolean).join(" ") || "New Record";
+    }
+    data[activeEntity].push(rec);
+    selectedId = rec[schema.primaryKey];
+    save();
+    renderTable();
+    renderPanel();
+}
+
+function deleteSelected() {
+    if (!editMode || !selectedId) return;
+    const schema = SCHEMAS[activeEntity];
+    data[activeEntity] = data[activeEntity].filter(r => r[schema.primaryKey] !== selectedId);
+    selectedId = null;
+    document.getElementById("deleteBtn").disabled = true;
+    document.getElementById("dupBtn").disabled = true;
+    save();
+    renderTable();
+    renderPanel();
+}
+
+function duplicateSelected() {
+    if (!editMode || !selectedId) return;
+    const schema = SCHEMAS[activeEntity];
+    const orig = data[activeEntity].find(r => r[schema.primaryKey] === selectedId);
+    if (!orig) return;
+    const dup = { ...orig };
+    dup[schema.primaryKey] = newGuid();
+    dup._syncState = "new";
+    dup._created = new Date().toISOString();
+    dup._modified = new Date().toISOString();
+    if (dup.name) dup.name += " (Copy)";
+    if (dup.title) dup.title += " (Copy)";
+    if (dup.fullname) dup.fullname += " (Copy)";
+    if (activeEntity === "incidents") dup.ticketnumber = "CAS-" + (++ticketCounter);
+    data[activeEntity].push(dup);
+    selectedId = dup[schema.primaryKey];
+    save();
+    renderTable();
+    renderPanel();
+}
+
+function editRecord(id) {
+    selectedId = id;
+    switchTab("editor");
+    renderPanel();
+}
+
+function updateField(field, value) {
+    if (!editMode || !selectedId) return;
+    const schema = SCHEMAS[activeEntity];
+    const rec = data[activeEntity].find(r => r[schema.primaryKey] === selectedId);
+    if (!rec) return;
+    // Type coercion
+    const fdef = schema.fields[field];
+    if (fdef.type === "int" || fdef.type === "picklist") {
+        rec[field] = value === "" ? null : parseInt(value);
+    } else if (fdef.type === "money") {
+        rec[field] = value === "" ? null : parseFloat(value);
+    } else {
+        rec[field] = value || null;
+    }
+    // Recompute fullname
+    if (schema.fields.fullname && (field === "firstname" || field === "lastname")) {
+        rec.fullname = [rec.firstname, rec.lastname].filter(Boolean).join(" ");
+    }
+    rec._modified = new Date().toISOString();
+    if (rec._syncState === "synced") rec._syncState = "modified";
+    save();
+    renderTable();
+}
+
+// ======================================
+// RIGHT PANEL
+// ======================================
+let activeTab = "editor";
+
+function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll(".panel-tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+    renderPanel();
+}
+
+function renderPanel() {
+    const container = document.getElementById("panelContent");
+    if (activeTab === "editor") renderEditor(container);
+    else if (activeTab === "schema") renderSchema(container);
+    else if (activeTab === "pipeline") renderPipeline(container);
+}
+
+function renderEditor(container) {
+    const schema = SCHEMAS[activeEntity];
+    if (!selectedId) {
+        container.innerHTML = '<div class="empty-state"><h3>No Record Selected</h3><p style="color:var(--dim);font-size:12px">Click a row in the table to view/edit its fields.</p></div>';
+        return;
+    }
+    const rec = data[activeEntity].find(r => r[schema.primaryKey] === selectedId);
+    if (!rec) { container.innerHTML = ""; return; }
+
+    const errors = validateRecord(activeEntity, rec);
+    const errorMap = {};
+    for (const e of errors) { errorMap[e.field] = e.msg; }
+
+    let html = `<div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--dim)">ID: <span style="font-family:var(--mono);font-size:10px">${rec[schema.primaryKey]}</span></div>
+        <div style="font-size:10px;color:var(--dim);margin-top:2px">Created: ${rec._created || "N/A"} | Modified: ${rec._modified || "N/A"}</div>
+    </div>`;
+
+    for (const [fname, fdef] of Object.entries(schema.fields)) {
+        if (fdef.auto && fname === schema.primaryKey) continue;
+        if (fdef.computed) continue;
+        if (fdef.auto) {
+            html += `<div class="field-group"><label>${fdef.label}</label><input type="text" value="${rec[fname] || ''}" disabled></div>`;
+            continue;
+        }
+        const val = rec[fname] !== null && rec[fname] !== undefined ? rec[fname] : "";
+        const invalid = errorMap[fname] ? " invalid" : "";
+        const disabled = editMode ? "" : " disabled";
+
+        if (fdef.type === "picklist" && fdef.options) {
+            let opts = `<option value="">-- Select --</option>`;
+            for (const [k,v] of Object.entries(fdef.options)) {
+                opts += `<option value="${k}" ${val == k ? "selected":""}>${v}</option>`;
+            }
+            html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
+                <select class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${opts}</select>
+                ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
+        } else if (fdef.type === "text") {
+            html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
+                <textarea class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${val}</textarea>
+                ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
+        } else if (fdef.type === "lookup") {
+            const target = fdef.target;
+            const targetSchema = SCHEMAS[target];
+            let opts = `<option value="">-- None --</option>`;
+            if (targetSchema) {
+                for (const tRec of data[target]) {
+                    const tid = tRec[targetSchema.primaryKey];
+                    const tname = tRec[targetSchema.primaryName] || tid;
+                    opts += `<option value="${tid}" ${val === tid ? "selected":""}>${tname}</option>`;
+                }
+            }
+            html += `<div class="field-group"><label>${fdef.label} (${targetSchema ? targetSchema.label : target})</label>
+                <select class="${invalid}" onchange="updateField('${fname}',this.value)"${disabled}>${opts}</select>
+                ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
+        } else if (fdef.type === "date") {
+            html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
+                <input type="date" class="${invalid}" value="${val}" onchange="updateField('${fname}',this.value)"${disabled}>
+                ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
+        } else {
+            const inputType = fdef.type === "money" || fdef.type === "int" ? "number" : fdef.format === "email" ? "email" : fdef.format === "url" ? "url" : "text";
+            html += `<div class="field-group"><label>${fdef.label}${fdef.required ? ' *':''}</label>
+                <input type="${inputType}" class="${invalid}" value="${val}" onchange="updateField('${fname}',this.value)"${disabled}
+                ${fdef.maxLength ? ` maxlength="${fdef.maxLength}"`:""} ${fdef.min !== undefined ? ` min="${fdef.min}"`:""} ${fdef.max !== undefined ? ` max="${fdef.max}"`:""}>
+                ${errorMap[fname] ? `<div class="validation-error">${errorMap[fname]}</div>`:""}</div>`;
+        }
+    }
+
+    if (editMode) {
+        html += `<div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn danger" onclick="deleteSelected()">Delete Record</button>
+            <button class="btn" onclick="duplicateSelected()">Duplicate</button>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+function renderSchema(container) {
+    const schema = SCHEMAS[activeEntity];
+    let html = `<div style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">${schema.plural} Schema</div>
+        <div style="font-size:11px;color:var(--dim)">OData Entity Set: <code style="color:var(--cyan)">${schema.oDataSet}</code></div>
+        <div style="font-size:11px;color:var(--dim)">Primary Key: <code style="color:var(--cyan)">${schema.primaryKey}</code></div>
+    </div>`;
+    html += '<div class="schema-tree">';
+    for (const [fname, fdef] of Object.entries(schema.fields)) {
+        const req = fdef.required ? ' <span class="freq">[required]</span>' : ' <span class="fopt">[optional]</span>';
+        let typeStr = fdef.type;
+        if (fdef.type === "string") typeStr = `Edm.String(${fdef.maxLength || "max"})`;
+        else if (fdef.type === "text") typeStr = `Edm.String(${fdef.maxLength || "max"})`;
+        else if (fdef.type === "guid") typeStr = "Edm.Guid";
+        else if (fdef.type === "int") typeStr = "Edm.Int32";
+        else if (fdef.type === "money") typeStr = "Edm.Decimal";
+        else if (fdef.type === "date") typeStr = "Edm.DateTimeOffset";
+        else if (fdef.type === "picklist") typeStr = "Edm.Int32 (OptionSet)";
+        else if (fdef.type === "lookup") typeStr = `Edm.Guid &rarr; ${fdef.target}`;
+        html += `<div class="schema-field"><span class="fname">${fname}</span> : <span class="ftype">${typeStr}</span>${req}${fdef.auto ? ' <span class="fopt">[auto]</span>' : ''}${fdef.computed ? ' <span class="fopt">[computed]</span>' : ''}</div>`;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function renderPipeline(container) {
+    const schema = SCHEMAS[activeEntity];
+    const recs = data[activeEntity];
+    const newCount = recs.filter(r => r._syncState === "new").length;
+    const modCount = recs.filter(r => r._syncState === "modified").length;
+    const syncCount = recs.filter(r => r._syncState === "synced").length;
+    const total = recs.length;
+
+    let html = `<div class="pipeline-viz">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px">${schema.plural} Sync Pipeline</div>
+        <div class="pipeline-step done"><div class="step-icon">&#128190;</div><div class="step-info"><div class="step-name">Local Storage</div><div class="step-detail">${total} records in local simulation</div></div></div>
+        <div class="pipeline-arrow">&#8595;</div>
+        <div class="pipeline-step ${newCount + modCount > 0 ? 'active' : 'done'}"><div class="step-icon">&#9989;</div><div class="step-info"><div class="step-name">Schema Validation</div><div class="step-detail">${newCount} new, ${modCount} modified</div></div></div>
+        <div class="pipeline-arrow">&#8595;</div>
+        <div class="pipeline-step"><div class="step-icon">&#128257;</div><div class="step-info"><div class="step-name">JSON Serialization</div><div class="step-detail">OData v4 format for D365 Web API</div></div></div>
+        <div class="pipeline-arrow">&#8595;</div>
+        <div class="pipeline-step"><div class="step-icon">&#128274;</div><div class="step-info"><div class="step-name">Authentication</div><div class="step-detail">${syncConfig.orgUrl ? 'Endpoint configured' : 'Not configured'}</div></div></div>
+        <div class="pipeline-arrow">&#8595;</div>
+        <div class="pipeline-step"><div class="step-icon">&#9729;</div><div class="step-info"><div class="step-name">D365 Web API</div><div class="step-detail">${syncCount} records synced</div></div></div>
+    </div>`;
+
+    html += `<div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:8px">Sync Summary - ${schema.plural}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+            <div>New: <span style="color:var(--accent);font-weight:600">${newCount}</span></div>
+            <div>Modified: <span style="color:var(--orange);font-weight:600">${modCount}</span></div>
+            <div>Synced: <span style="color:var(--green);font-weight:600">${syncCount}</span></div>
+            <div>Total: <span style="font-weight:600">${total}</span></div>
+        </div>
+    </div>`;
+    container.innerHTML = html;
+}
+
+// ======================================
+// IMPORT / EXPORT
+// ======================================
+function exportAll() {
+    const payload = {
+        _meta: {
+            version: "1.0.0",
+            schema: "D365-WebAPI-v9.2",
+            exported: new Date().toISOString(),
+            source: "D365-Local-Simulator",
+            ticketCounter,
+            recordCounts: {},
+            syncConfig: syncConfig.orgUrl ? { orgUrl: syncConfig.orgUrl, apiVersion: syncConfig.apiVersion } : null,
+        },
+    };
+    for (const ent of Object.keys(SCHEMAS)) {
+        payload[ent] = data[ent].map(r => {
+            const clean = { ...r };
+            delete clean._syncState;
+            delete clean._created;
+            delete clean._modified;
+            return clean;
+        });
+        payload._meta.recordCounts[ent] = data[ent].length;
+    }
+
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `d365-simulation-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    document.getElementById("statExport").textContent = new Date().toLocaleTimeString();
+}
+
+function showImportModal() {
+    document.getElementById("importModal").classList.add("open");
+    document.getElementById("importFile").value = "";
+    document.getElementById("importText").value = "";
+}
+
+function closeImportModal() {
+    document.getElementById("importModal").classList.remove("open");
+}
+
+function doImport() {
+    const fileInput = document.getElementById("importFile");
+    const textInput = document.getElementById("importText");
+
+    if (fileInput.files.length > 0) {
+        const reader = new FileReader();
+        reader.onload = e => { importJSON(e.target.result); };
+        reader.readAsText(fileInput.files[0]);
+    } else if (textInput.value.trim()) {
+        importJSON(textInput.value);
+    } else {
+        alert("Please select a file or paste JSON.");
+    }
+}
+
+function importJSON(jsonStr) {
+    try {
+        const parsed = JSON.parse(jsonStr);
+        if (!parsed._meta) {
+            alert("Invalid format: missing _meta block. Make sure this is a D365 Simulator export file.");
+            return;
+        }
+        let imported = 0;
+        for (const ent of Object.keys(SCHEMAS)) {
+            if (Array.isArray(parsed[ent])) {
+                data[ent] = parsed[ent].map(r => ({
+                    ...r,
+                    _syncState: r._syncState || "new",
+                    _created: r._created || new Date().toISOString(),
+                    _modified: r._modified || new Date().toISOString(),
+                }));
+                imported += data[ent].length;
+            }
+        }
+        if (parsed._meta.ticketCounter) ticketCounter = parsed._meta.ticketCounter;
+        if (parsed._meta.syncConfig) {
+            syncConfig = { ...syncConfig, ...parsed._meta.syncConfig };
+            saveSyncConfig();
+        }
+        save();
+        closeImportModal();
+        renderTable();
+        renderPanel();
+        alert(`Imported ${imported} records successfully.\nSchema: ${parsed._meta.schema}\nExported: ${parsed._meta.exported}`);
+    } catch(e) {
+        alert("Failed to parse JSON: " + e.message);
+    }
+}
+
+// ======================================
+// MODE TOGGLE (Edit / Read-Only)
+// ======================================
+function toggleMode() {
+    editMode = !editMode;
+    const badge = document.getElementById("modeBadge");
+    const btn = document.getElementById("modeToggle");
+    const addBtn = document.getElementById("addBtn");
+    if (editMode) {
+        badge.textContent = "EDIT MODE";
+        badge.className = "mode-badge edit";
+        btn.textContent = "Switch to Read-Only";
+        addBtn.disabled = false;
+    } else {
+        badge.textContent = "READ ONLY";
+        badge.className = "mode-badge readonly";
+        btn.textContent = "Switch to Edit Mode";
+        addBtn.disabled = true;
+        document.getElementById("deleteBtn").disabled = true;
+        document.getElementById("dupBtn").disabled = true;
+    }
+    renderPanel();
+}
+
+// ======================================
+// SYNC ENGINE
+// ======================================
+function showSyncPanel() {
+    document.getElementById("syncModal").classList.add("open");
+    const orgInput = document.getElementById("syncOrgUrl");
+    const verInput = document.getElementById("syncApiVersion");
+    const tokenInput = document.getElementById("syncToken");
+    if (syncConfig.orgUrl) orgInput.value = syncConfig.orgUrl;
+    if (syncConfig.apiVersion) verInput.value = syncConfig.apiVersion;
+    if (syncConfig.token) tokenInput.value = syncConfig.token;
+
+    // Entity checkboxes
+    const checksDiv = document.getElementById("syncEntityChecks");
+    checksDiv.innerHTML = "";
+    for (const ent of Object.keys(SCHEMAS)) {
+        const count = data[ent].filter(r => r._syncState !== "synced").length;
+        checksDiv.innerHTML += `<label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" class="sync-entity-check" value="${ent}" ${count > 0 ? "checked" : ""}> ${SCHEMAS[ent].plural} (${count} pending)
+        </label>`;
+    }
+    renderSyncPipeline("idle");
+}
+
+function closeSyncModal() {
+    // Save config
+    syncConfig.orgUrl = document.getElementById("syncOrgUrl").value.trim();
+    syncConfig.apiVersion = document.getElementById("syncApiVersion").value;
+    syncConfig.token = document.getElementById("syncToken").value.trim();
+    syncConfig.authMethod = document.getElementById("syncAuthMethod").value;
+    saveSyncConfig();
+    document.getElementById("syncModal").classList.remove("open");
+}
+
+function addSyncLog(msg, type = "info") {
+    const ts = new Date().toLocaleTimeString();
+    const logDiv = document.getElementById("syncLog");
+    logDiv.innerHTML += `<div class="log-entry ${type}"><span class="timestamp">[${ts}]</span> ${msg}</div>`;
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function renderSyncPipeline(state, detail = {}) {
+    const steps = [
+        { id:"validate", icon:"&#9989;", name:"Validate Records", detail:"Check all records against D365 schema" },
+        { id:"serialize", icon:"&#128257;", name:"Serialize to OData", detail:"Convert to D365 Web API JSON format" },
+        { id:"auth", icon:"&#128274;", name:"Authenticate", detail:"Connect to D365 endpoint" },
+        { id:"push", icon:"&#9729;", name:"Push to D365", detail:"Send records via Web API" },
+        { id:"confirm", icon:"&#10003;", name:"Confirm Sync", detail:"Verify records in D365" },
+    ];
+
+    const stateMap = {
+        idle: {},
+        validating: { validate:"active" },
+        serializing: { validate:"done", serialize:"active" },
+        authenticating: { validate:"done", serialize:"done", auth:"active" },
+        pushing: { validate:"done", serialize:"done", auth:"done", push:"active" },
+        confirming: { validate:"done", serialize:"done", auth:"done", push:"done", confirm:"active" },
+        done: { validate:"done", serialize:"done", auth:"done", push:"done", confirm:"done" },
+        error: detail,
+    };
+    const map = stateMap[state] || {};
+
+    let html = "";
+    for (const step of steps) {
+        const cls = map[step.id] || "";
+        html += `<div class="pipeline-step ${cls}"><div class="step-icon">${step.icon}</div><div class="step-info"><div class="step-name">${step.name}</div><div class="step-detail">${step.detail}</div></div></div>`;
+        if (step !== steps[steps.length-1]) html += '<div class="pipeline-arrow">&#8595;</div>';
+    }
+    document.getElementById("pipelineViz").innerHTML = html;
+}
+
+async function testConnection() {
+    const orgUrl = document.getElementById("syncOrgUrl").value.trim();
+    const token = document.getElementById("syncToken").value.trim();
+    const apiVer = document.getElementById("syncApiVersion").value;
+
+    if (!orgUrl) { addSyncLog("No endpoint URL configured", "error"); return; }
+    if (!token) { addSyncLog("No authentication token provided", "error"); return; }
+
+    addSyncLog("Testing connection to " + orgUrl + "...", "info");
+    const dot = document.getElementById("syncDot");
+    const statusText = document.getElementById("syncStatusText");
+
+    try {
+        const url = orgUrl.replace(/\/+$/, "") + `/api/data/${apiVer}/WhoAmI()`;
+        const resp = await fetch(url, {
+            headers: { "Authorization": "Bearer " + token, "Accept": "application/json", "OData-Version": "4.0" }
+        });
+        if (resp.ok) {
+            const body = await resp.json();
+            dot.className = "sync-dot connected";
+            statusText.textContent = "Connected - User: " + (body.UserId || "OK");
+            addSyncLog("Connection successful! User ID: " + (body.UserId || "OK"), "success");
+        } else {
+            throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        }
+    } catch(e) {
+        dot.className = "sync-dot disconnected";
+        statusText.textContent = "Connection Failed";
+        addSyncLog("Connection failed: " + e.message, "error");
+    }
+}
+
+async function startSync() {
+    const orgUrl = document.getElementById("syncOrgUrl").value.trim();
+    const token = document.getElementById("syncToken").value.trim();
+    const apiVer = document.getElementById("syncApiVersion").value;
+    const dryRun = document.getElementById("syncDryRun").checked;
+    const useUpsert = document.getElementById("syncUpsert").checked;
+
+    const selectedEntities = Array.from(document.querySelectorAll(".sync-entity-check:checked")).map(c => c.value);
+
+    if (!selectedEntities.length) { addSyncLog("No entities selected for sync", "error"); return; }
+
+    // Step 1: Validate
+    addSyncLog("--- Starting Sync Pipeline ---", "info");
+    renderSyncPipeline("validating");
+    addSyncLog("Validating records...", "info");
+    await sleep(300);
+
+    let totalErrors = 0;
+    let totalRecords = 0;
+    for (const ent of selectedEntities) {
+        const pending = data[ent].filter(r => r._syncState !== "synced");
+        totalRecords += pending.length;
+        for (const rec of pending) {
+            const errs = validateRecord(ent, rec);
+            if (errs.length) {
+                totalErrors += errs.length;
+                addSyncLog(`  ${SCHEMAS[ent].label} "${rec[SCHEMAS[ent].primaryName]}": ${errs.map(e=>e.msg).join(", ")}`, "warn");
+            }
+        }
+    }
+
+    if (totalErrors > 0) {
+        addSyncLog(`Validation failed: ${totalErrors} errors in ${totalRecords} records`, "error");
+        renderSyncPipeline("error", { validate:"error" });
+        return;
+    }
+    addSyncLog(`Validated ${totalRecords} records - all passed`, "success");
+
+    // Step 2: Serialize
+    renderSyncPipeline("serializing");
+    addSyncLog("Serializing to OData v4 format...", "info");
+    await sleep(300);
+
+    const payloads = {};
+    for (const ent of selectedEntities) {
+        const schema = SCHEMAS[ent];
+        const pending = data[ent].filter(r => r._syncState !== "synced");
+        payloads[ent] = pending.map(rec => {
+            const odata = {};
+            for (const [fname, fdef] of Object.entries(schema.fields)) {
+                if (fname.startsWith("_") && fname.endsWith("_value") && fdef.type === "lookup") {
+                    // Convert lookup to OData bind format
+                    if (rec[fname]) {
+                        const navProp = fname.replace(/^_/, "").replace(/_value$/, "");
+                        odata[`${navProp}@odata.bind`] = `/${fdef.target}(${rec[fname]})`;
+                    }
+                } else if (!fname.startsWith("_") && !fdef.computed) {
+                    if (rec[fname] !== null && rec[fname] !== undefined) {
+                        odata[fname] = rec[fname];
+                    }
+                }
+            }
+            return { id: rec[schema.primaryKey], body: odata, name: rec[schema.primaryName] };
+        });
+        addSyncLog(`  ${schema.plural}: ${payloads[ent].length} records serialized`, "info");
+    }
+
+    // Dry run mode
+    if (dryRun) {
+        addSyncLog("--- DRY RUN MODE - No data will be sent ---", "warn");
+        renderSyncPipeline("done");
+        addSyncLog("Dry run complete. Uncheck 'Dry Run' and configure endpoint to push data.", "success");
+
+        // Show preview
+        for (const ent of selectedEntities) {
+            for (const p of payloads[ent]) {
+                addSyncLog(`  Would ${useUpsert ? 'UPSERT' : 'POST'} ${SCHEMAS[ent].oDataSet}(${p.id}): ${p.name}`, "info");
+            }
+        }
+        return;
+    }
+
+    // Step 3: Auth
+    if (!orgUrl || !token) {
+        addSyncLog("Endpoint URL or token not configured", "error");
+        renderSyncPipeline("error", { validate:"done", serialize:"done", auth:"error" });
+        return;
+    }
+
+    renderSyncPipeline("authenticating");
+    addSyncLog("Authenticating with D365...", "info");
+    await sleep(300);
+
+    try {
+        const whoUrl = orgUrl.replace(/\/+$/, "") + `/api/data/${apiVer}/WhoAmI()`;
+        const whoResp = await fetch(whoUrl, {
+            headers: { "Authorization": "Bearer " + token, "Accept": "application/json", "OData-Version": "4.0" }
+        });
+        if (!whoResp.ok) throw new Error(`Auth failed: HTTP ${whoResp.status}`);
+        addSyncLog("Authenticated successfully", "success");
+    } catch(e) {
+        addSyncLog("Authentication failed: " + e.message, "error");
+        renderSyncPipeline("error", { validate:"done", serialize:"done", auth:"error" });
+        return;
+    }
+
+    // Step 4: Push
+    renderSyncPipeline("pushing");
+    addSyncLog("Pushing records to D365...", "info");
+
+    let successCount = 0;
+    let failCount = 0;
+    const baseUrl = orgUrl.replace(/\/+$/, "") + `/api/data/${apiVer}`;
+
+    for (const ent of selectedEntities) {
+        const schema = SCHEMAS[ent];
+        for (const p of payloads[ent]) {
+            try {
+                const method = useUpsert ? "PATCH" : "POST";
+                const url = useUpsert
+                    ? `${baseUrl}/${schema.oDataSet}(${p.id})`
+                    : `${baseUrl}/${schema.oDataSet}`;
+                const resp = await fetch(url, {
+                    method,
+                    headers: {
+                        "Authorization": "Bearer " + token,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "OData-Version": "4.0",
+                        "If-None-Match": useUpsert ? null : undefined,
+                    },
+                    body: JSON.stringify(p.body),
+                });
+                if (resp.ok || resp.status === 204) {
+                    successCount++;
+                    // Mark as synced
+                    const rec = data[ent].find(r => r[schema.primaryKey] === p.id);
+                    if (rec) rec._syncState = "synced";
+                    addSyncLog(`  ${method} ${schema.oDataSet}: ${p.name} - OK`, "success");
+                } else {
+                    failCount++;
+                    const errBody = await resp.text();
+                    addSyncLog(`  ${method} ${schema.oDataSet}: ${p.name} - FAILED (${resp.status}): ${errBody.substring(0,100)}`, "error");
+                }
+            } catch(e) {
+                failCount++;
+                addSyncLog(`  ${schema.oDataSet}: ${p.name} - ERROR: ${e.message}`, "error");
+            }
+        }
+    }
+
+    save();
+    renderTable();
+
+    // Step 5: Confirm
+    renderSyncPipeline("confirming");
+    addSyncLog("Confirming sync...", "info");
+    await sleep(300);
+
+    if (failCount === 0) {
+        renderSyncPipeline("done");
+        addSyncLog(`Sync complete! ${successCount} records pushed successfully.`, "success");
+        document.getElementById("syncDot").className = "sync-dot connected";
+        document.getElementById("syncStatusText").textContent = `Synced - ${successCount} records`;
+    } else {
+        renderSyncPipeline("error", { validate:"done", serialize:"done", auth:"done", push:"error" });
+        addSyncLog(`Sync completed with errors: ${successCount} success, ${failCount} failed`, "warn");
+    }
+    updateCounts();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ======================================
+// SAMPLE DATA GENERATOR
+// ======================================
+function generateSampleData() {
+    if (!editMode) { alert("Switch to Edit mode to generate sample data."); return; }
+    if (Object.values(data).some(a => a.length > 0)) {
+        if (!confirm("This will add sample records to existing data. Continue?")) return;
+    }
+
+    const companies = ["Contoso Ltd","Northwind Traders","Adventure Works","Fabrikam Inc","Litware Inc","Tailspin Toys","Proseware","Trey Research","Fourth Coffee","Alpine Ski House"];
+    const firstNames = ["Alex","Jordan","Casey","Morgan","Riley","Taylor","Drew","Quinn","Avery","Blake"];
+    const lastNames = ["Johnson","Williams","Brown","Davis","Miller","Wilson","Moore","Taylor","Anderson","Thomas"];
+    const cities = ["Seattle","Portland","San Francisco","Austin","Denver","Chicago","Boston","New York","Atlanta","Miami"];
+    const states = ["WA","OR","CA","TX","CO","IL","MA","NY","GA","FL"];
+    const titles = ["CEO","CTO","VP Sales","Director","Manager","Consultant","Engineer","Analyst","Coordinator","Specialist"];
+    const opNames = ["Enterprise License","Cloud Migration","Digital Transform","Security Audit","Platform Upgrade","Data Integration","API Development","Mobile App","Analytics Suite","Support Contract"];
+    const stages = ["Qualify","Develop","Propose","Close"];
+    const sources = [1,2,3,4,5,6,7,8,9,10];
+    const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+    const randInt = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
+
+    // Generate accounts
+    for (let i = 0; i < 10; i++) {
+        const id = newGuid();
+        data.accounts.push({
+            accountid: id, name: companies[i], accountnumber: "ACC-" + (1000+i),
+            telephone1: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
+            emailaddress1: companies[i].toLowerCase().replace(/\s+/g,"") + "@example.com",
+            websiteurl: "https://" + companies[i].toLowerCase().replace(/\s+/g,"") + ".example.com",
+            revenue: randInt(1,50) * 100000, numberofemployees: randInt(10,5000),
+            address1_city: cities[i], address1_stateorprovince: states[i], address1_country: "United States",
+            industrycode: randInt(1,15), statecode: 0, description: null,
+            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
+        });
+    }
+
+    // Generate contacts
+    for (let i = 0; i < 15; i++) {
+        const fn = pick(firstNames), ln = pick(lastNames);
+        const acct = pick(data.accounts);
+        data.contacts.push({
+            contactid: newGuid(), firstname: fn, lastname: ln, fullname: fn + " " + ln,
+            jobtitle: pick(titles), emailaddress1: (fn+"."+ln).toLowerCase()+"@example.com",
+            telephone1: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
+            mobilephone: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
+            address1_city: pick(cities), address1_stateorprovince: pick(states),
+            _parentcustomerid_value: acct.accountid, statecode: 0, description: null,
+            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
+        });
+    }
+
+    // Generate opportunities
+    for (let i = 0; i < 8; i++) {
+        const acct = pick(data.accounts);
+        const contact = data.contacts.find(c => c._parentcustomerid_value === acct.accountid) || pick(data.contacts);
+        const stageIdx = randInt(0,3);
+        const closeDate = new Date(); closeDate.setDate(closeDate.getDate() + randInt(14,180));
+        data.opportunities.push({
+            opportunityid: newGuid(), name: pick(opNames) + " - " + acct.name,
+            estimatedvalue: randInt(5,500) * 1000, closeprobability: randInt(10,95),
+            estimatedclosedate: closeDate.toISOString().slice(0,10),
+            _parentaccountid_value: acct.accountid, _parentcontactid_value: contact.contactid,
+            stepname: stages[stageIdx], salesstagecode: stageIdx, statecode: 0, description: null,
+            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
+        });
+    }
+
+    // Generate leads
+    for (let i = 0; i < 6; i++) {
+        const fn = pick(firstNames), ln = pick(lastNames);
+        data.leads.push({
+            leadid: newGuid(), firstname: fn, lastname: ln, fullname: fn + " " + ln,
+            companyname: pick(["Acme Corp","Globex","Initech","Umbrella","Stark Industries","Wayne Enterprises"]),
+            jobtitle: pick(titles), emailaddress1: (fn+"."+ln).toLowerCase()+"@example.com",
+            telephone1: `(${randInt(200,999)}) ${randInt(100,999)}-${randInt(1000,9999)}`,
+            address1_city: pick(cities),
+            leadsourcecode: pick(sources), leadqualitycode: randInt(1,3), statecode: 0, description: null,
+            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
+        });
+    }
+
+    // Generate cases
+    for (let i = 0; i < 5; i++) {
+        const contact = pick(data.contacts);
+        const caseTitles = ["Login not working","Data export issue","Performance degradation","Feature request","Billing discrepancy"];
+        data.incidents.push({
+            incidentid: newGuid(), title: caseTitles[i], ticketnumber: "CAS-" + (++ticketCounter),
+            _customerid_value: contact.contactid,
+            caseorigincode: randInt(1,5), prioritycode: randInt(1,3), severitycode: randInt(1,4), statecode: 0,
+            description: null,
+            _syncState: "new", _created: new Date().toISOString(), _modified: new Date().toISOString(),
+        });
+    }
+
+    save();
+    renderTable();
+    renderPanel();
+}
+
+// ======================================
+// INIT
+// ======================================
+load();
+renderTable();
+renderPanel();
+
+</script>
+</body>
+</html>

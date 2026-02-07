@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="description" content="Multiplayer air hockey with WebRTC P2P, physics-based puck, neon glow effects, and synthesized crowd sounds">
+<meta name="category" content="games_puzzles">
+<title>Air Hockey P2P — Neon Arena</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bg:#05060f;--surface:#0c1022;--surface2:#141a33;--border:#1e2a4a;--accent:#00d4ff;--red:#ff3366;--blue:#00d4ff;--green:#00ff88;--orange:#ffaa00;--text:#e0e8ff;--dim:#5a6a99}
+body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden;touch-action:none}
+canvas{display:block}
+
+/* Screens */
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;transition:opacity .3s}
+.screen.hidden{opacity:0;pointer-events:none}
+
+/* Menu */
+.menu-title{font-size:clamp(2rem,7vw,4rem);font-weight:900;text-align:center;background:linear-gradient(135deg,var(--red),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;text-shadow:0 0 60px #ff336644}
+.menu-sub{color:var(--dim);font-size:clamp(.8rem,2.5vw,1.1rem);margin-bottom:40px;text-align:center}
+.menu-btn{width:280px;padding:16px;margin:8px;border:2px solid var(--border);border-radius:14px;background:var(--surface2);color:var(--text);font-size:1.05rem;font-weight:600;cursor:pointer;transition:all .25s;text-align:left;display:flex;align-items:center;gap:14px}
+.menu-btn:hover{border-color:var(--accent);background:#141a3388;transform:translateY(-2px);box-shadow:0 4px 24px #00d4ff22}
+.menu-btn .icon{font-size:1.5rem;width:40px;text-align:center}
+.menu-btn .label span{display:block;font-size:.75rem;color:var(--dim);font-weight:400;margin-top:2px}
+.difficulty-bar{display:flex;gap:8px;margin-top:16px}
+.diff-btn{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--dim);font-size:.8rem;cursor:pointer;transition:all .2s}
+.diff-btn.active{border-color:var(--accent);color:var(--accent);background:#00d4ff15}
+
+/* Connection Screen */
+.conn-screen{padding:24px;max-width:440px;width:100%}
+.conn-title{font-size:1.5rem;font-weight:700;margin-bottom:8px;text-align:center}
+.conn-sub{color:var(--dim);font-size:.85rem;margin-bottom:20px;text-align:center}
+.conn-step{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.conn-step h3{font-size:.85rem;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.conn-step h3 .num{background:var(--accent);color:var(--bg);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700}
+.conn-code{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:monospace;font-size:.7rem;resize:none;min-height:60px}
+.conn-btn{padding:10px 20px;border-radius:8px;border:none;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .2s;margin:4px}
+.conn-btn.primary{background:var(--accent);color:var(--bg)}
+.conn-btn.primary:hover{background:#33ddff}
+.conn-btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.conn-btn.secondary:hover{border-color:var(--accent)}
+.conn-status{text-align:center;padding:12px;color:var(--dim);font-size:.9rem}
+.conn-status.ok{color:var(--green)}
+.conn-status.err{color:var(--red)}
+.qr-canvas{display:block;margin:10px auto;border-radius:8px;image-rendering:pixelated}
+.conn-back{position:absolute;top:20px;left:20px;background:none;border:1px solid var(--border);color:var(--dim);border-radius:8px;padding:8px 16px;font-size:.8rem;cursor:pointer}
+.conn-back:hover{color:var(--text);border-color:var(--accent)}
+
+/* HUD */
+.hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:center;align-items:center;padding:10px 20px;z-index:5;pointer-events:none}
+.hud.hidden{display:none}
+.score-display{display:flex;align-items:center;gap:20px;background:#0008;backdrop-filter:blur(8px);border-radius:40px;padding:8px 28px}
+.score-p{font-size:2.2rem;font-weight:900;font-variant-numeric:tabular-nums;min-width:40px;text-align:center}
+.score-p.red{color:var(--red);text-shadow:0 0 20px var(--red)}
+.score-p.blue{color:var(--blue);text-shadow:0 0 20px var(--blue)}
+.score-sep{color:var(--dim);font-size:1.2rem}
+.hud-back{position:fixed;top:12px;left:12px;z-index:6;background:#0008;backdrop-filter:blur(8px);border:1px solid var(--border);color:var(--dim);border-radius:8px;padding:6px 14px;font-size:.75rem;cursor:pointer;pointer-events:auto}
+.hud-back:hover{color:var(--text);border-color:var(--accent)}
+
+/* Game Over */
+.gameover-box{text-align:center;background:var(--surface);border:2px solid var(--border);border-radius:20px;padding:40px;max-width:400px}
+.gameover-box h2{font-size:2rem;margin-bottom:8px}
+.gameover-box .winner-text{font-size:1.1rem;color:var(--dim);margin-bottom:24px}
+.gameover-box .go-btn{padding:12px 28px;border-radius:10px;border:none;font-size:1rem;font-weight:600;cursor:pointer;margin:6px;transition:all .2s}
+</style>
+</head>
+<body>
+
+<!-- Menu Screen -->
+<div class="screen" id="menuScreen">
+  <div class="menu-title">🏒 NEON<br>AIR HOCKEY</div>
+  <div class="menu-sub">WebRTC P2P · Physics · Web Audio</div>
+  <button class="menu-btn" onclick="startAI()">
+    <div class="icon">🤖</div>
+    <div class="label">vs Computer<span>Single player with AI opponent</span></div>
+  </button>
+  <button class="menu-btn" onclick="startLocal()">
+    <div class="icon">👥</div>
+    <div class="label">Local 2-Player<span>Same device — touch or mouse</span></div>
+  </button>
+  <button class="menu-btn" onclick="showHost()">
+    <div class="icon">📡</div>
+    <div class="label">Host Online Game<span>Create room · share QR code</span></div>
+  </button>
+  <button class="menu-btn" onclick="showJoin()">
+    <div class="icon">📱</div>
+    <div class="label">Join Online Game<span>Scan QR or paste code to join</span></div>
+  </button>
+  <div class="difficulty-bar" id="diffBar">
+    <button class="diff-btn" data-d="0.4">Easy</button>
+    <button class="diff-btn active" data-d="0.7">Normal</button>
+    <button class="diff-btn" data-d="0.95">Hard</button>
+  </div>
+</div>
+
+<!-- Host Screen -->
+<div class="screen hidden" id="hostScreen">
+  <button class="conn-back" onclick="showMenu()">← Back</button>
+  <div class="conn-screen">
+    <div class="conn-title">📡 Host Game</div>
+    <div class="conn-sub">Share the code below with your opponent</div>
+    <div class="conn-step">
+      <h3><span class="num">1</span> Your Connection Code</h3>
+      <canvas class="qr-canvas" id="hostQR" width="200" height="200"></canvas>
+      <textarea class="conn-code" id="hostOffer" readonly></textarea>
+      <div style="text-align:center;margin-top:8px">
+        <button class="conn-btn primary" onclick="copyCode('hostOffer')">📋 Copy Code</button>
+      </div>
+    </div>
+    <div class="conn-step">
+      <h3><span class="num">2</span> Paste Opponent's Answer</h3>
+      <textarea class="conn-code" id="hostAnswer" placeholder="Paste answer code here..."></textarea>
+      <div style="text-align:center;margin-top:8px">
+        <button class="conn-btn primary" onclick="completeHost()">🔗 Connect</button>
+      </div>
+    </div>
+    <div class="conn-status" id="hostStatus">Generating connection code...</div>
+  </div>
+</div>
+
+<!-- Join Screen -->
+<div class="screen hidden" id="joinScreen">
+  <button class="conn-back" onclick="showMenu()">← Back</button>
+  <div class="conn-screen">
+    <div class="conn-title">📱 Join Game</div>
+    <div class="conn-sub">Paste the host's code to join their game</div>
+    <div class="conn-step">
+      <h3><span class="num">1</span> Paste Host's Code</h3>
+      <textarea class="conn-code" id="joinOffer" placeholder="Paste host's connection code here..."></textarea>
+      <div style="text-align:center;margin-top:8px">
+        <button class="conn-btn primary" onclick="processJoin()">Generate Answer</button>
+        <button class="conn-btn secondary" onclick="scanQR()">📷 Scan QR</button>
+      </div>
+    </div>
+    <div class="conn-step" id="joinStep2" style="display:none">
+      <h3><span class="num">2</span> Your Answer Code</h3>
+      <canvas class="qr-canvas" id="joinQR" width="200" height="200"></canvas>
+      <textarea class="conn-code" id="joinAnswer" readonly></textarea>
+      <div style="text-align:center;margin-top:8px">
+        <button class="conn-btn primary" onclick="copyCode('joinAnswer')">📋 Copy Answer</button>
+      </div>
+    </div>
+    <div class="conn-status" id="joinStatus">Waiting for host's code...</div>
+  </div>
+</div>
+
+<!-- QR Scanner overlay -->
+<div class="screen hidden" id="scanScreen" style="background:#000e">
+  <button class="conn-back" onclick="stopScan()">← Cancel</button>
+  <video id="scanVideo" style="max-width:90%;max-height:70vh;border-radius:12px;border:2px solid var(--accent)" autoplay playsinline></video>
+  <div style="color:var(--dim);margin-top:12px;font-size:.9rem">Point camera at QR code</div>
+</div>
+
+<!-- Game Over Screen -->
+<div class="screen hidden" id="gameoverScreen">
+  <div class="gameover-box" id="gameoverBox">
+    <h2 id="goTitle">🏆</h2>
+    <div class="winner-text" id="goSub"></div>
+    <button class="go-btn" style="background:var(--accent);color:var(--bg)" onclick="rematch()">Rematch</button>
+    <button class="go-btn" style="background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="showMenu()">Menu</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div class="hud hidden" id="hud">
+  <div class="score-display">
+    <div class="score-p red" id="score1">0</div>
+    <div class="score-sep">—</div>
+    <div class="score-p blue" id="score2">0</div>
+  </div>
+</div>
+<button class="hud-back hidden" id="hudBack" onclick="showMenu()">✕ Quit</button>
+
+<!-- Game Canvas -->
+<canvas id="gameCanvas"></canvas>
+
+<script>
+(()=>{
+'use strict';
+
+// ═══════════════════════════════════════
+// QR CODE GENERATOR (Minimal, versions 1-20, L correction, byte mode)
+// ═══════════════════════════════════════
+const QRGen = (()=>{
+  const EXP=new Uint8Array(512), LOG=new Uint8Array(256);
+  for(let i=0,x=1;i<255;i++){EXP[i]=x;LOG[x]=i;x=(x<<1)^(x&128?0x11d:0)}
+  for(let i=255;i<512;i++) EXP[i]=EXP[i-255];
+  function gfMul(a,b){return a&&b?EXP[LOG[a]+LOG[b]]:0}
+
+  // EC params: [totalCW, ecPerBlock, blocksG1, dataCWG1, blocksG2, dataCWG2]
+  const EC=[,
+    [26,7,1,19,0,0],[44,10,1,34,0,0],[70,15,1,55,0,0],[100,20,1,80,0,0],
+    [134,26,1,108,0,0],[172,18,2,68,0,0],[196,20,2,78,0,0],[242,24,2,97,0,0],
+    [292,30,2,116,0,0],[346,18,2,68,2,69],[404,20,2,78,2,79],[466,22,2,92,2,93],
+    [532,26,2,107,2,108],[581,30,4,115,1,116],[655,22,2,87,4,88],[733,24,4,98,2,99],
+    [815,28,4,107,3,108],[901,30,3,120,4,121],[991,28,3,113,7,114],[1085,28,4,107,5,108]
+  ];
+  const ALIGN=[,
+    [],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],
+    [6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],
+    [6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90]
+  ];
+  // Format info for L correction (mask 0-7)
+  const FMTINFO=[0x77c4,0x72f3,0x7daa,0x789d,0x662f,0x6318,0x6c41,0x6976];
+
+  function rsEncode(data,numEC){
+    let gen=[1];
+    for(let i=0;i<numEC;i++){
+      const ng=new Uint8Array(gen.length+1);
+      for(let j=0;j<gen.length;j++){ng[j]^=gen[j];ng[j+1]^=gfMul(gen[j],EXP[i])}
+      gen=ng;
+    }
+    const buf=new Uint8Array(data.length+numEC);
+    buf.set(data);
+    for(let i=0;i<data.length;i++){
+      const c=buf[i];
+      if(c)for(let j=0;j<gen.length;j++)buf[i+j]^=gfMul(gen[j],c);
+    }
+    return buf.slice(data.length);
+  }
+
+  function getVersion(len){
+    for(let v=1;v<=20;v++){
+      const e=EC[v], cap=e[2]*e[3]+e[4]*e[5];
+      if(len+3<=cap) return v; // 3 bytes overhead: mode(4bit)+count(8or16bit)+terminator
+    }
+    return 0;
+  }
+
+  function generate(text){
+    const bytes=[...new TextEncoder().encode(text)];
+    const ver=getVersion(bytes.length);
+    if(!ver)return null;
+    const e=EC[ver], size=ver*4+17;
+    const totalData=e[2]*e[3]+e[4]*e[5];
+    const countBits=ver<=9?8:16;
+
+    // Encode data
+    const bits=[];
+    function pushBits(val,n){for(let i=n-1;i>=0;i--)bits.push((val>>i)&1)}
+    pushBits(4,4); // byte mode
+    pushBits(bytes.length,countBits);
+    for(const b of bytes)pushBits(b,8);
+    pushBits(0,Math.min(4,totalData*8-bits.length)); // terminator
+    while(bits.length%8)bits.push(0);
+    while(bits.length<totalData*8){pushBits(0xEC,8);if(bits.length<totalData*8)pushBits(0x11,8)}
+    const dataCW=new Uint8Array(totalData);
+    for(let i=0;i<totalData;i++){let b=0;for(let j=0;j<8;j++)b=(b<<1)|bits[i*8+j];dataCW[i]=b}
+
+    // Split into blocks & generate EC
+    const blocks=[], ecBlocks=[];
+    let idx=0;
+    for(let g=0;g<2;g++){
+      const nb=g?e[4]:e[2], nd=g?e[5]:e[3];
+      for(let i=0;i<nb;i++){
+        const block=dataCW.slice(idx,idx+nd);
+        blocks.push(block);
+        ecBlocks.push(rsEncode(block,e[1]));
+        idx+=nd;
+      }
+    }
+
+    // Interleave
+    const final=[];
+    const maxD=Math.max(e[3],e[5]||0);
+    for(let i=0;i<maxD;i++)for(const b of blocks)if(i<b.length)final.push(b[i]);
+    for(let i=0;i<e[1];i++)for(const b of ecBlocks)final.push(b[i]);
+
+    // Build matrix
+    const grid=Array.from({length:size},()=>new Int8Array(size)); // 0=white,-1=unset
+    const locked=Array.from({length:size},()=>new Uint8Array(size));
+    function setMod(r,c,v){if(r>=0&&r<size&&c>=0&&c<size){grid[r][c]=v?1:0;locked[r][c]=1}}
+
+    // Finder patterns
+    function finder(r,c){
+      for(let dr=-1;dr<=7;dr++)for(let dc=-1;dc<=7;dc++){
+        const rr=r+dr,cc=c+dc;
+        if(rr<0||rr>=size||cc<0||cc>=size)continue;
+        const ring=Math.max(Math.abs(dr-3),Math.abs(dc-3));
+        setMod(rr,cc,ring!==2&&ring!==4?1:0);
+      }
+    }
+    finder(0,0);finder(0,size-7);finder(size-7,0);
+
+    // Alignment patterns
+    const apos=ALIGN[ver];
+    if(apos.length>1){
+      for(let i=0;i<apos.length;i++)for(let j=0;j<apos.length;j++){
+        if((i===0&&j===0)||(i===0&&j===apos.length-1)||(i===apos.length-1&&j===0))continue;
+        for(let dr=-2;dr<=2;dr++)for(let dc=-2;dc<=2;dc++){
+          setMod(apos[i]+dr,apos[j]+dc,(Math.abs(dr)===2||Math.abs(dc)===2||(!dr&&!dc))?1:0);
+        }
+      }
+    }
+
+    // Timing
+    for(let i=8;i<size-8;i++){setMod(6,i,i%2===0?1:0);setMod(i,6,i%2===0?1:0)}
+
+    // Dark module
+    setMod(size-8,8,1);
+
+    // Reserve format areas
+    for(let i=0;i<8;i++){
+      if(!locked[8][i])setMod(8,i,0);if(!locked[i][8])setMod(i,8,0);
+      if(!locked[8][size-1-i])setMod(8,size-1-i,0);if(!locked[size-1-i][8])setMod(size-1-i,8,0);
+    }
+    if(!locked[8][8])setMod(8,8,0);
+
+    // Place data bits
+    const fbits=[];
+    for(const b of final)for(let i=7;i>=0;i--)fbits.push((b>>i)&1);
+    let bi=0;
+    for(let col=size-1;col>=1;col-=2){
+      if(col===6)col=5;
+      for(let row=0;row<size;row++){
+        for(let c=0;c<2;c++){
+          const cc=col-c;
+          const rr=((Math.floor((size-1-col+(col<6?1:0))/2))%2===0)?(size-1-row):row;
+          if(!locked[rr][cc]){
+            grid[rr][cc]=bi<fbits.length?fbits[bi]:0;
+            bi++;
+          }
+        }
+      }
+    }
+
+    // Try all 8 masks, pick best
+    let bestMask=0, bestScore=Infinity;
+    for(let m=0;m<8;m++){
+      const mg=grid.map(r=>[...r]);
+      applyMask(mg,locked,m,size);
+      const s=scoreMask(mg,size);
+      if(s<bestScore){bestScore=s;bestMask=m}
+    }
+    applyMask(grid,locked,bestMask,size);
+
+    // Write format info
+    const fmt=FMTINFO[bestMask];
+    for(let i=0;i<6;i++)grid[8][i]=(fmt>>i)&1;
+    grid[8][7]=(fmt>>6)&1;grid[8][8]=(fmt>>7)&1;grid[7][8]=(fmt>>8)&1;
+    for(let i=0;i<6;i++)grid[5-i][8]=(fmt>>(9+i))&1;
+    for(let i=0;i<8;i++)grid[8][size-1-i]=(fmt>>i)&1;
+    for(let i=0;i<7;i++)grid[size-1-i][8]=(fmt>>(8+i))&1;
+
+    return {grid,size};
+  }
+
+  function applyMask(g,lk,m,sz){
+    for(let r=0;r<sz;r++)for(let c=0;c<sz;c++){
+      if(lk[r][c])continue;
+      let flip=false;
+      switch(m){
+        case 0:flip=(r+c)%2===0;break;case 1:flip=r%2===0;break;
+        case 2:flip=c%3===0;break;case 3:flip=(r+c)%3===0;break;
+        case 4:flip=(Math.floor(r/2)+Math.floor(c/3))%2===0;break;
+        case 5:flip=((r*c)%2+(r*c)%3)===0;break;
+        case 6:flip=((r*c)%2+(r*c)%3)%2===0;break;
+        case 7:flip=((r+c)%2+(r*c)%3)%2===0;break;
+      }
+      if(flip)g[r][c]^=1;
+    }
+  }
+
+  function scoreMask(g,sz){
+    let score=0;
+    for(let r=0;r<sz;r++){let run=1;for(let c=1;c<sz;c++){if(g[r][c]===g[r][c-1])run++;else{if(run>=5)score+=run-2;run=1}}if(run>=5)score+=run-2}
+    for(let c=0;c<sz;c++){let run=1;for(let r=1;r<sz;r++){if(g[r][c]===g[r-1][c])run++;else{if(run>=5)score+=run-2;run=1}}if(run>=5)score+=run-2}
+    for(let r=0;r<sz-1;r++)for(let c=0;c<sz-1;c++){const v=g[r][c];if(v===g[r][c+1]&&v===g[r+1][c]&&v===g[r+1][c+1])score+=3}
+    return score;
+  }
+
+  function drawQR(canvas,text,px){
+    const result=generate(text);
+    if(!result){const x=canvas.getContext('2d');x.fillStyle='#222';x.fillRect(0,0,canvas.width,canvas.height);x.fillStyle='#f66';x.font='12px sans-serif';x.textAlign='center';x.fillText('Code too long for QR',canvas.width/2,canvas.height/2);return}
+    const {grid:g,size:s}=result;
+    const p=px||Math.max(2,Math.floor(200/s));
+    canvas.width=canvas.height=(s+8)*p;
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#000';
+    for(let r=0;r<s;r++)for(let c=0;c<s;c++)if(g[r][c])ctx.fillRect((c+4)*p,(r+4)*p,p,p);
+  }
+
+  return{generate,drawQR};
+})();
+
+// ═══════════════════════════════════════
+// WEB AUDIO SOUND ENGINE
+// ═══════════════════════════════════════
+const Sound = (()=>{
+  let ctx;
+  function init(){if(!ctx)ctx=new(window.AudioContext||window.webkitAudioContext)();if(ctx.state==='suspended')ctx.resume()}
+  function noise(dur,gain,freq){
+    init();
+    const n=ctx.createBufferSource();
+    const buf=ctx.createBuffer(1,ctx.sampleRate*dur,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1);
+    n.buffer=buf;
+    const f=ctx.createBiquadFilter();f.type='bandpass';f.frequency.value=freq||1000;f.Q.value=1;
+    const g=ctx.createGain();g.gain.setValueAtTime(gain||.1,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
+    n.connect(f);f.connect(g);g.connect(ctx.destination);n.start();
+  }
+  function tone(freq,dur,gain,type){
+    init();
+    const o=ctx.createOscillator();o.type=type||'sine';o.frequency.value=freq;
+    const g=ctx.createGain();g.gain.setValueAtTime(gain||.15,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
+    o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+dur);
+  }
+  return{
+    init,
+    hit(force){const f=300+force*600;tone(f,.08,.12+force*.1);noise(.04,.05+force*.06,2000)},
+    wallBounce(){tone(180,.05,.06);noise(.03,.03,3000)},
+    goal(){
+      tone(523,.15,.2);setTimeout(()=>tone(659,.15,.2),80);setTimeout(()=>tone(784,.3,.25),160);
+      noise(.6,.15,800);setTimeout(()=>noise(.4,.1,1200),200);
+    },
+    tick(){tone(1000,.02,.04)}
+  };
+})();
+
+// ═══════════════════════════════════════
+// GAME ENGINE
+// ═══════════════════════════════════════
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+let W,H,TW,TH,TX,TY;
+const PADDLE_R_RATIO=0.055, PUCK_R_RATIO=0.03, GOAL_W_RATIO=0.3;
+const WIN_SCORE=7, FRICTION=0.992, WALL_BOUNCE=0.75, MAX_SPEED_RATIO=0.02;
+
+let gameMode=null; // 'ai','local','online_host','online_join'
+let aiDifficulty=0.7;
+let score=[0,0];
+let gameActive=false;
+let shakeAmount=0;
+let particles=[];
+let puckTrail=[];
+
+const puck={x:0,y:0,vx:0,vy:0,r:0};
+const p1={x:0,y:0,r:0,targetX:0,targetY:0,vx:0,vy:0}; // bottom (red)
+const p2={x:0,y:0,r:0,targetX:0,targetY:0,vx:0,vy:0}; // top (blue)
+let goalW=0;
+
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W;canvas.height=H;
+  const maxW=Math.min(W*.92,500);
+  const maxH=H*.88;
+  TH=Math.min(maxH,maxW*1.8);
+  TW=TH/1.8;
+  if(TW>maxW){TW=maxW;TH=TW*1.8}
+  TX=(W-TW)/2;TY=(H-TH)/2;
+  puck.r=TW*PUCK_R_RATIO;
+  p1.r=p2.r=TW*PADDLE_R_RATIO;
+  goalW=TH*GOAL_W_RATIO;
+}
+resize();
+window.addEventListener('resize',resize);
+
+function resetPuck(dir){
+  puck.x=TX+TW/2;puck.y=TY+TH/2;
+  puck.vx=(Math.random()-.5)*TW*0.004;
+  puck.vy=(dir||1)*TW*0.005;
+  puckTrail=[];
+}
+
+function resetPositions(){
+  p1.x=p1.targetX=TX+TW/2;p1.y=p1.targetY=TY+TH*.82;
+  p2.x=p2.targetX=TX+TW/2;p2.y=p2.targetY=TY+TH*.18;
+  p1.vx=p1.vy=p2.vx=p2.vy=0;
+  resetPuck(Math.random()<.5?1:-1);
+}
+
+function startGame(mode){
+  gameMode=mode;score=[0,0];gameActive=true;
+  particles=[];shakeAmount=0;
+  resetPositions();
+  document.getElementById('score1').textContent='0';
+  document.getElementById('score2').textContent='0';
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('hudBack').classList.remove('hidden');
+  showScreen(null);
+  Sound.init();
+}
+
+// ── Physics ──
+function circleCollide(a,b){
+  const dx=b.x-a.x,dy=b.y-a.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const minD=a.r+b.r;
+  if(dist>=minD||dist===0)return false;
+  const nx=dx/dist,ny=dy/dist;
+  const overlap=minD-dist;
+  a.x-=nx*overlap*.5;a.y-=ny*overlap*.5;
+  b.x+=nx*overlap*.5;b.y+=ny*overlap*.5;
+  const dvx=b.vx-a.vx,dvy=b.vy-a.vy;
+  const dvn=dvx*nx+dvy*ny;
+  if(dvn>0)return false;
+  const restitution=1.05;
+  b.vx-=restitution*dvn*nx;b.vy-=restitution*dvn*ny;
+  a.vx+=restitution*dvn*nx*.3;a.vy+=restitution*dvn*ny*.3;
+  return true;
+}
+
+function updatePhysics(dt){
+  const maxSpd=TW*MAX_SPEED_RATIO;
+
+  // Move puck
+  puck.x+=puck.vx;puck.y+=puck.vy;
+  puck.vx*=FRICTION;puck.vy*=FRICTION;
+
+  // Clamp speed
+  const spd=Math.sqrt(puck.vx*puck.vx+puck.vy*puck.vy);
+  if(spd>maxSpd){puck.vx*=maxSpd/spd;puck.vy*=maxSpd/spd}
+
+  // Wall bounces (left/right)
+  if(puck.x-puck.r<TX){puck.x=TX+puck.r;puck.vx*=-WALL_BOUNCE;Sound.wallBounce()}
+  if(puck.x+puck.r>TX+TW){puck.x=TX+TW-puck.r;puck.vx*=-WALL_BOUNCE;Sound.wallBounce()}
+
+  // Top/bottom walls with goals
+  const goalLeft=TX+TW/2-goalW/2, goalRight=TX+TW/2+goalW/2;
+  const inGoalX=puck.x>goalLeft&&puck.x<goalRight;
+
+  // Top wall
+  if(puck.y-puck.r<TY){
+    if(inGoalX){
+      // Goal for player 1 (bottom)
+      scoreGoal(0);return;
+    }
+    puck.y=TY+puck.r;puck.vy*=-WALL_BOUNCE;Sound.wallBounce();
+  }
+  // Bottom wall
+  if(puck.y+puck.r>TY+TH){
+    if(inGoalX){
+      scoreGoal(1);return;
+    }
+    puck.y=TY+TH-puck.r;puck.vy*=-WALL_BOUNCE;Sound.wallBounce();
+  }
+
+  // Paddle-puck collisions
+  if(circleCollide(p1,puck)){Sound.hit(spd/maxSpd);shakeAmount=Math.min(6,spd/maxSpd*6);spawnHitParticles(puck.x,puck.y,'#ff3366')}
+  if(circleCollide(p2,puck)){Sound.hit(spd/maxSpd);shakeAmount=Math.min(6,spd/maxSpd*6);spawnHitParticles(puck.x,puck.y,'#00d4ff')}
+
+  // Paddle movement (smooth follow)
+  const pspeed=0.18;
+  [p1,p2].forEach((p,i)=>{
+    const prevX=p.x,prevY=p.y;
+    p.x+=(p.targetX-p.x)*pspeed;p.y+=(p.targetY-p.y)*pspeed;
+    p.vx=p.x-prevX;p.vy=p.y-prevY;
+    // Constrain to half
+    const halfMin=i===0?TY+TH/2:TY;
+    const halfMax=i===0?TY+TH:TY+TH/2;
+    p.x=Math.max(TX+p.r,Math.min(TX+TW-p.r,p.x));
+    p.y=Math.max(halfMin+p.r,Math.min(halfMax-p.r,p.y));
+  });
+
+  // Trail
+  puckTrail.push({x:puck.x,y:puck.y,life:1});
+  if(puckTrail.length>20)puckTrail.shift();
+  puckTrail.forEach(t=>t.life*=.88);
+
+  // Particles
+  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.2;p.life-=.03;return p.life>0});
+
+  // Shake decay
+  shakeAmount*=.85;
+}
+
+function scoreGoal(againstPlayer){
+  const scorer=1-againstPlayer;
+  score[scorer]++;
+  document.getElementById('score'+(scorer+1)).textContent=score[scorer];
+  Sound.goal();
+  shakeAmount=10;
+
+  // Goal particles
+  const gx=puck.x, gy=againstPlayer===1?TY+TH:TY;
+  const color=scorer===0?'#ff3366':'#00d4ff';
+  for(let i=0;i<40;i++){
+    const angle=Math.random()*Math.PI*2;
+    const speed=2+Math.random()*6;
+    particles.push({x:gx,y:gy,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed*(againstPlayer===1?-1:1),life:1,color});
+  }
+
+  if(score[scorer]>=WIN_SCORE){
+    gameActive=false;
+    setTimeout(()=>showGameOver(scorer),600);
+    return;
+  }
+  setTimeout(()=>{
+    if(gameActive)resetPuck(againstPlayer===0?-1:1);
+  },800);
+}
+
+function spawnHitParticles(x,y,color){
+  for(let i=0;i<8;i++){
+    const a=Math.random()*Math.PI*2,s=1+Math.random()*3;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,color});
+  }
+}
+
+// ── AI ──
+function updateAI(){
+  if(gameMode!=='ai'||!gameActive)return;
+  const d=aiDifficulty;
+  let targetX=TX+TW/2, targetY=TY+TH*.18;
+
+  if(puck.vy<0){ // Puck moving toward AI
+    const timeToReach=Math.abs((p2.y-puck.y)/(puck.vy||.001));
+    targetX=puck.x+puck.vx*timeToReach*d;
+    targetY=puck.y+puck.vy*timeToReach*.3;
+    targetX=Math.max(TX+p2.r,Math.min(TX+TW-p2.r,targetX));
+    targetY=Math.max(TY+p2.r,Math.min(TY+TH/2-p2.r,targetY));
+  }
+
+  // Add imprecision
+  targetX+=(Math.random()-.5)*TW*(1-d)*.3;
+  targetY+=(Math.random()-.5)*TH*(1-d)*.1;
+
+  p2.targetX+=(targetX-p2.targetX)*(0.04+d*0.08);
+  p2.targetY+=(targetY-p2.targetY)*(0.04+d*0.08);
+}
+
+// ── Renderer ──
+function draw(){
+  const sx=shakeAmount>0.5?(Math.random()-.5)*shakeAmount:0;
+  const sy=shakeAmount>0.5?(Math.random()-.5)*shakeAmount:0;
+
+  ctx.fillStyle='#05060f';ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.translate(sx,sy);
+
+  // Table
+  const grad=ctx.createLinearGradient(TX,TY,TX,TY+TH);
+  grad.addColorStop(0,'#0a1628');grad.addColorStop(.5,'#0c1a30');grad.addColorStop(1,'#0a1628');
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  ctx.roundRect(TX,TY,TW,TH,12);
+  ctx.fill();
+
+  // Table border
+  ctx.strokeStyle='#1a2d52';ctx.lineWidth=3;
+  ctx.beginPath();ctx.roundRect(TX,TY,TW,TH,12);ctx.stroke();
+
+  // Center line
+  ctx.strokeStyle='#1a2d5266';ctx.lineWidth=2;ctx.setLineDash([8,8]);
+  ctx.beginPath();ctx.moveTo(TX,TY+TH/2);ctx.lineTo(TX+TW,TY+TH/2);ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Center circle
+  ctx.beginPath();ctx.arc(TX+TW/2,TY+TH/2,TW*.15,0,Math.PI*2);
+  ctx.strokeStyle='#1a2d5244';ctx.lineWidth=2;ctx.stroke();
+
+  // Goals
+  const gLeft=TX+TW/2-goalW/2,gRight=TX+TW/2+goalW/2;
+  ctx.fillStyle='#ff336633';
+  ctx.fillRect(gLeft,TY-4,goalW,8);
+  ctx.shadowColor='#ff3366';ctx.shadowBlur=15;
+  ctx.fillRect(gLeft,TY-2,goalW,4);
+  ctx.shadowBlur=0;
+
+  ctx.fillStyle='#00d4ff33';
+  ctx.fillRect(gLeft,TY+TH-4,goalW,8);
+  ctx.shadowColor='#00d4ff';ctx.shadowBlur=15;
+  ctx.fillRect(gLeft,TY+TH-2,goalW,4);
+  ctx.shadowBlur=0;
+
+  // Goal posts
+  ctx.fillStyle='#ff6688';
+  ctx.fillRect(gLeft-3,TY-6,6,12);ctx.fillRect(gRight-3,TY-6,6,12);
+  ctx.fillStyle='#66ccff';
+  ctx.fillRect(gLeft-3,TY+TH-6,6,12);ctx.fillRect(gRight-3,TY+TH-6,6,12);
+
+  // Puck trail
+  puckTrail.forEach((t,i)=>{
+    if(t.life<.1)return;
+    ctx.beginPath();ctx.arc(t.x,t.y,puck.r*t.life*.7,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${t.life*.15})`;ctx.fill();
+  });
+
+  // Puck
+  ctx.save();
+  ctx.shadowColor='#ffffff';ctx.shadowBlur=20;
+  const pg=ctx.createRadialGradient(puck.x-puck.r*.3,puck.y-puck.r*.3,0,puck.x,puck.y,puck.r);
+  pg.addColorStop(0,'#ffffff');pg.addColorStop(.7,'#ccddff');pg.addColorStop(1,'#8899bb');
+  ctx.beginPath();ctx.arc(puck.x,puck.y,puck.r,0,Math.PI*2);
+  ctx.fillStyle=pg;ctx.fill();
+  ctx.restore();
+
+  // Paddles
+  drawPaddle(p1,'#ff3366','#ff668866');
+  drawPaddle(p2,'#00d4ff','#00d4ff66');
+
+  // Particles
+  particles.forEach(p=>{
+    ctx.beginPath();ctx.arc(p.x,p.y,3*p.life,0,Math.PI*2);
+    ctx.fillStyle=p.color+Math.floor(p.life*255).toString(16).padStart(2,'0');
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+function drawPaddle(p,color,glow){
+  ctx.save();
+  ctx.shadowColor=color;ctx.shadowBlur=25;
+  const g=ctx.createRadialGradient(p.x-p.r*.2,p.y-p.r*.2,0,p.x,p.y,p.r);
+  g.addColorStop(0,'#ffffff');g.addColorStop(.3,color);g.addColorStop(1,glow);
+  ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+  ctx.fillStyle=g;ctx.fill();
+  // Inner ring
+  ctx.beginPath();ctx.arc(p.x,p.y,p.r*.55,0,Math.PI*2);
+  ctx.strokeStyle='#ffffff44';ctx.lineWidth=2;ctx.stroke();
+  ctx.restore();
+}
+
+// ── Input ──
+let pointer1=null, pointer2=null; // {id, x, y}
+
+function pointerToTable(px,py){return{x:px,y:py}}
+
+canvas.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(!gameActive)return;
+  Sound.init();
+  const pt={id:e.pointerId,x:e.clientX,y:e.clientY};
+  if(gameMode==='local'){
+    if(e.clientY>TY+TH/2){if(!pointer1)pointer1=pt}
+    else{if(!pointer2)pointer2=pt}
+  } else {
+    if(!pointer1)pointer1=pt;
+  }
+  handlePointerMove(e);
+});
+
+canvas.addEventListener('pointermove',e=>{e.preventDefault();handlePointerMove(e)});
+
+function handlePointerMove(e){
+  if(!gameActive)return;
+  if(pointer1&&e.pointerId===pointer1.id){
+    p1.targetX=e.clientX;p1.targetY=e.clientY;
+  }
+  if(gameMode==='local'&&pointer2&&e.pointerId===pointer2.id){
+    p2.targetX=e.clientX;p2.targetY=e.clientY;
+  }
+}
+
+canvas.addEventListener('pointerup',e=>{
+  if(pointer1&&e.pointerId===pointer1.id)pointer1=null;
+  if(pointer2&&e.pointerId===pointer2.id)pointer2=null;
+});
+canvas.addEventListener('pointercancel',e=>{
+  if(pointer1&&e.pointerId===pointer1.id)pointer1=null;
+  if(pointer2&&e.pointerId===pointer2.id)pointer2=null;
+});
+
+// Keyboard for P2 in local mode
+const keys={};
+document.addEventListener('keydown',e=>{keys[e.key]=true});
+document.addEventListener('keyup',e=>{keys[e.key]=false});
+
+function handleKeyboard(){
+  if(gameMode!=='local'||!gameActive)return;
+  const spd=TW*0.015;
+  if(keys.ArrowLeft)p2.targetX-=spd;
+  if(keys.ArrowRight)p2.targetX+=spd;
+  if(keys.ArrowUp)p2.targetY-=spd;
+  if(keys.ArrowDown)p2.targetY+=spd;
+  p2.targetX=Math.max(TX+p2.r,Math.min(TX+TW-p2.r,p2.targetX));
+  p2.targetY=Math.max(TY+p2.r,Math.min(TY+TH/2-p2.r,p2.targetY));
+}
+
+// ── WebRTC P2P ──
+let pc=null, dataChannel=null, isHost=false;
+const ICE_CONFIG={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+
+function compressSDP(desc){
+  return btoa(JSON.stringify({t:desc.type,s:desc.sdp}));
+}
+function decompressSDP(str){
+  const o=JSON.parse(atob(str));
+  return new RTCSessionDescription({type:o.t,sdp:o.s});
+}
+
+async function createHost(){
+  pc=new RTCPeerConnection(ICE_CONFIG);
+  dataChannel=pc.createDataChannel('game',{ordered:true});
+  setupDataChannel(dataChannel);
+
+  pc.onicecandidate=e=>{
+    if(!e.candidate){
+      const code=compressSDP(pc.localDescription);
+      document.getElementById('hostOffer').value=code;
+      QRGen.drawQR(document.getElementById('hostQR'),code);
+      document.getElementById('hostStatus').textContent='✅ Code ready! Share it with your opponent.';
+      document.getElementById('hostStatus').className='conn-status ok';
+    }
+  };
+
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+}
+
+async function completeHostConnection(answerCode){
+  try{
+    const answer=decompressSDP(answerCode);
+    await pc.setRemoteDescription(answer);
+    document.getElementById('hostStatus').textContent='🔗 Connected! Starting game...';
+    document.getElementById('hostStatus').className='conn-status ok';
+  }catch(e){
+    document.getElementById('hostStatus').textContent='❌ Invalid answer code. Try again.';
+    document.getElementById('hostStatus').className='conn-status err';
+  }
+}
+
+async function createJoin(offerCode){
+  try{
+    pc=new RTCPeerConnection(ICE_CONFIG);
+    pc.ondatachannel=e=>{dataChannel=e.channel;setupDataChannel(dataChannel)};
+
+    const offer=decompressSDP(offerCode);
+    await pc.setRemoteDescription(offer);
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    pc.onicecandidate=e=>{
+      if(!e.candidate){
+        const code=compressSDP(pc.localDescription);
+        document.getElementById('joinAnswer').value=code;
+        document.getElementById('joinStep2').style.display='block';
+        QRGen.drawQR(document.getElementById('joinQR'),code);
+        document.getElementById('joinStatus').textContent='✅ Answer ready! Send it back to the host.';
+        document.getElementById('joinStatus').className='conn-status ok';
+      }
+    };
+  }catch(e){
+    document.getElementById('joinStatus').textContent='❌ Invalid host code.';
+    document.getElementById('joinStatus').className='conn-status err';
+  }
+}
+
+function setupDataChannel(ch){
+  ch.onopen=()=>{
+    setTimeout(()=>startGame(isHost?'online_host':'online_join'),300);
+  };
+  ch.onmessage=e=>{
+    const msg=JSON.parse(e.data);
+    if(msg.type==='paddle'){
+      // Opponent paddle position (they control p2 from their perspective = our p2 if we're host)
+      const target=isHost?p2:p1;
+      target.targetX=TX+msg.x*TW;
+      target.targetY=TY+msg.y*TH;
+    }
+    if(msg.type==='state'&&!isHost){
+      puck.x=TX+msg.px*TW;puck.y=TY+msg.py*TH;
+      puck.vx=msg.pvx*TW;puck.vy=msg.pvy*TH;
+      if(msg.s)score=msg.s;
+      document.getElementById('score1').textContent=score[0];
+      document.getElementById('score2').textContent=score[1];
+    }
+  };
+  ch.onclose=()=>{
+    if(gameActive){gameActive=false;showMenu();alert('Connection lost!')}
+  };
+}
+
+function sendPaddle(){
+  if(!dataChannel||dataChannel.readyState!=='open')return;
+  const me=isHost?p1:p2;
+  // Send normalized position
+  const nx=(me.targetX-TX)/TW, ny=(me.targetY-TY)/TH;
+  // Mirror Y for opponent's perspective
+  dataChannel.send(JSON.stringify({type:'paddle',x:nx,y:1-ny}));
+}
+
+function sendState(){
+  if(!dataChannel||dataChannel.readyState!=='open'||!isHost)return;
+  dataChannel.send(JSON.stringify({
+    type:'state',
+    px:(puck.x-TX)/TW,py:(puck.y-TY)/TH,
+    pvx:puck.vx/TW,pvy:puck.vy/TH,
+    s:score
+  }));
+}
+
+let netTick=0;
+
+// ── QR Scanner ──
+let scanStream=null;
+async function startScan(){
+  showScreen('scanScreen');
+  try{
+    scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const video=document.getElementById('scanVideo');
+    video.srcObject=scanStream;
+    if('BarcodeDetector' in window){
+      const detector=new BarcodeDetector({formats:['qr_code']});
+      const scanLoop=async()=>{
+        if(!scanStream)return;
+        try{
+          const codes=await detector.detect(video);
+          if(codes.length>0){
+            stopScan();
+            document.getElementById('joinOffer').value=codes[0].rawValue;
+            showScreen('joinScreen');
+            return;
+          }
+        }catch(e){}
+        requestAnimationFrame(scanLoop);
+      };
+      video.onplaying=scanLoop;
+    }
+  }catch(e){
+    stopScan();showScreen('joinScreen');
+    document.getElementById('joinStatus').textContent='📷 Camera unavailable. Paste the code manually.';
+  }
+}
+
+function stopScan(){
+  if(scanStream){scanStream.getTracks().forEach(t=>t.stop());scanStream=null}
+  showScreen('joinScreen');
+}
+window.stopScan=stopScan;
+
+// ── Screens ──
+const screens=['menuScreen','hostScreen','joinScreen','scanScreen','gameoverScreen'];
+function showScreen(id){screens.forEach(s=>{const el=document.getElementById(s);el.classList.toggle('hidden',s!==id)})}
+
+function showMenu(){
+  gameActive=false;
+  if(pc){pc.close();pc=null;dataChannel=null}
+  document.getElementById('hud').classList.add('hidden');
+  document.getElementById('hudBack').classList.add('hidden');
+  showScreen('menuScreen');
+}
+window.showMenu=showMenu;
+
+function showGameOver(winner){
+  const box=document.getElementById('gameoverBox');
+  const color=winner===0?'var(--red)':'var(--blue)';
+  const name=winner===0?'Red':'Blue';
+  const label=gameMode==='ai'?(winner===0?'You Win!':'AI Wins!'):`${name} Player Wins!`;
+  document.getElementById('goTitle').innerHTML=`<span style="color:${color}">🏆 ${label}</span>`;
+  document.getElementById('goSub').textContent=`${score[0]} — ${score[1]}`;
+  showScreen('gameoverScreen');
+}
+
+window.startAI=()=>startGame('ai');
+window.startLocal=()=>startGame('local');
+
+window.showHost=()=>{
+  isHost=true;
+  showScreen('hostScreen');
+  document.getElementById('hostOffer').value='';
+  document.getElementById('hostAnswer').value='';
+  document.getElementById('hostStatus').textContent='Generating connection code...';
+  document.getElementById('hostStatus').className='conn-status';
+  createHost();
+};
+
+window.showJoin=()=>{
+  isHost=false;
+  showScreen('joinScreen');
+  document.getElementById('joinOffer').value='';
+  document.getElementById('joinAnswer').value='';
+  document.getElementById('joinStep2').style.display='none';
+  document.getElementById('joinStatus').textContent='Paste or scan the host\'s code';
+  document.getElementById('joinStatus').className='conn-status';
+};
+
+window.completeHost=()=>{
+  const code=document.getElementById('hostAnswer').value.trim();
+  if(code)completeHostConnection(code);
+};
+
+window.processJoin=()=>{
+  const code=document.getElementById('joinOffer').value.trim();
+  if(code)createJoin(code);
+};
+
+window.scanQR=()=>startScan();
+
+window.copyCode=id=>{
+  const el=document.getElementById(id);
+  navigator.clipboard.writeText(el.value).then(()=>{
+    const orig=el.style.borderColor;
+    el.style.borderColor='var(--green)';
+    setTimeout(()=>el.style.borderColor=orig,1000);
+  });
+};
+
+window.rematch=()=>{
+  if(gameMode&&gameMode.startsWith('online')){
+    score=[0,0];gameActive=true;resetPositions();
+    document.getElementById('score1').textContent='0';
+    document.getElementById('score2').textContent='0';
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('hudBack').classList.remove('hidden');
+    showScreen(null);
+  } else {
+    startGame(gameMode||'ai');
+  }
+};
+
+// Difficulty buttons
+document.getElementById('diffBar').addEventListener('click',e=>{
+  const btn=e.target.closest('.diff-btn');
+  if(!btn)return;
+  document.querySelectorAll('.diff-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  aiDifficulty=parseFloat(btn.dataset.d);
+});
+
+// ── Game Loop ──
+let lastTime=0;
+function loop(time){
+  requestAnimationFrame(loop);
+  const dt=Math.min(time-lastTime,33);
+  lastTime=time;
+
+  if(gameActive){
+    handleKeyboard();
+    updateAI();
+    updatePhysics(dt);
+
+    // Online sync
+    if(gameMode&&gameMode.startsWith('online')){
+      netTick++;
+      if(netTick%2===0)sendPaddle();
+      if(netTick%3===0)sendState();
+    }
+  }
+  draw();
+}
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

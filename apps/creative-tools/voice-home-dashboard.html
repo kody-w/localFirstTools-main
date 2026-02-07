@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Voice-controlled home dashboard using Web Speech API — a local-first Jarvis with timers, notes, weather, and more">
+<meta name="category" content="creative_tools">
+<title>Voice Home Dashboard — Local Jarvis</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e1a;--surface:#111827;--surface2:#1e293b;--border:#334155;
+  --accent:#3b82f6;--accent-glow:#3b82f680;--green:#10b981;--red:#ef4444;
+  --orange:#f59e0b;--purple:#8b5cf6;--text:#e2e8f0;--dim:#94a3b8;
+  --radius:12px;
+}
+body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+button{cursor:pointer;font-family:inherit;border:none;outline:none}
+
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;padding:20px 28px;background:var(--surface);border-bottom:1px solid var(--border)}
+.header h1{font-size:1.4rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header .clock{font-size:1.1rem;font-variant-numeric:tabular-nums;color:var(--dim)}
+
+/* Mic Area */
+.mic-area{display:flex;flex-direction:column;align-items:center;padding:32px 20px 20px}
+.mic-btn{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;transition:all .3s;box-shadow:0 0 0 0 var(--accent-glow)}
+.mic-btn:hover{transform:scale(1.06)}
+.mic-btn.listening{animation:pulse 1.5s infinite;background:linear-gradient(135deg,var(--red),var(--orange))}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--accent-glow)}50%{box-shadow:0 0 0 20px transparent}}
+.mic-btn svg{width:40px;height:40px;fill:#fff}
+.mic-status{margin-top:14px;font-size:.9rem;color:var(--dim);min-height:22px}
+.transcript-live{margin-top:6px;font-size:1.05rem;color:var(--accent);min-height:26px;text-align:center;max-width:600px;font-style:italic}
+
+/* Response Bubble */
+.response-area{display:flex;justify-content:center;padding:0 20px 16px}
+.response-bubble{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 22px;max-width:640px;width:100%;min-height:48px;font-size:1rem;line-height:1.5;color:var(--text);display:none}
+.response-bubble.visible{display:block;animation:fadeUp .3s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* Dashboard Grid */
+.dashboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:16px 24px 100px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;transition:border-color .2s}
+.card:hover{border-color:var(--accent)}
+.card-title{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card-title svg{width:16px;height:16px;fill:var(--dim)}
+
+/* Clock Card */
+.big-time{font-size:3rem;font-weight:700;font-variant-numeric:tabular-nums;background:linear-gradient(135deg,var(--accent),var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.big-date{font-size:1rem;color:var(--dim);margin-top:4px}
+
+/* Timer Card */
+.timer-list{display:flex;flex-direction:column;gap:10px}
+.timer-item{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:8px;padding:10px 14px}
+.timer-item .t-label{font-size:.85rem;color:var(--dim)}
+.timer-item .t-time{font-size:1.3rem;font-weight:600;font-variant-numeric:tabular-nums}
+.timer-item .t-time.done{color:var(--green)}
+.timer-item .t-time.active{color:var(--orange)}
+.timer-remove{background:var(--red);color:#fff;border-radius:6px;padding:4px 10px;font-size:.75rem}
+.no-items{color:var(--dim);font-size:.9rem;font-style:italic}
+
+/* Notes Card */
+.notes-list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto}
+.note-item{background:var(--surface2);border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.note-item .n-text{font-size:.9rem;flex:1;word-break:break-word}
+.note-item .n-date{font-size:.7rem;color:var(--dim);white-space:nowrap}
+.note-remove{background:var(--red);color:#fff;border-radius:6px;padding:4px 10px;font-size:.75rem;flex-shrink:0}
+
+/* Reminders Card */
+.reminder-item{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:8px}
+.reminder-item .r-text{font-size:.9rem;flex:1}
+.reminder-item .r-time{font-size:.75rem;color:var(--dim);margin-left:10px}
+
+/* Log Card */
+.log-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
+.log-item{font-size:.82rem;color:var(--dim);padding:4px 0;border-bottom:1px solid var(--border)}
+.log-item span.cmd{color:var(--accent)}
+.log-item span.resp{color:var(--green)}
+
+/* Weather Card */
+.weather-display{text-align:center}
+.weather-icon{font-size:3rem}
+.weather-temp{font-size:2rem;font-weight:700;margin:4px 0}
+.weather-desc{color:var(--dim);font-size:.9rem}
+
+/* Quick Commands */
+.quick-cmds{display:flex;flex-wrap:wrap;gap:8px;padding:12px 24px}
+.quick-cmd{background:var(--surface2);border:1px solid var(--border);color:var(--dim);border-radius:20px;padding:6px 16px;font-size:.82rem;transition:all .2s}
+.quick-cmd:hover{border-color:var(--accent);color:var(--text)}
+
+/* Help overlay */
+.help-overlay{position:fixed;inset:0;background:#000a;z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
+.help-overlay.visible{display:flex}
+.help-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto}
+.help-box h2{margin-bottom:16px;font-size:1.2rem}
+.help-box table{width:100%;border-collapse:collapse}
+.help-box td{padding:6px 8px;font-size:.85rem;border-bottom:1px solid var(--border);vertical-align:top}
+.help-box td:first-child{color:var(--accent);white-space:nowrap;font-weight:600}
+.help-close{margin-top:16px;background:var(--accent);color:#fff;border-radius:8px;padding:8px 24px;font-size:.9rem}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Data Management */
+.data-bar{display:flex;gap:8px;margin-top:12px}
+.data-btn{background:var(--surface2);border:1px solid var(--border);color:var(--dim);border-radius:8px;padding:6px 14px;font-size:.78rem}
+.data-btn:hover{color:var(--text);border-color:var(--accent)}
+
+@media(max-width:600px){
+  .dashboard{grid-template-columns:1fr;padding:12px 12px 80px}
+  .big-time{font-size:2.2rem}
+  .mic-btn{width:76px;height:76px}
+  .mic-btn svg{width:32px;height:32px}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎙️ Local Jarvis</h1>
+  <div class="clock" id="headerClock"></div>
+</div>
+
+<div class="mic-area">
+  <button class="mic-btn" id="micBtn" title="Click or say wake word to start listening">
+    <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+  </button>
+  <div class="mic-status" id="micStatus">Click the microphone or press Space to start</div>
+  <div class="transcript-live" id="liveTranscript"></div>
+</div>
+
+<div class="response-area">
+  <div class="response-bubble" id="responseBubble"></div>
+</div>
+
+<div class="quick-cmds" id="quickCmds">
+  <button class="quick-cmd" data-cmd="What time is it?">🕐 What time is it?</button>
+  <button class="quick-cmd" data-cmd="What's the date?">📅 What's the date?</button>
+  <button class="quick-cmd" data-cmd="Set a timer for 5 minutes">⏱️ Timer 5 min</button>
+  <button class="quick-cmd" data-cmd="Set a timer for 1 minute">⏱️ Timer 1 min</button>
+  <button class="quick-cmd" data-cmd="Show me my notes">📝 My notes</button>
+  <button class="quick-cmd" data-cmd="Tell me a joke">😂 Tell a joke</button>
+  <button class="quick-cmd" data-cmd="Roll a dice">🎲 Roll dice</button>
+  <button class="quick-cmd" data-cmd="Flip a coin">🪙 Flip coin</button>
+  <button class="quick-cmd" data-cmd="Help">❓ Help</button>
+</div>
+
+<div class="dashboard">
+  <!-- Clock Card -->
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg>Clock</div>
+    <div class="big-time" id="bigTime"></div>
+    <div class="big-date" id="bigDate"></div>
+  </div>
+
+  <!-- Timers Card -->
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61 1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.962 8.962 0 0012 4c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>Timers</div>
+    <div class="timer-list" id="timerList"><div class="no-items">No active timers. Say "Set a timer for 5 minutes"</div></div>
+  </div>
+
+  <!-- Notes Card -->
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z"/></svg>Notes</div>
+    <div class="notes-list" id="notesList"><div class="no-items">No notes yet. Say "Add a note: buy groceries"</div></div>
+  </div>
+
+  <!-- Reminders Card -->
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/></svg>Reminders</div>
+    <div id="reminderList"><div class="no-items">Say "Remind me to stretch in 10 minutes"</div></div>
+  </div>
+
+  <!-- Weather Card (simulated local) -->
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>Local Conditions</div>
+    <div class="weather-display" id="weatherDisplay">
+      <div class="weather-icon">☀️</div>
+      <div class="weather-temp">72°F</div>
+      <div class="weather-desc">Simulated local weather</div>
+    </div>
+  </div>
+
+  <!-- Command Log -->
+  <div class="card">
+    <div class="card-title"><svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/></svg>Command Log</div>
+    <div class="log-list" id="logList"><div class="no-items">Commands will appear here</div></div>
+  </div>
+</div>
+
+<!-- Data management bar -->
+<div style="padding:0 24px 24px;display:flex;justify-content:center">
+  <div class="data-bar">
+    <button class="data-btn" onclick="exportData()">📤 Export Data</button>
+    <button class="data-btn" onclick="importData()">📥 Import Data</button>
+    <button class="data-btn" onclick="clearAllData()">🗑️ Clear All Data</button>
+  </div>
+</div>
+<input type="file" id="importFile" accept=".json" style="display:none">
+
+<!-- Help Overlay -->
+<div class="help-overlay" id="helpOverlay">
+  <div class="help-box">
+    <h2>🎙️ Voice Commands</h2>
+    <table>
+      <tr><td>What time is it?</td><td>Speaks the current time</td></tr>
+      <tr><td>What's the date?</td><td>Speaks today's date</td></tr>
+      <tr><td>Set a timer for X minutes/seconds</td><td>Starts a countdown timer</td></tr>
+      <tr><td>Stop timer / Cancel timer</td><td>Removes most recent timer</td></tr>
+      <tr><td>Add a note: [text]</td><td>Saves a note to localStorage</td></tr>
+      <tr><td>Show me my notes</td><td>Reads your saved notes</td></tr>
+      <tr><td>Delete note [number]</td><td>Removes a specific note</td></tr>
+      <tr><td>Clear all notes</td><td>Deletes all saved notes</td></tr>
+      <tr><td>Remind me to [X] in [Y] minutes</td><td>Sets a timed reminder</td></tr>
+      <tr><td>Tell me a joke</td><td>Tells a random joke</td></tr>
+      <tr><td>Roll a dice / Roll a d20</td><td>Rolls dice (d4, d6, d8, d10, d12, d20)</td></tr>
+      <tr><td>Flip a coin</td><td>Heads or tails</td></tr>
+      <tr><td>Calculate [expression]</td><td>Math: "calculate 25 times 4"</td></tr>
+      <tr><td>Set brightness to [level]</td><td>Adjusts page brightness (0-100)</td></tr>
+      <tr><td>Good morning / Good night</td><td>Greeting responses</td></tr>
+      <tr><td>Thank you</td><td>You're welcome!</td></tr>
+      <tr><td>Stop / Be quiet</td><td>Stops TTS immediately</td></tr>
+      <tr><td>Help</td><td>Shows this help screen</td></tr>
+    </table>
+    <p style="margin-top:14px;font-size:.82rem;color:var(--dim)">💡 Press <b>Space</b> to toggle listening. All data is stored locally in your browser.</p>
+    <button class="help-close" onclick="toggleHelp()">Got it</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // ── State ──
+  const STORAGE_KEY = 'localJarvis';
+  let state = loadState();
+  let timers = [];
+  let recognition = null;
+  let isListening = false;
+  let ttsQueue = [];
+  let isSpeaking = false;
+
+  function defaultState(){
+    return { notes: [], reminders: [], log: [], weather: { icon:'☀️', temp:72, desc:'Sunny' } };
+  }
+
+  function loadState(){
+    try { return Object.assign(defaultState(), JSON.parse(localStorage.getItem(STORAGE_KEY))); }
+    catch(e){ return defaultState(); }
+  }
+
+  function saveState(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  // ── DOM refs ──
+  const micBtn = document.getElementById('micBtn');
+  const micStatus = document.getElementById('micStatus');
+  const liveTranscript = document.getElementById('liveTranscript');
+  const responseBubble = document.getElementById('responseBubble');
+  const timerListEl = document.getElementById('timerList');
+  const notesListEl = document.getElementById('notesList');
+  const reminderListEl = document.getElementById('reminderList');
+  const logListEl = document.getElementById('logList');
+  const headerClock = document.getElementById('headerClock');
+  const bigTime = document.getElementById('bigTime');
+  const bigDate = document.getElementById('bigDate');
+
+  // ── Clock ──
+  function updateClock(){
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', second:'2-digit' });
+    const dateStr = now.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    headerClock.textContent = timeStr;
+    bigTime.textContent = timeStr;
+    bigDate.textContent = dateStr;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ── Speech Recognition ──
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if(!SpeechRecognition){
+    micStatus.textContent = '⚠️ Speech Recognition not supported in this browser. Try Chrome or Edge.';
+    micBtn.style.opacity = '.4';
+  } else {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      isListening = true;
+      micBtn.classList.add('listening');
+      micStatus.textContent = '🔴 Listening...';
+      liveTranscript.textContent = '';
+    };
+
+    recognition.onresult = (e) => {
+      let interim = '', final = '';
+      for(let i = e.resultIndex; i < e.results.length; i++){
+        const t = e.results[i][0].transcript;
+        if(e.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      liveTranscript.textContent = interim || final;
+      if(final) processCommand(final.trim());
+    };
+
+    recognition.onerror = (e) => {
+      if(e.error === 'no-speech'){
+        micStatus.textContent = 'No speech detected. Try again.';
+      } else if(e.error !== 'aborted'){
+        micStatus.textContent = `Error: ${e.error}`;
+      }
+      stopListening();
+    };
+
+    recognition.onend = () => {
+      stopListening();
+    };
+  }
+
+  function startListening(){
+    if(!recognition || isListening) return;
+    try { recognition.start(); } catch(e){}
+  }
+
+  function stopListening(){
+    isListening = false;
+    micBtn.classList.remove('listening');
+    micStatus.textContent = 'Click the microphone or press Space to start';
+    if(recognition) try { recognition.stop(); } catch(e){}
+  }
+
+  micBtn.addEventListener('click', () => {
+    if(isListening) stopListening();
+    else startListening();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if(e.code === 'Space' && e.target === document.body){
+      e.preventDefault();
+      if(isListening) stopListening();
+      else startListening();
+    }
+  });
+
+  // ── TTS ──
+  function speak(text, callback){
+    if(!('speechSynthesis' in window)) { if(callback) callback(); return; }
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.05;
+    utter.pitch = 1.0;
+    utter.onend = () => { isSpeaking = false; if(callback) callback(); processNextTTS(); };
+    utter.onerror = () => { isSpeaking = false; if(callback) callback(); processNextTTS(); };
+    isSpeaking = true;
+    speechSynthesis.speak(utter);
+  }
+
+  function queueSpeak(text){
+    ttsQueue.push(text);
+    if(!isSpeaking) processNextTTS();
+  }
+
+  function processNextTTS(){
+    if(ttsQueue.length === 0) return;
+    speak(ttsQueue.shift());
+  }
+
+  function stopSpeaking(){
+    ttsQueue = [];
+    if('speechSynthesis' in window) speechSynthesis.cancel();
+    isSpeaking = false;
+  }
+
+  // ── Response Display ──
+  function respond(text){
+    responseBubble.textContent = text;
+    responseBubble.classList.add('visible');
+    queueSpeak(text);
+    addLog(liveTranscript.textContent || '(quick command)', text);
+  }
+
+  // ── Command Processing ──
+  function processCommand(raw){
+    const cmd = raw.toLowerCase().trim();
+    liveTranscript.textContent = raw;
+
+    // Stop speaking
+    if(cmd === 'stop' || cmd === 'be quiet' || cmd === 'shut up' || cmd === 'silence'){
+      stopSpeaking();
+      responseBubble.textContent = '🤫 Stopped.';
+      responseBubble.classList.add('visible');
+      addLog(raw, '(stopped speaking)');
+      return;
+    }
+
+    // Time
+    if(cmd.includes('what time') || cmd.includes('current time') || cmd === 'time'){
+      const t = new Date().toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+      respond(`It's currently ${t}.`);
+      return;
+    }
+
+    // Date
+    if(cmd.includes('what day') || cmd.includes('the date') || cmd.includes("what's today") || cmd === 'date'){
+      const d = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+      respond(`Today is ${d}.`);
+      return;
+    }
+
+    // Timer
+    if(cmd.includes('set a timer') || cmd.includes('set timer') || cmd.includes('start a timer') || cmd.includes('start timer')){
+      const match = cmd.match(/(\d+)\s*(second|minute|hour|sec|min|hr)/i);
+      if(match){
+        let secs = parseInt(match[1]);
+        const unit = match[2].toLowerCase();
+        if(unit.startsWith('min')) secs *= 60;
+        else if(unit.startsWith('h')) secs *= 3600;
+        createTimer(secs, raw);
+        const label = secs >= 3600 ? `${Math.round(secs/3600)} hour${secs>=7200?'s':''}` : secs >= 60 ? `${Math.round(secs/60)} minute${secs>=120?'s':''}` : `${secs} second${secs>1?'s':''}`;
+        respond(`Timer set for ${label}. I'll let you know when it's done.`);
+      } else {
+        respond("I didn't catch the duration. Try saying 'set a timer for 5 minutes'.");
+      }
+      return;
+    }
+
+    // Stop/cancel timer
+    if(cmd.includes('stop timer') || cmd.includes('cancel timer') || cmd.includes('remove timer') || cmd.includes('clear timer')){
+      if(timers.length > 0){
+        const t = timers.pop();
+        clearInterval(t.interval);
+        renderTimers();
+        respond('Timer cancelled.');
+      } else {
+        respond('There are no active timers.');
+      }
+      return;
+    }
+
+    // Add note
+    if(cmd.includes('add a note') || cmd.includes('add note') || cmd.includes('save a note') || cmd.includes('save note') || cmd.includes('take a note') || cmd.includes('new note')){
+      const colonIdx = raw.indexOf(':');
+      let noteText = '';
+      if(colonIdx !== -1){
+        noteText = raw.substring(colonIdx + 1).trim();
+      } else {
+        const patterns = ['add a note ', 'add note ', 'save a note ', 'save note ', 'take a note ', 'new note '];
+        for(const p of patterns){
+          const idx = cmd.indexOf(p);
+          if(idx !== -1){ noteText = raw.substring(idx + p.length).trim(); break; }
+        }
+      }
+      if(noteText){
+        state.notes.push({ text: noteText, date: new Date().toISOString() });
+        saveState();
+        renderNotes();
+        respond(`Note saved: "${noteText}".`);
+      } else {
+        respond("What would you like to note? Say 'add a note' followed by your text.");
+      }
+      return;
+    }
+
+    // Show notes
+    if(cmd.includes('show') && cmd.includes('note') || cmd.includes('read') && cmd.includes('note') || cmd.includes('my notes') || cmd === 'notes'){
+      if(state.notes.length === 0){
+        respond("You don't have any notes yet. Say 'add a note' to create one.");
+      } else {
+        const summary = state.notes.length === 1
+          ? `You have 1 note: "${state.notes[0].text}".`
+          : `You have ${state.notes.length} notes. The most recent is: "${state.notes[state.notes.length-1].text}".`;
+        respond(summary);
+      }
+      renderNotes();
+      return;
+    }
+
+    // Delete note
+    if(cmd.includes('delete note') || cmd.includes('remove note')){
+      const numMatch = cmd.match(/(\d+)/);
+      if(numMatch){
+        const idx = parseInt(numMatch[1]) - 1;
+        if(idx >= 0 && idx < state.notes.length){
+          const removed = state.notes.splice(idx, 1)[0];
+          saveState();
+          renderNotes();
+          respond(`Deleted note: "${removed.text}".`);
+        } else {
+          respond(`I don't have a note number ${idx+1}. You have ${state.notes.length} notes.`);
+        }
+      } else {
+        respond("Which note? Say 'delete note 1' or 'delete note 2'.");
+      }
+      return;
+    }
+
+    // Clear notes
+    if(cmd.includes('clear all notes') || cmd.includes('delete all notes')){
+      state.notes = [];
+      saveState();
+      renderNotes();
+      respond('All notes have been cleared.');
+      return;
+    }
+
+    // Reminder
+    if(cmd.includes('remind me')){
+      const timeMatch = cmd.match(/in\s+(\d+)\s*(second|minute|hour|min|sec|hr)/i);
+      const textMatch = raw.match(/remind me (?:to\s+)?(.+?)(?:\s+in\s+\d)/i);
+      if(timeMatch){
+        let secs = parseInt(timeMatch[1]);
+        const unit = timeMatch[2].toLowerCase();
+        if(unit.startsWith('min')) secs *= 60;
+        else if(unit.startsWith('h')) secs *= 3600;
+        const reminderText = textMatch ? textMatch[1] : 'something';
+        const reminder = { text: reminderText, time: Date.now() + secs * 1000, id: Date.now() };
+        state.reminders.push(reminder);
+        saveState();
+        renderReminders();
+
+        setTimeout(() => {
+          respond(`⏰ Reminder: ${reminderText}!`);
+          state.reminders = state.reminders.filter(r => r.id !== reminder.id);
+          saveState();
+          renderReminders();
+        }, secs * 1000);
+
+        const label = secs >= 60 ? `${Math.round(secs/60)} minute${secs>=120?'s':''}` : `${secs} second${secs>1?'s':''}`;
+        respond(`I'll remind you to ${reminderText} in ${label}.`);
+      } else {
+        respond("I need a time. Try: 'remind me to stretch in 10 minutes'.");
+      }
+      return;
+    }
+
+    // Joke
+    if(cmd.includes('tell me a joke') || cmd.includes('joke') || cmd.includes('make me laugh')){
+      const jokes = [
+        "Why do programmers prefer dark mode? Because light attracts bugs.",
+        "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+        "Why don't scientists trust atoms? Because they make up everything.",
+        "What do you call a fake noodle? An impasta.",
+        "Why did the scarecrow win an award? He was outstanding in his field.",
+        "I'm reading a book about anti-gravity. It's impossible to put down.",
+        "What do you call a bear with no teeth? A gummy bear.",
+        "Why don't eggs tell jokes? They'd crack each other up.",
+        "I used to hate facial hair, but then it grew on me.",
+        "What's the best thing about Switzerland? I don't know, but the flag is a big plus."
+      ];
+      respond(jokes[Math.floor(Math.random() * jokes.length)]);
+      return;
+    }
+
+    // Dice
+    if(cmd.includes('roll') && (cmd.includes('dice') || cmd.includes('die') || cmd.match(/d\d/))){
+      const dMatch = cmd.match(/d(\d+)/);
+      const sides = dMatch ? parseInt(dMatch[1]) : 6;
+      const result = Math.floor(Math.random() * sides) + 1;
+      respond(`🎲 I rolled a d${sides} and got ${result}!`);
+      return;
+    }
+
+    // Coin
+    if(cmd.includes('flip') && cmd.includes('coin') || cmd.includes('heads or tails')){
+      const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
+      respond(`🪙 ${result}!`);
+      return;
+    }
+
+    // Calculate
+    if(cmd.includes('calculate') || cmd.includes('what is') && cmd.match(/\d/) || cmd.includes('math')){
+      const expr = cmd.replace(/calculate|what is|what's|math/gi, '').trim()
+        .replace(/plus/gi, '+').replace(/minus/gi, '-')
+        .replace(/times|multiplied by/gi, '*').replace(/divided by|over/gi, '/')
+        .replace(/percent of/gi, '* 0.01 *')
+        .replace(/[^0-9+\-*/().% ]/g, '');
+      try {
+        const result = Function('"use strict"; return (' + expr + ')')();
+        if(typeof result === 'number' && isFinite(result)){
+          respond(`The answer is ${Math.round(result * 10000) / 10000}.`);
+        } else {
+          respond("I couldn't compute that. Try something like 'calculate 25 times 4'.");
+        }
+      } catch(e){
+        respond("I couldn't parse that math expression. Try 'calculate 10 plus 5'.");
+      }
+      return;
+    }
+
+    // Brightness
+    if(cmd.includes('brightness')){
+      const bMatch = cmd.match(/(\d+)/);
+      if(bMatch){
+        const level = Math.min(100, Math.max(10, parseInt(bMatch[1])));
+        document.body.style.filter = `brightness(${level / 100})`;
+        respond(`Brightness set to ${level} percent.`);
+      }
+      return;
+    }
+
+    // Greetings
+    if(cmd.includes('good morning')){
+      const hour = new Date().getHours();
+      respond(hour < 12 ? "Good morning! Ready to have a productive day?" : "It's actually afternoon, but good morning to you too!");
+      return;
+    }
+    if(cmd.includes('good night') || cmd.includes('goodnight')){
+      respond("Good night! Sleep well. I'll be here when you need me.");
+      return;
+    }
+    if(cmd.includes('hello') || cmd.includes('hey jarvis') || cmd.includes('hi jarvis') || cmd === 'hi' || cmd === 'hey'){
+      respond("Hello! How can I help you?");
+      return;
+    }
+
+    // Thank you
+    if(cmd.includes('thank you') || cmd.includes('thanks')){
+      const replies = ["You're welcome!", "Happy to help!", "Anytime!", "No problem at all!"];
+      respond(replies[Math.floor(Math.random() * replies.length)]);
+      return;
+    }
+
+    // How are you
+    if(cmd.includes('how are you')){
+      respond("I'm running smoothly, all local, no cloud needed. How can I help?");
+      return;
+    }
+
+    // Clear log
+    if(cmd.includes('clear log') || cmd.includes('clear history')){
+      state.log = [];
+      saveState();
+      renderLog();
+      respond('Command log cleared.');
+      return;
+    }
+
+    // Help
+    if(cmd === 'help' || cmd.includes('what can you do') || cmd.includes('commands')){
+      toggleHelp();
+      respond("Here are the commands I understand. Check the help panel for the full list.");
+      return;
+    }
+
+    // Random number
+    if(cmd.includes('random number')){
+      const rangeMatch = cmd.match(/between\s+(\d+)\s+and\s+(\d+)/);
+      let min = 1, max = 100;
+      if(rangeMatch){ min = parseInt(rangeMatch[1]); max = parseInt(rangeMatch[2]); }
+      const result = Math.floor(Math.random() * (max - min + 1)) + min;
+      respond(`Your random number is ${result}.`);
+      return;
+    }
+
+    // Countdown
+    if(cmd.includes('count down from') || cmd.includes('countdown from')){
+      const cMatch = cmd.match(/from\s+(\d+)/);
+      if(cMatch){
+        const n = Math.min(parseInt(cMatch[1]), 20);
+        let text = '';
+        for(let i = n; i >= 1; i--) text += i + '... ';
+        text += 'Go!';
+        respond(text);
+      }
+      return;
+    }
+
+    // Motivational quote
+    if(cmd.includes('motivat') || cmd.includes('inspire') || cmd.includes('quote')){
+      const quotes = [
+        "The only way to do great work is to love what you do. — Steve Jobs",
+        "Believe you can and you're halfway there. — Theodore Roosevelt",
+        "It does not matter how slowly you go as long as you do not stop. — Confucius",
+        "The future belongs to those who believe in the beauty of their dreams. — Eleanor Roosevelt",
+        "Act as if what you do makes a difference. It does. — William James"
+      ];
+      respond(quotes[Math.floor(Math.random() * quotes.length)]);
+      return;
+    }
+
+    // Fallback
+    respond(`I'm not sure how to handle "${raw}". Say "help" to see what I can do.`);
+  }
+
+  // ── Timers ──
+  function createTimer(totalSecs, label){
+    const timer = { id: Date.now(), total: totalSecs, remaining: totalSecs, label: label, interval: null };
+    timer.interval = setInterval(() => {
+      timer.remaining--;
+      if(timer.remaining <= 0){
+        clearInterval(timer.interval);
+        timer.remaining = 0;
+        // Alert
+        respond(`⏰ Timer complete! Your ${formatDuration(timer.total)} timer is done.`);
+        timers = timers.filter(t => t.id !== timer.id);
+      }
+      renderTimers();
+    }, 1000);
+    timers.push(timer);
+    renderTimers();
+  }
+
+  function formatDuration(secs){
+    if(secs >= 3600){
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    if(secs >= 60){
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return s > 0 ? `${m}m ${s}s` : `${m}m`;
+    }
+    return `${secs}s`;
+  }
+
+  function formatTimer(secs){
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  function renderTimers(){
+    if(timers.length === 0){
+      timerListEl.innerHTML = '<div class="no-items">No active timers. Say "Set a timer for 5 minutes"</div>';
+      return;
+    }
+    timerListEl.innerHTML = timers.map(t =>
+      `<div class="timer-item">
+        <div>
+          <div class="t-label">${formatDuration(t.total)} timer</div>
+          <div class="t-time ${t.remaining<=0?'done':'active'}">${t.remaining <= 0 ? '✅ Done!' : formatTimer(t.remaining)}</div>
+        </div>
+        <button class="timer-remove" onclick="removeTimer(${t.id})">✕</button>
+      </div>`
+    ).join('');
+  }
+
+  window.removeTimer = function(id){
+    const t = timers.find(t => t.id === id);
+    if(t) clearInterval(t.interval);
+    timers = timers.filter(t => t.id !== id);
+    renderTimers();
+  };
+
+  // ── Notes Rendering ──
+  function renderNotes(){
+    if(state.notes.length === 0){
+      notesListEl.innerHTML = '<div class="no-items">No notes yet. Say "Add a note: buy groceries"</div>';
+      return;
+    }
+    notesListEl.innerHTML = state.notes.map((n, i) =>
+      `<div class="note-item">
+        <div class="n-text"><strong>${i+1}.</strong> ${escHtml(n.text)}</div>
+        <div class="n-date">${new Date(n.date).toLocaleDateString()}</div>
+        <button class="note-remove" onclick="removeNote(${i})">✕</button>
+      </div>`
+    ).join('');
+  }
+
+  window.removeNote = function(idx){
+    state.notes.splice(idx, 1);
+    saveState();
+    renderNotes();
+  };
+
+  // ── Reminders Rendering ──
+  function renderReminders(){
+    const active = state.reminders.filter(r => r.time > Date.now());
+    if(active.length === 0){
+      reminderListEl.innerHTML = '<div class="no-items">Say "Remind me to stretch in 10 minutes"</div>';
+      return;
+    }
+    reminderListEl.innerHTML = active.map(r => {
+      const mins = Math.ceil((r.time - Date.now()) / 60000);
+      return `<div class="reminder-item"><div class="r-text">🔔 ${escHtml(r.text)}</div><div class="r-time">in ~${mins}m</div></div>`;
+    }).join('');
+  }
+
+  // ── Log ──
+  function addLog(cmd, resp){
+    state.log.unshift({ cmd, resp, time: new Date().toISOString() });
+    if(state.log.length > 50) state.log = state.log.slice(0, 50);
+    saveState();
+    renderLog();
+  }
+
+  function renderLog(){
+    if(state.log.length === 0){
+      logListEl.innerHTML = '<div class="no-items">Commands will appear here</div>';
+      return;
+    }
+    logListEl.innerHTML = state.log.slice(0, 20).map(l =>
+      `<div class="log-item"><span class="cmd">"${escHtml(l.cmd)}"</span> → <span class="resp">${escHtml(l.resp).substring(0,80)}</span></div>`
+    ).join('');
+  }
+
+  // ── Simulated Weather ──
+  function updateWeather(){
+    const conditions = [
+      { icon:'☀️', temp:72, desc:'Clear skies' },
+      { icon:'⛅', temp:68, desc:'Partly cloudy' },
+      { icon:'🌤️', temp:75, desc:'Mostly sunny' },
+      { icon:'🌧️', temp:58, desc:'Light rain' },
+      { icon:'❄️', temp:32, desc:'Snowy' },
+      { icon:'🌫️', temp:55, desc:'Foggy morning' }
+    ];
+    const w = conditions[Math.floor(Math.random() * conditions.length)];
+    state.weather = w;
+    document.getElementById('weatherDisplay').innerHTML =
+      `<div class="weather-icon">${w.icon}</div><div class="weather-temp">${w.temp}°F</div><div class="weather-desc">${w.desc} (simulated)</div>`;
+  }
+  updateWeather();
+
+  // ── Quick Commands ──
+  document.getElementById('quickCmds').addEventListener('click', (e) => {
+    const btn = e.target.closest('.quick-cmd');
+    if(btn){
+      const cmd = btn.dataset.cmd;
+      liveTranscript.textContent = cmd;
+      processCommand(cmd);
+    }
+  });
+
+  // ── Help ──
+  window.toggleHelp = function(){
+    document.getElementById('helpOverlay').classList.toggle('visible');
+  };
+  document.getElementById('helpOverlay').addEventListener('click', (e) => {
+    if(e.target === document.getElementById('helpOverlay')) toggleHelp();
+  });
+
+  // ── Data Import/Export ──
+  window.exportData = function(){
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `local-jarvis-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  window.importData = function(){
+    document.getElementById('importFile').click();
+  };
+
+  document.getElementById('importFile').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        state = Object.assign(defaultState(), imported);
+        saveState();
+        renderAll();
+        respond('Data imported successfully.');
+      } catch(err){
+        respond('Failed to import data. Invalid JSON file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  window.clearAllData = function(){
+    if(confirm('Clear all notes, reminders, and command history?')){
+      state = defaultState();
+      saveState();
+      timers.forEach(t => clearInterval(t.interval));
+      timers = [];
+      renderAll();
+    }
+  };
+
+  // ── Helpers ──
+  function escHtml(s){
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderAll(){
+    renderTimers();
+    renderNotes();
+    renderReminders();
+    renderLog();
+  }
+
+  // Update reminders display periodically
+  setInterval(renderReminders, 30000);
+
+  // ── Init ──
+  renderAll();
+
+})();
+</script>
+</body>
+</html>

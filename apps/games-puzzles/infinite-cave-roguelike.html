@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Procedurally generated infinite cave roguelike with real-time lighting, fog of war, enemies, collectibles, and permadeath">
+<meta name="category" content="games_puzzles">
+<title>Infinite Cave Roguelike</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#c8c8d0;font-family:'Courier New',monospace;overflow:hidden;display:flex;justify-content:center;align-items:center;height:100vh;user-select:none}
+#game-container{position:relative}
+canvas{display:block;image-rendering:pixelated}
+#minimap{position:absolute;top:10px;right:10px;border:2px solid #444;border-radius:4px;opacity:0.85;background:#000}
+#hud{position:absolute;top:10px;left:10px;font-size:13px;line-height:1.7;text-shadow:0 0 6px #000}
+#hud .hp{color:#e44}#hud .gold{color:#fd0}#hud .lvl{color:#4af}#hud .floor{color:#a8f}#hud .xp{color:#4e8}
+#inventory{position:absolute;bottom:10px;left:10px;display:flex;gap:6px}
+.inv-slot{width:36px;height:36px;border:1px solid #555;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px;background:rgba(0,0,0,0.6);cursor:pointer;transition:border-color .15s}
+.inv-slot:hover{border-color:#aaa}
+.inv-slot.active{border-color:#fd0;box-shadow:0 0 6px #fd0}
+#msg-log{position:absolute;bottom:60px;left:10px;font-size:11px;line-height:1.5;max-height:90px;overflow:hidden;text-shadow:0 0 4px #000;pointer-events:none}
+.msg{opacity:0;animation:msgIn .3s forwards}.msg-old{opacity:.4}
+@keyframes msgIn{to{opacity:1}}
+#death-screen{position:absolute;inset:0;background:rgba(0,0,0,0.88);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:10}
+#death-screen h1{color:#e33;font-size:42px;margin-bottom:12px;text-shadow:0 0 20px #e33}
+#death-screen p{color:#aaa;margin-bottom:20px;font-size:15px}
+#death-screen button{padding:10px 28px;font-family:inherit;font-size:16px;background:#333;color:#eee;border:1px solid #666;border-radius:6px;cursor:pointer}
+#death-screen button:hover{background:#555}
+#title-screen{position:absolute;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10}
+#title-screen h1{font-size:36px;color:#a8f;margin-bottom:8px;text-shadow:0 0 18px #a8f}
+#title-screen p{color:#888;margin-bottom:24px;font-size:13px;text-align:center;max-width:400px;line-height:1.6}
+#title-screen button{padding:10px 32px;font-family:inherit;font-size:16px;background:#333;color:#eee;border:1px solid #666;border-radius:6px;cursor:pointer}
+#title-screen button:hover{background:#555}
+#controls-hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);color:#666;font-size:11px;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game"></canvas>
+  <canvas id="minimap"></canvas>
+  <div id="hud"></div>
+  <div id="inventory"></div>
+  <div id="msg-log"></div>
+  <div id="controls-hint">WASD/Arrows: Move · E: Use Item · 1-5: Select Slot · Space: Wait</div>
+  <div id="death-screen"><h1>YOU DIED</h1><p id="death-stats"></p><button id="restart-btn">Try Again</button></div>
+  <div id="title-screen"><h1>⛏ INFINITE CAVES</h1><p>Descend into procedurally generated caverns. Slay creatures, gather loot, and see how deep you can go.<br><br>WASD/Arrows to move · E to use item · 1-5 select slot · > descend stairs</p><button id="start-btn">Enter the Caves</button></div>
+</div>
+<script>
+'use strict';
+const TILE=16,COLS=60,ROWS=38,MAP_W=80,MAP_H=60;
+const T_WALL=0,T_FLOOR=1,T_STAIR=2;
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const mcanvas=document.getElementById('minimap'),mctx=mcanvas.getContext('2d');
+canvas.width=COLS*TILE;canvas.height=ROWS*TILE;
+mcanvas.width=MAP_W*2;mcanvas.height=MAP_H*2;
+
+const ITEMS={
+  health_potion:{name:'Health Potion',icon:'❤️',color:'#e44',use(p){p.hp=Math.min(p.maxHp,p.hp+15);addMsg('Restored 15 HP','#e88')}},
+  shield_scroll:{name:'Shield Scroll',icon:'🛡️',color:'#48f',use(p){p.def+=2;addMsg('+2 Defense','#48f')}},
+  strength_elixir:{name:'Str Elixir',icon:'💪',color:'#f84',use(p){p.atk+=2;addMsg('+2 Attack','#f84')}},
+  speed_boots:{name:'Speed Boots',icon:'👢',color:'#4e8',use(p){p.speed=Math.min(3,p.speed+1);addMsg('+1 Speed','#4e8')}},
+  bomb:{name:'Bomb',icon:'💣',color:'#fa0',use(p){let k=0;for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const e=enemies.find(e=>e.x===p.x+dx&&e.y===p.y+dy&&e.hp>0);if(e){e.hp-=20;if(e.hp<=0){k++;grantXP(e.xp)}}}addMsg(`Bomb killed ${k} enemies!`,'#fa0')}},
+  torch:{name:'Torch',icon:'🔥',color:'#fd0',use(p){p.lightRadius=Math.min(12,p.lightRadius+2);addMsg('+2 Light Radius','#fd0')}},
+};
+const ITEM_KEYS=Object.keys(ITEMS);
+const ENEMY_DEFS=[
+  {name:'Rat',ch:'r',color:'#a86',hp:8,atk:2,def:0,xp:5,speed:1},
+  {name:'Bat',ch:'b',color:'#88a',hp:6,atk:3,def:0,xp:4,speed:2},
+  {name:'Goblin',ch:'g',color:'#6a4',hp:15,atk:5,def:1,xp:12,speed:1},
+  {name:'Skeleton',ch:'S',color:'#dda',hp:20,atk:7,def:2,xp:18,speed:1},
+  {name:'Orc',ch:'O',color:'#a64',hp:30,atk:9,def:3,xp:25,speed:1},
+  {name:'Wraith',ch:'W',color:'#a4f',hp:25,atk:12,def:1,xp:30,speed:2},
+  {name:'Troll',ch:'T',color:'#484',hp:50,atk:14,def:5,xp:45,speed:1},
+  {name:'Dragon',ch:'D',color:'#f44',hp:80,atk:20,def:8,xp:100,speed:1},
+];
+
+let map,revealed,visible,player,enemies,items,particles,messages,gameState,floor,turnCount;
+const keys={};
+
+function rng(n){return Math.floor(Math.random()*n)}
+function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v}
+
+// Cellular automata cave generation
+function generateCave(){
+  let grid=Array.from({length:MAP_H},()=>Array.from({length:MAP_W},()=>Math.random()<0.45?T_FLOOR:T_WALL));
+  // Ensure borders are walls
+  for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++)if(x===0||y===0||x===MAP_W-1||y===MAP_H-1)grid[y][x]=T_WALL;
+  // Cellular automata smoothing
+  for(let i=0;i<5;i++){
+    const ng=grid.map(r=>[...r]);
+    for(let y=1;y<MAP_H-1;y++)for(let x=1;x<MAP_W-1;x++){
+      let walls=0;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(grid[y+dy][x+dx]===T_WALL)walls++;
+      ng[y][x]=walls>=5?T_WALL:T_FLOOR;
+    }
+    grid=ng;
+  }
+  // Flood fill to find largest connected region
+  const visited=Array.from({length:MAP_H},()=>new Uint8Array(MAP_W));
+  let bestRegion=[],regions=[];
+  for(let y=1;y<MAP_H-1;y++)for(let x=1;x<MAP_W-1;x++){
+    if(grid[y][x]===T_FLOOR&&!visited[y][x]){
+      const region=[];
+      const stack=[[x,y]];
+      while(stack.length){
+        const[cx,cy]=stack.pop();
+        if(cx<1||cy<1||cx>=MAP_W-1||cy>=MAP_H-1||visited[cy][cx]||grid[cy][cx]!==T_FLOOR)continue;
+        visited[cy][cx]=1;region.push([cx,cy]);
+        stack.push([cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]);
+      }
+      regions.push(region);
+      if(region.length>bestRegion.length)bestRegion=region;
+    }
+  }
+  // Fill non-connected regions
+  for(const reg of regions)if(reg!==bestRegion)for(const[x,y] of reg)grid[y][x]=T_WALL;
+  // Place stairs on a random floor far from center
+  const center=bestRegion[Math.floor(bestRegion.length/2)];
+  bestRegion.sort((a,b)=>{
+    const da=(a[0]-center[0])**2+(a[1]-center[1])**2;
+    const db=(b[0]-center[0])**2+(b[1]-center[1])**2;
+    return db-da;
+  });
+  const stairPos=bestRegion[rng(Math.min(20,bestRegion.length))];
+  grid[stairPos[1]][stairPos[0]]=T_STAIR;
+  return{grid,floors:bestRegion,stairPos};
+}
+
+// Dijkstra distance map for enemy pathfinding
+function dijkstra(sx,sy){
+  const dist=Array.from({length:MAP_H},()=>new Float32Array(MAP_W).fill(Infinity));
+  dist[sy][sx]=0;
+  const pq=[[0,sx,sy]];
+  while(pq.length){
+    pq.sort((a,b)=>a[0]-b[0]);
+    const[d,x,y]=pq.shift();
+    if(d>dist[y][x])continue;
+    for(const[dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+      const nx=x+dx,ny=y+dy;
+      if(nx<0||ny<0||nx>=MAP_W||ny>=MAP_H||map[ny][nx]===T_WALL)continue;
+      const nd=d+1;
+      if(nd<dist[ny][nx]){dist[ny][nx]=nd;pq.push([nd,nx,ny])}
+    }
+  }
+  return dist;
+}
+
+// Shadowcasting FOV
+function computeFOV(ox,oy,radius){
+  const v=Array.from({length:MAP_H},()=>new Uint8Array(MAP_W));
+  v[oy][ox]=1;
+  for(let oct=0;oct<8;oct++)castLight(v,ox,oy,radius,1,1.0,0.0,
+    [1,0,0,1,-1,0,0,1,0,1,1,0,0,-1,1,0,1,0,0,-1,-1,0,0,-1,0,1,-1,0,0,-1,-1,0].slice(oct*4,oct*4+4));
+  return v;
+}
+function castLight(v,ox,oy,r,row,startSlope,endSlope,m){
+  if(startSlope<endSlope)return;
+  let nextStart=startSlope;
+  for(let i=row;i<=r;i++){
+    let blocked=false;
+    for(let dx=-i,dy=-i;dx<=0;dx++){
+      const lSlope=(dx-0.5)/(dy+0.5),rSlope=(dx+0.5)/(dy-0.5);
+      if(rSlope>nextStart)continue;
+      if(lSlope<endSlope)break;
+      const ax=ox+dx*m[0]+dy*m[1],ay=oy+dx*m[2]+dy*m[3];
+      if(ax>=0&&ay>=0&&ax<MAP_W&&ay<MAP_H&&dx*dx+dy*dy<=r*r){
+        v[ay][ax]=1;
+      }
+      if(blocked){
+        if(ax<0||ay<0||ax>=MAP_W||ay>=MAP_H||map[ay][ax]===T_WALL){nextStart=rSlope;continue}
+        blocked=false;nextStart=rSlope; // this was nextStartSlope
+      } else if(ax>=0&&ay>=0&&ax<MAP_W&&ay<MAP_H&&map[ay][ax]===T_WALL&&i<r){
+        blocked=true;
+        castLight(v,ox,oy,r,i+1,nextStart,lSlope,m);
+        nextStart=rSlope;
+      }
+    }
+    if(blocked)break;
+  }
+}
+
+function addMsg(text,color='#ccc'){
+  messages.unshift({text,color,age:0});
+  if(messages.length>6)messages.pop();
+}
+
+function spawnEnemies(floors){
+  enemies=[];
+  const count=Math.min(15+floor*3,50);
+  const maxTier=Math.min(Math.floor(floor/2),ENEMY_DEFS.length-1);
+  for(let i=0;i<count;i++){
+    const pos=floors[rng(floors.length)];
+    if(pos[0]===player.x&&pos[1]===player.y)continue;
+    const tier=rng(maxTier+1);
+    const def=ENEMY_DEFS[tier];
+    const scale=1+floor*0.08;
+    enemies.push({x:pos[0],y:pos[1],ch:def.ch,color:def.color,name:def.name,
+      hp:Math.floor(def.hp*scale),maxHp:Math.floor(def.hp*scale),
+      atk:Math.floor(def.atk*scale),def:Math.floor(def.def*scale),
+      xp:Math.floor(def.xp*scale),speed:def.speed,moved:false,alert:false});
+  }
+}
+
+function spawnItems(floors){
+  items=[];
+  const count=8+floor*2;
+  for(let i=0;i<count;i++){
+    const pos=floors[rng(floors.length)];
+    if(map[pos[1]][pos[0]]!==T_FLOOR)continue;
+    if(Math.random()<0.5){
+      items.push({x:pos[0],y:pos[1],type:'gold',amount:rng(10)+floor*2+1,icon:'●',color:'#fd0'});
+    } else {
+      const key=ITEM_KEYS[rng(ITEM_KEYS.length)];
+      const def=ITEMS[key];
+      items.push({x:pos[0],y:pos[1],type:key,icon:def.icon,color:def.color,name:def.name});
+    }
+  }
+}
+
+function grantXP(amount){
+  player.xp+=amount;
+  while(player.xp>=player.xpNext){
+    player.xp-=player.xpNext;
+    player.level++;
+    player.xpNext=Math.floor(player.xpNext*1.4);
+    player.maxHp+=5;player.hp=player.maxHp;
+    player.atk+=1;player.def+=1;
+    addMsg(`Level up! Now level ${player.level}`,'#ff0');
+    spawnParticle(player.x,player.y,'★','#ff0',12);
+  }
+}
+
+function spawnParticle(x,y,ch,color,count=5){
+  for(let i=0;i<count;i++){
+    particles.push({x:x*TILE+TILE/2,y:y*TILE+TILE/2,
+      vx:(Math.random()-0.5)*3,vy:(Math.random()-0.5)*3,
+      life:20+rng(15),maxLife:35,ch,color});
+  }
+}
+
+function initGame(){
+  floor=1;turnCount=0;
+  player={x:0,y:0,hp:50,maxHp:50,atk:5,def:2,speed:1,lightRadius:7,
+    level:1,xp:0,xpNext:20,gold:0,inventory:[],selectedSlot:0};
+  messages=[];particles=[];
+  addMsg('You enter the caves...','#a8f');
+  newFloor();
+  gameState='playing';
+}
+
+function newFloor(){
+  const{grid,floors,stairPos}=generateCave();
+  map=grid;
+  revealed=Array.from({length:MAP_H},()=>new Uint8Array(MAP_W));
+  // Place player far from stairs
+  const sorted=[...floors].sort((a,b)=>{
+    const da=(a[0]-stairPos[0])**2+(a[1]-stairPos[1])**2;
+    const db=(b[0]-stairPos[0])**2+(b[1]-stairPos[1])**2;
+    return db-da;
+  });
+  const pp=sorted[rng(Math.min(10,sorted.length))];
+  player.x=pp[0];player.y=pp[1];
+  spawnEnemies(floors);
+  spawnItems(floors);
+  visible=computeFOV(player.x,player.y,player.lightRadius);
+  for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++)if(visible[y][x])revealed[y][x]=1;
+  addMsg(`Floor ${floor}`,'#a8f');
+}
+
+function tryMove(dx,dy){
+  if(gameState!=='playing')return;
+  const nx=player.x+dx,ny=player.y+dy;
+  if(nx<0||ny<0||nx>=MAP_W||ny>=MAP_H||map[ny][nx]===T_WALL)return;
+  // Check for enemy
+  const enemy=enemies.find(e=>e.x===nx&&e.y===ny&&e.hp>0);
+  if(enemy){
+    const dmg=Math.max(1,player.atk-enemy.def+rng(3));
+    enemy.hp-=dmg;
+    addMsg(`Hit ${enemy.name} for ${dmg}`,'#fa8');
+    spawnParticle(enemy.x,enemy.y,'✦','#f84',4);
+    if(enemy.hp<=0){
+      addMsg(`${enemy.name} slain! +${enemy.xp}xp`,'#4e8');
+      grantXP(enemy.xp);
+      spawnParticle(enemy.x,enemy.y,'💀','#e44',6);
+    }
+  } else {
+    player.x=nx;player.y=ny;
+    // Pick up items
+    const here=items.filter(i=>i.x===nx&&i.y===ny);
+    for(const item of here){
+      if(item.type==='gold'){
+        player.gold+=item.amount;
+        addMsg(`+${item.amount} gold`,'#fd0');
+        spawnParticle(nx,ny,'●','#fd0',3);
+      } else if(player.inventory.length<5){
+        player.inventory.push({type:item.type,icon:item.icon,color:item.color,name:item.name});
+        addMsg(`Got ${item.name}`,'#8cf');
+      } else {
+        addMsg('Inventory full!','#f88');continue;
+      }
+      items.splice(items.indexOf(item),1);
+    }
+    // Stairs
+    if(map[ny][nx]===T_STAIR){
+      addMsg('You descend deeper...','#a8f');
+      floor++;
+      newFloor();
+      return;
+    }
+  }
+  endTurn();
+}
+
+function useItem(){
+  if(gameState!=='playing')return;
+  const slot=player.selectedSlot;
+  if(slot>=player.inventory.length)return;
+  const item=player.inventory[slot];
+  const def=ITEMS[item.type];
+  if(def&&def.use){def.use(player);player.inventory.splice(slot,1);if(player.selectedSlot>=player.inventory.length)player.selectedSlot=Math.max(0,player.inventory.length-1);endTurn()}
+}
+
+function endTurn(){
+  turnCount++;
+  // Update FOV
+  visible=computeFOV(player.x,player.y,player.lightRadius);
+  for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++)if(visible[y][x])revealed[y][x]=1;
+  // Enemy turns
+  const distMap=dijkstra(player.x,player.y);
+  for(const e of enemies){
+    if(e.hp<=0)continue;
+    // Alert if visible
+    if(visible[e.y][e.x])e.alert=true;
+    if(!e.alert)continue;
+    // Move towards player using Dijkstra map
+    const movesPerTurn=e.speed;
+    for(let m=0;m<movesPerTurn;m++){
+      const dx=e.x-player.x,dy=e.y-player.y;
+      if(Math.abs(dx)+Math.abs(dy)<=1){
+        // Attack player
+        const dmg=Math.max(1,e.atk-player.def+rng(2));
+        player.hp-=dmg;
+        addMsg(`${e.name} hits you for ${dmg}`,'#f66');
+        spawnParticle(player.x,player.y,'✦','#f44',3);
+        if(player.hp<=0){gameOver();return}
+        break;
+      }
+      // Find best adjacent tile
+      let bestD=Infinity,bx=e.x,by=e.y;
+      for(const[ddx,ddy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+        const nx=e.x+ddx,ny=e.y+ddy;
+        if(nx<0||ny<0||nx>=MAP_W||ny>=MAP_H||map[ny][nx]===T_WALL)continue;
+        if(enemies.some(o=>o!==e&&o.hp>0&&o.x===nx&&o.y===ny))continue;
+        if(distMap[ny][nx]<bestD){bestD=distMap[ny][nx];bx=nx;by=ny}
+      }
+      e.x=bx;e.y=by;
+    }
+  }
+  // Age messages
+  for(const m of messages)m.age++;
+}
+
+function gameOver(){
+  gameState='dead';
+  document.getElementById('death-stats').textContent=
+    `Floor ${floor} · Level ${player.level} · ${player.gold} Gold · ${turnCount} Turns`;
+  document.getElementById('death-screen').style.display='flex';
+}
+
+// Rendering
+const WALL_COLORS=['#2a2a3a','#252535','#2f2f40','#282838'];
+function render(){
+  ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,canvas.width,canvas.height);
+  const camX=clamp(player.x-Math.floor(COLS/2),0,MAP_W-COLS);
+  const camY=clamp(player.y-Math.floor(ROWS/2),0,MAP_H-ROWS);
+
+  for(let sy=0;sy<ROWS;sy++)for(let sx=0;sx<COLS;sx++){
+    const mx=camX+sx,my=camY+sy;
+    if(mx<0||my<0||mx>=MAP_W||my>=MAP_H)continue;
+    const px=sx*TILE,py=sy*TILE;
+    const vis=visible[my][mx],rev=revealed[my][mx];
+    if(!rev)continue;
+    const tile=map[my][mx];
+    // Lighting
+    const dist=Math.sqrt((mx-player.x)**2+(my-player.y)**2);
+    const light=vis?clamp(1-dist/(player.lightRadius+1),0.08,1):0.12;
+    if(tile===T_WALL){
+      const ci=((mx*7+my*13)&3);
+      const wc=WALL_COLORS[ci];
+      ctx.fillStyle=wc;ctx.globalAlpha=light;
+      ctx.fillRect(px,py,TILE,TILE);
+      // wall top highlight
+      if(my>0&&map[my-1][mx]!==T_WALL){
+        ctx.fillStyle='#4a4a5a';ctx.fillRect(px,py,TILE,2);
+      }
+    } else if(tile===T_FLOOR){
+      ctx.fillStyle=((mx+my)%2===0)?'#1a1a24':'#181820';
+      ctx.globalAlpha=light;
+      ctx.fillRect(px,py,TILE,TILE);
+    } else if(tile===T_STAIR){
+      ctx.fillStyle='#1a1a24';ctx.globalAlpha=light;
+      ctx.fillRect(px,py,TILE,TILE);
+      ctx.fillStyle='#a8f';ctx.globalAlpha=light*(.6+Math.sin(Date.now()/400)*.4);
+      ctx.font='14px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('>',px+TILE/2,py+TILE/2);
+    }
+    ctx.globalAlpha=1;
+  }
+  // Items
+  for(const item of items){
+    const sx=item.x-camX,sy=item.y-camY;
+    if(sx<0||sy<0||sx>=COLS||sy>=ROWS)continue;
+    if(!visible[item.y][item.x])continue;
+    const dist=Math.sqrt((item.x-player.x)**2+(item.y-player.y)**2);
+    const light=clamp(1-dist/(player.lightRadius+1),0.15,1);
+    ctx.globalAlpha=light;
+    ctx.font='12px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=item.color;
+    ctx.fillText(item.icon,sx*TILE+TILE/2,sy*TILE+TILE/2);
+    ctx.globalAlpha=1;
+  }
+  // Enemies
+  for(const e of enemies){
+    if(e.hp<=0)continue;
+    const sx=e.x-camX,sy=e.y-camY;
+    if(sx<0||sy<0||sx>=COLS||sy>=ROWS)continue;
+    if(!visible[e.y][e.x])continue;
+    const dist=Math.sqrt((e.x-player.x)**2+(e.y-player.y)**2);
+    const light=clamp(1-dist/(player.lightRadius+1),0.2,1);
+    ctx.globalAlpha=light;
+    ctx.font='bold 14px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=e.color;
+    ctx.fillText(e.ch,sx*TILE+TILE/2,sy*TILE+TILE/2);
+    // HP bar
+    if(e.hp<e.maxHp){
+      const bw=TILE-2,bh=2;
+      ctx.fillStyle='#400';ctx.fillRect(sx*TILE+1,sy*TILE-1,bw,bh);
+      ctx.fillStyle='#e44';ctx.fillRect(sx*TILE+1,sy*TILE-1,bw*(e.hp/e.maxHp),bh);
+    }
+    ctx.globalAlpha=1;
+  }
+  // Player
+  {
+    const sx=player.x-camX,sy=player.y-camY;
+    // Glow
+    const glowR=TILE*1.2;
+    const grad=ctx.createRadialGradient(sx*TILE+TILE/2,sy*TILE+TILE/2,0,sx*TILE+TILE/2,sy*TILE+TILE/2,glowR);
+    grad.addColorStop(0,'rgba(255,220,100,0.25)');grad.addColorStop(1,'rgba(255,220,100,0)');
+    ctx.fillStyle=grad;ctx.fillRect(sx*TILE-glowR,sy*TILE-glowR,glowR*2+TILE,glowR*2+TILE);
+    ctx.font='bold 14px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle='#ff0';
+    ctx.fillText('@',sx*TILE+TILE/2,sy*TILE+TILE/2);
+  }
+  // Ambient light vignette
+  const vigGrad=ctx.createRadialGradient(canvas.width/2,canvas.height/2,canvas.width*0.3,canvas.width/2,canvas.height/2,canvas.width*0.7);
+  vigGrad.addColorStop(0,'rgba(0,0,0,0)');vigGrad.addColorStop(1,'rgba(0,0,0,0.5)');
+  ctx.fillStyle=vigGrad;ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Particles
+  ctx.save();
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.05;p.life--;
+    if(p.life<=0){particles.splice(i,1);continue}
+    const alpha=p.life/p.maxLife;
+    const drawX=p.x-(camX*TILE);
+    const drawY=p.y-(camY*TILE);
+    ctx.globalAlpha=alpha;ctx.fillStyle=p.color;ctx.font='10px serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(p.ch,drawX,drawY);
+  }
+  ctx.restore();
+  // HUD
+  const hud=document.getElementById('hud');
+  const hpPct=Math.round(player.hp/player.maxHp*100);
+  const hpBar='█'.repeat(Math.ceil(player.hp/player.maxHp*10))+'░'.repeat(10-Math.ceil(player.hp/player.maxHp*10));
+  hud.innerHTML=`<span class="hp">♥ ${player.hp}/${player.maxHp} ${hpBar}</span><br>`+
+    `<span class="lvl">Lv${player.level}</span> <span class="xp">XP ${player.xp}/${player.xpNext}</span><br>`+
+    `<span class="gold">⚙ ${player.gold} Gold</span><br>`+
+    `<span class="floor">⛏ Floor ${floor}</span> · ATK:${player.atk} DEF:${player.def}`;
+  // Inventory
+  const invEl=document.getElementById('inventory');
+  let invHTML='';
+  for(let i=0;i<5;i++){
+    const item=player.inventory[i];
+    const active=i===player.selectedSlot?'active':'';
+    invHTML+=`<div class="inv-slot ${active}" onclick="player.selectedSlot=${i}" title="${item?item.name:'Empty'}">`+
+      `<span style="font-size:10px;position:absolute;top:1px;left:3px;color:#888">${i+1}</span>`+
+      (item?item.icon:'')+'</div>';
+  }
+  invEl.innerHTML=invHTML;
+  // Messages
+  const logEl=document.getElementById('msg-log');
+  logEl.innerHTML=messages.slice(0,5).map((m,i)=>
+    `<div class="msg${i>1?' msg-old':''}" style="color:${m.color}">${m.text}</div>`
+  ).join('');
+  // Minimap
+  renderMinimap(camX,camY);
+}
+
+function renderMinimap(){
+  mctx.fillStyle='#000';mctx.fillRect(0,0,mcanvas.width,mcanvas.height);
+  for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++){
+    if(!revealed[y][x])continue;
+    const vis=visible[y][x];
+    if(map[y][x]===T_WALL){mctx.fillStyle=vis?'#334':'#222'}
+    else if(map[y][x]===T_STAIR){mctx.fillStyle='#a8f'}
+    else{mctx.fillStyle=vis?'#445':'#222'}
+    mctx.fillRect(x*2,y*2,2,2);
+  }
+  // Enemies on minimap
+  for(const e of enemies){
+    if(e.hp<=0||!visible[e.y][e.x])continue;
+    mctx.fillStyle=e.color;mctx.fillRect(e.x*2,e.y*2,2,2);
+  }
+  // Items on minimap
+  for(const item of items){
+    if(!visible[item.y][item.x])continue;
+    mctx.fillStyle=item.color;mctx.fillRect(item.x*2,item.y*2,2,2);
+  }
+  // Player
+  mctx.fillStyle='#ff0';mctx.fillRect(player.x*2-1,player.y*2-1,4,4);
+}
+
+// Input handling
+document.addEventListener('keydown',e=>{
+  if(gameState==='title')return;
+  if(gameState==='dead')return;
+  const k=e.key.toLowerCase();
+  switch(k){
+    case'w':case'arrowup':e.preventDefault();tryMove(0,-1);break;
+    case's':case'arrowdown':e.preventDefault();tryMove(0,1);break;
+    case'a':case'arrowleft':e.preventDefault();tryMove(-1,0);break;
+    case'd':case'arrowright':e.preventDefault();tryMove(1,0);break;
+    case'e':useItem();break;
+    case' ':e.preventDefault();endTurn();break;
+    case'1':case'2':case'3':case'4':case'5':player.selectedSlot=parseInt(k)-1;break;
+  }
+});
+
+document.getElementById('start-btn').addEventListener('click',()=>{
+  document.getElementById('title-screen').style.display='none';
+  initGame();
+});
+document.getElementById('restart-btn').addEventListener('click',()=>{
+  document.getElementById('death-screen').style.display='none';
+  initGame();
+});
+
+// Touch/swipe support
+let touchStart=null;
+canvas.addEventListener('touchstart',e=>{e.preventDefault();touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:false});
+canvas.addEventListener('touchend',e=>{
+  if(!touchStart)return;
+  const dx=e.changedTouches[0].clientX-touchStart.x;
+  const dy=e.changedTouches[0].clientY-touchStart.y;
+  const threshold=30;
+  if(Math.abs(dx)>Math.abs(dy)){
+    if(Math.abs(dx)>threshold)tryMove(dx>0?1:-1,0);
+  }else{
+    if(Math.abs(dy)>threshold)tryMove(0,dy>0?1:-1);
+  }
+  touchStart=null;
+},{passive:false});
+
+// Game loop
+gameState='title';
+function loop(){
+  if(gameState==='playing'||gameState==='dead')render();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
