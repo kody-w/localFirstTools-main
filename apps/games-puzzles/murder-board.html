@@ -1,0 +1,2244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Murder Board - Procedural Detective Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+            color: #e0d5c7;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Main Layout */
+        #game-container {
+            display: flex;
+            height: 100vh;
+            position: relative;
+        }
+
+        #sidebar {
+            width: 300px;
+            background: rgba(20, 15, 10, 0.95);
+            border-right: 2px solid #8b7355;
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #main-view {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Film Grain Effect */
+        #main-view::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Sidebar Tabs */
+        .tab-buttons {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            flex: 1;
+            min-width: 80px;
+            padding: 8px 12px;
+            background: rgba(139, 115, 85, 0.3);
+            border: 1px solid #8b7355;
+            color: #e0d5c7;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .tab-btn:hover {
+            background: rgba(139, 115, 85, 0.5);
+        }
+
+        .tab-btn.active {
+            background: #8b7355;
+            color: #1a1a1a;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Suspect Cards */
+        .suspect-card {
+            background: rgba(30, 25, 20, 0.8);
+            border: 1px solid #8b7355;
+            padding: 15px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .suspect-card:hover {
+            background: rgba(40, 35, 30, 0.9);
+            border-color: #d4a574;
+        }
+
+        .suspect-card.interviewed {
+            border-left: 3px solid #4a7c59;
+        }
+
+        .suspect-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: #d4a574;
+            margin-bottom: 5px;
+        }
+
+        .suspect-info {
+            font-size: 12px;
+            line-height: 1.6;
+            color: #b0a090;
+        }
+
+        /* Evidence Cards */
+        .evidence-card {
+            background: rgba(30, 25, 20, 0.8);
+            border: 1px solid #8b7355;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: move;
+            transition: all 0.3s;
+        }
+
+        .evidence-card.found {
+            border-color: #4a7c59;
+        }
+
+        .evidence-icon {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        .evidence-title {
+            font-weight: bold;
+            color: #d4a574;
+            font-size: 13px;
+        }
+
+        .evidence-description {
+            font-size: 11px;
+            color: #b0a090;
+            margin-top: 5px;
+        }
+
+        /* Murder Board */
+        #murder-board {
+            width: 100%;
+            height: 100%;
+            background: #8b7355 url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cpattern id='cork' x='0' y='0' width='100' height='100' patternUnits='userSpaceOnUse'%3E%3Crect fill='%23967c5f' width='100' height='100'/%3E%3Ccircle fill='%238b7355' cx='10' cy='10' r='1'/%3E%3Ccircle fill='%238b7355' cx='30' cy='25' r='1'/%3E%3Ccircle fill='%238b7355' cx='50' cy='15' r='1'/%3E%3Ccircle fill='%238b7355' cx='70' cy='35' r='1'/%3E%3Ccircle fill='%238b7355' cx='90' cy='20' r='1'/%3E%3Ccircle fill='%238b7355' cx='15' cy='50' r='1'/%3E%3Ccircle fill='%238b7355' cx='35' cy='65' r='1'/%3E%3Ccircle fill='%238b7355' cx='55' cy='55' r='1'/%3E%3Ccircle fill='%238b7355' cx='75' cy='75' r='1'/%3E%3Ccircle fill='%238b7355' cx='95' cy='60' r='1'/%3E%3Ccircle fill='%238b7355' cx='20' cy='90' r='1'/%3E%3Ccircle fill='%238b7355' cx='40' cy='95' r='1'/%3E%3Ccircle fill='%238b7355' cx='60' cy='85' r='1'/%3E%3Ccircle fill='%238b7355' cx='80' cy='95' r='1'/%3E%3C/pattern%3E%3C/defs%3E%3Crect fill='url(%23cork)' width='100' height='100'/%3E%3C/svg%3E");
+            position: relative;
+            overflow: auto;
+        }
+
+        .board-item {
+            position: absolute;
+            background: #f4f1e8;
+            border: 1px solid #8b7355;
+            padding: 15px;
+            box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.4);
+            cursor: move;
+            user-select: none;
+            min-width: 150px;
+            max-width: 250px;
+            color: #1a1a1a;
+            z-index: 10;
+        }
+
+        .board-item.being-dragged {
+            opacity: 0.7;
+            z-index: 100;
+        }
+
+        .board-item::before {
+            content: '📌';
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 20px;
+        }
+
+        .board-item-title {
+            font-weight: bold;
+            color: #8b0000;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .board-item-content {
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .sticky-note {
+            background: #fff59d;
+            border: none;
+            transform: rotate(-2deg);
+        }
+
+        .sticky-note::before {
+            content: '📌';
+            color: #ff6b6b;
+        }
+
+        /* Connection Lines */
+        #connections-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Interview Screen */
+        #interview-screen {
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 10, 0.95);
+            display: flex;
+            flex-direction: column;
+            padding: 40px;
+            position: relative;
+        }
+
+        .suspect-portrait {
+            width: 200px;
+            height: 250px;
+            background: rgba(139, 115, 85, 0.3);
+            border: 3px solid #8b7355;
+            margin: 0 auto 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 80px;
+            position: relative;
+        }
+
+        .dialogue-box {
+            background: rgba(30, 25, 20, 0.9);
+            border: 2px solid #8b7355;
+            padding: 20px;
+            margin-bottom: 20px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .dialogue-text {
+            font-size: 14px;
+            line-height: 1.8;
+            color: #e0d5c7;
+        }
+
+        .question-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .question-btn {
+            background: rgba(139, 115, 85, 0.3);
+            border: 1px solid #8b7355;
+            color: #e0d5c7;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: left;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .question-btn:hover {
+            background: rgba(139, 115, 85, 0.5);
+            border-color: #d4a574;
+        }
+
+        .question-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Crime Scene */
+        #crime-scene {
+            width: 100%;
+            height: 100%;
+            background: #1a1a1a;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .scene-container {
+            width: 90%;
+            height: 80%;
+            background: rgba(30, 25, 20, 0.8);
+            border: 3px solid #8b7355;
+            position: relative;
+            box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .hotspot {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 215, 0, 0.3);
+            border: 2px solid rgba(255, 215, 0, 0.8);
+            border-radius: 50%;
+            cursor: pointer;
+            animation: pulse 2s infinite;
+            transition: all 0.3s;
+        }
+
+        .hotspot:hover {
+            background: rgba(255, 215, 0, 0.5);
+            transform: scale(1.2);
+        }
+
+        .hotspot.found {
+            background: rgba(74, 124, 89, 0.3);
+            border-color: rgba(74, 124, 89, 0.8);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        /* Accusation Screen */
+        #accusation-screen {
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 10, 0.98);
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .accusation-form {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(30, 25, 20, 0.9);
+            border: 3px solid #8b7355;
+            padding: 30px;
+        }
+
+        .accusation-section {
+            margin-bottom: 30px;
+        }
+
+        .accusation-section h3 {
+            color: #d4a574;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        select, textarea {
+            width: 100%;
+            background: rgba(20, 15, 10, 0.8);
+            border: 1px solid #8b7355;
+            color: #e0d5c7;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .evidence-checklist {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .evidence-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .evidence-checkbox input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Buttons */
+        .btn {
+            background: rgba(139, 115, 85, 0.5);
+            border: 2px solid #8b7355;
+            color: #e0d5c7;
+            padding: 12px 24px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            text-transform: uppercase;
+            transition: all 0.3s;
+            display: inline-block;
+            margin: 5px;
+        }
+
+        .btn:hover {
+            background: rgba(139, 115, 85, 0.8);
+            border-color: #d4a574;
+        }
+
+        .btn-primary {
+            background: rgba(139, 0, 0, 0.5);
+            border-color: #8b0000;
+        }
+
+        .btn-primary:hover {
+            background: rgba(139, 0, 0, 0.8);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Start Screen */
+        #start-screen {
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 10, 0.98);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .title {
+            font-size: 64px;
+            color: #8b0000;
+            margin-bottom: 20px;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.8);
+            letter-spacing: 4px;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: #d4a574;
+            margin-bottom: 40px;
+        }
+
+        .difficulty-select {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .difficulty-btn {
+            background: rgba(139, 115, 85, 0.3);
+            border: 2px solid #8b7355;
+            color: #e0d5c7;
+            padding: 20px 40px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .difficulty-btn:hover {
+            background: rgba(139, 115, 85, 0.5);
+            border-color: #d4a574;
+        }
+
+        .difficulty-btn.selected {
+            background: #8b7355;
+            border-color: #d4a574;
+        }
+
+        .stats-display {
+            background: rgba(30, 25, 20, 0.8);
+            border: 2px solid #8b7355;
+            padding: 20px;
+            margin-bottom: 20px;
+            min-width: 400px;
+            text-align: center;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        /* Results Screen */
+        #results-screen {
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 10, 0.98);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .results-content {
+            max-width: 800px;
+            background: rgba(30, 25, 20, 0.9);
+            border: 3px solid #8b7355;
+            padding: 40px;
+        }
+
+        .verdict {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: bold;
+        }
+
+        .verdict.correct {
+            color: #4a7c59;
+        }
+
+        .verdict.wrong {
+            color: #8b0000;
+        }
+
+        .verdict.partial {
+            color: #d4a574;
+        }
+
+        .explanation {
+            font-size: 14px;
+            line-height: 1.8;
+            margin-bottom: 20px;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 3px solid rgba(139, 115, 85, 0.3);
+            border-top: 3px solid #d4a574;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Timeline */
+        .timeline-container {
+            position: relative;
+            padding-left: 30px;
+        }
+
+        .timeline-event {
+            background: rgba(30, 25, 20, 0.8);
+            border-left: 3px solid #8b7355;
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .timeline-event::before {
+            content: '●';
+            position: absolute;
+            left: -9px;
+            top: 10px;
+            color: #8b7355;
+            font-size: 14px;
+        }
+
+        .timeline-time {
+            font-weight: bold;
+            color: #d4a574;
+            font-size: 13px;
+        }
+
+        .timeline-description {
+            font-size: 12px;
+            color: #b0a090;
+            margin-top: 5px;
+        }
+
+        /* Case Header */
+        .case-header {
+            background: rgba(30, 25, 20, 0.9);
+            border-bottom: 2px solid #8b7355;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+        }
+
+        .case-number {
+            font-size: 18px;
+            color: #d4a574;
+            font-weight: bold;
+        }
+
+        .case-victim {
+            font-size: 14px;
+            color: #b0a090;
+            margin-top: 5px;
+        }
+
+        /* Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: rgba(30, 25, 20, 0.98);
+            border: 3px solid #8b7355;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+        }
+
+        .modal-title {
+            font-size: 24px;
+            color: #d4a574;
+            margin-bottom: 20px;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: #e0d5c7;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px 10px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(20, 15, 10, 0.5);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #8b7355;
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #d4a574;
+        }
+
+        /* Board controls */
+        .board-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+        }
+
+        .icon-btn {
+            background: rgba(30, 25, 20, 0.9);
+            border: 2px solid #8b7355;
+            color: #e0d5c7;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .icon-btn:hover {
+            background: rgba(40, 35, 30, 0.95);
+            border-color: #d4a574;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            #sidebar {
+                width: 250px;
+            }
+
+            .title {
+                font-size: 36px;
+            }
+
+            .difficulty-select {
+                flex-direction: column;
+            }
+
+            .board-item {
+                min-width: 120px;
+                max-width: 180px;
+                padding: 10px;
+            }
+        }
+
+        .contradicted {
+            color: #ff4444;
+            font-weight: bold;
+        }
+
+        .connection-line {
+            stroke: #ff0000;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- Sidebar -->
+        <div id="sidebar">
+            <div class="case-header" id="case-header" style="display: none;">
+                <div class="case-number" id="case-number">CASE #001</div>
+                <div class="case-victim" id="case-victim">Victim: [Name]</div>
+            </div>
+
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="suspects">Suspects</button>
+                <button class="tab-btn" data-tab="evidence">Evidence</button>
+                <button class="tab-btn" data-tab="timeline">Timeline</button>
+                <button class="tab-btn" data-tab="notes">Notes</button>
+            </div>
+
+            <div id="suspects-tab" class="tab-content active">
+                <div id="suspects-list"></div>
+                <button class="btn" id="return-to-board-btn" style="width: 100%; margin-top: 20px; display: none;">Return to Board</button>
+            </div>
+
+            <div id="evidence-tab" class="tab-content">
+                <div id="evidence-list"></div>
+            </div>
+
+            <div id="timeline-tab" class="tab-content">
+                <div class="timeline-container" id="timeline-list"></div>
+            </div>
+
+            <div id="notes-tab" class="tab-content">
+                <p style="font-size: 12px; margin-bottom: 10px;">Your investigation notes:</p>
+                <textarea id="case-notes" style="width: 100%; height: 300px; resize: vertical;" placeholder="Write your notes here..."></textarea>
+                <button class="btn" style="width: 100%; margin-top: 10px;" onclick="saveNotes()">Save Notes</button>
+            </div>
+
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #8b7355;">
+                <button class="btn btn-primary" id="accuse-btn" style="width: 100%; margin-bottom: 10px;">Make Accusation</button>
+                <button class="btn" id="new-case-btn" style="width: 100%;">New Case</button>
+            </div>
+        </div>
+
+        <!-- Main View -->
+        <div id="main-view">
+            <!-- Start Screen -->
+            <div id="start-screen">
+                <h1 class="title">MURDER BOARD</h1>
+                <p class="subtitle">A Procedural Detective Game</p>
+
+                <div class="stats-display" id="career-stats">
+                    <div class="stat-row">
+                        <span>Cases Solved:</span>
+                        <span id="stat-solved">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Accuracy:</span>
+                        <span id="stat-accuracy">0%</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Avg. Solve Time:</span>
+                        <span id="stat-time">--</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Highest Difficulty:</span>
+                        <span id="stat-difficulty">None</span>
+                    </div>
+                </div>
+
+                <h3 style="color: #d4a574; margin-bottom: 15px;">Select Difficulty:</h3>
+                <div class="difficulty-select">
+                    <button class="difficulty-btn selected" data-difficulty="rookie">ROOKIE</button>
+                    <button class="difficulty-btn" data-difficulty="detective">DETECTIVE</button>
+                    <button class="difficulty-btn" data-difficulty="hardboiled">HARDBOILED</button>
+                </div>
+
+                <button class="btn btn-primary" id="start-game-btn" style="font-size: 18px; padding: 15px 40px;">Start Investigation</button>
+            </div>
+
+            <!-- Murder Board -->
+            <div id="murder-board" style="display: none;">
+                <canvas id="connections-canvas"></canvas>
+                <div class="board-controls">
+                    <button class="icon-btn" id="add-note-btn" title="Add Sticky Note">📝</button>
+                    <button class="icon-btn" id="clear-connections-btn" title="Clear Connections">🔗</button>
+                    <button class="icon-btn" id="visit-crime-scene-btn" title="Visit Crime Scene">🔍</button>
+                </div>
+            </div>
+
+            <!-- Interview Screen -->
+            <div id="interview-screen" style="display: none;">
+                <button class="btn" id="end-interview-btn" style="position: absolute; top: 20px; left: 20px;">End Interview</button>
+
+                <div class="suspect-portrait" id="interview-portrait">👤</div>
+
+                <h2 style="text-align: center; color: #d4a574; margin-bottom: 20px;" id="interview-name">Suspect Name</h2>
+
+                <div class="dialogue-box">
+                    <div class="dialogue-text" id="dialogue-text">Click a question to begin the interview...</div>
+                </div>
+
+                <div class="question-options" id="question-options"></div>
+            </div>
+
+            <!-- Crime Scene -->
+            <div id="crime-scene" style="display: none;">
+                <button class="btn" id="leave-scene-btn" style="position: absolute; top: 20px; left: 20px;">Leave Scene</button>
+                <div class="scene-container" id="scene-container">
+                    <h2 style="text-align: center; color: #d4a574; padding: 20px;" id="scene-title">Crime Scene</h2>
+                </div>
+            </div>
+
+            <!-- Accusation Screen -->
+            <div id="accusation-screen" style="display: none;">
+                <button class="btn" id="cancel-accusation-btn" style="margin-bottom: 20px;">Cancel</button>
+
+                <div class="accusation-form">
+                    <h2 style="color: #8b0000; text-align: center; margin-bottom: 30px; font-size: 28px;">MAKE YOUR ACCUSATION</h2>
+
+                    <div class="accusation-section">
+                        <h3>Who is the killer?</h3>
+                        <select id="accused-suspect">
+                            <option value="">-- Select Suspect --</option>
+                        </select>
+                    </div>
+
+                    <div class="accusation-section">
+                        <h3>How did they do it?</h3>
+                        <select id="accused-method">
+                            <option value="">-- Select Method --</option>
+                        </select>
+                    </div>
+
+                    <div class="accusation-section">
+                        <h3>Why did they do it?</h3>
+                        <select id="accused-motive">
+                            <option value="">-- Select Motive --</option>
+                        </select>
+                    </div>
+
+                    <div class="accusation-section">
+                        <h3>When did it happen?</h3>
+                        <select id="accused-time">
+                            <option value="">-- Select Time Window --</option>
+                        </select>
+                    </div>
+
+                    <div class="accusation-section">
+                        <h3>Supporting Evidence (select at least 3):</h3>
+                        <div class="evidence-checklist" id="evidence-checklist"></div>
+                    </div>
+
+                    <div class="accusation-section">
+                        <h3>Your Theory (optional):</h3>
+                        <textarea id="accused-theory" rows="4" placeholder="Explain how the evidence supports your accusation..."></textarea>
+                    </div>
+
+                    <button class="btn btn-primary" id="submit-accusation-btn" style="width: 100%; font-size: 18px; padding: 15px;">Submit Accusation</button>
+                </div>
+            </div>
+
+            <!-- Results Screen -->
+            <div id="results-screen" style="display: none;">
+                <div class="results-content" id="results-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal" id="modal">
+        <div class="modal-content" style="position: relative;">
+            <button class="close-modal" onclick="closeModal()">×</button>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        // Game State
+        let gameState = {
+            currentCase: null,
+            difficulty: 'rookie',
+            discoveredEvidence: [],
+            interviewedSuspects: [],
+            boardItems: [],
+            connections: [],
+            caseStartTime: null,
+            notes: '',
+            stats: {
+                casesSolved: 0,
+                totalCases: 0,
+                correctAccusations: 0,
+                totalSolveTime: 0,
+                highestDifficulty: null
+            }
+        };
+
+        // Audio Context for sound effects
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Sound Effects
+        function playSound(type) {
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            switch(type) {
+                case 'paper':
+                    oscillator.frequency.value = 100;
+                    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.1);
+                    break;
+                case 'camera':
+                    oscillator.frequency.value = 800;
+                    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.15);
+                    break;
+                case 'sting':
+                    oscillator.frequency.value = 440;
+                    oscillator.type = 'triangle';
+                    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.5);
+                    break;
+                case 'gavel':
+                    oscillator.frequency.value = 150;
+                    oscillator.type = 'square';
+                    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.3);
+                    break;
+            }
+        }
+
+        // Data pools for case generation
+        const firstNames = ['James', 'Robert', 'Michael', 'William', 'David', 'Mary', 'Patricia', 'Jennifer', 'Linda', 'Elizabeth', 'Barbara', 'Susan', 'Jessica', 'Sarah', 'Karen', 'Nancy', 'Betty', 'Helen', 'Sandra', 'Donna', 'Carol', 'Ruth', 'Sharon', 'Michelle', 'Laura', 'Thomas', 'Charles', 'Daniel', 'Matthew', 'Anthony', 'Mark', 'Donald', 'Steven', 'Paul', 'Andrew', 'Joshua', 'Kenneth', 'Kevin', 'Brian', 'George', 'Margaret', 'Dorothy', 'Lisa', 'Ashley', 'Kimberly', 'Emily', 'Melissa', 'Margaret', 'Amanda', 'Stephanie'];
+
+        const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker', 'Young', 'Allen', 'King', 'Wright', 'Scott', 'Torres', 'Nguyen', 'Hill', 'Flores', 'Green', 'Adams', 'Nelson', 'Baker', 'Hall', 'Rivera', 'Campbell', 'Mitchell', 'Carter', 'Roberts'];
+
+        const occupations = ['Accountant', 'Lawyer', 'Doctor', 'Teacher', 'Engineer', 'Architect', 'Consultant', 'Sales Manager', 'Chef', 'Artist', 'Writer', 'Journalist', 'Real Estate Agent', 'Financial Advisor', 'Software Developer', 'Marketing Director', 'Restaurant Owner', 'Interior Designer', 'Photographer', 'Investment Banker', 'Pharmacist', 'Dentist', 'Veterinarian', 'Professor', 'Entrepreneur', 'Retired Executive', 'Gallery Owner', 'Event Planner', 'Musician', 'Actor'];
+
+        const personalities = ['Ambitious', 'Cautious', 'Charming', 'Nervous', 'Arrogant', 'Friendly', 'Reserved', 'Aggressive', 'Calculating', 'Impulsive', 'Paranoid', 'Confident', 'Timid', 'Manipulative', 'Honest', 'Secretive', 'Extroverted', 'Introverted', 'Volatile', 'Composed'];
+
+        const relationships = ['Spouse', 'Business Partner', 'Colleague', 'Rival', 'Friend', 'Neighbor', 'Ex-Lover', 'Family Member', 'Acquaintance', 'Client', 'Employee', 'Employer'];
+
+        const motives = ['Financial Gain', 'Revenge', 'Jealousy', 'Cover-Up', 'Crime of Passion', 'Blackmail', 'Inheritance', 'Business Competition', 'Love Triangle', 'Dark Secret'];
+
+        const methods = ['Stabbing', 'Poisoning', 'Blunt Force Trauma', 'Strangulation', 'Pushed from Height'];
+
+        const locations = ['Victim\'s Home', 'Private Office', 'City Park', 'Upscale Restaurant', 'Parking Garage', 'Luxury Hotel', 'Art Gallery', 'Country Club'];
+
+        // Evidence type definitions
+        const evidenceTypes = {
+            physical: ['Murder Weapon', 'Fingerprints', 'DNA Sample', 'Footprints', 'Clothing Fiber', 'Hair Sample', 'Blood Spatter', 'Defensive Wounds'],
+            digital: ['Phone Records', 'CCTV Footage', 'Text Messages', 'Email Thread', 'Bank Transaction', 'GPS Data', 'Social Media Post', 'Security Log'],
+            testimonial: ['Witness Statement', 'Anonymous Tip', 'Alibi Verification', 'Character Testimony'],
+            circumstantial: ['Insurance Policy', 'Affair Evidence', 'Debt Records', 'Threatening Letter', 'Recent Argument', 'Changed Will', 'Business Dispute']
+        };
+
+        // Generate random name
+        function generateName() {
+            return `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`;
+        }
+
+        // Generate a complete murder case
+        function generateCase(difficulty) {
+            const victimName = generateName();
+            const victimOccupation = occupations[Math.floor(Math.random() * occupations.length)];
+            const method = methods[Math.floor(Math.random() * methods.length)];
+            const location = locations[Math.floor(Math.random() * locations.length)];
+
+            // Generate time of death (random hour between 6 PM and 2 AM)
+            const deathHour = 18 + Math.floor(Math.random() * 8);
+            const deathMinute = Math.floor(Math.random() * 60);
+            const timeOfDeath = `${deathHour}:${deathMinute.toString().padStart(2, '0')}`;
+            const timeWindow = `${deathHour}:00 - ${deathHour + 2}:00`;
+
+            // Generate 8 suspects
+            const suspects = [];
+            const usedNames = new Set();
+
+            for (let i = 0; i < 8; i++) {
+                let name;
+                do {
+                    name = generateName();
+                } while (usedNames.has(name) || name === victimName);
+                usedNames.add(name);
+
+                const suspect = {
+                    id: i,
+                    name: name,
+                    age: 25 + Math.floor(Math.random() * 40),
+                    occupation: occupations[Math.floor(Math.random() * occupations.length)],
+                    personality: personalities[Math.floor(Math.random() * personalities.length)],
+                    relationship: relationships[Math.floor(Math.random() * relationships.length)],
+                    motive: motives[Math.floor(Math.random() * motives.length)],
+                    alibi: generateAlibi(deathHour),
+                    alibiTrue: true,
+                    secret: generateSecret(),
+                    isKiller: false,
+                    contradictions: []
+                };
+
+                suspects.push(suspect);
+            }
+
+            // Select killer
+            const killerIndex = Math.floor(Math.random() * suspects.length);
+            suspects[killerIndex].isKiller = true;
+            suspects[killerIndex].alibiTrue = false;
+            suspects[killerIndex].trueMotive = suspects[killerIndex].motive;
+
+            // Based on difficulty, add false alibis to innocent suspects
+            let falseAlibiCount;
+            switch(difficulty) {
+                case 'rookie': falseAlibiCount = 1; break;
+                case 'detective': falseAlibiCount = 2; break;
+                case 'hardboiled': falseAlibiCount = 3; break;
+            }
+
+            let addedFalseAlibis = 0;
+            for (let i = 0; i < suspects.length && addedFalseAlibis < falseAlibiCount; i++) {
+                if (!suspects[i].isKiller && suspects[i].alibiTrue) {
+                    suspects[i].alibiTrue = false;
+                    addedFalseAlibis++;
+                }
+            }
+
+            // Generate evidence
+            const evidence = generateEvidence(suspects, suspects[killerIndex], method, location, difficulty);
+
+            // Generate timeline
+            const timeline = generateTimeline(suspects, deathHour, location);
+
+            const caseObj = {
+                caseNumber: String(gameState.stats.totalCases + 1).padStart(3, '0'),
+                victim: {
+                    name: victimName,
+                    occupation: victimOccupation,
+                    personality: personalities[Math.floor(Math.random() * personalities.length)]
+                },
+                method: method,
+                location: location,
+                timeOfDeath: timeOfDeath,
+                timeWindow: timeWindow,
+                suspects: suspects,
+                evidence: evidence,
+                timeline: timeline,
+                killer: suspects[killerIndex],
+                difficulty: difficulty
+            };
+
+            return caseObj;
+        }
+
+        function generateAlibi(deathHour) {
+            const alibis = [
+                `At home watching TV`,
+                `At the gym`,
+                `Having dinner at a restaurant`,
+                `Working late at the office`,
+                `At a friend's house`,
+                `At the movies`,
+                `Shopping at the mall`,
+                `Walking in the park`,
+                `At a bar`,
+                `Attending a meeting`
+            ];
+            return alibis[Math.floor(Math.random() * alibis.length)];
+        }
+
+        function generateSecret() {
+            const secrets = [
+                'Having an affair',
+                'Gambling debts',
+                'Embezzling money',
+                'Substance abuse problem',
+                'Secret second family',
+                'Illegal business dealings',
+                'Falsified credentials',
+                'Witness protection program',
+                'Stalking someone',
+                'Tax evasion'
+            ];
+            return secrets[Math.floor(Math.random() * secrets.length)];
+        }
+
+        function generateEvidence(suspects, killer, method, location, difficulty) {
+            const evidence = [];
+            let evidenceId = 0;
+
+            // Key evidence pointing to killer (3-4 pieces)
+            const keyEvidenceCount = 3 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < keyEvidenceCount; i++) {
+                const category = Object.keys(evidenceTypes)[Math.floor(Math.random() * Object.keys(evidenceTypes).length)];
+                const typeOptions = evidenceTypes[category];
+                const type = typeOptions[Math.floor(Math.random() * typeOptions.length)];
+
+                evidence.push({
+                    id: evidenceId++,
+                    type: type,
+                    category: category,
+                    description: generateEvidenceDescription(type, killer, method, location, true),
+                    pointsTo: [killer.id],
+                    isKey: true,
+                    found: false,
+                    location: Math.random() > 0.5 ? location : 'Forensics Lab'
+                });
+            }
+
+            // Red herring evidence (4-6 pieces based on difficulty)
+            const redHerringCount = difficulty === 'rookie' ? 4 : difficulty === 'detective' ? 5 : 6;
+            for (let i = 0; i < redHerringCount; i++) {
+                const category = Object.keys(evidenceTypes)[Math.floor(Math.random() * Object.keys(evidenceTypes).length)];
+                const typeOptions = evidenceTypes[category];
+                const type = typeOptions[Math.floor(Math.random() * typeOptions.length)];
+
+                // Pick random innocent suspect(s)
+                const innocentSuspects = suspects.filter(s => !s.isKiller);
+                const suspectCount = 1 + Math.floor(Math.random() * 2);
+                const pointsTo = [];
+                for (let j = 0; j < suspectCount && j < innocentSuspects.length; j++) {
+                    pointsTo.push(innocentSuspects[Math.floor(Math.random() * innocentSuspects.length)].id);
+                }
+
+                evidence.push({
+                    id: evidenceId++,
+                    type: type,
+                    category: category,
+                    description: generateEvidenceDescription(type, innocentSuspects[0], method, location, false),
+                    pointsTo: pointsTo,
+                    isKey: false,
+                    found: false,
+                    location: Math.random() > 0.5 ? location : ['Victim\'s Home', 'Office', 'Street'][Math.floor(Math.random() * 3)]
+                });
+            }
+
+            // Neutral/contextual evidence (2-3 pieces)
+            for (let i = 0; i < 3; i++) {
+                evidence.push({
+                    id: evidenceId++,
+                    type: 'Background Information',
+                    category: 'circumstantial',
+                    description: generateContextEvidence(suspects, method),
+                    pointsTo: [],
+                    isKey: false,
+                    found: false,
+                    location: 'Investigation Files'
+                });
+            }
+
+            return evidence;
+        }
+
+        function generateEvidenceDescription(type, suspect, method, location, isKey) {
+            const templates = {
+                'Murder Weapon': [
+                    `${method === 'Stabbing' ? 'Knife' : method === 'Blunt Force Trauma' ? 'Heavy object' : 'Weapon'} found at scene with traces matching ${suspect.name}`,
+                    `Forensics matched the weapon to ${suspect.name}'s possession`
+                ],
+                'Fingerprints': [
+                    `Fingerprints found at ${location} match ${suspect.name}`,
+                    `Partial prints on evidence belong to ${suspect.name}`
+                ],
+                'Phone Records': [
+                    `${suspect.name} made suspicious calls around time of death`,
+                    `Call logs show ${suspect.name} contacted victim hours before death`
+                ],
+                'CCTV Footage': [
+                    `Camera shows ${suspect.name} near ${location} during time window`,
+                    `Security footage contradicts ${suspect.name}'s alibi`
+                ],
+                'Witness Statement': [
+                    `Witness saw ${suspect.name} arguing with victim recently`,
+                    `Neighbor reported seeing ${suspect.name} at the scene`
+                ],
+                'Text Messages': [
+                    `Threatening texts from ${suspect.name} to victim found`,
+                    `Messages show hostile exchange between ${suspect.name} and victim`
+                ],
+                'Financial Records': [
+                    `${suspect.name} had financial motive - recent debts/inheritance`,
+                    `Bank records show suspicious transactions by ${suspect.name}`
+                ]
+            };
+
+            const typeTemplates = templates[type] || [`Evidence connects to ${suspect.name}`];
+            return typeTemplates[Math.floor(Math.random() * typeTemplates.length)];
+        }
+
+        function generateContextEvidence(suspects, method) {
+            const templates = [
+                `Victim had recently updated their will`,
+                `Multiple people knew victim's daily routine`,
+                `Scene shows signs of struggle`,
+                `Victim had received threatening messages in past weeks`,
+                `No signs of forced entry at location`,
+                `Victim was known to have conflicts with several people`,
+                `Time of death estimated based on body temperature`,
+                `Weather conditions: clear, no rain to wash away evidence`
+            ];
+            return templates[Math.floor(Math.random() * templates.length)];
+        }
+
+        function generateTimeline(suspects, deathHour, location) {
+            const timeline = [];
+
+            // Events leading up to murder
+            timeline.push({
+                time: `${deathHour - 3}:00`,
+                event: `Victim last seen alive at ${location}`,
+                source: 'Witness reports'
+            });
+
+            timeline.push({
+                time: `${deathHour - 2}:30`,
+                event: `Victim received phone call`,
+                source: 'Phone records'
+            });
+
+            timeline.push({
+                time: `${deathHour - 1}:15`,
+                event: `Suspicious person reported near ${location}`,
+                source: 'Anonymous tip'
+            });
+
+            timeline.push({
+                time: `${deathHour}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`,
+                event: `Estimated time of death`,
+                source: 'Medical Examiner'
+            });
+
+            timeline.push({
+                time: `${deathHour + 2}:30`,
+                event: `Body discovered`,
+                source: 'Police report'
+            });
+
+            // Add some suspect movements
+            suspects.slice(0, 3).forEach((suspect, i) => {
+                timeline.push({
+                    time: `${deathHour + i - 1}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`,
+                    event: `${suspect.name} claims to be: ${suspect.alibi}`,
+                    source: 'Suspect statement'
+                });
+            });
+
+            return timeline.sort((a, b) => a.time.localeCompare(b.time));
+        }
+
+        // Start new case
+        function startNewCase() {
+            const caseObj = generateCase(gameState.difficulty);
+            gameState.currentCase = caseObj;
+            gameState.discoveredEvidence = [];
+            gameState.interviewedSuspects = [];
+            gameState.boardItems = [];
+            gameState.connections = [];
+            gameState.caseStartTime = Date.now();
+            gameState.notes = '';
+
+            // Update UI
+            document.getElementById('case-number').textContent = `CASE #${caseObj.caseNumber}`;
+            document.getElementById('case-victim').textContent = `Victim: ${caseObj.victim.name}, ${caseObj.victim.occupation}`;
+            document.getElementById('case-header').style.display = 'block';
+
+            // Populate suspects list
+            renderSuspectsList();
+
+            // Populate evidence list (initially hidden)
+            renderEvidenceList();
+
+            // Populate timeline
+            renderTimeline();
+
+            // Clear notes
+            document.getElementById('case-notes').value = '';
+
+            // Show murder board
+            showView('murder-board');
+
+            // Add initial case info to board
+            addInitialBoardItems();
+
+            // Save state
+            saveGameState();
+        }
+
+        function addInitialBoardItems() {
+            // Add victim card
+            addBoardItem({
+                title: 'VICTIM',
+                content: `${gameState.currentCase.victim.name}\n${gameState.currentCase.victim.occupation}\nFound at: ${gameState.currentCase.location}\nTime: ${gameState.currentCase.timeWindow}`,
+                x: 100,
+                y: 100,
+                type: 'case-info'
+            });
+
+            // Add method card
+            addBoardItem({
+                title: 'CAUSE OF DEATH',
+                content: gameState.currentCase.method,
+                x: 400,
+                y: 100,
+                type: 'case-info'
+            });
+
+            // Add location card
+            addBoardItem({
+                title: 'CRIME SCENE',
+                content: gameState.currentCase.location,
+                x: 700,
+                y: 100,
+                type: 'case-info'
+            });
+        }
+
+        function renderSuspectsList() {
+            const container = document.getElementById('suspects-list');
+            container.innerHTML = '';
+
+            gameState.currentCase.suspects.forEach(suspect => {
+                const card = document.createElement('div');
+                card.className = 'suspect-card';
+                if (gameState.interviewedSuspects.includes(suspect.id)) {
+                    card.classList.add('interviewed');
+                }
+
+                card.innerHTML = `
+                    <div class="suspect-name">${suspect.name}</div>
+                    <div class="suspect-info">
+                        Age: ${suspect.age}<br>
+                        ${suspect.occupation}<br>
+                        <strong>${suspect.relationship}</strong>
+                    </div>
+                `;
+
+                card.onclick = () => startInterview(suspect);
+                container.appendChild(card);
+            });
+        }
+
+        function renderEvidenceList() {
+            const container = document.getElementById('evidence-list');
+            container.innerHTML = '';
+
+            gameState.currentCase.evidence.forEach(evidence => {
+                const card = document.createElement('div');
+                card.className = 'evidence-card';
+
+                if (gameState.discoveredEvidence.includes(evidence.id)) {
+                    card.classList.add('found');
+
+                    const icon = getEvidenceIcon(evidence.category);
+                    card.innerHTML = `
+                        <div>
+                            <span class="evidence-icon">${icon}</span>
+                            <span class="evidence-title">${evidence.type}</span>
+                        </div>
+                        <div class="evidence-description">${evidence.description}</div>
+                    `;
+
+                    card.draggable = true;
+                    card.ondragstart = (e) => {
+                        e.dataTransfer.setData('evidence', JSON.stringify(evidence));
+                    };
+
+                    card.onclick = () => {
+                        addEvidenceToBoard(evidence);
+                    };
+                } else {
+                    card.innerHTML = `
+                        <div class="evidence-title">??? Evidence</div>
+                        <div class="evidence-description">Not yet discovered</div>
+                    `;
+                }
+
+                container.appendChild(card);
+            });
+        }
+
+        function getEvidenceIcon(category) {
+            const icons = {
+                'physical': '🔪',
+                'digital': '📱',
+                'testimonial': '👥',
+                'circumstantial': '📋'
+            };
+            return icons[category] || '📄';
+        }
+
+        function renderTimeline() {
+            const container = document.getElementById('timeline-list');
+            container.innerHTML = '';
+
+            gameState.currentCase.timeline.forEach(event => {
+                const div = document.createElement('div');
+                div.className = 'timeline-event';
+                div.innerHTML = `
+                    <div class="timeline-time">${event.time}</div>
+                    <div class="timeline-description">${event.event}</div>
+                    <div style="font-size: 10px; color: #8b7355; margin-top: 3px;">${event.source}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Interview system
+        function startInterview(suspect) {
+            const currentView = document.querySelector('#main-view > div:not([style*="display: none"])');
+            if (currentView && currentView.id === 'interview-screen') {
+                return; // Already in interview
+            }
+
+            showView('interview-screen');
+            document.getElementById('return-to-board-btn').style.display = 'block';
+
+            // Mark as interviewed
+            if (!gameState.interviewedSuspects.includes(suspect.id)) {
+                gameState.interviewedSuspects.push(suspect.id);
+                renderSuspectsList();
+            }
+
+            // Set portrait (using initials as simple portrait)
+            const initials = suspect.name.split(' ').map(n => n[0]).join('');
+            document.getElementById('interview-portrait').textContent = initials;
+            document.getElementById('interview-name').textContent = suspect.name;
+
+            // Generate interview questions
+            generateInterviewQuestions(suspect);
+        }
+
+        function generateInterviewQuestions(suspect) {
+            const container = document.getElementById('question-options');
+            const dialogueBox = document.getElementById('dialogue-text');
+
+            dialogueBox.textContent = `${suspect.name} sits across from you, ${suspect.personality.toLowerCase()}...`;
+
+            const questions = [
+                {
+                    text: 'What was your relationship with the victim?',
+                    response: () => `We were ${suspect.relationship.toLowerCase()}. ${generateRelationshipDetail(suspect)}`
+                },
+                {
+                    text: 'Where were you during the time of the murder?',
+                    response: () => {
+                        const alibiResponse = `I was ${suspect.alibi.toLowerCase()}.`;
+                        if (!suspect.alibiTrue && suspect.isKiller) {
+                            return alibiResponse + ' [You sense they might be lying]';
+                        } else if (!suspect.alibiTrue && !suspect.isKiller) {
+                            return alibiResponse + ` [They seem nervous - hiding something?]`;
+                        }
+                        return alibiResponse;
+                    }
+                },
+                {
+                    text: 'Did you have any reason to want the victim dead?',
+                    response: () => {
+                        if (suspect.isKiller) {
+                            return `No, of course not! Why would I? [They seem defensive]`;
+                        } else if (Math.random() > 0.5) {
+                            return `We had our differences, but I would never... [They trail off]`;
+                        }
+                        return `We got along fine. I can't imagine why anyone would do this.`;
+                    }
+                },
+                {
+                    text: 'What can you tell me about the other suspects?',
+                    response: () => {
+                        const otherSuspects = gameState.currentCase.suspects.filter(s => s.id !== suspect.id);
+                        const randomOther = otherSuspects[Math.floor(Math.random() * otherSuspects.length)];
+                        return `${randomOther.name}? ${generateSuspectOpinion(suspect, randomOther)}`;
+                    }
+                },
+                {
+                    text: 'Is there anything you\'re not telling me?',
+                    response: () => {
+                        if (suspect.isKiller) {
+                            return `I've told you everything I know. [They avoid eye contact]`;
+                        } else if (Math.random() > 0.6) {
+                            return `Well... ${suspect.secret}. But that has nothing to do with this!`;
+                        }
+                        return `No, I've been completely honest with you.`;
+                    }
+                }
+            ];
+
+            // Add evidence confrontation if we have relevant evidence
+            const relevantEvidence = gameState.currentCase.evidence.filter(e =>
+                gameState.discoveredEvidence.includes(e.id) && e.pointsTo.includes(suspect.id)
+            );
+
+            if (relevantEvidence.length > 0) {
+                relevantEvidence.forEach(evidence => {
+                    questions.push({
+                        text: `[CONFRONT] We found evidence: ${evidence.type}`,
+                        response: () => {
+                            playSound('sting');
+                            if (evidence.isKey && suspect.isKiller) {
+                                return `[They become visibly shaken] I... I can explain! That's not what it looks like! [CONTRADICTION DETECTED]`;
+                            } else if (evidence.pointsTo.includes(suspect.id) && !suspect.isKiller) {
+                                return `That evidence? ${generateInnocentExplanation(evidence, suspect)}`;
+                            }
+                            return `I don't know anything about that.`;
+                        },
+                        isConfrontation: true
+                    });
+                });
+            }
+
+            container.innerHTML = '';
+            questions.forEach(q => {
+                const btn = document.createElement('button');
+                btn.className = 'question-btn';
+                btn.textContent = q.text;
+                if (q.isConfrontation) {
+                    btn.style.borderColor = '#8b0000';
+                    btn.style.color = '#ff6b6b';
+                }
+
+                btn.onclick = () => {
+                    dialogueBox.textContent = q.response();
+                    playSound('paper');
+                };
+
+                container.appendChild(btn);
+            });
+        }
+
+        function generateRelationshipDetail(suspect) {
+            const details = {
+                'Spouse': 'We had been married for years.',
+                'Business Partner': 'We worked together on several projects.',
+                'Colleague': 'We worked at the same company.',
+                'Rival': 'We competed in the same field.',
+                'Friend': 'We\'ve known each other for a long time.',
+                'Neighbor': 'We lived on the same street.',
+                'Ex-Lover': 'We dated in the past.',
+                'Family Member': 'We\'re related by blood.',
+                'Acquaintance': 'We knew each other socially.',
+                'Client': 'They hired me for professional services.',
+                'Employee': 'I worked for them.',
+                'Employer': 'They worked for me.'
+            };
+            return details[suspect.relationship] || 'We had a complicated relationship.';
+        }
+
+        function generateSuspectOpinion(suspect, other) {
+            const opinions = [
+                `They always seemed suspicious to me.`,
+                `We never really got along.`,
+                `They had their own problems with the victim.`,
+                `I don't know them very well.`,
+                `They're hiding something, I'm sure of it.`,
+                `They seemed upset recently.`
+            ];
+            return opinions[Math.floor(Math.random() * opinions.length)];
+        }
+
+        function generateInnocentExplanation(evidence, suspect) {
+            const explanations = [
+                `Yes, I was there, but it was earlier in the day.`,
+                `I can explain that - it's related to ${suspect.secret.toLowerCase()}.`,
+                `That's circumstantial. I had nothing to do with the murder.`,
+                `I was there for legitimate reasons.`,
+                `That doesn't prove anything. I'm innocent.`
+            ];
+            return explanations[Math.floor(Math.random() * explanations.length)];
+        }
+
+        // Crime Scene Investigation
+        function visitCrimeScene() {
+            showView('crime-scene');
+            document.getElementById('return-to-board-btn').style.display = 'block';
+
+            const container = document.getElementById('scene-container');
+            document.getElementById('scene-title').textContent = gameState.currentCase.location;
+
+            // Clear existing hotspots
+            const existingHotspots = container.querySelectorAll('.hotspot');
+            existingHotspots.forEach(h => h.remove());
+
+            // Add hotspots for undiscovered evidence at crime scene
+            const sceneEvidence = gameState.currentCase.evidence.filter(e =>
+                e.location === gameState.currentCase.location && !gameState.discoveredEvidence.includes(e.id)
+            );
+
+            sceneEvidence.forEach((evidence, i) => {
+                const hotspot = document.createElement('div');
+                hotspot.className = 'hotspot';
+                hotspot.style.left = `${20 + i * 25}%`;
+                hotspot.style.top = `${30 + (i % 3) * 20}%`;
+
+                hotspot.onclick = () => {
+                    discoverEvidence(evidence);
+                    hotspot.classList.add('found');
+                    playSound('camera');
+                };
+
+                container.appendChild(hotspot);
+            });
+
+            // If no evidence left, show message
+            if (sceneEvidence.length === 0) {
+                const message = document.createElement('div');
+                message.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #d4a574; font-size: 18px; text-align: center;';
+                message.textContent = 'You\'ve thoroughly investigated this location.\nNo more evidence to discover here.';
+                container.appendChild(message);
+            }
+        }
+
+        function discoverEvidence(evidence) {
+            if (!gameState.discoveredEvidence.includes(evidence.id)) {
+                gameState.discoveredEvidence.push(evidence.id);
+                renderEvidenceList();
+                saveGameState();
+
+                showModal(`
+                    <h3 style="color: #4a7c59; margin-bottom: 15px;">Evidence Discovered!</h3>
+                    <p><strong>${evidence.type}</strong></p>
+                    <p style="margin-top: 10px;">${evidence.description}</p>
+                `);
+            }
+        }
+
+        // Murder Board Management
+        function addBoardItem(itemData) {
+            const item = document.createElement('div');
+            item.className = 'board-item';
+            if (itemData.type === 'note') {
+                item.classList.add('sticky-note');
+            }
+
+            item.style.left = itemData.x + 'px';
+            item.style.top = itemData.y + 'px';
+
+            item.innerHTML = `
+                <div class="board-item-title">${itemData.title}</div>
+                <div class="board-item-content">${itemData.content}</div>
+            `;
+
+            // Make draggable
+            makeDraggable(item);
+
+            // Click to connect
+            item.onclick = (e) => {
+                if (e.target === item || e.target.classList.contains('board-item-title') || e.target.classList.contains('board-item-content')) {
+                    if (gameState.connectMode) {
+                        if (gameState.connectStart && gameState.connectStart !== item) {
+                            addConnection(gameState.connectStart, item);
+                            gameState.connectMode = false;
+                            gameState.connectStart = null;
+                        } else {
+                            gameState.connectStart = item;
+                            item.style.borderColor = '#ff0000';
+                        }
+                    }
+                }
+            };
+
+            document.getElementById('murder-board').appendChild(item);
+            gameState.boardItems.push({...itemData, element: item});
+
+            playSound('paper');
+            saveGameState();
+        }
+
+        function addEvidenceToBoard(evidence) {
+            const board = document.getElementById('murder-board');
+            const boardRect = board.getBoundingClientRect();
+
+            addBoardItem({
+                title: evidence.type,
+                content: evidence.description,
+                x: 100 + Math.random() * 300,
+                y: 300 + Math.random() * 200,
+                type: 'evidence',
+                evidenceId: evidence.id
+            });
+        }
+
+        function makeDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+            element.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                if (e.target.tagName === 'BUTTON') return;
+
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+                element.classList.add('being-dragged');
+            }
+
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                element.style.top = (element.offsetTop - pos2) + 'px';
+                element.style.left = (element.offsetLeft - pos1) + 'px';
+
+                drawConnections();
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+                element.classList.remove('being-dragged');
+                saveGameState();
+            }
+        }
+
+        function addConnection(item1, item2) {
+            gameState.connections.push({item1, item2});
+            drawConnections();
+            playSound('paper');
+            saveGameState();
+
+            // Reset border colors
+            const allItems = document.querySelectorAll('.board-item');
+            allItems.forEach(item => item.style.borderColor = '#8b7355');
+        }
+
+        function drawConnections() {
+            const canvas = document.getElementById('connections-canvas');
+            const board = document.getElementById('murder-board');
+
+            canvas.width = board.scrollWidth;
+            canvas.height = board.scrollHeight;
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+
+            gameState.connections.forEach(conn => {
+                const rect1 = conn.item1.getBoundingClientRect();
+                const rect2 = conn.item2.getBoundingClientRect();
+                const boardRect = board.getBoundingClientRect();
+
+                const x1 = rect1.left - boardRect.left + rect1.width / 2 + board.scrollLeft;
+                const y1 = rect1.top - boardRect.top + rect1.height / 2 + board.scrollTop;
+                const x2 = rect2.left - boardRect.left + rect2.width / 2 + board.scrollLeft;
+                const y2 = rect2.top - boardRect.top + rect2.height / 2 + board.scrollTop;
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            });
+        }
+
+        // Accusation System
+        function makeAccusation() {
+            showView('accusation-screen');
+            document.getElementById('return-to-board-btn').style.display = 'block';
+
+            // Populate suspects dropdown
+            const suspectSelect = document.getElementById('accused-suspect');
+            suspectSelect.innerHTML = '<option value="">-- Select Suspect --</option>';
+            gameState.currentCase.suspects.forEach(s => {
+                const option = document.createElement('option');
+                option.value = s.id;
+                option.textContent = s.name;
+                suspectSelect.appendChild(option);
+            });
+
+            // Populate method dropdown
+            const methodSelect = document.getElementById('accused-method');
+            methodSelect.innerHTML = '<option value="">-- Select Method --</option>';
+            methods.forEach(m => {
+                const option = document.createElement('option');
+                option.value = m;
+                option.textContent = m;
+                methodSelect.appendChild(option);
+            });
+
+            // Populate motive dropdown
+            const motiveSelect = document.getElementById('accused-motive');
+            motiveSelect.innerHTML = '<option value="">-- Select Motive --</option>';
+            motives.forEach(m => {
+                const option = document.createElement('option');
+                option.value = m;
+                option.textContent = m;
+                motiveSelect.appendChild(option);
+            });
+
+            // Populate time dropdown
+            const timeSelect = document.getElementById('accused-time');
+            timeSelect.innerHTML = '<option value="">-- Select Time Window --</option>';
+            const option = document.createElement('option');
+            option.value = gameState.currentCase.timeWindow;
+            option.textContent = gameState.currentCase.timeWindow;
+            timeSelect.appendChild(option);
+
+            // Populate evidence checklist
+            const evidenceChecklist = document.getElementById('evidence-checklist');
+            evidenceChecklist.innerHTML = '';
+            gameState.currentCase.evidence.filter(e => gameState.discoveredEvidence.includes(e.id)).forEach(e => {
+                const label = document.createElement('label');
+                label.className = 'evidence-checkbox';
+                label.innerHTML = `
+                    <input type="checkbox" value="${e.id}">
+                    <span>${e.type}: ${e.description.substring(0, 60)}...</span>
+                `;
+                evidenceChecklist.appendChild(label);
+            });
+        }
+
+        function submitAccusation() {
+            playSound('gavel');
+
+            const accusedId = parseInt(document.getElementById('accused-suspect').value);
+            const accusedMethod = document.getElementById('accused-method').value;
+            const accusedMotive = document.getElementById('accused-motive').value;
+            const accusedTime = document.getElementById('accused-time').value;
+
+            const selectedEvidence = Array.from(document.querySelectorAll('#evidence-checklist input:checked'))
+                .map(cb => parseInt(cb.value));
+
+            // Validation
+            if (!accusedId || !accusedMethod || !accusedMotive || selectedEvidence.length < 3) {
+                showModal('<p style="color: #ff6b6b;">You must select a suspect, method, motive, and at least 3 pieces of evidence.</p>');
+                return;
+            }
+
+            // Evaluate accusation
+            const killer = gameState.currentCase.killer;
+            const correctSuspect = accusedId === killer.id;
+            const correctMethod = accusedMethod === gameState.currentCase.method;
+            const correctMotive = accusedMotive === killer.trueMotive;
+
+            // Check if key evidence was selected
+            const keyEvidenceIds = gameState.currentCase.evidence.filter(e => e.isKey && e.pointsTo.includes(killer.id)).map(e => e.id);
+            const foundKeyEvidence = keyEvidenceIds.filter(id => selectedEvidence.includes(id)).length;
+
+            let verdict, explanation;
+
+            if (correctSuspect && correctMethod && correctMotive && foundKeyEvidence >= 2) {
+                verdict = 'GUILTY';
+                explanation = generateCorrectExplanation();
+                gameState.stats.correctAccusations++;
+                gameState.stats.casesSolved++;
+            } else if (correctSuspect && (correctMethod || correctMotive)) {
+                verdict = 'PARTIALLY CORRECT';
+                explanation = generatePartialExplanation(correctMethod, correctMotive);
+                gameState.stats.casesSolved++;
+            } else {
+                verdict = 'INCORRECT';
+                explanation = generateWrongExplanation(accusedId);
+            }
+
+            gameState.stats.totalCases++;
+
+            // Calculate solve time
+            const solveTime = Math.floor((Date.now() - gameState.caseStartTime) / 1000 / 60);
+            gameState.stats.totalSolveTime += solveTime;
+
+            // Update highest difficulty
+            const difficultyRank = {rookie: 1, detective: 2, hardboiled: 3};
+            const currentRank = difficultyRank[gameState.difficulty];
+            const highestRank = gameState.stats.highestDifficulty ? difficultyRank[gameState.stats.highestDifficulty] : 0;
+            if (currentRank > highestRank) {
+                gameState.stats.highestDifficulty = gameState.difficulty;
+            }
+
+            saveStats();
+            showResults(verdict, explanation, solveTime);
+        }
+
+        function generateCorrectExplanation() {
+            const killer = gameState.currentCase.killer;
+            return `
+                <h3>Case Solved!</h3>
+                <p><strong>${killer.name}</strong> is indeed the killer.</p>
+                <p><strong>Method:</strong> ${gameState.currentCase.method}</p>
+                <p><strong>Motive:</strong> ${killer.trueMotive}</p>
+                <p><strong>How they did it:</strong> ${killer.name} used their position as ${killer.relationship.toLowerCase()} to gain access to the victim. The evidence clearly shows their involvement:</p>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    ${gameState.currentCase.evidence.filter(e => e.isKey && e.pointsTo.includes(killer.id)).map(e =>
+                        `<li>${e.type}: ${e.description}</li>`
+                    ).join('')}
+                </ul>
+                <p><strong>The false alibi:</strong> ${killer.alibi} - This was proven false by the evidence.</p>
+                <p>Excellent detective work! You pieced together the evidence and identified the killer.</p>
+            `;
+        }
+
+        function generatePartialExplanation(correctMethod, correctMotive) {
+            const killer = gameState.currentCase.killer;
+            return `
+                <h3>You got the killer, but missed some details.</h3>
+                <p><strong>${killer.name}</strong> is the killer - you got that right!</p>
+                <p>However:</p>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    ${!correctMethod ? `<li>The actual method was <strong>${gameState.currentCase.method}</strong>, not what you selected.</li>` : ''}
+                    ${!correctMotive ? `<li>The true motive was <strong>${killer.trueMotive}</strong>, not what you selected.</li>` : ''}
+                </ul>
+                <p>The key evidence pointed to ${killer.name}, and you found them. Good work, detective.</p>
+            `;
+        }
+
+        function generateWrongExplanation(accusedId) {
+            const killer = gameState.currentCase.killer;
+            const accused = gameState.currentCase.suspects.find(s => s.id === accusedId);
+            return `
+                <h3>Incorrect Accusation</h3>
+                <p>You accused <strong>${accused ? accused.name : 'the wrong person'}</strong>, but the real killer was <strong>${killer.name}</strong>.</p>
+                <p><strong>What you missed:</strong></p>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li><strong>Method:</strong> ${gameState.currentCase.method}</li>
+                    <li><strong>Motive:</strong> ${killer.trueMotive}</li>
+                    <li><strong>Key Evidence:</strong></li>
+                    ${gameState.currentCase.evidence.filter(e => e.isKey && e.pointsTo.includes(killer.id)).map(e =>
+                        `<li style="margin-left: 20px;">${e.type}: ${e.description}</li>`
+                    ).join('')}
+                </ul>
+                ${accused && accused.alibiTrue === false && !accused.isKiller ?
+                    `<p>${accused.name}'s alibi was false because they were hiding: ${accused.secret}. This made them look guilty, but they weren't the killer.</p>` : ''}
+                <p>Review the evidence and try to see the connections you missed.</p>
+            `;
+        }
+
+        function showResults(verdict, explanation, solveTime) {
+            showView('results-screen');
+
+            const verdictClass = verdict === 'GUILTY' ? 'correct' : verdict === 'PARTIALLY CORRECT' ? 'partial' : 'wrong';
+
+            document.getElementById('results-content').innerHTML = `
+                <div class="verdict ${verdictClass}">${verdict}</div>
+                <div class="explanation">${explanation}</div>
+                <div style="background: rgba(20, 15, 10, 0.5); padding: 20px; margin-top: 30px; border: 1px solid #8b7355;">
+                    <h3 style="color: #d4a574; margin-bottom: 15px;">Case Statistics</h3>
+                    <div class="stat-row">
+                        <span>Solve Time:</span>
+                        <span>${solveTime} minutes</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Evidence Found:</span>
+                        <span>${gameState.discoveredEvidence.length} / ${gameState.currentCase.evidence.length}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Suspects Interviewed:</span>
+                        <span>${gameState.interviewedSuspects.length} / ${gameState.currentCase.suspects.length}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Difficulty:</span>
+                        <span>${gameState.difficulty.toUpperCase()}</span>
+                    </div>
+                </div>
+                <div style="margin-top: 30px; text-align: center;">
+                    <button class="btn btn-primary" onclick="returnToStart()">Return to Main Menu</button>
+                    <button class="btn" onclick="startNewCase()">Investigate New Case</button>
+                </div>
+            `;
+        }
+
+        // View Management
+        function showView(viewId) {
+            const views = ['start-screen', 'murder-board', 'interview-screen', 'crime-scene', 'accusation-screen', 'results-screen'];
+            views.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.style.display = id === viewId ? 'flex' : 'none';
+                }
+            });
+
+            if (viewId === 'murder-board') {
+                document.getElementById('return-to-board-btn').style.display = 'none';
+                setTimeout(() => drawConnections(), 100);
+            }
+        }
+
+        function returnToStart() {
+            showView('start-screen');
+            loadStats();
+            document.getElementById('case-header').style.display = 'none';
+        }
+
+        // Modal
+        function showModal(content) {
+            document.getElementById('modal-body').innerHTML = content;
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+
+        // Save/Load
+        function saveGameState() {
+            const state = {
+                currentCase: gameState.currentCase,
+                difficulty: gameState.difficulty,
+                discoveredEvidence: gameState.discoveredEvidence,
+                interviewedSuspects: gameState.interviewedSuspects,
+                boardItems: gameState.boardItems.map(item => ({
+                    title: item.title,
+                    content: item.content,
+                    x: parseInt(item.element.style.left),
+                    y: parseInt(item.element.style.top),
+                    type: item.type
+                })),
+                caseStartTime: gameState.caseStartTime,
+                notes: document.getElementById('case-notes').value
+            };
+            localStorage.setItem('murderBoardState', JSON.stringify(state));
+        }
+
+        function loadGameState() {
+            const saved = localStorage.getItem('murderBoardState');
+            if (saved) {
+                const state = JSON.parse(saved);
+                // Could implement state restoration here if needed
+            }
+        }
+
+        function saveStats() {
+            localStorage.setItem('murderBoardStats', JSON.stringify(gameState.stats));
+        }
+
+        function loadStats() {
+            const saved = localStorage.getItem('murderBoardStats');
+            if (saved) {
+                gameState.stats = JSON.parse(saved);
+            }
+
+            document.getElementById('stat-solved').textContent = gameState.stats.casesSolved;
+
+            const accuracy = gameState.stats.totalCases > 0
+                ? Math.round((gameState.stats.correctAccusations / gameState.stats.totalCases) * 100)
+                : 0;
+            document.getElementById('stat-accuracy').textContent = accuracy + '%';
+
+            const avgTime = gameState.stats.casesSolved > 0
+                ? Math.round(gameState.stats.totalSolveTime / gameState.stats.casesSolved)
+                : 0;
+            document.getElementById('stat-time').textContent = avgTime > 0 ? avgTime + ' min' : '--';
+
+            document.getElementById('stat-difficulty').textContent =
+                gameState.stats.highestDifficulty ? gameState.stats.highestDifficulty.toUpperCase() : 'None';
+        }
+
+        function saveNotes() {
+            saveGameState();
+            showModal('<p style="color: #4a7c59;">Notes saved successfully!</p>');
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Tab switching
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                    btn.classList.add('active');
+                    document.getElementById(btn.dataset.tab + '-tab').classList.add('active');
+                });
+            });
+
+            // Difficulty selection
+            document.querySelectorAll('.difficulty-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.difficulty-btn').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    gameState.difficulty = btn.dataset.difficulty;
+                });
+            });
+
+            // Start game
+            document.getElementById('start-game-btn').addEventListener('click', () => {
+                startNewCase();
+            });
+
+            // New case
+            document.getElementById('new-case-btn').addEventListener('click', () => {
+                if (confirm('Start a new case? Current progress will be lost.')) {
+                    startNewCase();
+                }
+            });
+
+            // Accusation
+            document.getElementById('accuse-btn').addEventListener('click', makeAccusation);
+            document.getElementById('submit-accusation-btn').addEventListener('click', submitAccusation);
+            document.getElementById('cancel-accusation-btn').addEventListener('click', () => {
+                showView('murder-board');
+            });
+
+            // Return to board
+            document.getElementById('return-to-board-btn').addEventListener('click', () => {
+                showView('murder-board');
+            });
+
+            // Interview controls
+            document.getElementById('end-interview-btn').addEventListener('click', () => {
+                showView('murder-board');
+            });
+
+            // Crime scene controls
+            document.getElementById('leave-scene-btn').addEventListener('click', () => {
+                showView('murder-board');
+            });
+            document.getElementById('visit-crime-scene-btn').addEventListener('click', visitCrimeScene);
+
+            // Board controls
+            document.getElementById('add-note-btn').addEventListener('click', () => {
+                const note = prompt('Enter note text:');
+                if (note) {
+                    addBoardItem({
+                        title: 'NOTE',
+                        content: note,
+                        x: 200 + Math.random() * 400,
+                        y: 400 + Math.random() * 200,
+                        type: 'note'
+                    });
+                }
+            });
+
+            document.getElementById('clear-connections-btn').addEventListener('click', () => {
+                if (confirm('Clear all connection lines?')) {
+                    gameState.connections = [];
+                    drawConnections();
+                    saveGameState();
+                }
+            });
+
+            // Close modal on outside click
+            document.getElementById('modal').addEventListener('click', (e) => {
+                if (e.target.id === 'modal') {
+                    closeModal();
+                }
+            });
+
+            // Canvas resize
+            window.addEventListener('resize', () => {
+                if (gameState.currentCase) {
+                    drawConnections();
+                }
+            });
+
+            // Load stats on start
+            loadStats();
+        });
+
+        // Ambient noir jazz (simple procedural)
+        function playAmbientJazz() {
+            const ctx = audioCtx;
+
+            function playBassNote() {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                const notes = [55, 65, 73, 82]; // Bass notes
+                const note = notes[Math.floor(Math.random() * notes.length)];
+
+                osc.frequency.value = note;
+                osc.type = 'sine';
+                gain.gain.setValueAtTime(0.05, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
+
+                osc.start();
+                osc.stop(ctx.currentTime + 1);
+
+                setTimeout(playBassNote, 1000 + Math.random() * 2000);
+            }
+
+            // Start ambient if user interacts
+            document.addEventListener('click', () => {
+                if (ctx.state === 'suspended') {
+                    ctx.resume();
+                    playBassNote();
+                }
+            }, { once: true });
+        }
+
+        playAmbientJazz();
+    </script>
+</body>
+</html>

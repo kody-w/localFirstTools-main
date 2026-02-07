@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinite City - A Procedural Walking Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: pointer;
+        }
+
+        #hud {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+
+        #hud.hidden {
+            opacity: 0;
+        }
+
+        .crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+        }
+
+        #compass {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            letter-spacing: 4px;
+        }
+
+        .compass-active {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+
+        #coordinates {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 12px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            line-height: 1.6;
+        }
+
+        #timeIndicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 24px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        #secretsCounter {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-size: 14px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        #toast {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            max-width: 80%;
+            text-align: center;
+        }
+
+        #toast.show {
+            opacity: 1;
+        }
+
+        #mapOverlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 30px;
+            border-radius: 12px;
+            display: none;
+            pointer-events: all;
+        }
+
+        #mapOverlay.visible {
+            display: block;
+        }
+
+        #mapCanvas {
+            border: 2px solid #fff;
+            display: block;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            font-size: 11px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            line-height: 1.6;
+            opacity: 0.7;
+        }
+
+        #startScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #startScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            letter-spacing: 8px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        #startScreen p {
+            font-size: 16px;
+            margin-bottom: 10px;
+            max-width: 600px;
+            line-height: 1.8;
+            opacity: 0.8;
+        }
+
+        #startButton {
+            margin-top: 40px;
+            padding: 15px 40px;
+            font-size: 18px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid #fff;
+            color: #fff;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 2px;
+            transition: all 0.3s;
+        }
+
+        #startButton:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.05);
+        }
+
+        #mobileControls {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            pointer-events: all;
+            z-index: 99;
+        }
+
+        .joystick {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            touch-action: none;
+        }
+
+        .joystick-stick {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        @media (max-width: 768px) {
+            #mobileControls {
+                display: block;
+            }
+            #controls {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="hud">
+        <div class="crosshair"></div>
+        <div id="compass">N</div>
+        <div id="coordinates">
+            X: <span id="coordX">0</span><br>
+            Z: <span id="coordZ">0</span><br>
+            Weather: <span id="weather">Clear</span>
+        </div>
+        <div id="timeIndicator">☀️</div>
+        <div id="secretsCounter">Secrets: <span id="secretCount">0</span>/10</div>
+        <div id="controls">
+            WASD: Move | Mouse: Look<br>
+            Shift: Sprint | Space: Jump<br>
+            Tab: Map | H: Hide HUD
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <div id="mapOverlay">
+        <h3 style="margin-bottom: 15px; text-align: center;">EXPLORED TERRITORY</h3>
+        <canvas id="mapCanvas" width="400" height="400"></canvas>
+        <p style="margin-top: 15px; text-align: center; font-size: 12px;">Press Tab to close</p>
+    </div>
+
+    <div id="mobileControls">
+        <div class="joystick" id="moveJoystick">
+            <div class="joystick-stick" id="moveStick"></div>
+        </div>
+    </div>
+
+    <div id="startScreen">
+        <h1>INFINITE CITY</h1>
+        <p>An endless procedural metropolis awaits.</p>
+        <p>Walk through streets that never end.</p>
+        <p>Discover hidden places.</p>
+        <p>Listen to the city breathe.</p>
+        <p style="margin-top: 20px; font-size: 12px; opacity: 0.6;">
+            10 secrets are scattered throughout the infinite expanse.<br>
+            Some you'll find. Some will find you.
+        </p>
+        <button id="startButton">ENTER THE CITY</button>
+    </div>
+
+    <script>
+        // ============================================
+        // CONSTANTS & CONFIGURATION
+        // ============================================
+
+        const CONFIG = {
+            CHUNK_SIZE: 80,
+            RENDER_DISTANCE: 3, // chunks in each direction
+            BUILDING_MIN_HEIGHT: 8,
+            BUILDING_MAX_HEIGHT: 60,
+            MOVE_SPEED: 0.15,
+            SPRINT_SPEED: 0.3,
+            JUMP_FORCE: 0.3,
+            GRAVITY: 0.015,
+            MOUSE_SENSITIVITY: 0.002,
+            FOG_NEAR: 50,
+            FOG_FAR: 200,
+            DAY_LENGTH: 300000, // 5 minutes in ms
+        };
+
+        const SECRETS = [
+            { x: 45, z: 120, name: "Rooftop Garden", desc: "A secret garden blooms above the city", radius: 8 },
+            { x: -80, z: -60, name: "Underground Jazz Club", desc: "Smooth melodies drift from below", radius: 10 },
+            { x: 200, z: 180, name: "Abandoned Church", desc: "Silent prayers echo in empty halls", radius: 12 },
+            { x: -150, z: 100, name: "Graffiti Alley", desc: "Art speaks where words fail", radius: 8 },
+            { x: 90, z: -140, name: "The Watched Room", desc: "Someone left the light on", radius: 10 },
+            { x: 0, z: 240, name: "Firefly Park", desc: "Nature persists in the concrete jungle", radius: 15 },
+            { x: 180, z: -80, name: "Skyline Bridge", desc: "The city unfolds before you", radius: 12 },
+            { x: -200, z: -180, name: "The Locked Door", desc: "Something stirs behind the threshold", radius: 8 },
+            { x: -120, z: 220, name: "Ringing Phone Booth", desc: "It's for you", radius: 6 },
+            { x: 60, z: -200, name: "Clock Tower", desc: "Time stands still at midnight", radius: 15 }
+        ];
+
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
+
+        class SeededRandom {
+            constructor(seed) {
+                this.seed = seed;
+            }
+
+            next() {
+                this.seed = (this.seed * 9301 + 49297) % 233280;
+                return this.seed / 233280;
+            }
+        }
+
+        function hash(x, z) {
+            let h = x * 374761393 + z * 668265263;
+            h = (h ^ (h >>> 13)) * 1274126177;
+            return h ^ (h >>> 16);
+        }
+
+        function noise(x, z) {
+            const n = hash(Math.floor(x), Math.floor(z));
+            return (n & 0xffff) / 0xffff;
+        }
+
+        function smoothNoise(x, z) {
+            const corners = (noise(x-1, z-1) + noise(x+1, z-1) + noise(x-1, z+1) + noise(x+1, z+1)) / 16;
+            const sides = (noise(x-1, z) + noise(x+1, z) + noise(x, z-1) + noise(x, z+1)) / 8;
+            const center = noise(x, z) / 4;
+            return corners + sides + center;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function clamp(val, min, max) {
+            return Math.max(min, Math.min(max, val));
+        }
+
+        // ============================================
+        // GAME STATE
+        // ============================================
+
+        const state = {
+            // Camera/Player
+            camera: {
+                x: 0,
+                y: 1.7,
+                z: 0,
+                pitch: 0,
+                yaw: 0,
+                vx: 0,
+                vy: 0,
+                vz: 0,
+                onGround: true
+            },
+
+            // Input
+            keys: {},
+            mouse: { locked: false, dx: 0, dy: 0 },
+
+            // World
+            chunks: new Map(),
+            activeChunks: new Set(),
+            time: 0, // 0 to 1 (day cycle)
+            weather: 'clear', // clear, rain, fog, storm
+            weatherTimer: 0,
+
+            // Secrets
+            discoveredSecrets: new Set(),
+
+            // UI
+            hudVisible: true,
+            mapVisible: false,
+
+            // Mobile
+            joystick: { active: false, x: 0, y: 0 },
+            touchLook: { active: false, startX: 0, startY: 0 }
+        };
+
+        // ============================================
+        // WEBGL SETUP
+        // ============================================
+
+        const canvas = document.getElementById('gameCanvas');
+        const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+
+        if (!gl) {
+            alert('WebGL not supported');
+            throw new Error('WebGL not supported');
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Vertex shader
+        const vertexShaderSource = `
+            attribute vec3 aPosition;
+            attribute vec3 aColor;
+            attribute vec3 aNormal;
+
+            uniform mat4 uProjection;
+            uniform mat4 uView;
+            uniform mat4 uModel;
+
+            varying vec3 vColor;
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying float vFogDepth;
+
+            void main() {
+                vec4 worldPos = uModel * vec4(aPosition, 1.0);
+                vec4 viewPos = uView * worldPos;
+                gl_Position = uProjection * viewPos;
+
+                vColor = aColor;
+                vNormal = normalize(mat3(uModel) * aNormal);
+                vPosition = worldPos.xyz;
+                vFogDepth = -viewPos.z;
+            }
+        `;
+
+        // Fragment shader
+        const fragmentShaderSource = `
+            precision mediump float;
+
+            varying vec3 vColor;
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying float vFogDepth;
+
+            uniform vec3 uLightDir;
+            uniform vec3 uSkyColor;
+            uniform float uFogNear;
+            uniform float uFogFar;
+            uniform float uAmbient;
+
+            void main() {
+                // Simple diffuse lighting
+                float diff = max(dot(vNormal, uLightDir), 0.0);
+                vec3 lighting = vec3(uAmbient + diff * (1.0 - uAmbient));
+                vec3 color = vColor * lighting;
+
+                // Fog
+                float fogFactor = clamp((vFogDepth - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
+                color = mix(color, uSkyColor, fogFactor);
+
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        function compileShader(source, type) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+
+            return shader;
+        }
+
+        const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
+        const fragmentShader = compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Program link error:', gl.getProgramInfoLog(program));
+        }
+
+        gl.useProgram(program);
+
+        // Get attribute and uniform locations
+        const locations = {
+            aPosition: gl.getAttribLocation(program, 'aPosition'),
+            aColor: gl.getAttribLocation(program, 'aColor'),
+            aNormal: gl.getAttribLocation(program, 'aNormal'),
+            uProjection: gl.getUniformLocation(program, 'uProjection'),
+            uView: gl.getUniformLocation(program, 'uView'),
+            uModel: gl.getUniformLocation(program, 'uModel'),
+            uLightDir: gl.getUniformLocation(program, 'uLightDir'),
+            uSkyColor: gl.getUniformLocation(program, 'uSkyColor'),
+            uFogNear: gl.getUniformLocation(program, 'uFogNear'),
+            uFogFar: gl.getUniformLocation(program, 'uFogFar'),
+            uAmbient: gl.getUniformLocation(program, 'uAmbient')
+        };
+
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.CULL_FACE);
+
+        // ============================================
+        // MATRIX OPERATIONS
+        // ============================================
+
+        function perspective(fov, aspect, near, far) {
+            const f = 1.0 / Math.tan(fov / 2);
+            const nf = 1 / (near - far);
+
+            return [
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (far + near) * nf, -1,
+                0, 0, 2 * far * near * nf, 0
+            ];
+        }
+
+        function lookAt(eye, target, up) {
+            const zAxis = normalize([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
+            const xAxis = normalize(cross(up, zAxis));
+            const yAxis = cross(zAxis, xAxis);
+
+            return [
+                xAxis[0], yAxis[0], zAxis[0], 0,
+                xAxis[1], yAxis[1], zAxis[1], 0,
+                xAxis[2], yAxis[2], zAxis[2], 0,
+                -dot(xAxis, eye), -dot(yAxis, eye), -dot(zAxis, eye), 1
+            ];
+        }
+
+        function identity() {
+            return [
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+            ];
+        }
+
+        function translate(m, x, y, z) {
+            const out = [...m];
+            out[12] = m[0] * x + m[4] * y + m[8] * z + m[12];
+            out[13] = m[1] * x + m[5] * y + m[9] * z + m[13];
+            out[14] = m[2] * x + m[6] * y + m[10] * z + m[14];
+            out[15] = m[3] * x + m[7] * y + m[11] * z + m[15];
+            return out;
+        }
+
+        function normalize(v) {
+            const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            return len > 0 ? [v[0] / len, v[1] / len, v[2] / len] : [0, 0, 0];
+        }
+
+        function cross(a, b) {
+            return [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0]
+            ];
+        }
+
+        function dot(a, b) {
+            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        }
+
+        // ============================================
+        // GEOMETRY BUILDING
+        // ============================================
+
+        function createBox(w, h, d, color) {
+            const hw = w / 2, hh = h / 2, hd = d / 2;
+
+            const vertices = [
+                // Front
+                -hw, -hh, hd,  hw, -hh, hd,  hw, hh, hd,
+                -hw, -hh, hd,  hw, hh, hd,  -hw, hh, hd,
+                // Back
+                hw, -hh, -hd,  -hw, -hh, -hd,  -hw, hh, -hd,
+                hw, -hh, -hd,  -hw, hh, -hd,  hw, hh, -hd,
+                // Top
+                -hw, hh, hd,  hw, hh, hd,  hw, hh, -hd,
+                -hw, hh, hd,  hw, hh, -hd,  -hw, hh, -hd,
+                // Bottom
+                -hw, -hh, -hd,  hw, -hh, -hd,  hw, -hh, hd,
+                -hw, -hh, -hd,  hw, -hh, hd,  -hw, -hh, hd,
+                // Right
+                hw, -hh, hd,  hw, -hh, -hd,  hw, hh, -hd,
+                hw, -hh, hd,  hw, hh, -hd,  hw, hh, hd,
+                // Left
+                -hw, -hh, -hd,  -hw, -hh, hd,  -hw, hh, hd,
+                -hw, -hh, -hd,  -hw, hh, hd,  -hw, hh, -hd
+            ];
+
+            const normals = [
+                0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1,
+                0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,
+                0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0,
+                0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,
+                1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0,
+                -1, 0, 0,  -1, 0, 0,  -1, 0, 0,  -1, 0, 0,  -1, 0, 0,  -1, 0, 0
+            ];
+
+            const colors = [];
+            for (let i = 0; i < 36; i++) {
+                colors.push(...color);
+            }
+
+            return { vertices, normals, colors };
+        }
+
+        function mergeGeometry(geometries) {
+            const vertices = [];
+            const normals = [];
+            const colors = [];
+
+            for (const geo of geometries) {
+                vertices.push(...geo.vertices);
+                normals.push(...geo.normals);
+                colors.push(...geo.colors);
+            }
+
+            return { vertices, normals, colors };
+        }
+
+        // ============================================
+        // CHUNK & BUILDING GENERATION
+        // ============================================
+
+        function getDistrictType(x, z) {
+            const dist = Math.sqrt(x * x + z * z);
+            const angle = Math.atan2(z, x);
+            const n = smoothNoise(x * 0.01, z * 0.01);
+
+            if (dist < 100) return 'downtown';
+            if (dist < 200 && n > 0.7) return 'park';
+            if (n > 0.65) return 'residential';
+            if (n < 0.35) return 'industrial';
+            return 'residential';
+        }
+
+        function generateBuilding(x, z, seed) {
+            const rng = new SeededRandom(seed);
+            const district = getDistrictType(x, z);
+
+            let width = 6 + rng.next() * 8;
+            let depth = 6 + rng.next() * 8;
+            let height = CONFIG.BUILDING_MIN_HEIGHT + rng.next() * (CONFIG.BUILDING_MAX_HEIGHT - CONFIG.BUILDING_MIN_HEIGHT);
+            let color;
+
+            switch (district) {
+                case 'downtown':
+                    height *= 1.5;
+                    width *= 0.7;
+                    depth *= 0.7;
+                    color = [0.2 + rng.next() * 0.3, 0.2 + rng.next() * 0.3, 0.3 + rng.next() * 0.4];
+                    break;
+                case 'residential':
+                    height *= 0.6;
+                    color = [0.6 + rng.next() * 0.2, 0.5 + rng.next() * 0.2, 0.4 + rng.next() * 0.2];
+                    break;
+                case 'industrial':
+                    height *= 0.8;
+                    width *= 1.3;
+                    depth *= 1.3;
+                    color = [0.4, 0.4, 0.4];
+                    break;
+                case 'park':
+                    return null; // Parks have no buildings
+                default:
+                    color = [0.5, 0.5, 0.5];
+            }
+
+            return { x, y: height / 2, z, width, height, depth, color, district };
+        }
+
+        function generateChunk(chunkX, chunkZ) {
+            const buildings = [];
+            const geometries = [];
+
+            // Generate grid of buildings
+            for (let bx = 0; bx < 4; bx++) {
+                for (let bz = 0; bz < 4; bz++) {
+                    const worldX = chunkX * CONFIG.CHUNK_SIZE + bx * 20;
+                    const worldZ = chunkZ * CONFIG.CHUNK_SIZE + bz * 20;
+                    const seed = hash(Math.floor(worldX), Math.floor(worldZ));
+
+                    const building = generateBuilding(worldX, worldZ, seed);
+                    if (building) {
+                        buildings.push(building);
+
+                        // Main building box
+                        const box = createBox(building.width, building.height, building.depth, building.color);
+
+                        // Translate vertices
+                        for (let i = 0; i < box.vertices.length; i += 3) {
+                            box.vertices[i] += building.x;
+                            box.vertices[i + 1] += building.y;
+                            box.vertices[i + 2] += building.z;
+                        }
+
+                        geometries.push(box);
+
+                        // Windows (simple lit rectangles)
+                        const rng = new SeededRandom(seed + 1);
+                        const windowCount = Math.floor(building.height / 3);
+                        for (let i = 0; i < windowCount; i++) {
+                            if (rng.next() > 0.7) {
+                                const wy = i * 3 + 2;
+                                const wx = building.x + (rng.next() - 0.5) * building.width * 0.8;
+                                const wz = building.z + building.depth / 2 + 0.1;
+
+                                const brightness = 0.8 + rng.next() * 0.2;
+                                const window = createBox(0.8, 1.2, 0.1, [brightness, brightness * 0.9, brightness * 0.7]);
+
+                                for (let j = 0; j < window.vertices.length; j += 3) {
+                                    window.vertices[j] += wx;
+                                    window.vertices[j + 1] += wy;
+                                    window.vertices[j + 2] += wz;
+                                }
+
+                                geometries.push(window);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Ground plane
+            const ground = createBox(CONFIG.CHUNK_SIZE, 0.1, CONFIG.CHUNK_SIZE, [0.2, 0.2, 0.22]);
+            for (let i = 0; i < ground.vertices.length; i += 3) {
+                ground.vertices[i] += chunkX * CONFIG.CHUNK_SIZE + CONFIG.CHUNK_SIZE / 2;
+                ground.vertices[i + 2] += chunkZ * CONFIG.CHUNK_SIZE + CONFIG.CHUNK_SIZE / 2;
+            }
+            geometries.push(ground);
+
+            // Streets
+            const street1 = createBox(CONFIG.CHUNK_SIZE, 0.11, 4, [0.15, 0.15, 0.15]);
+            for (let i = 0; i < street1.vertices.length; i += 3) {
+                street1.vertices[i] += chunkX * CONFIG.CHUNK_SIZE + CONFIG.CHUNK_SIZE / 2;
+                street1.vertices[i + 2] += chunkZ * CONFIG.CHUNK_SIZE + CONFIG.CHUNK_SIZE / 2;
+            }
+            geometries.push(street1);
+
+            const street2 = createBox(4, 0.11, CONFIG.CHUNK_SIZE, [0.15, 0.15, 0.15]);
+            for (let i = 0; i < street2.vertices.length; i += 3) {
+                street2.vertices[i] += chunkX * CONFIG.CHUNK_SIZE + CONFIG.CHUNK_SIZE / 2;
+                street2.vertices[i + 2] += chunkZ * CONFIG.CHUNK_SIZE + CONFIG.CHUNK_SIZE / 2;
+            }
+            geometries.push(street2);
+
+            // Street lights
+            const rng = new SeededRandom(hash(chunkX, chunkZ) + 999);
+            for (let i = 0; i < 4; i++) {
+                const lx = chunkX * CONFIG.CHUNK_SIZE + rng.next() * CONFIG.CHUNK_SIZE;
+                const lz = chunkZ * CONFIG.CHUNK_SIZE + rng.next() * CONFIG.CHUNK_SIZE;
+
+                const pole = createBox(0.2, 6, 0.2, [0.3, 0.3, 0.3]);
+                for (let j = 0; j < pole.vertices.length; j += 3) {
+                    pole.vertices[j] += lx;
+                    pole.vertices[j + 1] += 3;
+                    pole.vertices[j + 2] += lz;
+                }
+                geometries.push(pole);
+
+                const light = createBox(0.5, 0.3, 0.5, [1, 0.9, 0.6]);
+                for (let j = 0; j < light.vertices.length; j += 3) {
+                    light.vertices[j] += lx;
+                    light.vertices[j + 1] += 6;
+                    light.vertices[j + 2] += lz;
+                }
+                geometries.push(light);
+            }
+
+            const merged = mergeGeometry(geometries);
+
+            // Create WebGL buffers
+            const posBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(merged.vertices), gl.STATIC_DRAW);
+
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(merged.colors), gl.STATIC_DRAW);
+
+            const normalBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(merged.normals), gl.STATIC_DRAW);
+
+            return {
+                posBuffer,
+                colorBuffer,
+                normalBuffer,
+                vertexCount: merged.vertices.length / 3,
+                buildings,
+                chunkX,
+                chunkZ
+            };
+        }
+
+        function getChunkKey(cx, cz) {
+            return `${cx},${cz}`;
+        }
+
+        function updateChunks() {
+            const playerChunkX = Math.floor(state.camera.x / CONFIG.CHUNK_SIZE);
+            const playerChunkZ = Math.floor(state.camera.z / CONFIG.CHUNK_SIZE);
+
+            const newActiveChunks = new Set();
+
+            // Generate chunks in render distance
+            for (let dx = -CONFIG.RENDER_DISTANCE; dx <= CONFIG.RENDER_DISTANCE; dx++) {
+                for (let dz = -CONFIG.RENDER_DISTANCE; dz <= CONFIG.RENDER_DISTANCE; dz++) {
+                    const cx = playerChunkX + dx;
+                    const cz = playerChunkZ + dz;
+                    const key = getChunkKey(cx, cz);
+
+                    newActiveChunks.add(key);
+
+                    if (!state.chunks.has(key)) {
+                        state.chunks.set(key, generateChunk(cx, cz));
+                    }
+                }
+            }
+
+            // Delete far chunks (keep memory manageable)
+            const toDelete = [];
+            for (const key of state.chunks.keys()) {
+                if (!newActiveChunks.has(key)) {
+                    toDelete.push(key);
+                }
+            }
+
+            for (const key of toDelete) {
+                const chunk = state.chunks.get(key);
+                gl.deleteBuffer(chunk.posBuffer);
+                gl.deleteBuffer(chunk.colorBuffer);
+                gl.deleteBuffer(chunk.normalBuffer);
+                state.chunks.delete(key);
+            }
+
+            state.activeChunks = newActiveChunks;
+        }
+
+        // ============================================
+        // AUDIO SYSTEM
+        // ============================================
+
+        let audioContext;
+        let masterGain;
+        let ambientGain;
+        let ambienceOscillators = [];
+
+        function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            masterGain = audioContext.createGain();
+            masterGain.gain.value = 0.3;
+            masterGain.connect(audioContext.destination);
+
+            ambientGain = audioContext.createGain();
+            ambientGain.gain.value = 0.15;
+            ambientGain.connect(masterGain);
+
+            // Ambient city hum (low frequency)
+            const hum = audioContext.createOscillator();
+            hum.type = 'sine';
+            hum.frequency.value = 60;
+            const humGain = audioContext.createGain();
+            humGain.gain.value = 0.1;
+            hum.connect(humGain);
+            humGain.connect(ambientGain);
+            hum.start();
+            ambienceOscillators.push(hum);
+
+            // Wind noise
+            const wind = audioContext.createOscillator();
+            wind.type = 'sawtooth';
+            wind.frequency.value = 200;
+            const windGain = audioContext.createGain();
+            windGain.gain.value = 0.05;
+            wind.connect(windGain);
+            windGain.connect(ambientGain);
+            wind.start();
+            ambienceOscillators.push(wind);
+        }
+
+        function playFootstep() {
+            if (!audioContext) return;
+
+            const osc = audioContext.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = 80 + Math.random() * 40;
+
+            const gain = audioContext.createGain();
+            gain.gain.value = 0.05;
+            gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+
+            osc.connect(gain);
+            gain.connect(masterGain);
+
+            osc.start(audioContext.currentTime);
+            osc.stop(audioContext.currentTime + 0.1);
+        }
+
+        function playSecretSound() {
+            if (!audioContext) return;
+
+            const osc = audioContext.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = 800;
+
+            const gain = audioContext.createGain();
+            gain.gain.value = 0.2;
+            gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.5);
+
+            osc.connect(gain);
+            gain.connect(masterGain);
+
+            osc.start(audioContext.currentTime);
+            osc.stop(audioContext.currentTime + 0.5);
+        }
+
+        // ============================================
+        // TIME & WEATHER
+        // ============================================
+
+        function updateTime(dt) {
+            state.time += dt / CONFIG.DAY_LENGTH;
+            if (state.time > 1) state.time -= 1;
+        }
+
+        function getSkyColor() {
+            const t = state.time;
+
+            if (t < 0.25) { // Night
+                return [0.05, 0.05, 0.15];
+            } else if (t < 0.35) { // Sunrise
+                const s = (t - 0.25) / 0.1;
+                return [
+                    lerp(0.05, 0.5, s),
+                    lerp(0.05, 0.4, s),
+                    lerp(0.15, 0.6, s)
+                ];
+            } else if (t < 0.65) { // Day
+                return [0.5, 0.7, 0.9];
+            } else if (t < 0.75) { // Sunset
+                const s = (t - 0.65) / 0.1;
+                return [
+                    lerp(0.5, 0.8, s),
+                    lerp(0.7, 0.4, s),
+                    lerp(0.9, 0.2, s)
+                ];
+            } else { // Evening to night
+                const s = (t - 0.75) / 0.25;
+                return [
+                    lerp(0.8, 0.05, s),
+                    lerp(0.4, 0.05, s),
+                    lerp(0.2, 0.15, s)
+                ];
+            }
+        }
+
+        function getTimeIcon() {
+            const t = state.time;
+            if (t < 0.25 || t > 0.75) return '🌙';
+            if (t < 0.35 || (t >= 0.65 && t < 0.75)) return '🌅';
+            return '☀️';
+        }
+
+        function updateWeather(dt) {
+            state.weatherTimer += dt;
+
+            if (state.weatherTimer > 180000 + Math.random() * 120000) { // 3-5 minutes
+                const options = ['clear', 'rain', 'fog', 'storm'];
+                state.weather = options[Math.floor(Math.random() * options.length)];
+                state.weatherTimer = 0;
+            }
+        }
+
+        // ============================================
+        // SECRET DETECTION
+        // ============================================
+
+        function checkSecrets() {
+            for (let i = 0; i < SECRETS.length; i++) {
+                const secret = SECRETS[i];
+                const key = `secret_${i}`;
+
+                if (state.discoveredSecrets.has(key)) continue;
+
+                const dx = state.camera.x - secret.x;
+                const dz = state.camera.z - secret.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+
+                if (dist < secret.radius) {
+                    state.discoveredSecrets.add(key);
+                    showToast(`${secret.name}\n"${secret.desc}"`);
+                    playSecretSound();
+                    saveProgress();
+                }
+            }
+        }
+
+        // ============================================
+        // PERSISTENCE
+        // ============================================
+
+        function loadProgress() {
+            try {
+                const saved = localStorage.getItem('infiniteCity_progress');
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    state.discoveredSecrets = new Set(data.secrets || []);
+                }
+            } catch (e) {
+                console.error('Failed to load progress:', e);
+            }
+        }
+
+        function saveProgress() {
+            try {
+                const data = {
+                    secrets: Array.from(state.discoveredSecrets)
+                };
+                localStorage.setItem('infiniteCity_progress', JSON.stringify(data));
+            } catch (e) {
+                console.error('Failed to save progress:', e);
+            }
+        }
+
+        // ============================================
+        // UI UPDATES
+        // ============================================
+
+        function updateHUD() {
+            document.getElementById('coordX').textContent = Math.floor(state.camera.x);
+            document.getElementById('coordZ').textContent = Math.floor(state.camera.z);
+            document.getElementById('weather').textContent = state.weather.charAt(0).toUpperCase() + state.weather.slice(1);
+            document.getElementById('timeIndicator').textContent = getTimeIcon();
+            document.getElementById('secretCount').textContent = state.discoveredSecrets.size;
+
+            // Compass
+            const angle = state.camera.yaw;
+            let direction = 'N';
+            if (angle > Math.PI * 0.25 && angle < Math.PI * 0.75) direction = 'E';
+            else if (angle > Math.PI * 0.75 || angle < -Math.PI * 0.75) direction = 'S';
+            else if (angle < -Math.PI * 0.25 && angle > -Math.PI * 0.75) direction = 'W';
+
+            document.getElementById('compass').innerHTML =
+                `<span class="${direction === 'N' ? 'compass-active' : ''}">N</span> ` +
+                `<span class="${direction === 'E' ? 'compass-active' : ''}">E</span> ` +
+                `<span class="${direction === 'S' ? 'compass-active' : ''}">S</span> ` +
+                `<span class="${direction === 'W' ? 'compass-active' : ''}">W</span>`;
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 4000);
+        }
+
+        function updateMap() {
+            const mapCanvas = document.getElementById('mapCanvas');
+            const ctx = mapCanvas.getContext('2d');
+
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 400, 400);
+
+            const scale = 2;
+            const centerX = 200;
+            const centerY = 200;
+
+            // Draw explored chunks
+            ctx.fillStyle = '#333';
+            for (const key of state.activeChunks) {
+                const [cx, cz] = key.split(',').map(Number);
+                const x = centerX + (cx * CONFIG.CHUNK_SIZE - state.camera.x) * scale;
+                const y = centerY + (cz * CONFIG.CHUNK_SIZE - state.camera.z) * scale;
+                ctx.fillRect(x, y, CONFIG.CHUNK_SIZE * scale, CONFIG.CHUNK_SIZE * scale);
+            }
+
+            // Draw secrets
+            ctx.fillStyle = '#ff6b6b';
+            for (let i = 0; i < SECRETS.length; i++) {
+                const secret = SECRETS[i];
+                const key = `secret_${i}`;
+
+                if (state.discoveredSecrets.has(key)) {
+                    const x = centerX + (secret.x - state.camera.x) * scale;
+                    const y = centerY + (secret.z - state.camera.z) * scale;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // Draw player
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw direction indicator
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(
+                centerX + Math.sin(state.camera.yaw) * 15,
+                centerY + Math.cos(state.camera.yaw) * 15
+            );
+            ctx.stroke();
+        }
+
+        // ============================================
+        // INPUT HANDLING
+        // ============================================
+
+        document.addEventListener('keydown', (e) => {
+            state.keys[e.code] = true;
+
+            if (e.code === 'Tab') {
+                e.preventDefault();
+                state.mapVisible = !state.mapVisible;
+                document.getElementById('mapOverlay').classList.toggle('visible', state.mapVisible);
+                if (state.mapVisible) updateMap();
+            }
+
+            if (e.code === 'KeyH') {
+                state.hudVisible = !state.hudVisible;
+                document.getElementById('hud').classList.toggle('hidden', !state.hudVisible);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            state.keys[e.code] = false;
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!state.mouse.locked) {
+                canvas.requestPointerLock();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            state.mouse.locked = document.pointerLockElement === canvas;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (state.mouse.locked) {
+                state.camera.yaw += e.movementX * CONFIG.MOUSE_SENSITIVITY;
+                state.camera.pitch -= e.movementY * CONFIG.MOUSE_SENSITIVITY;
+                state.camera.pitch = clamp(state.camera.pitch, -Math.PI / 2 + 0.1, Math.PI / 2 - 0.1);
+            }
+        });
+
+        // Mobile controls
+        const moveJoystick = document.getElementById('moveJoystick');
+        const moveStick = document.getElementById('moveStick');
+
+        moveJoystick.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            state.joystick.active = true;
+        });
+
+        moveJoystick.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!state.joystick.active) return;
+
+            const touch = e.touches[0];
+            const rect = moveJoystick.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            const dx = touch.clientX - centerX;
+            const dy = touch.clientY - centerY;
+            const distance = Math.min(Math.sqrt(dx * dx + dy * dy), 35);
+            const angle = Math.atan2(dx, dy);
+
+            state.joystick.x = Math.sin(angle) * (distance / 35);
+            state.joystick.y = Math.cos(angle) * (distance / 35);
+
+            moveStick.style.transform = `translate(-50%, -50%) translate(${state.joystick.x * 35}px, ${state.joystick.y * 35}px)`;
+        });
+
+        moveJoystick.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            state.joystick.active = false;
+            state.joystick.x = 0;
+            state.joystick.y = 0;
+            moveStick.style.transform = 'translate(-50%, -50%)';
+        });
+
+        // Touch look controls
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                state.touchLook.active = true;
+                state.touchLook.startX = e.touches[0].clientX;
+                state.touchLook.startY = e.touches[0].clientY;
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (state.touchLook.active && e.touches.length === 1) {
+                const dx = e.touches[0].clientX - state.touchLook.startX;
+                const dy = e.touches[0].clientY - state.touchLook.startY;
+
+                state.camera.yaw += dx * 0.005;
+                state.camera.pitch -= dy * 0.005;
+                state.camera.pitch = clamp(state.camera.pitch, -Math.PI / 2 + 0.1, Math.PI / 2 - 0.1);
+
+                state.touchLook.startX = e.touches[0].clientX;
+                state.touchLook.startY = e.touches[0].clientY;
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            state.touchLook.active = false;
+        });
+
+        // ============================================
+        // GAME LOOP
+        // ============================================
+
+        let lastTime = 0;
+        let footstepTimer = 0;
+
+        function update(dt) {
+            // Time and weather
+            updateTime(dt);
+            updateWeather(dt);
+
+            // Movement
+            const speed = state.keys['ShiftLeft'] ? CONFIG.SPRINT_SPEED : CONFIG.MOVE_SPEED;
+            const forward = [Math.sin(state.camera.yaw), 0, Math.cos(state.camera.yaw)];
+            const right = [Math.cos(state.camera.yaw), 0, -Math.sin(state.camera.yaw)];
+
+            let moving = false;
+
+            if (state.keys['KeyW'] || state.joystick.y > 0.1) {
+                const factor = state.joystick.active ? state.joystick.y : 1;
+                state.camera.x += forward[0] * speed * factor;
+                state.camera.z += forward[2] * speed * factor;
+                moving = true;
+            }
+            if (state.keys['KeyS'] || state.joystick.y < -0.1) {
+                const factor = state.joystick.active ? -state.joystick.y : 1;
+                state.camera.x -= forward[0] * speed * factor;
+                state.camera.z -= forward[2] * speed * factor;
+                moving = true;
+            }
+            if (state.keys['KeyA'] || state.joystick.x < -0.1) {
+                const factor = state.joystick.active ? -state.joystick.x : 1;
+                state.camera.x -= right[0] * speed * factor;
+                state.camera.z -= right[2] * speed * factor;
+                moving = true;
+            }
+            if (state.keys['KeyD'] || state.joystick.x > 0.1) {
+                const factor = state.joystick.active ? state.joystick.x : 1;
+                state.camera.x += right[0] * speed * factor;
+                state.camera.z += right[2] * speed * factor;
+                moving = true;
+            }
+
+            // Jump
+            if (state.keys['Space'] && state.camera.onGround) {
+                state.camera.vy = CONFIG.JUMP_FORCE;
+                state.camera.onGround = false;
+            }
+
+            // Gravity
+            state.camera.vy -= CONFIG.GRAVITY;
+            state.camera.y += state.camera.vy;
+
+            if (state.camera.y <= 1.7) {
+                state.camera.y = 1.7;
+                state.camera.vy = 0;
+                state.camera.onGround = true;
+            }
+
+            // Footsteps
+            if (moving && state.camera.onGround) {
+                footstepTimer += dt;
+                if (footstepTimer > 400) {
+                    playFootstep();
+                    footstepTimer = 0;
+                }
+            }
+
+            // Chunk loading
+            updateChunks();
+
+            // Secret detection
+            checkSecrets();
+
+            // UI
+            updateHUD();
+        }
+
+        function render() {
+            const skyColor = getSkyColor();
+            gl.clearColor(skyColor[0], skyColor[1], skyColor[2], 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            // Projection matrix
+            const aspect = canvas.width / canvas.height;
+            const projection = perspective(Math.PI / 3, aspect, 0.1, 500);
+            gl.uniformMatrix4fv(locations.uProjection, false, projection);
+
+            // View matrix
+            const target = [
+                state.camera.x + Math.sin(state.camera.yaw) * Math.cos(state.camera.pitch),
+                state.camera.y + Math.sin(state.camera.pitch),
+                state.camera.z + Math.cos(state.camera.yaw) * Math.cos(state.camera.pitch)
+            ];
+            const view = lookAt(
+                [state.camera.x, state.camera.y, state.camera.z],
+                target,
+                [0, 1, 0]
+            );
+            gl.uniformMatrix4fv(locations.uView, false, view);
+
+            // Lighting
+            const lightDir = normalize([0.3, -0.7, 0.5]);
+            gl.uniform3fv(locations.uLightDir, lightDir);
+            gl.uniform3fv(locations.uSkyColor, skyColor);
+            gl.uniform1f(locations.uFogNear, CONFIG.FOG_NEAR);
+            gl.uniform1f(locations.uFogFar, CONFIG.FOG_FAR);
+
+            const isNight = state.time < 0.25 || state.time > 0.75;
+            gl.uniform1f(locations.uAmbient, isNight ? 0.3 : 0.5);
+
+            // Model matrix (identity for now)
+            const model = identity();
+            gl.uniformMatrix4fv(locations.uModel, false, model);
+
+            // Render all active chunks
+            for (const key of state.activeChunks) {
+                const chunk = state.chunks.get(key);
+                if (!chunk) continue;
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, chunk.posBuffer);
+                gl.enableVertexAttribArray(locations.aPosition);
+                gl.vertexAttribPointer(locations.aPosition, 3, gl.FLOAT, false, 0, 0);
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, chunk.colorBuffer);
+                gl.enableVertexAttribArray(locations.aColor);
+                gl.vertexAttribPointer(locations.aColor, 3, gl.FLOAT, false, 0, 0);
+
+                gl.bindBuffer(gl.ARRAY_BUFFER, chunk.normalBuffer);
+                gl.enableVertexAttribArray(locations.aNormal);
+                gl.vertexAttribPointer(locations.aNormal, 3, gl.FLOAT, false, 0, 0);
+
+                gl.drawArrays(gl.TRIANGLES, 0, chunk.vertexCount);
+            }
+        }
+
+        function gameLoop(currentTime) {
+            const dt = Math.min(currentTime - lastTime, 100);
+            lastTime = currentTime;
+
+            update(dt);
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            initAudio();
+            loadProgress();
+            updateChunks();
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        document.getElementById('startButton').addEventListener('click', startGame);
+
+        // Pre-generate initial chunks for faster start
+        generateChunk(0, 0);
+        generateChunk(1, 0);
+        generateChunk(0, 1);
+        generateChunk(-1, 0);
+        generateChunk(0, -1);
+    </script>
+</body>
+</html>
