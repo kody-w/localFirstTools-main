@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infinite Cave Roguelike 3D</title>
+<meta name="description" content="First-person 3D procedurally generated infinite cave roguelike with raycasting, enemies, items, and permadeath">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:monospace;color:#ccc}
+canvas{display:block;cursor:none}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#hud{position:absolute;top:10px;left:10px;font-size:14px;line-height:1.6;text-shadow:0 0 4px #000}
+#minimap{position:absolute;top:10px;right:10px;border:1px solid #555;image-rendering:pixelated}
+#inv{position:absolute;bottom:60px;left:10px;font-size:13px}
+#msg{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:14px;text-align:center;max-width:600px}
+#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:24px;text-shadow:0 0 2px #000}
+#weapon{position:absolute;bottom:0;right:50px;font-size:120px;color:#aab;text-shadow:0 0 10px rgba(100,100,200,0.5);pointer-events:none}
+#death{position:absolute;top:0;left:0;width:100%;height:100%;display:none;background:rgba(80,0,0,0.85);justify-content:center;align-items:center;flex-direction:column;pointer-events:all;z-index:10}
+#death h1{font-size:48px;color:#f44;margin-bottom:20px}
+#death p{font-size:18px;margin:5px}
+#death button{margin-top:20px;padding:10px 30px;font-size:18px;cursor:pointer;background:#333;color:#fff;border:1px solid #888}
+#start{position:absolute;top:0;left:0;width:100%;height:100%;background:#111;display:flex;justify-content:center;align-items:center;flex-direction:column;z-index:20;pointer-events:all}
+#start h1{font-size:36px;color:#4af;margin-bottom:10px}
+#start p{font-size:14px;margin:5px;color:#888}
+#start button{margin-top:20px;padding:12px 40px;font-size:20px;cursor:pointer;background:#234;color:#4af;border:1px solid #4af}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui">
+<div id="hud"></div>
+<canvas id="minimap" width="140" height="140"></canvas>
+<div id="inv"></div>
+<div id="msg"></div>
+<div id="crosshair">+</div>
+<div id="weapon">⚔</div>
+</div>
+<div id="death"><h1>YOU DIED</h1><p id="dscore"></p><p id="dlevel"></p><button onclick="restart()">Try Again</button></div>
+<div id="start"><h1>⚔ INFINITE CAVES ⚔</h1><p>WASD to move, Mouse to look</p><p>Click enemies to attack, 1-9 for items</p><button onclick="startGame()">Enter the Caves</button></div>
+<script>
+// Audio
+const actx=new(window.AudioContext||window.webkitAudioContext)();
+function playSound(freq,dur,type,vol){
+  try{let o=actx.createOscillator(),g=actx.createGain();
+  o.type=type||'square';o.frequency.value=freq;
+  g.gain.setValueAtTime(vol||0.1,actx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+  o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+dur)}catch(e){}
+}
+
+const C=document.getElementById("game"),X=C.getContext("2d");
+const MC=document.getElementById("minimap"),MX=MC.getContext("2d");
+const MW=60,MH=60;
+const WALL=1,FLOOR=0,STAIR=2;
+let cw,ch;
+
+function resize(){cw=C.width=innerWidth;ch=C.height=innerHeight}
+resize();window.onresize=resize;
+
+// State
+let map,explored,enemies,items,player,level=0,msgs=[],msgTimer=0,turn=0,gameOver=false,gameStarted=false;
+let lastHud="",lastInv="",lastMsg="";
+let weaponBob=0,attackAnim=0;
+
+function msg(t){msgs.unshift(t);if(msgs.length>5)msgs.pop();msgTimer=240}
+
+// Cave gen - cellular automata
+function genCave(){
+  let m=new Uint8Array(MW*MH);
+  for(let i=0;i<MW*MH;i++)m[i]=Math.random()<0.42?WALL:FLOOR;
+  for(let x=0;x<MW;x++){m[x]=WALL;m[x+(MH-1)*MW]=WALL}
+  for(let y=0;y<MH;y++){m[y*MW]=WALL;m[(y+1)*MW-1]=WALL}
+  for(let iter=0;iter<5;iter++){
+    let n=new Uint8Array(MW*MH);
+    for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){
+      let c=0;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(m[(y+dy)*MW+x+dx]===WALL)c++;
+      n[y*MW+x]=c>=5?WALL:FLOOR;
+    }
+    for(let x=0;x<MW;x++){n[x]=WALL;n[x+(MH-1)*MW]=WALL}
+    for(let y=0;y<MH;y++){n[y*MW]=WALL;n[(y+1)*MW-1]=WALL}
+    m=n;
+  }
+  // Flood fill largest
+  let visited=new Int32Array(MW*MH).fill(-1),regions=[],rid=0;
+  for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){
+    if(m[y*MW+x]===FLOOR&&visited[y*MW+x]<0){
+      let q=[[x,y]],cells=[];visited[y*MW+x]=rid;
+      while(q.length){let[cx,cy]=q.pop();cells.push([cx,cy]);
+        for(let[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){
+          let nx=cx+dx,ny=cy+dy;
+          if(nx>0&&nx<MW-1&&ny>0&&ny<MH-1&&m[ny*MW+nx]===FLOOR&&visited[ny*MW+nx]<0){visited[ny*MW+nx]=rid;q.push([nx,ny])}
+        }
+      }
+      regions.push(cells);rid++;
+    }
+  }
+  regions.sort((a,b)=>b.length-a.length);
+  for(let i=1;i<regions.length;i++)for(let[x,y]of regions[i])m[y*MW+x]=WALL;
+  if(regions.length>0){let c=regions[0],s=c[Math.floor(Math.random()*c.length)];m[s[1]*MW+s[0]]=STAIR}
+  return m;
+}
+
+// BFS
+function bfs(sx,sy,tx,ty){
+  let dist=new Int32Array(MW*MH).fill(-1),q=new Int32Array(MW*MH*2),h=0,t=0;
+  dist[sy*MW+sx]=0;q[t++]=sx;q[t++]=sy;
+  while(h<t){let cx=q[h++],cy=q[h++];if(cx===tx&&cy===ty)break;
+    for(let[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){let nx=cx+dx,ny=cy+dy;
+      if(nx>=0&&nx<MW&&ny>=0&&ny<MH&&map[ny*MW+nx]!==WALL&&dist[ny*MW+nx]<0){dist[ny*MW+nx]=dist[cy*MW+cx]+1;q[t++]=nx;q[t++]=ny}
+    }
+  }
+  if(dist[ty*MW+tx]<0)return null;
+  let path=[[tx,ty]],cx=tx,cy=ty;
+  while(cx!==sx||cy!==sy){let best=null,bd=dist[cy*MW+cx];
+    for(let[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){let nx=cx+dx,ny=cy+dy;
+      if(nx>=0&&nx<MW&&ny>=0&&ny<MH&&dist[ny*MW+nx]>=0&&dist[ny*MW+nx]<bd){bd=dist[ny*MW+nx];best=[nx,ny]}}
+    if(!best)break;path.push(best);cx=best[0];cy=best[1];
+  }
+  return path.reverse();
+}
+
+// Enemy defs
+const EDEFS=[
+  {name:"Bat",hp:4,atk:1,color:"#aa8866",sprite:"🦇",xp:5,speed:2,sz:0.4},
+  {name:"Rat",hp:6,atk:2,color:"#886644",sprite:"🐀",xp:8,speed:1,sz:0.3},
+  {name:"Skeleton",hp:12,atk:4,color:"#cccccc",sprite:"💀",xp:15,speed:1,sz:0.6},
+  {name:"Slime",hp:10,atk:2,color:"#44cc44",sprite:"🟢",xp:10,speed:1,sz:0.4},
+  {name:"Goblin",hp:15,atk:5,color:"#44aa44",sprite:"👺",xp:20,speed:1,sz:0.5},
+  {name:"Wraith",hp:18,atk:7,color:"#8844cc",sprite:"👻",xp:30,speed:1,sz:0.6},
+  {name:"Troll",hp:30,atk:8,color:"#668844",sprite:"🧌",xp:40,speed:2,sz:0.7},
+  {name:"Dragon",hp:50,atk:12,color:"#cc4444",sprite:"��",xp:100,speed:2,sz:0.8}
+];
+
+const IDEFS=[
+  {name:"Health Potion",color:"#ff4444",sprite:"❤️",type:"heal",val:15},
+  {name:"Torch",color:"#ffaa00",sprite:"🔥",type:"torch",val:3},
+  {name:"Sword",color:"#aaaaff",sprite:"⚔️",type:"weapon",val:3},
+  {name:"Shield",color:"#aaffaa",sprite:"🛡️",type:"armor",val:2},
+  {name:"Gold",color:"#ffff44",sprite:"💰",type:"gold",val:0},
+  {name:"Scroll",color:"#ffaaff",sprite:"📜",type:"scroll",val:0}
+];
+
+function spawnEnemies(){
+  enemies=[];let count=6+level*2+Math.floor(Math.random()*4);
+  let open=[];
+  for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)
+    if(map[y*MW+x]===FLOOR){let dx=x-player.x,dy=y-player.y;if(dx*dx+dy*dy>25)open.push([x,y])}
+  for(let i=0;i<count&&open.length;i++){
+    let idx=Math.floor(Math.random()*open.length),[x,y]=open.splice(idx,1)[0];
+    let tier=Math.min(Math.floor(Math.random()*(1+level*0.5)),EDEFS.length-1);
+    let d=EDEFS[tier],sc=1+level*0.15;
+    enemies.push({x:x+0.5,y:y+0.5,mx:x,my:y,...d,hp:Math.ceil(d.hp*sc),maxHp:Math.ceil(d.hp*sc),atk:Math.ceil(d.atk*(1+level*0.1)),cooldown:0,moveTimer:0});
+  }
+}
+
+function spawnItems(){
+  items=[];let count=4+Math.floor(Math.random()*5);
+  let open=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(map[y*MW+x]===FLOOR)open.push([x,y]);
+  for(let i=0;i<count&&open.length;i++){
+    let idx=Math.floor(Math.random()*open.length),[x,y]=open.splice(idx,1)[0];
+    let d=IDEFS[Math.floor(Math.random()*IDEFS.length)];
+    if(d.type==="gold")d={...d,val:5+Math.floor(Math.random()*15*(level+1))};
+    items.push({x:x+0.5,y:y+0.5,...d});
+  }
+}
+
+let lastPlayerTile={x:-1,y:-1};
+function initLevel(){
+  map=genCave();explored=new Uint8Array(MW*MH);
+  let open=[];for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++)if(map[y*MW+x]===FLOOR)open.push([x,y]);
+  if(!player){
+    let[sx,sy]=open[Math.floor(Math.random()*open.length)];
+    player={x:sx+0.5,y:sy+0.5,dir:0,pitch:0,hp:30,maxHp:30,atk:5,def:0,xp:0,lvl:1,fovR:8,gold:0,inventory:[],weapon:null,armor:null,moveSpeed:0.06,turnSpeed:0.003};
+  } else {
+    let[sx,sy]=open[Math.floor(Math.random()*open.length)];
+    player.x=sx+0.5;player.y=sy+0.5;
+  }
+  spawnEnemies();spawnItems();
+  updateExplored();
+  msg("Entered cave level "+(level+1));
+  lastPlayerTile={x:Math.floor(player.x),y:Math.floor(player.y)};
+}
+
+function updateExplored(){
+  let px=Math.floor(player.x),py=Math.floor(player.y),r=player.fovR;
+  for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+    if(dx*dx+dy*dy>r*r)continue;
+    let x=px+dx,y=py+dy;
+    if(x>=0&&x<MW&&y>=0&&y<MH){
+      // Simple LOS check
+      let blocked=false,sx=px+0.5,sy=py+0.5,ex=x+0.5,ey=y+0.5;
+      let dist=Math.sqrt((ex-sx)*(ex-sx)+(ey-sy)*(ey-sy));
+      let steps=Math.ceil(dist*2);
+      for(let s=1;s<steps;s++){
+        let t=s/steps,cx=sx+(ex-sx)*t,cy=sy+(ey-sy)*t;
+        let mx=Math.floor(cx),my=Math.floor(cy);
+        if(mx>=0&&mx<MW&&my>=0&&my<MH&&map[my*MW+mx]===WALL){blocked=true;break}
+      }
+      if(!blocked)explored[y*MW+x]=1;
+    }
+  }
+}
+
+// Input
+const keys={};
+let mouseX=0,mouseY=0;
+window.addEventListener("keydown",e=>{
+  if(!gameStarted||gameOver)return;
+  keys[e.key.toLowerCase()]=true;
+  // Use items
+  if(e.key>="1"&&e.key<="9"){
+    let idx=parseInt(e.key)-1;
+    if(idx<player.inventory.length){
+      let item=player.inventory[idx];
+      if(item.type==="heal"){player.hp=Math.min(player.maxHp,player.hp+item.val);msg("Healed "+item.val+" HP");playSound(440,0.3,'sine',0.1)}
+      else if(item.type==="torch"){player.fovR+=item.val;msg("Vision increased!");playSound(330,0.2,'sine',0.1)}
+      else if(item.type==="weapon"){player.weapon=item;msg("Equipped "+item.name);playSound(220,0.2,'sawtooth',0.08)}
+      else if(item.type==="armor"){player.armor=item;player.def+=item.val;msg("Equipped "+item.name);playSound(220,0.2,'triangle',0.08)}
+      else if(item.type==="scroll"){
+        enemies.forEach(en=>{let dx=en.x-player.x,dy=en.y-player.y;if(dx*dx+dy*dy<100)en.hp-=10});
+        msg("Scroll of lightning!");playSound(100,0.5,'sawtooth',0.15);
+      }
+      player.inventory.splice(idx,1);
+    }
+  }
+  e.preventDefault();
+});
+window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+window.addEventListener("blur",()=>{for(const k in keys)keys[k]=false});
+document.addEventListener("pointerlockchange",()=>{if(!document.pointerLockElement)for(const k in keys)keys[k]=false});
+
+C.addEventListener("click",()=>{
+  if(!gameStarted)return;
+  if(!document.pointerLockElement){C.requestPointerLock();return}
+  // Attack nearest enemy in front
+  attackAnim=10;
+  let best=null,bestDist=3;
+  for(let en of enemies){
+    let dx=en.x-player.x,dy=en.y-player.y,dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>2.5)continue;
+    let angle=Math.atan2(dy,dx)-player.dir;
+    while(angle>Math.PI)angle-=Math.PI*2;while(angle<-Math.PI)angle+=Math.PI*2;
+    if(Math.abs(angle)<0.5&&dist<bestDist){best=en;bestDist=dist}
+  }
+  if(best){
+    let dmg=Math.max(1,player.atk+(player.weapon?player.weapon.val:0)+Math.floor(Math.random()*3));
+    best.hp-=dmg;msg("Hit "+best.name+" for "+dmg+"!");playSound(200,0.15,'square',0.12);
+    if(best.hp<=0){msg(best.name+" defeated! +"+best.xp+"xp");player.xp+=best.xp;
+      enemies=enemies.filter(e=>e!==best);checkLevelUp();playSound(150,0.3,'sawtooth',0.1)}
+  } else {playSound(300,0.05,'square',0.05)}
+});
+
+document.addEventListener("mousemove",e=>{
+  if(document.pointerLockElement&&gameStarted&&!gameOver){
+    player.dir+=e.movementX*player.turnSpeed;
+    player.pitch-=e.movementY*player.turnSpeed;
+    player.pitch=Math.max(-0.8,Math.min(0.8,player.pitch));
+  }
+});
+
+function checkLevelUp(){
+  let needed=player.lvl*25;
+  while(player.xp>=needed){player.lvl++;player.maxHp+=5;player.hp=Math.min(player.hp+10,player.maxHp);player.atk+=1;
+    msg("Level up! Now level "+player.lvl);playSound(523,0.3,'sine',0.1);needed=player.lvl*25}
+}
+
+// Movement & game loop
+function update(){
+  if(!gameStarted||gameOver)return;
+  let dx=0,dy=0,moved=false;
+  let cosD=Math.cos(player.dir),sinD=Math.sin(player.dir);
+  let speed=player.moveSpeed;
+  if(keys["w"]){dx+=cosD*speed;dy+=sinD*speed}
+  if(keys["s"]){dx-=cosD*speed;dy-=sinD*speed}
+  if(keys["a"]){dx-=sinD*speed;dy+=cosD*speed}
+  if(keys["d"]){dx+=sinD*speed;dy-=cosD*speed}
+
+  // Collision
+  let r=0.2;
+  let nx=player.x+dx,ny=player.y+dy;
+  if(map[Math.floor(player.y)*MW+Math.floor(nx)]!==WALL&&
+     map[Math.floor(player.y-r)*MW+Math.floor(nx-r)]!==WALL&&
+     map[Math.floor(player.y+r)*MW+Math.floor(nx+r)]!==WALL&&
+     map[Math.floor(player.y-r)*MW+Math.floor(nx+r)]!==WALL&&
+     map[Math.floor(player.y+r)*MW+Math.floor(nx-r)]!==WALL)player.x=nx;
+  if(map[Math.floor(ny)*MW+Math.floor(player.x)]!==WALL&&
+     map[Math.floor(ny-r)*MW+Math.floor(player.x-r)]!==WALL&&
+     map[Math.floor(ny+r)*MW+Math.floor(player.x+r)]!==WALL&&
+     map[Math.floor(ny-r)*MW+Math.floor(player.x+r)]!==WALL&&
+     map[Math.floor(ny+r)*MW+Math.floor(player.x-r)]!==WALL)player.y=ny;
+
+  if(dx!==0||dy!==0){moved=true;weaponBob+=0.15}
+
+  // Check tile change for FOV update
+  let ptx=Math.floor(player.x),pty=Math.floor(player.y);
+  if(ptx!==lastPlayerTile.x||pty!==lastPlayerTile.y){
+    updateExplored();lastPlayerTile={x:ptx,y:pty};
+  }
+
+  // Pick up items
+  for(let i=items.length-1;i>=0;i--){
+    let it=items[i],ddx=it.x-player.x,ddy=it.y-player.y;
+    if(ddx*ddx+ddy*ddy<0.5){
+      if(it.type==="gold"){player.gold+=it.val;msg("Picked up "+it.val+" gold");playSound(660,0.15,'sine',0.08)}
+      else{player.inventory.push(it);msg("Picked up "+it.name);playSound(550,0.1,'sine',0.08)}
+      items.splice(i,1);
+    }
+  }
+
+  // Stairs check
+  let tile=map[Math.floor(player.y)*MW+Math.floor(player.x)];
+  if(tile===STAIR){level++;initLevel();playSound(200,0.5,'sine',0.12);return}
+
+  // Enemy AI
+  for(let en of enemies){
+    en.moveTimer=(en.moveTimer||0)+1;
+    if(en.moveTimer<(30*(en.speed||1)))continue;
+    en.moveTimer=0;
+    let edx=player.x-en.x,edy=player.y-en.y,edist=Math.sqrt(edx*edx+edy*edy);
+    if(edist<1.2){
+      let dmg=Math.max(1,en.atk-player.def-Math.floor(Math.random()*2));
+      player.hp-=dmg;msg(en.name+" hits you for "+dmg+"!");playSound(150,0.2,'square',0.1);
+      if(player.hp<=0)die();
+    } else if(edist<10){
+      let path=bfs(en.mx,en.my,Math.floor(player.x),Math.floor(player.y));
+      if(path&&path.length>1){
+        let[tx,ty]=path[1];
+        en.mx=tx;en.my=ty;en.x=tx+0.5;en.y=ty+0.5;
+      }
+    }
+  }
+
+  if(attackAnim>0)attackAnim--;
+}
+
+// DDA Raycasting renderer
+function render(){
+  X.fillStyle="#111";X.fillRect(0,0,cw,ch);
+  if(!gameStarted)return;
+
+  let px=player.x,py=player.y,pd=player.dir,pp=player.pitch;
+  let fov=Math.PI/3,halfH=ch/2;
+  let pitchOffset=pp*ch;
+
+  // Floor/ceiling gradient
+  let floorGrad=X.createLinearGradient(0,halfH+pitchOffset,0,ch);
+  floorGrad.addColorStop(0,"#222");floorGrad.addColorStop(1,"#111");
+  X.fillStyle=floorGrad;X.fillRect(0,halfH+pitchOffset,cw,ch);
+  let ceilGrad=X.createLinearGradient(0,0,0,halfH+pitchOffset);
+  ceilGrad.addColorStop(0,"#0a0a0a");ceilGrad.addColorStop(1,"#151515");
+  X.fillStyle=ceilGrad;X.fillRect(0,0,cw,halfH+pitchOffset);
+
+  // Cast rays
+  let zbuf=new Float32Array(cw);
+  for(let col=0;col<cw;col++){
+    let angle=pd+(col/cw-0.5)*fov;
+    let rayX=Math.cos(angle),rayY=Math.sin(angle);
+    let mapX=Math.floor(px),mapY=Math.floor(py);
+    let dDistX=Math.abs(1/rayX),dDistY=Math.abs(1/rayY);
+    let stepX,stepY,sideDistX,sideDistY;
+    if(rayX<0){stepX=-1;sideDistX=(px-mapX)*dDistX}else{stepX=1;sideDistX=(mapX+1-px)*dDistX}
+    if(rayY<0){stepY=-1;sideDistY=(py-mapY)*dDistY}else{stepY=1;sideDistY=(mapY+1-py)*dDistY}
+    let hit=0,side=0;
+    for(let i=0;i<30;i++){
+      if(sideDistX<sideDistY){sideDistX+=dDistX;mapX+=stepX;side=0}
+      else{sideDistY+=dDistY;mapY+=stepY;side=1}
+      if(mapX>=0&&mapX<MW&&mapY>=0&&mapY<MH&&map[mapY*MW+mapX]===WALL){hit=1;break}
+    }
+    if(hit){
+      let dist=side===0?(mapX-px+(1-stepX)/2)/rayX:(mapY-py+(1-stepY)/2)/rayY;
+      let perpDist=dist*Math.cos(angle-pd);
+      zbuf[col]=perpDist;
+      let wallH=ch/perpDist;
+      let wallTop=halfH-wallH/2+pitchOffset;
+      // Wall texture
+      let wallX;
+      if(side===0)wallX=py+dist*rayY;else wallX=px+dist*rayX;
+      wallX-=Math.floor(wallX);
+      // Lighting
+      let light=Math.max(0.05,1-perpDist/12);
+      if(side===1)light*=0.7;
+      // Color based on tile
+      let tx=mapX,ty=mapY;
+      let r=Math.floor(60*light),g=Math.floor(55*light),b=Math.floor(50*light);
+      // Stair nearby glow
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+        let nx=tx+dx,ny=ty+dy;
+        if(nx>=0&&nx<MW&&ny>=0&&ny<MH&&map[ny*MW+nx]===STAIR){r+=30;g+=20;b+=5}
+      }
+      X.fillStyle=`rgb(${r},${g},${b})`;
+      X.fillRect(col,wallTop,1,wallH);
+      // Vertical edge shading
+      if(wallX<0.05||wallX>0.95){X.fillStyle=`rgba(0,0,0,${0.3*light})`;X.fillRect(col,wallTop,1,wallH)}
+    } else {zbuf[col]=30}
+  }
+
+  // Render sprites (enemies + items)
+  let sprites=[];
+  for(let en of enemies)sprites.push({x:en.x,y:en.y,sprite:en.sprite,sz:en.sz||0.5,type:'enemy',ref:en});
+  for(let it of items)sprites.push({x:it.x,y:it.y,sprite:it.sprite,sz:0.35,type:'item',ref:it});
+
+  // Sort by distance
+  sprites.sort((a,b)=>{
+    let da=(a.x-px)*(a.x-px)+(a.y-py)*(a.y-py);
+    let db=(b.x-px)*(b.x-px)+(b.y-py)*(b.y-py);
+    return db-da;
+  });
+
+  for(let sp of sprites){
+    let dx=sp.x-px,dy=sp.y-py;
+    let dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<0.3||dist>20)continue;
+    let angle=Math.atan2(dy,dx)-pd;
+    while(angle>Math.PI)angle-=Math.PI*2;while(angle<-Math.PI)angle+=Math.PI*2;
+    if(Math.abs(angle)>fov)continue;
+    let screenX=cw/2+angle/(fov)*cw;
+    let perpDist=dist*Math.cos(angle);
+    let sprH=ch/perpDist*sp.sz;
+    let sprW=sprH;
+    let sprTop=halfH-sprH/2+pitchOffset;
+    // Z-buffer check
+    let sx=Math.floor(screenX-sprW/2),ex=Math.floor(screenX+sprW/2);
+    let visible=false;
+    for(let c=Math.max(0,sx);c<Math.min(cw,ex);c++)if(perpDist<zbuf[c]){visible=true;break}
+    if(!visible)continue;
+
+    let light=Math.max(0.1,1-dist/10);
+    X.globalAlpha=light;
+    X.font=Math.floor(sprH)+"px serif";
+    X.textAlign="center";
+    X.fillText(sp.sprite,screenX,sprTop+sprH*0.8);
+    X.globalAlpha=1;
+
+    // HP bar for enemies
+    if(sp.type==='enemy'){
+      let en=sp.ref,pct=en.hp/en.maxHp;
+      let barW=sprW*0.8,barH=3;
+      X.fillStyle="#400";X.fillRect(screenX-barW/2,sprTop-6,barW,barH);
+      X.fillStyle=pct>0.5?"#0a0":pct>0.25?"#aa0":"#a00";
+      X.fillRect(screenX-barW/2,sprTop-6,barW*pct,barH);
+    }
+  }
+
+  // Torch flicker
+  let flicker=0.9+Math.random()*0.1;
+  let grd=X.createRadialGradient(cw/2,ch/2,0,cw/2,ch/2,cw*0.6);
+  grd.addColorStop(0,`rgba(255,150,50,${0.03*flicker})`);
+  grd.addColorStop(0.5,`rgba(255,100,30,${0.02*flicker})`);
+  grd.addColorStop(1,"rgba(0,0,0,0.3)");
+  X.fillStyle=grd;X.fillRect(0,0,cw,ch);
+
+  // Weapon viewmodel
+  let wEl=document.getElementById("weapon");
+  let bob=Math.sin(weaponBob)*5;
+  let atkOff=attackAnim>5?-30:attackAnim>0?attackAnim*3:0;
+  wEl.style.transform=`translateY(${bob+atkOff}px)`;
+
+  // Minimap
+  MX.fillStyle="#000";MX.fillRect(0,0,140,140);
+  let ms=140/MW;
+  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
+    if(!explored[y*MW+x])continue;
+    let t=map[y*MW+x];
+    MX.fillStyle=t===WALL?"#444":t===STAIR?"#ff0":"#222";
+    MX.fillRect(x*ms,y*ms,ms+0.5,ms+0.5);
+  }
+  // Enemy dots
+  for(let en of enemies){
+    let dx=en.x-px,dy=en.y-py;if(dx*dx+dy*dy<player.fovR*player.fovR){
+      MX.fillStyle="#f44";MX.fillRect(en.x*ms-1,en.y*ms-1,3,3);
+    }
+  }
+  // Item dots
+  for(let it of items){
+    let dx=it.x-px,dy=it.y-py;if(dx*dx+dy*dy<player.fovR*player.fovR){
+      MX.fillStyle=it.color;MX.fillRect(it.x*ms-1,it.y*ms-1,2,2);
+    }
+  }
+  // Player
+  MX.fillStyle="#4af";
+  MX.beginPath();MX.arc(px*ms,py*ms,3,0,Math.PI*2);MX.fill();
+  // Direction line
+  MX.strokeStyle="#4af";MX.lineWidth=1;
+  MX.beginPath();MX.moveTo(px*ms,py*ms);
+  MX.lineTo((px+Math.cos(pd)*3)*ms,(py+Math.sin(pd)*3)*ms);MX.stroke();
+
+  // HUD
+  let hpPct=player.hp/player.maxHp;
+  let hpBar="<span style='color:"+(hpPct>0.5?"#4f4":hpPct>0.25?"#ff4":"#f44")+"'>HP: "+player.hp+"/"+player.maxHp+"</span>";
+  let hudStr=hpBar+" ATK:"+player.atk+" DEF:"+player.def+"<br>Lv:"+player.lvl+" XP:"+player.xp+"/"+(player.lvl*25)+" Gold:"+player.gold+"<br>Cave:"+(level+1);
+  if(hudStr!==lastHud){document.getElementById("hud").innerHTML=hudStr;lastHud=hudStr}
+
+  let invStr=player.inventory.map((it,i)=>"<span style='color:"+it.color+"'>"+(i+1)+": "+it.name+"</span>").join("<br>");
+  if(invStr!==lastInv){document.getElementById("inv").innerHTML=invStr||"";lastInv=invStr}
+
+  if(msgTimer>0){msgTimer--;
+    let msgStr=msgs.map(m=>"<div>"+m+"</div>").join("");
+    if(msgStr!==lastMsg){document.getElementById("msg").innerHTML=msgStr;lastMsg=msgStr}
+  } else if(lastMsg!==""){document.getElementById("msg").innerHTML="";lastMsg=""}
+}
+
+function die(){
+  gameOver=true;document.exitPointerLock();
+  document.getElementById("death").style.display="flex";
+  document.getElementById("dscore").textContent="XP: "+player.xp+" Gold: "+player.gold;
+  document.getElementById("dlevel").textContent="Reached cave "+(level+1)+", level "+player.lvl;
+  playSound(80,1,'sawtooth',0.15);
+}
+
+function restart(){
+  gameOver=false;level=0;player=null;msgs=[];turn=0;
+  document.getElementById("death").style.display="none";
+  initLevel();C.requestPointerLock();
+}
+
+function startGame(){
+  gameStarted=true;document.getElementById("start").style.display="none";
+  initLevel();C.requestPointerLock();actx.resume();
+}
+
+function loop(){update();render();requestAnimationFrame(loop)}
+loop();
+</script>
+</body>
+</html>

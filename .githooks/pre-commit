@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook — auto-sorts HTML files out of root before they're committed.
+# Uses Copilot Intelligence (Claude Opus 4.6) when available, keyword fallback otherwise.
+#
+# Install: git config core.hooksPath .githooks
+#
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Find staged HTML files in root (not under apps/ or any subdirectory)
+STAGED_ROOT_HTML=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\w[^/]*\.html?$' | grep -v '^index\.html$' || true)
+
+if [ -z "$STAGED_ROOT_HTML" ]; then
+    exit 0
+fi
+
+COUNT=$(echo "$STAGED_ROOT_HTML" | wc -l | tr -d ' ')
+echo "[autosort] Found $COUNT HTML file(s) staged in root — auto-sorting..."
+
+# Run autosort (moves files from root to apps/<category>/)
+cd "$ROOT"
+python3 scripts/autosort.py --verbose
+
+# Unstage the old root paths (files no longer exist there)
+for f in $STAGED_ROOT_HTML; do
+    if [ ! -f "$ROOT/$f" ]; then
+        git reset HEAD -- "$f" 2>/dev/null || true
+    fi
+done
+
+# Stage the newly moved files + updated manifest
+git add apps/
+git add apps/manifest.json
+
+echo "[autosort] Done. Files moved to apps/<category>/ and manifest updated."
+echo "[autosort] Your commit will include the sorted files, not the root copies."

@@ -220,34 +220,83 @@ print(f'Validation: {\"PASS\" if errors == 0 else f\"FAIL ({errors} errors}\"}')
 
 ---
 
-## Skill 10: Auto-Sort Pipeline
+## Skill 10: Auto-Sort Pipeline (Copilot Intelligence)
 
-A GitHub Action and Python script automatically catches files dropped in root (from the legacy workflow), analyzes their content, renames garbage filenames, categorizes them, moves them to the correct `apps/<category>/` folder, and updates the manifest.
+HTML files dropped in root are automatically analyzed using **Claude Opus 4.6 via GitHub Copilot CLI**, renamed, categorized, and moved to the correct folder. Falls back to keyword matching if Copilot is unavailable.
 
-**Automatic:** Runs on every push to `main` that includes `.html` files in root. No manual intervention needed.
+**Automatic:** Runs on every push to `main` that includes `.html` files in root via GitHub Action.
 
 **Manual commands:**
 ```bash
 # Dry run — see what would happen without changing anything
 python3 scripts/autosort.py --dry-run
 
-# Sort root files into categories
-python3 scripts/autosort.py
+# Sort root files with Copilot intelligence
+python3 scripts/autosort.py --verbose
 
 # Also rename garbage files already in apps/ (a.html -> real-name.html)
 python3 scripts/autosort.py --deep-clean
+
+# Force keyword-only mode (skip LLM)
+python3 scripts/autosort.py --no-llm
 ```
 
-**What it does:**
-1. Scans root for any `.html` files that aren't `index.html`
-2. Reads each file's `<title>`, `<meta description>`, and body content
-3. If filename is garbage (`a.html`, `5.html`, `new.html`, etc.), generates a descriptive name from the title
-4. Scores content against 9 category keyword rulesets to pick the best category
-5. Moves file to `apps/<category>/<clean-name>.html`
-6. Adds entry to `apps/manifest.json` with extracted metadata
-7. Handles filename collisions by appending `-2`, `-3`, etc.
+**How the intelligence works:**
+1. Detects if `gh copilot` is available, selects `claude-opus-4.6` as the model
+2. Reads each HTML file's first 8000 chars (title, meta, and early code)
+3. Sends a structured prompt asking Opus to return JSON: `{category, filename, title, description, tags, type}`
+4. Validates the response against a strict schema (9 categories, 15 allowed tags, 6 types)
+5. If Opus returns bad data or Copilot is unavailable: falls back to keyword-weighted scoring
+6. Moves file to `apps/<category>/<clean-name>.html`, updates manifest
 
-**There is no "uncategorized" bucket.** Every file gets assigned a real category. If nothing else matches, it goes to `experimental-ai`.
+**There is no "uncategorized" bucket.** Every file gets assigned a real category. experimental_ai is the catch-all only when nothing else fits.
+
+---
+
+## Skill 11: Copilot Intelligence Pattern (Reusable)
+
+A reusable blueprint for adding LLM-powered intelligence to any automation using GitHub Copilot CLI/SDK with Claude Opus. Defined in `copilot-intelligence-pattern.md`.
+
+**When to use:** Any automation that needs judgment, classification, content understanding, or metadata generation — not just autosort.
+
+**Core pattern:**
+1. Read raw input (file, data, text)
+2. Construct a structured JSON prompt with explicit constraints
+3. Call `gh copilot --model claude-opus-4.6 -p "prompt" --no-ask-user`
+4. Parse JSON from response (handle code fences, preamble)
+5. Validate against your schema
+6. Fall back to deterministic logic if LLM fails
+
+**Key rules:**
+- Always request JSON output with exact key names
+- Always validate — never trust raw LLM output
+- Always have a keyword/deterministic fallback
+- Truncate large inputs to first 8000 chars
+- One LLM call per item, one structured response
+- Use `claude-opus-4.6` for judgment tasks, `claude-haiku-4.5` for simple classification
+
+**Full reference:** `copilot-intelligence-pattern.md` in repo root.
+
+---
+
+## Skill 12: Automatic Triggers
+
+Autosort runs automatically at two levels — you never need to run it manually.
+
+**Level 1: Git pre-commit hook (local)**
+When you `git add some-file.html && git commit`, the pre-commit hook detects HTML files staged in root, runs autosort, moves them to `apps/<category>/`, and re-stages the sorted files. The commit goes through with files already in the right place.
+
+```bash
+# One-time setup (already done if you cloned this repo):
+git config core.hooksPath .githooks
+```
+
+The hook lives at `.githooks/pre-commit` and is version-controlled.
+
+**Level 2: GitHub Action (CI safety net)**
+If files slip into root on a push (e.g. direct GitHub web upload), the `.github/workflows/autosort.yml` action runs autosort and pushes a cleanup commit automatically.
+
+**Net result:** Drop an HTML file anywhere, commit it, and it ends up in the right category folder with a clean name and a manifest entry. Zero manual intervention.
 
 ---
 
@@ -259,5 +308,6 @@ python3 scripts/autosort.py --deep-clean
 | Count apps on disk | `find apps -name '*.html' \| wc -l` |
 | Count apps in manifest | `python3 -c "import json; m=json.load(open('apps/manifest.json')); print(sum(len(c['apps']) for c in m['categories'].values()))"` |
 | Validate sync | See Skill 8 above |
+| Enable autosort hook | `git config core.hooksPath .githooks` |
 | Local preview | `python3 -m http.server 8000` then visit `http://localhost:8000` |
 | Deploy | `git push origin main` (auto-deploys via GitHub Pages) |

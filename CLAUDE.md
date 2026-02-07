@@ -137,6 +137,40 @@ To change the gallery UI, edit `index.html` directly. No build step.
 
 Push to `main` branch. GitHub Pages auto-deploys from root. No CI/CD config needed -- it's legacy static hosting.
 
+## Auto-Sort Pipeline (Copilot Intelligence)
+
+HTML files dropped in root are automatically analyzed, renamed, categorized, and moved by `scripts/autosort.py`. The intelligence layer uses **Claude Opus 4.6 via GitHub Copilot CLI** for content analysis. Falls back to keyword matching if Copilot is unavailable.
+
+```bash
+# Check what would happen (no changes)
+python3 scripts/autosort.py --dry-run
+
+# Run with Copilot intelligence
+python3 scripts/autosort.py --verbose
+
+# Also rename garbage filenames in apps/
+python3 scripts/autosort.py --deep-clean
+
+# Force keyword-only mode (skip LLM)
+python3 scripts/autosort.py --no-llm
+```
+
+**How it works:**
+1. Detects `gh copilot` availability, selects `claude-opus-4.6` model
+2. Reads HTML content, sends first 8000 chars to Opus via structured JSON prompt
+3. Opus returns: `{category, filename, title, description, tags, type}`
+4. Script validates response against strict schema (9 categories, 15 tags, 6 types)
+5. Moves file to `apps/<category>/<clean-name>.html`, updates manifest
+6. If Opus returns invalid data or Copilot is unavailable: falls back to keyword scoring
+
+**The pattern is reusable.** See `copilot-intelligence-pattern.md` for the full blueprint. Apply it to any automation that needs LLM judgment:
+- Content analysis and classification
+- Filename generation from content
+- Metadata extraction and enrichment
+- Quality assessment
+
+**GitHub Action:** `.github/workflows/autosort.yml` runs this automatically on every push that includes HTML files in root.
+
 ## Rules
 
 - **Never put HTML apps in root.** Always `apps/<category>/`.
@@ -145,3 +179,4 @@ Push to `main` branch. GitHub Pages auto-deploys from root. No CI/CD config need
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file. Every app file should have a manifest entry.
 - **No build process.** Everything is hand-editable static files.
 - **No secrets.** This is a public repo. Never commit API keys, tokens, or credentials.
+- **Use Copilot Intelligence pattern** for any automation that needs LLM judgment. See `copilot-intelligence-pattern.md`.
