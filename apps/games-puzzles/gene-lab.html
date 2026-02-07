@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Gene Lab - DNA Evolution Sandbox</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;color:#c0c0d0;font-family:'Courier New',monospace;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+#top-bar{display:flex;align-items:center;gap:8px;padding:4px 10px;background:#12121e;border-bottom:1px solid #2a2a3a;height:36px;flex-shrink:0}
+#top-bar button{background:#1a1a2e;color:#8f8;border:1px solid #3a3a5a;padding:2px 10px;cursor:pointer;border-radius:3px;font-family:inherit;font-size:12px}
+#top-bar button:hover{background:#2a2a4e}
+#top-bar button.active{background:#3a5a3a;border-color:#8f8}
+#top-bar span{font-size:12px;color:#888}
+#main{display:flex;flex:1;overflow:hidden}
+#left-panel{width:320px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid #2a2a3a;background:#0e0e18}
+#hex-title{padding:6px 10px;font-size:13px;color:#8af;border-bottom:1px solid #2a2a3a;display:flex;justify-content:space-between;align-items:center}
+#hex-editor{flex:1;overflow-y:auto;padding:6px;font-size:13px;line-height:1.6}
+.hex-row{display:flex;align-items:center;gap:2px}
+.hex-addr{color:#555;width:28px;text-align:right;margin-right:6px;font-size:11px}
+.hex-byte{width:26px;height:22px;text-align:center;background:#16162a;color:#aef;border:1px solid #2a2a3a;cursor:pointer;font-family:inherit;font-size:12px;border-radius:2px;padding:0}
+.hex-byte:focus{border-color:#8af;outline:none;background:#1e1e3a}
+.hex-byte.t-shape{color:#f88}.hex-byte.t-loco{color:#8f8}.hex-byte.t-meta{color:#ff8}.hex-byte.t-repr{color:#f8f}
+.hex-byte.t-sens{color:#8ff}.hex-byte.t-behv{color:#fa8}.hex-byte.t-look{color:#f8a}.hex-byte.t-junk{color:#666}
+.trait-label{font-size:9px;color:#555;width:100%;padding:2px 0 0 34px}
+#genome-info{padding:6px 10px;border-top:1px solid #2a2a3a;font-size:11px;color:#666;max-height:120px;overflow-y:auto}
+#right-panel{flex:1;display:flex;flex-direction:column;position:relative}
+#petri-container{flex:1;position:relative;background:#080810}
+#petri{display:block;width:100%;height:100%}
+#graphs-panel{height:100px;border-top:1px solid #2a2a3a;background:#0a0a14;display:flex}
+#pop-graph,#fit-graph{flex:1;position:relative}
+#pop-graph canvas,#fit-graph canvas{width:100%;height:100%}
+.graph-label{position:absolute;top:2px;left:6px;font-size:10px;color:#666;pointer-events:none}
+#diff-panel{display:none;position:absolute;top:40px;right:10px;width:300px;max-height:300px;overflow-y:auto;background:#12122a;border:1px solid #3a3a5a;border-radius:6px;padding:10px;font-size:11px;z-index:10}
+#diff-panel .close-btn{position:absolute;top:4px;right:8px;cursor:pointer;color:#f88}
+.diff-byte{display:inline-block;width:22px;text-align:center;margin:1px;font-size:11px;border-radius:2px}
+.diff-same{color:#555}.diff-changed{color:#fff;background:#5a2a2a}
+#leaderboard{display:none;position:absolute;top:40px;left:10px;width:260px;max-height:300px;overflow-y:auto;background:#12122a;border:1px solid #3a3a5a;border-radius:6px;padding:10px;font-size:11px;z-index:10}
+#leaderboard .close-btn{position:absolute;top:4px;right:8px;cursor:pointer;color:#f88}
+#leaderboard table{width:100%;border-collapse:collapse}
+#leaderboard td{padding:2px 4px;border-bottom:1px solid #1a1a2a}
+#info-overlay{position:absolute;bottom:6px;left:6px;font-size:11px;color:#555;pointer-events:none;z-index:5}
+#selection-info{position:absolute;top:6px;left:6px;font-size:11px;color:#8af;z-index:5;display:none}
+</style>
+</head>
+<body>
+<div id="top-bar">
+<button id="btn-compile" title="Birth creature from genome">▶ Compile</button>
+<button id="btn-random">🎲 Random</button>
+<button id="btn-export">📋 Export</button>
+<button id="btn-import">📥 Import</button>
+<button id="btn-diff">🔬 Diff</button>
+<button id="btn-leaders">🏆 Board</button>
+<span>|</span>
+<button id="btn-1x" class="speed-btn active">1x</button>
+<button id="btn-5x" class="speed-btn">5x</button>
+<button id="btn-20x" class="speed-btn">20x</button>
+<span>|</span>
+<button id="btn-sound">🔊</button>
+<span id="status-text">Ready</span>
+</div>
+<div id="main">
+<div id="left-panel">
+<div id="hex-title"><span>Genome Editor (64 bytes)</span><span id="gene-hash" style="color:#555"></span></div>
+<div id="hex-editor"></div>
+<div id="genome-info"></div>
+</div>
+<div id="right-panel">
+<div id="petri-container"><canvas id="petri"></canvas></div>
+<div id="graphs-panel">
+<div id="pop-graph"><canvas></canvas><div class="graph-label">Population</div></div>
+<div id="fit-graph"><canvas></canvas><div class="graph-label">Avg Fitness</div></div>
+</div>
+<div id="diff-panel"><span class="close-btn" onclick="document.getElementById('diff-panel').style.display='none'">✕</span><div id="diff-content"></div></div>
+<div id="leaderboard"><span class="close-btn" onclick="document.getElementById('leaderboard').style.display='none'">✕</span><h3 style="margin-bottom:6px;color:#fa8">Leaderboard</h3><table id="lb-table"></table></div>
+<div id="info-overlay"></div>
+<div id="selection-info"></div>
+</div>
+</div>
+<script>(()=>{
+const $=s=>document.querySelector(s);
+const GENOME_LEN=64,MAX_POP=500,FOOD_MAX=200;
+let genome=new Uint8Array(GENOME_LEN);
+let organisms=[],foods=[],tick=0,speed=1,paused=false,soundOn=true;
+let popHistory=[],fitHistory=[];
+let selectedOrgs=[],diffMode=false;
+let petriW=800,petriH=600;
+const canvas=$('#petri'),ctx=canvas.getContext('2d');
+const popCanvas=$('#pop-graph canvas'),popCtx=popCanvas.getContext('2d');
+const fitCanvas=$('#fit-graph canvas'),fitCtx=fitCanvas.getContext('2d');
+let audioCtx=null;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)()}
+function playSound(type){
+if(!soundOn||!audioCtx)return;
+try{
+const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+o.connect(g);g.connect(audioCtx.destination);
+const t=audioCtx.currentTime;
+if(type==='birth'){o.frequency.value=600;o.type='sine';g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.15);o.start(t);o.stop(t+0.15)}
+else if(type==='death'){o.frequency.value=150;o.type='sawtooth';g.gain.setValueAtTime(0.06,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.3);o.start(t);o.stop(t+0.3)}
+else if(type==='eat'){o.frequency.value=800;o.type='square';g.gain.setValueAtTime(0.04,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.05);o.start(t);o.stop(t+0.05)}
+else if(type==='bubble'){o.frequency.value=200+Math.random()*300;o.type='sine';g.gain.setValueAtTime(0.02,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);o.start(t);o.stop(t+0.2)}
+}catch(e){}
+}
+function ambientBubble(){if(soundOn&&audioCtx&&Math.random()<0.02)playSound('bubble')}
+function traitLabels(){return[
+{s:0,e:4,n:'Shape',c:'t-shape'},{s:4,e:8,n:'Locomotion',c:'t-loco'},
+{s:8,e:12,n:'Metabolism',c:'t-meta'},{s:12,e:16,n:'Reproduction',c:'t-repr'},
+{s:16,e:20,n:'Senses',c:'t-sens'},{s:20,e:24,n:'Behavior',c:'t-behv'},
+{s:24,e:32,n:'Appearance',c:'t-look'},{s:32,e:64,n:'Junk DNA',c:'t-junk'}
+]}
+function buildHexEditor(){
+const ed=$('#hex-editor');ed.innerHTML='';
+const traits=traitLabels();
+let ti=0;
+for(let r=0;r<8;r++){
+if(ti<traits.length&&traits[ti].s===r*8){
+const lb=document.createElement('div');lb.className='trait-label';lb.textContent=traits[ti].n;ed.appendChild(lb);ti++
+}
+if(r===3&&ti<traits.length){const lb=document.createElement('div');lb.className='trait-label';lb.textContent=traits[ti].n;ed.appendChild(lb);ti++}
+const row=document.createElement('div');row.className='hex-row';
+const addr=document.createElement('span');addr.className='hex-addr';addr.textContent=(r*8).toString(16).toUpperCase().padStart(2,'0');row.appendChild(addr);
+for(let c=0;c<8;c++){
+const idx=r*8+c;
+const inp=document.createElement('input');inp.className='hex-byte '+getTraitClass(idx);
+inp.maxLength=2;inp.value=hex(genome[idx]);inp.dataset.idx=idx;
+inp.addEventListener('input',function(){
+let v=parseInt(this.value,16);
+if(!isNaN(v)){v=v&255;genome[idx]=v;this.value=hex(v);updateGenomeInfo()}
+});
+inp.addEventListener('focus',function(){this.select()});
+row.appendChild(inp)
+}
+ed.appendChild(row)
+}
+updateGenomeInfo()
+}
+function getTraitClass(i){
+if(i<4)return 't-shape';if(i<8)return 't-loco';if(i<12)return 't-meta';
+if(i<16)return 't-repr';if(i<20)return 't-sens';if(i<24)return 't-behv';
+if(i<32)return 't-look';return 't-junk'
+}
+function hex(v){return v.toString(16).toUpperCase().padStart(2,'0')}
+function updateGenomeInfo(){
+const info=$('#genome-info');
+const g=genome;
+const segs=((g[0]&7)>>>0)+2;
+const sz=((g[1]>>>4)&15)+3;
+const limbs=(g[4]&7)>>>0;
+const spd=((g[5]>>>0)&255)/64+0.5;
+const diet=g[10]&3;
+const dietNames=['Herbivore','Carnivore','Omnivore','Omnivore'];
+const r=g[24],gr=g[25],b=g[26];
+const hash=Array.from(g.slice(0,8)).map(v=>hex(v)).join('');
+$('#gene-hash').textContent='#'+hash.slice(0,8);
+info.innerHTML=`<span style="color:#f88">Segments:</span> ${segs} <span style="color:#f88">Size:</span> ${sz}px<br>`+
+`<span style="color:#8f8">Limbs:</span> ${limbs} <span style="color:#8f8">Speed:</span> ${spd.toFixed(1)}<br>`+
+`<span style="color:#ff8">Diet:</span> ${dietNames[diet]} <span style="color:#ff8">Efficiency:</span> ${((g[8]&255)/25.5).toFixed(0)}%<br>`+
+`<span style="color:#f8f">Repro rate:</span> ${((g[12]&255)/51).toFixed(1)} <span style="color:#f8f">Mutation:</span> ${g[13]&31}<br>`+
+`<span style="color:#f8a">Color:</span> <span style="color:rgb(${r},${gr},${b})">██</span> rgb(${r},${gr},${b})`
+}
+function syncEditorFromGenome(){
+const inputs=document.querySelectorAll('.hex-byte');
+inputs.forEach(inp=>{const i=parseInt(inp.dataset.idx);inp.value=hex(genome[i])});
+updateGenomeInfo()
+}
+function randomGenome(){
+for(let i=0;i<GENOME_LEN;i++)genome[i]=Math.random()*256|0;
+genome[24]=40+Math.random()*200|0;genome[25]=40+Math.random()*200|0;genome[26]=40+Math.random()*200|0;
+syncEditorFromGenome()
+}
+function decodeGenome(g){
+const segs=((g[0]&7)>>>0)+2;
+const sz=((g[1]>>>4)&15)+3;
+const sym=(g[2]&1)===1;
+const limbs=(g[4]&7)>>>0;
+const spdBase=((g[5]&255)/64)+0.5;
+const turnRate=((g[6]&255)/128)*Math.PI;
+const eff=((g[8]&255)/255)*0.8+0.2;
+const diet=g[10]&3;
+const reproRate=((g[12]&255)/255)*0.01+0.001;
+const mutAmt=(g[13]&31)+1;
+const offspring=((g[14]&3)>>>0)+1;
+const visRange=((g[16]&255)/255)*120+20;
+const smellRange=((g[17]&255)/255)*80+10;
+const aggression=((g[20]&255)/255);
+const fleeTh=((g[21]&255)/255);
+const herd=((g[22]&255)/255);
+const cr=g[24],cg=g[25],cb=g[26];
+const pattern=g[27]&3;
+const junkBonus=(g[40]+g[50])&255;
+const hiddenArmor=((g[33]&255)/255)*0.3;
+const hiddenLuck=((g[45]&255)/255)*0.2;
+return{segs,sz,sym,limbs,spdBase,turnRate,eff,diet,reproRate,mutAmt,offspring,
+visRange,smellRange,aggression,fleeTh,herd,cr,cg,cb,pattern,junkBonus,hiddenArmor,hiddenLuck}
+}
+function createOrganism(g,x,y,parentId){
+const dna=new Uint8Array(g);
+const traits=decodeGenome(dna);
+const speciesKey=Array.from(dna.slice(24,27)).map(v=>hex(v)).join('');
+return{
+id:Math.random().toString(36).slice(2,10),
+dna,traits,x,y,
+angle:Math.random()*Math.PI*2,
+energy:80+traits.eff*40,
+maxEnergy:100+traits.eff*60,
+age:0,alive:true,
+speciesKey,parentId:parentId||null,parentDna:null,
+birthTick:tick,
+speed:traits.spdBase*(1+traits.junkBonus/512),
+segPositions:Array.from({length:traits.segs},(_,i)=>({x:x-i*traits.sz*0.6,y}))
+}
+}
+function mutateGenome(parent,amt){
+const child=new Uint8Array(parent);
+const mutations=1+(Math.random()*amt|0);
+for(let i=0;i<mutations;i++){
+const idx=Math.random()*GENOME_LEN|0;
+const delta=(Math.random()*amt|0)-(amt>>>1);
+child[idx]=(child[idx]+delta+256)&255
+}
+return child
+}
+function spawnFood(){
+if(foods.length<FOOD_MAX){
+foods.push({
+x:Math.random()*petriW,y:Math.random()*petriH,
+type:Math.random()<0.15?1:0,energy:10+Math.random()*15,
+sz:2+Math.random()*2
+})
+}
+}
+function compileGenome(){
+initAudio();
+const x=Math.random()*petriW;const y=Math.random()*petriH;
+const org=createOrganism(genome,x,y,null);
+org.parentDna=null;
+organisms.push(org);
+playSound('birth');
+$('#status-text').textContent=`Spawned! Pop: ${organisms.length}`
+}
+function resize(){
+const cont=$('#petri-container');
+petriW=cont.clientWidth;petriH=cont.clientHeight;
+canvas.width=petriW;canvas.height=petriH;
+const pg=$('#pop-graph');popCanvas.width=pg.clientWidth;popCanvas.height=pg.clientHeight;
+const fg=$('#fit-graph');fitCanvas.width=fg.clientWidth;fitCanvas.height=fg.clientHeight
+}
+function findNearest(org,list,range){
+let best=null,bestD=range*range;
+for(let i=0;i<list.length;i++){
+const t=list[i];if(t===org||(!t.alive&&t.energy!==undefined))continue;
+const dx=t.x-org.x,dy=t.y-org.y,d2=dx*dx+dy*dy;
+if(d2<bestD){bestD=d2;best=t}
+}
+return best
+}
+function updateOrganism(org){
+if(!org.alive)return;
+const tr=org.traits;
+org.age++;
+const metabolicCost=0.02+(tr.segs*0.003)+(org.speed*0.005)-(tr.hiddenLuck*0.005);
+org.energy-=metabolicCost;
+if(org.energy<=0){org.alive=false;playSound('death');updateLeaderboard(org);return}
+let tx=org.x+Math.cos(org.angle)*40;
+let ty=org.y+Math.sin(org.angle)*40;
+let steering=0;
+if(tr.diet===0||tr.diet>=2){
+const food=findNearest(org,foods,tr.visRange+tr.smellRange);
+if(food&&food.type===0){
+const a=Math.atan2(food.y-org.y,food.x-org.x);
+steering+=angleDiff(a,org.angle)*0.8
+}
+}
+if(tr.diet===1||tr.diet>=2){
+const prey=findNearestPrey(org);
+if(prey){
+const a=Math.atan2(prey.y-org.y,prey.x-org.x);
+steering+=angleDiff(a,org.angle)*(tr.aggression+0.3)
+}
+}
+const threat=findThreat(org);
+if(threat&&tr.fleeTh>0.2){
+const a=Math.atan2(org.y-threat.y,org.x-threat.x);
+steering+=angleDiff(a,org.angle)*tr.fleeTh
+}
+if(tr.herd>0.4){
+const buddy=findNearestSameSpecies(org);
+if(buddy){
+const a=Math.atan2(buddy.y-org.y,buddy.x-org.x);
+steering+=angleDiff(a,org.angle)*tr.herd*0.3
+}
+}
+steering+=((Math.random()-0.5)*0.4);
+org.angle+=Math.max(-tr.turnRate,Math.min(tr.turnRate,steering));
+const spd=org.speed*(org.energy/org.maxEnergy*0.5+0.5);
+org.x+=Math.cos(org.angle)*spd;
+org.y+=Math.sin(org.angle)*spd;
+if(org.x<0){org.x=0;org.angle=Math.PI-org.angle}
+if(org.x>petriW){org.x=petriW;org.angle=Math.PI-org.angle}
+if(org.y<0){org.y=0;org.angle=-org.angle}
+if(org.y>petriH){org.y=petriH;org.angle=-org.angle}
+const segs=org.segPositions;
+segs[0].x=org.x;segs[0].y=org.y;
+for(let i=1;i<segs.length;i++){
+const dx=segs[i].x-segs[i-1].x,dy=segs[i].y-segs[i-1].y;
+const d=Math.sqrt(dx*dx+dy*dy)||1;
+const gap=tr.sz*0.6;
+if(d>gap){const f=gap/d;segs[i].x=segs[i-1].x+dx*f;segs[i].y=segs[i-1].y+dy*f}
+}
+if(tr.diet===0||tr.diet>=2){
+for(let i=foods.length-1;i>=0;i--){
+const f=foods[i];if(f.type===1&&tr.diet===0)continue;
+const dx=f.x-org.x,dy=f.y-org.y;
+if(dx*dx+dy*dy<(tr.sz+f.sz)*(tr.sz+f.sz)){
+org.energy=Math.min(org.maxEnergy,org.energy+f.energy*tr.eff);
+foods.splice(i,1);playSound('eat');break
+}
+}
+}
+if(tr.diet===1||tr.diet>=2){
+for(let i=0;i<organisms.length;i++){
+const p=organisms[i];
+if(p===org||!p.alive)continue;
+if(p.traits.sz>=tr.sz&&tr.diet===1)continue;
+const dx=p.x-org.x,dy=p.y-org.y;
+const eatR=tr.sz+p.traits.sz;
+if(dx*dx+dy*dy<eatR*eatR&&tr.aggression>0.4&&org.energy>p.energy*0.5){
+if(p.speciesKey===org.speciesKey&&tr.aggression<0.8)continue;
+const dmg=(tr.aggression*5)*(1-tr.hiddenArmor);
+p.energy-=dmg;
+org.energy=Math.min(org.maxEnergy,org.energy+dmg*tr.eff*0.5);
+if(p.energy<=0){p.alive=false;playSound('death');updateLeaderboard(p);
+org.energy=Math.min(org.maxEnergy,org.energy+20*tr.eff)}
+break
+}
+}
+}
+if(org.energy>org.maxEnergy*0.7&&Math.random()<tr.reproRate&&organisms.length<MAX_POP){
+const childDna=mutateGenome(org.dna,tr.mutAmt);
+const cx=org.x+(Math.random()-0.5)*20;
+const cy=org.y+(Math.random()-0.5)*20;
+const child=createOrganism(childDna,cx,cy,org.id);
+child.parentDna=new Uint8Array(org.dna);
+child.energy=org.energy*0.35;
+org.energy*=0.55;
+organisms.push(child);
+playSound('birth')
+}
+}
+function findNearestPrey(org){
+let best=null,bestD=(org.traits.visRange*org.traits.visRange);
+for(let i=0;i<organisms.length;i++){
+const o=organisms[i];
+if(o===org||!o.alive||o.traits.sz>=org.traits.sz*1.2)continue;
+const dx=o.x-org.x,dy=o.y-org.y,d2=dx*dx+dy*dy;
+if(d2<bestD){bestD=d2;best=o}
+}
+return best
+}
+function findThreat(org){
+let best=null,bestD=(org.traits.visRange*org.traits.visRange);
+for(let i=0;i<organisms.length;i++){
+const o=organisms[i];
+if(o===org||!o.alive)continue;
+if(o.traits.aggression<0.5||o.traits.sz<org.traits.sz)continue;
+const dx=o.x-org.x,dy=o.y-org.y,d2=dx*dx+dy*dy;
+if(d2<bestD){bestD=d2;best=o}
+}
+return best
+}
+function findNearestSameSpecies(org){
+let best=null,bestD=10000;
+for(let i=0;i<organisms.length;i++){
+const o=organisms[i];
+if(o===org||!o.alive||o.speciesKey!==org.speciesKey)continue;
+const dx=o.x-org.x,dy=o.y-org.y,d2=dx*dx+dy*dy;
+if(d2<bestD){bestD=d2;best=o}
+}
+return best
+}
+function angleDiff(a,b){let d=a-b;while(d>Math.PI)d-=Math.PI*2;while(d<-Math.PI)d+=Math.PI*2;return d}
+function cull(){
+if(organisms.length>MAX_POP){
+organisms.sort((a,b)=>a.energy-b.energy);
+while(organisms.length>MAX_POP){
+const o=organisms.shift();o.alive=false;updateLeaderboard(o)
+}
+}
+}
+function drawOrganism(org){
+if(!org.alive)return;
+const tr=org.traits;
+const segs=org.segPositions;
+const r=tr.cr,g=tr.cg,b=tr.cb;
+const baseColor=`rgb(${r},${g},${b})`;
+const darkColor=`rgb(${r>>>1},${g>>>1},${b>>>1})`;
+ctx.globalAlpha=Math.min(1,org.energy/30+0.3);
+for(let i=segs.length-1;i>=0;i--){
+const s=segs[i];
+const segSz=tr.sz*(1-i*0.08);
+ctx.beginPath();ctx.arc(s.x,s.y,Math.max(1,segSz),0,Math.PI*2);
+if(tr.pattern===1){
+const grd=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,segSz);
+grd.addColorStop(0,baseColor);grd.addColorStop(1,darkColor);ctx.fillStyle=grd
+}else if(tr.pattern===2){
+ctx.fillStyle=i%2===0?baseColor:darkColor
+}else{ctx.fillStyle=baseColor}
+ctx.fill();
+ctx.strokeStyle=darkColor;ctx.lineWidth=0.5;ctx.stroke()
+}
+const head=segs[0];
+if(tr.limbs>0){
+const limbLen=tr.sz*0.8;
+for(let i=0;i<tr.limbs;i++){
+const la=org.angle+Math.PI/2+Math.sin(tick*0.15+i*1.5)*0.5;
+const lb2=org.angle-Math.PI/2-Math.sin(tick*0.15+i*1.5)*0.5;
+const si=Math.min(i,segs.length-1);
+const base=segs[si];
+ctx.beginPath();ctx.moveTo(base.x,base.y);
+ctx.lineTo(base.x+Math.cos(la)*limbLen,base.y+Math.sin(la)*limbLen);
+ctx.strokeStyle=darkColor;ctx.lineWidth=1;ctx.stroke();
+if(tr.sym){
+ctx.beginPath();ctx.moveTo(base.x,base.y);
+ctx.lineTo(base.x+Math.cos(lb2)*limbLen,base.y+Math.sin(lb2)*limbLen);
+ctx.stroke()
+}
+}
+}
+const eyeOff=tr.sz*0.35;
+const ea1=org.angle+0.4,ea2=org.angle-0.4;
+ctx.beginPath();ctx.arc(head.x+Math.cos(ea1)*eyeOff,head.y+Math.sin(ea1)*eyeOff,Math.max(1,tr.sz*0.2),0,Math.PI*2);
+ctx.fillStyle='#fff';ctx.fill();
+ctx.beginPath();ctx.arc(head.x+Math.cos(ea1)*eyeOff+Math.cos(org.angle)*1,head.y+Math.sin(ea1)*eyeOff+Math.sin(org.angle)*1,Math.max(0.5,tr.sz*0.1),0,Math.PI*2);
+ctx.fillStyle='#000';ctx.fill();
+ctx.beginPath();ctx.arc(head.x+Math.cos(ea2)*eyeOff,head.y+Math.sin(ea2)*eyeOff,Math.max(1,tr.sz*0.2),0,Math.PI*2);
+ctx.fillStyle='#fff';ctx.fill();
+ctx.beginPath();ctx.arc(head.x+Math.cos(ea2)*eyeOff+Math.cos(org.angle)*1,head.y+Math.sin(ea2)*eyeOff+Math.sin(org.angle)*1,Math.max(0.5,tr.sz*0.1),0,Math.PI*2);
+ctx.fillStyle='#000';ctx.fill();
+if(selectedOrgs.includes(org)){
+ctx.beginPath();ctx.arc(head.x,head.y,tr.sz+6,0,Math.PI*2);
+ctx.strokeStyle='#ff0';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.stroke();ctx.setLineDash([])
+}
+ctx.globalAlpha=1
+}
+function drawFood(f){
+ctx.beginPath();ctx.arc(f.x,f.y,f.sz,0,Math.PI*2);
+ctx.fillStyle=f.type===0?'#3a8':'#c44';
+ctx.globalAlpha=0.7;ctx.fill();ctx.globalAlpha=1
+}
+function drawPetri(){
+ctx.fillStyle='#080810';ctx.fillRect(0,0,petriW,petriH);
+ctx.strokeStyle='#151525';ctx.lineWidth=0.5;
+for(let x=0;x<petriW;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,petriH);ctx.stroke()}
+for(let y=0;y<petriH;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(petriW,y);ctx.stroke()}
+for(let i=0;i<foods.length;i++)drawFood(foods[i]);
+for(let i=0;i<organisms.length;i++)drawOrganism(organisms[i])
+}
+function drawGraph(ctxG,canv,data,color,maxVal){
+if(!data.length)return;
+ctxG.clearRect(0,0,canv.width,canv.height);
+const w=canv.width,h=canv.height;
+const len=Math.min(data.length,w);
+const start=data.length-len;
+let mx=maxVal||1;
+if(!maxVal)for(let i=start;i<data.length;i++)if(data[i]>mx)mx=data[i];
+ctxG.beginPath();ctxG.moveTo(0,h);
+for(let i=0;i<len;i++){
+const v=data[start+i];
+const x=(i/len)*w;
+const y=h-(v/mx)*h*0.9;
+if(i===0)ctxG.moveTo(x,y);else ctxG.lineTo(x,y)
+}
+ctxG.strokeStyle=color;ctxG.lineWidth=1;ctxG.stroke()
+}
+function recordStats(){
+if(tick%10!==0)return;
+const alive=organisms.filter(o=>o.alive);
+popHistory.push(alive.length);
+if(alive.length>0){
+const avg=alive.reduce((s,o)=>s+o.energy,0)/alive.length;
+fitHistory.push(avg)
+}else{fitHistory.push(0)}
+if(popHistory.length>600){popHistory.shift();fitHistory.shift()}
+}
+function drawGraphs(){
+drawGraph(popCtx,popCanvas,popHistory,'#4a8',0);
+drawGraph(fitCtx,fitCanvas,fitHistory,'#a84',0)
+}
+function updateLeaderboard(org){
+try{
+let lb=JSON.parse(localStorage.getItem('geneLab_lb')||'[]');
+const lifespan=tick-org.birthTick;
+const gHash=Array.from(org.dna.slice(0,6)).map(v=>hex(v)).join('');
+const existing=lb.find(e=>e.hash===gHash);
+if(existing){
+if(lifespan>existing.best)existing.best=lifespan;
+existing.count++
+}else{
+lb.push({hash:gHash,color:`rgb(${org.traits.cr},${org.traits.cg},${org.traits.cb})`,best:lifespan,count:1})
+}
+lb.sort((a,b)=>b.best-a.best);
+if(lb.length>20)lb.length=20;
+localStorage.setItem('geneLab_lb',JSON.stringify(lb))
+}catch(e){}
+}
+function showLeaderboard(){
+const panel=$('#leaderboard');
+panel.style.display=panel.style.display==='none'?'block':'none';
+try{
+const lb=JSON.parse(localStorage.getItem('geneLab_lb')||'[]');
+const table=$('#lb-table');
+table.innerHTML='<tr><td style="color:#888">Genome</td><td style="color:#888">Best</td><td style="color:#888">Count</td></tr>';
+lb.forEach(e=>{
+const row=document.createElement('tr');
+row.innerHTML=`<td><span style="color:${e.color}">██</span> ${e.hash}</td><td>${e.best}</td><td>${e.count}</td>`;
+table.appendChild(row)
+})
+}catch(e){}
+}
+function showDiff(){
+if(selectedOrgs.length<1){$('#diff-panel').style.display='none';return}
+const panel=$('#diff-panel');
+panel.style.display='block';
+const cont=$('#diff-content');
+if(selectedOrgs.length===1&&selectedOrgs[0].parentDna){
+const org=selectedOrgs[0];
+let html='<div style="margin-bottom:6px;color:#8af">Parent → Child mutations:</div>';
+for(let i=0;i<GENOME_LEN;i++){
+const p=org.parentDna[i],c=org.dna[i];
+const cls=p!==c?'diff-changed':'diff-same';
+html+=`<span class="diff-byte ${cls}" title="Byte ${i}: ${hex(p)}→${hex(c)}">${hex(c)}</span>`
+}
+cont.innerHTML=html
+}else if(selectedOrgs.length===2){
+const a=selectedOrgs[0].dna,b2=selectedOrgs[1].dna;
+let html='<div style="margin-bottom:6px;color:#8af">Genome A vs B:</div>';
+for(let i=0;i<GENOME_LEN;i++){
+const cls=a[i]!==b2[i]?'diff-changed':'diff-same';
+html+=`<span class="diff-byte ${cls}" title="Byte ${i}: ${hex(a[i])} vs ${hex(b2[i])}">${hex(a[i])}</span>`
+}
+cont.innerHTML=html
+}else{cont.innerHTML='<div style="color:#888">Click 1-2 organisms in petri dish</div>'}
+}
+function gameLoop(){
+for(let s=0;s<speed;s++){
+tick++;
+if(tick%3===0)spawnFood();
+ambientBubble();
+for(let i=organisms.length-1;i>=0;i--){
+updateOrganism(organisms[i])
+}
+organisms=organisms.filter(o=>o.alive);
+cull();
+recordStats()
+}
+drawPetri();
+if(tick%10===0)drawGraphs();
+$('#info-overlay').textContent=`Tick: ${tick} | Pop: ${organisms.length} | Food: ${foods.length}`;
+requestAnimationFrame(gameLoop)
+}
+canvas.addEventListener('click',e=>{
+const rect=canvas.getBoundingClientRect();
+const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+let clicked=null;
+for(let i=0;i<organisms.length;i++){
+const o=organisms[i];if(!o.alive)continue;
+const dx=o.x-mx,dy=o.y-my;
+if(dx*dx+dy*dy<(o.traits.sz+10)*(o.traits.sz+10)){clicked=o;break}
+}
+if(clicked){
+if(e.shiftKey){
+if(!selectedOrgs.includes(clicked)&&selectedOrgs.length<2)selectedOrgs.push(clicked)
+}else{selectedOrgs=[clicked]}
+const tr=clicked.traits;
+const dietN=['Herb','Carn','Omni','Omni'][tr.diet];
+$('#selection-info').style.display='block';
+$('#selection-info').innerHTML=`<b style="color:rgb(${tr.cr},${tr.cg},${tr.cb})">${clicked.id}</b> | E:${clicked.energy.toFixed(0)} | ${dietN} | Age:${clicked.age}`;
+for(let i=0;i<GENOME_LEN;i++)genome[i]=clicked.dna[i];
+syncEditorFromGenome();
+if(diffMode)showDiff()
+}else{
+selectedOrgs=[];
+$('#selection-info').style.display='none'
+}
+});
+$('#btn-compile').addEventListener('click',()=>{initAudio();compileGenome()});
+$('#btn-random').addEventListener('click',()=>randomGenome());
+$('#btn-export').addEventListener('click',()=>{
+const hexStr=Array.from(genome).map(v=>hex(v)).join('');
+navigator.clipboard.writeText(hexStr).then(()=>{$('#status-text').textContent='Copied!'}).catch(()=>{
+prompt('Copy genome:',hexStr)
+})
+});
+$('#btn-import').addEventListener('click',()=>{
+const s=prompt('Paste hex genome (128 chars):');
+if(s&&s.length>=128){
+for(let i=0;i<GENOME_LEN;i++){
+genome[i]=parseInt(s.slice(i*2,i*2+2),16)||0
+}
+syncEditorFromGenome();$('#status-text').textContent='Imported!'
+}
+});
+$('#btn-diff').addEventListener('click',()=>{diffMode=!diffMode;showDiff()});
+$('#btn-leaders').addEventListener('click',showLeaderboard);
+document.querySelectorAll('.speed-btn').forEach(btn=>{
+btn.addEventListener('click',function(){
+document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+this.classList.add('active');
+speed=parseInt(this.textContent)|0
+})
+});
+$('#btn-sound').addEventListener('click',function(){
+soundOn=!soundOn;this.textContent=soundOn?'🔊':'🔇'
+});
+window.addEventListener('resize',resize);
+randomGenome();buildHexEditor();resize();
+for(let i=0;i<30;i++)spawnFood();
+gameLoop()
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Circuit Lab - Digital Logic Simulator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Courier New',monospace;overflow:hidden;user-select:none}
+#app{display:flex;height:100vh;width:100vw}
+#sidebar{width:220px;background:#16213e;border-right:2px solid #0f3460;display:flex;flex-direction:column;z-index:10}
+#sidebar h2{text-align:center;padding:8px;color:#00d4ff;font-size:14px;border-bottom:1px solid #0f3460}
+.sb-section{padding:4px 8px;border-bottom:1px solid #0f3460}
+.sb-section h3{font-size:11px;color:#888;margin:4px 0}
+.sb-item{display:inline-block;padding:4px 8px;margin:2px;background:#0f3460;border:1px solid #1a5276;border-radius:4px;cursor:grab;font-size:11px;color:#00d4ff;transition:background .2s}
+.sb-item:hover{background:#1a5276}
+#main{flex:1;display:flex;flex-direction:column;position:relative}
+#toolbar{height:36px;background:#16213e;border-bottom:1px solid #0f3460;display:flex;align-items:center;padding:0 10px;gap:8px;z-index:5}
+#toolbar button{background:#0f3460;color:#00d4ff;border:1px solid #1a5276;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-family:inherit}
+#toolbar button:hover{background:#1a5276}
+#toolbar button.active{background:#00d4ff;color:#1a1a2e}
+#toolbar select{background:#0f3460;color:#00d4ff;border:1px solid #1a5276;padding:3px 6px;border-radius:4px;font-size:11px;font-family:inherit}
+#canvasWrap{flex:1;position:relative;overflow:hidden}
+canvas{position:absolute;top:0;left:0}
+#oscPanel{position:absolute;bottom:0;right:0;width:350px;height:180px;background:rgba(22,33,62,.95);border:1px solid #0f3460;border-radius:8px 0 0 0;z-index:5;display:none}
+#oscPanel.show{display:block}
+#oscPanel h3{font-size:11px;color:#00d4ff;padding:4px 8px;border-bottom:1px solid #0f3460}
+#oscCanvas{width:100%;height:150px}
+#levelPanel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#16213e;border:2px solid #00d4ff;border-radius:12px;padding:20px;z-index:20;max-width:500px;max-height:80vh;overflow-y:auto;display:none}
+#levelPanel.show{display:block}
+#levelPanel h2{color:#00d4ff;margin-bottom:10px;font-size:16px}
+#levelPanel p{font-size:12px;line-height:1.5;margin-bottom:8px}
+#levelPanel table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px}
+#levelPanel th,#levelPanel td{border:1px solid #0f3460;padding:4px 8px;text-align:center}
+#levelPanel th{background:#0f3460;color:#00d4ff}
+.lvl-btn{display:inline-block;width:40px;height:40px;margin:4px;background:#0f3460;border:1px solid #1a5276;border-radius:6px;text-align:center;line-height:40px;cursor:pointer;font-size:13px;color:#e0e0e0}
+.lvl-btn:hover{background:#1a5276}
+.lvl-btn.done{border-color:#00ff88;color:#00ff88}
+.lvl-btn.cur{background:#00d4ff;color:#1a1a2e}
+#tooltip{position:absolute;background:#0f3460;color:#00d4ff;padding:3px 8px;border-radius:4px;font-size:10px;pointer-events:none;z-index:15;display:none}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:19;display:none}
+#overlay.show{display:block}
+#msgBox{position:absolute;top:20px;right:20px;background:#0f3460;border:1px solid #00d4ff;border-radius:8px;padding:10px 16px;font-size:12px;color:#00ff88;z-index:15;display:none;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="sidebar">
+<h2>⚡ Circuit Lab</h2>
+<div class="sb-section"><h3>GATES</h3>
+<div class="sb-item" data-type="AND">AND</div>
+<div class="sb-item" data-type="OR">OR</div>
+<div class="sb-item" data-type="NOT">NOT</div>
+<div class="sb-item" data-type="XOR">XOR</div>
+<div class="sb-item" data-type="NAND">NAND</div>
+<div class="sb-item" data-type="NOR">NOR</div>
+</div>
+<div class="sb-section"><h3>I/O</h3>
+<div class="sb-item" data-type="SWITCH">Switch</div>
+<div class="sb-item" data-type="LED">LED</div>
+<div class="sb-item" data-type="CLOCK">Clock</div>
+<div class="sb-item" data-type="HIGH">HIGH</div>
+<div class="sb-item" data-type="LOW">LOW</div>
+</div>
+<div class="sb-section"><h3>ADVANCED</h3>
+<div class="sb-item" data-type="SEG7">7-Seg</div>
+<div class="sb-item" data-type="DFF">D Flip-Flop</div>
+<div class="sb-item" data-type="SRFF">SR Flip-Flop</div>
+<div class="sb-item" data-type="MUX">MUX</div>
+</div>
+<div class="sb-section"><h3>LEVELS</h3>
+<div id="levelGrid"></div>
+</div>
+<div class="sb-section" style="margin-top:auto;border-top:1px solid #0f3460;border-bottom:none">
+<div style="font-size:10px;color:#666;padding:4px">R-click: delete | Scroll: zoom | Mid-drag: pan</div>
+</div>
+</div>
+<div id="main">
+<div id="toolbar">
+<button id="btnSandbox" class="active">Sandbox</button>
+<button id="btnCheck">✓ Check</button>
+<button id="btnOsc">📊 Scope</button>
+<button id="btnSave">💾 Save</button>
+<button id="btnLoad">📂 Load</button>
+<button id="btnClear">🗑 Clear</button>
+<select id="selSlot"><option value="0">Slot 1</option><option value="1">Slot 2</option><option value="2">Slot 3</option></select>
+</div>
+<div id="canvasWrap"><canvas id="cv"></canvas></div>
+<div id="oscPanel"><h3>Oscilloscope</h3><canvas id="oscCanvas"></canvas></div>
+</div>
+</div>
+<div id="tooltip"></div>
+<div id="overlay"></div>
+<div id="levelPanel"><h2 id="lvlTitle"></h2><div id="lvlBody"></div><button id="lvlClose" style="margin-top:10px;padding:6px 16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:4px;cursor:pointer;font-family:inherit">Close</button></div>
+<div id="msgBox"></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const oscCv=document.getElementById('oscCanvas'),oscCtx=oscCv.getContext('2d');
+const wrap=document.getElementById('canvasWrap');
+let W=0,H=0,camX=0,camY=0,zoom=1;
+const G=20;
+const components=[],wires=[];
+let nextId=1,dragging=null,dragType=null,wireStart=null,selComp=null;
+let hovPin=null,mode='sandbox',curLevel=-1,clockTick=0;
+let oscTraces=[],oscTime=0;
+let midDrag=false,mdx=0,mdy=0;
+
+function resize(){W=wrap.clientWidth;H=wrap.clientHeight;cv.width=W;cv.height=H;oscCv.width=340;oscCv.height=148}
+window.addEventListener('resize',resize);resize();
+
+// Audio
+const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+function playClick(){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);o.frequency.value=800;g.gain.value=0.05;o.start();g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.05);o.stop(audioCtx.currentTime+0.05)}
+function playBuzz(){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sawtooth';o.connect(g);g.connect(audioCtx.destination);o.frequency.value=120;g.gain.value=0.03;o.start();g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.1);o.stop(audioCtx.currentTime+0.1)}
+
+// Component definitions
+const COMP_DEFS={
+AND:{w:60,h:40,inputs:['A','B'],outputs:['Q'],eval:(i)=>[i[0]&i[1]],color:'#ff6b6b'},
+OR:{w:60,h:40,inputs:['A','B'],outputs:['Q'],eval:(i)=>[i[0]|i[1]],color:'#ffa502'},
+NOT:{w:50,h:30,inputs:['A'],outputs:['Q'],eval:(i)=>[i[0]?0:1],color:'#ff4757'},
+XOR:{w:60,h:40,inputs:['A','B'],outputs:['Q'],eval:(i)=>[(i[0]^i[1])&1],color:'#eccc68'},
+NAND:{w:60,h:40,inputs:['A','B'],outputs:['Q'],eval:(i)=>[(i[0]&i[1])?0:1],color:'#ff7f50'},
+NOR:{w:60,h:40,inputs:['A','B'],outputs:['Q'],eval:(i)=>[(i[0]|i[1])?0:1],color:'#e056a0'},
+SWITCH:{w:50,h:30,inputs:[],outputs:['Q'],eval:function(){return[this.state?1:0]},color:'#2ed573',state:0},
+LED:{w:30,h:30,inputs:['IN'],outputs:[],eval:function(i){this.lit=i[0];return[]},color:'#7bed9f',lit:0},
+CLOCK:{w:50,h:30,inputs:[],outputs:['Q'],eval:function(){return[this.state?1:0]},color:'#70a1ff',state:0,rate:10},
+HIGH:{w:40,h:25,inputs:[],outputs:['Q'],eval:()=>[1],color:'#00ff88'},
+LOW:{w:40,h:25,inputs:[],outputs:['Q'],eval:()=>[0],color:'#666'},
+SEG7:{w:50,h:70,inputs:['A','B','C','D'],outputs:[],eval:function(i){this.val=(i[3]?8:0)|(i[2]?4:0)|(i[1]?2:0)|(i[0]?1:0);return[]},color:'#e84393',val:0},
+DFF:{w:60,h:50,inputs:['D','CLK'],outputs:['Q','Q\''],eval:function(i){if(i[1]&&!this.prevClk)this.stored=i[0];this.prevClk=i[1];return[this.stored,this.stored?0:1]},color:'#a29bfe',stored:0,prevClk:0},
+SRFF:{w:60,h:50,inputs:['S','R','CLK'],outputs:['Q','Q\''],eval:function(i){if(i[2]&&!this.prevClk){if(i[0]&&!i[1])this.stored=1;else if(!i[0]&&i[1])this.stored=0}this.prevClk=i[2];return[this.stored,this.stored?0:1]},color:'#6c5ce7',stored:0,prevClk:0},
+MUX:{w:60,h:50,inputs:['A','B','SEL'],outputs:['Q'],eval:(i)=>[i[2]?i[1]:i[0]],color:'#00cec9'}
+};
+
+function createComp(type,x,y){
+const def=COMP_DEFS[type];if(!def)return null;
+const c={id:nextId++,type,x,y,w:def.w,h:def.h,inputs:def.inputs.slice(),outputs:def.outputs.slice(),color:def.color,inVals:new Array(def.inputs.length).fill(0),outVals:new Array(def.outputs.length).fill(0)};
+if(type==='SWITCH')c.state=0;
+if(type==='LED')c.lit=0;
+if(type==='CLOCK'){c.state=0;c.rate=10}
+if(type==='SEG7')c.val=0;
+if(type==='DFF'){c.stored=0;c.prevClk=0}
+if(type==='SRFF'){c.stored=0;c.prevClk=0}
+return c;
+}
+
+function pinPos(comp,isOut,idx){
+const px=isOut?comp.x+comp.w:comp.x;
+const count=isOut?comp.outputs.length:comp.inputs.length;
+const step=comp.h/(count+1);
+const py=comp.y+step*(idx+1);
+return{x:px,y:py}
+}
+
+function snapGrid(v){return Math.round(v/G)*G}
+
+function evalComp(c){
+const def=COMP_DEFS[c.type];if(!def)return;
+const fn=typeof def.eval==='function'?def.eval:null;
+if(!fn)return;
+const result=fn.call(c,c.inVals);
+for(let i=0;i<result.length;i++)c.outVals[i]=result[i]?1:0;
+}
+
+function propagate(){
+for(const c of components)c.inVals.fill(0);
+for(const w of wires){
+const src=components.find(c=>c.id===w.srcId);
+if(src)w.val=src.outVals[w.srcPin]||0;
+}
+for(const w of wires){
+const dst=components.find(c=>c.id===w.dstId);
+if(dst){if(w.val)dst.inVals[w.dstPin]=1}
+}
+for(const c of components)evalComp(c);
+// second pass for feedback
+for(const w of wires){
+const src=components.find(c=>c.id===w.srcId);
+if(src)w.val=src.outVals[w.srcPin]||0;
+}
+for(const c of components)c.inVals.fill(0);
+for(const w of wires){
+const dst=components.find(c=>c.id===w.dstId);
+if(dst){if(w.val)dst.inVals[w.dstPin]=1}
+}
+for(const c of components)evalComp(c);
+for(const w of wires){
+const src=components.find(c=>c.id===w.srcId);
+if(src)w.val=src.outVals[w.srcPin]||0;
+}
+}
+
+function toScreen(wx,wy){return{x:(wx-camX)*zoom,y:(wy-camY)*zoom}}
+function toWorld(sx,sy){return{x:sx/zoom+camX,y:sy/zoom+camY}}
+
+function drawGrid(){
+ctx.strokeStyle='#1e2a4a';ctx.lineWidth=1;
+const s=G*zoom;
+const ox=(-camX*zoom)%s,oy=(-camY*zoom)%s;
+for(let x=ox;x<W;x+=s){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+for(let y=oy;y<H;y+=s){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+}
+
+function drawComp(c){
+const s=toScreen(c.x,c.y);
+const w=c.w*zoom,h=c.h*zoom;
+ctx.fillStyle=c===selComp?'#2a3a5e':'#1a2744';
+ctx.strokeStyle=c.color;ctx.lineWidth=2;
+ctx.beginPath();ctx.roundRect(s.x,s.y,w,h,4*zoom);ctx.fill();ctx.stroke();
+ctx.fillStyle=c.color;ctx.font=`${10*zoom}px Courier New`;ctx.textAlign='center';ctx.textBaseline='middle';
+let label=c.type;
+if(c.type==='SWITCH')label=c.state?'ON':'OFF';
+if(c.type==='HIGH')label='1';
+if(c.type==='LOW')label='0';
+ctx.fillText(label,s.x+w/2,s.y+h/2);
+// LED glow
+if(c.type==='LED'&&c.lit){
+ctx.save();ctx.globalAlpha=0.4;ctx.fillStyle='#00ff88';
+ctx.beginPath();ctx.arc(s.x+w/2,s.y+h/2,w*0.6,0,Math.PI*2);ctx.fill();ctx.restore();
+}
+// 7-segment display
+if(c.type==='SEG7'){
+const segs=[[0,0,1,0],[1,0,1,1],[1,1,1,0],[0,1,1,1],[0,0,0,1],[0,1,0,0],[1,0,0,0]];
+const segMap=[0x7E,0x30,0x6D,0x79,0x33,0x5B,0x5F,0x70,0x7F,0x7B,0x77,0x1F,0x4E,0x3D,0x4F,0x47];
+const sv=segMap[c.val&15]||0;
+const cx2=s.x+w/2,cy=s.y+h*0.45;
+const sl=w*0.25,sg=h*0.06;
+const segDraw=[[cx2-sl,cy-sl*2,sl*2,sg],[cx2+sl,cy-sl*2,sg,sl*2],[cx2+sl,cy,sg,sl*2],[cx2-sl,cy+sl*2,sl*2,sg],[cx2-sl-sg,cy,sg,sl*2],[cx2-sl-sg,cy-sl*2,sg,sl*2],[cx2-sl,cy,sl*2,sg]];
+for(let i=0;i<7;i++){const on=(sv>>(6-i))&1;ctx.fillStyle=on?'#ff0000':'#330000';ctx.fillRect(segDraw[i][0],segDraw[i][1],segDraw[i][2],segDraw[i][3])}
+}
+// Pins
+const r=3*zoom;
+for(let i=0;i<c.inputs.length;i++){
+const p=pinPos(c,false,i);const ps=toScreen(p.x,p.y);
+ctx.fillStyle=c.inVals[i]?'#00d4ff':'#445';
+ctx.beginPath();ctx.arc(ps.x,ps.y,r,0,Math.PI*2);ctx.fill();
+}
+for(let i=0;i<c.outputs.length;i++){
+const p=pinPos(c,true,i);const ps=toScreen(p.x,p.y);
+ctx.fillStyle=c.outVals[i]?'#00ff88':'#445';
+ctx.beginPath();ctx.arc(ps.x,ps.y,r,0,Math.PI*2);ctx.fill();
+}
+}
+
+function drawWires(){
+for(const w of wires){
+const src=components.find(c=>c.id===w.srcId);
+const dst=components.find(c=>c.id===w.dstId);
+if(!src||!dst)continue;
+const p1=pinPos(src,true,w.srcPin);
+const p2=pinPos(dst,false,w.dstPin);
+const s1=toScreen(p1.x,p1.y),s2=toScreen(p2.x,p2.y);
+ctx.strokeStyle=w.val?'#00d4ff':'#334';
+ctx.lineWidth=w.val?2.5:1.5;
+if(w.val){ctx.shadowColor='#00d4ff';ctx.shadowBlur=6}
+ctx.beginPath();
+const mx=(s1.x+s2.x)/2;
+ctx.moveTo(s1.x,s1.y);ctx.bezierCurveTo(mx,s1.y,mx,s2.y,s2.x,s2.y);
+ctx.stroke();ctx.shadowBlur=0;
+}
+}
+
+function drawWiring(){
+if(!wireStart)return;
+const ps=toScreen(wireStart.wx,wireStart.wy);
+const mp=lastMouse||{x:0,y:0};
+ctx.strokeStyle='#00d4ff88';ctx.lineWidth=2;ctx.setLineDash([5,5]);
+ctx.beginPath();ctx.moveTo(ps.x,ps.y);ctx.lineTo(mp.x,mp.y);ctx.stroke();ctx.setLineDash([]);
+}
+
+let lastMouse={x:0,y:0};
+function draw(){
+ctx.clearRect(0,0,W,H);
+drawGrid();drawWires();
+for(const c of components)drawComp(c);
+drawWiring();
+}
+
+function findPinAt(sx,sy){
+const w=toWorld(sx,sy);
+const thr=8/zoom;
+for(const c of components){
+for(let i=0;i<c.outputs.length;i++){
+const p=pinPos(c,true,i);
+if(Math.abs(p.x-w.x)<thr&&Math.abs(p.y-w.y)<thr)return{comp:c,isOut:true,idx:i,name:c.outputs[i]}
+}
+for(let i=0;i<c.inputs.length;i++){
+const p=pinPos(c,false,i);
+if(Math.abs(p.x-w.x)<thr&&Math.abs(p.y-w.y)<thr)return{comp:c,isOut:false,idx:i,name:c.inputs[i]}
+}
+}
+return null;
+}
+
+function findCompAt(sx,sy){
+const w=toWorld(sx,sy);
+for(let i=components.length-1;i>=0;i--){
+const c=components[i];
+if(w.x>=c.x&&w.x<=c.x+c.w&&w.y>=c.y&&w.y<=c.y+c.h)return c;
+}
+return null;
+}
+
+// Mouse handling
+cv.addEventListener('mousedown',(e)=>{
+e.preventDefault();
+if(e.button===1){midDrag=true;mdx=e.clientX;mdy=e.clientY;return}
+if(e.button===2)return;
+const rect=cv.getBoundingClientRect();
+const sx=e.clientX-rect.left,sy=e.clientY-rect.top;
+const pin=findPinAt(sx,sy);
+if(pin){
+if(pin.isOut){
+const p=pinPos(pin.comp,true,pin.idx);
+wireStart={comp:pin.comp,pin:pin.idx,wx:p.x,wy:p.y};
+}else{
+wireStart={comp:pin.comp,pin:pin.idx,isInput:true,wx:pinPos(pin.comp,false,pin.idx).x,wy:pinPos(pin.comp,false,pin.idx).y};
+}
+return;
+}
+const comp=findCompAt(sx,sy);
+if(comp){
+if(comp.type==='SWITCH'){comp.state=comp.state?0:1;playClick();propagate();draw();return}
+selComp=comp;
+const w=toWorld(sx,sy);
+dragging={comp,ox:w.x-comp.x,oy:w.y-comp.y};
+dragType='move';
+}else{selComp=null}
+});
+
+cv.addEventListener('mousemove',(e)=>{
+const rect=cv.getBoundingClientRect();
+const sx=e.clientX-rect.left,sy=e.clientY-rect.top;
+lastMouse={x:sx,y:sy};
+if(midDrag){camX-=(e.clientX-mdx)/zoom;camY-=(e.clientY-mdy)/zoom;mdx=e.clientX;mdy=e.clientY;draw();return}
+if(dragging){
+const w=toWorld(sx,sy);
+dragging.comp.x=snapGrid(w.x-dragging.ox);
+dragging.comp.y=snapGrid(w.y-dragging.oy);
+draw();return;
+}
+// Tooltip
+const pin=findPinAt(sx,sy);
+const tt=document.getElementById('tooltip');
+if(pin){
+tt.style.display='block';tt.style.left=(e.clientX+12)+'px';tt.style.top=(e.clientY-8)+'px';
+tt.textContent=pin.name+(pin.isOut?' (out)':' (in)');
+}else{tt.style.display='none'}
+if(wireStart)draw();
+});
+
+cv.addEventListener('mouseup',(e)=>{
+if(e.button===1){midDrag=false;return}
+const rect=cv.getBoundingClientRect();
+const sx=e.clientX-rect.left,sy=e.clientY-rect.top;
+if(wireStart){
+const pin=findPinAt(sx,sy);
+if(pin){
+if(wireStart.isInput&&pin.isOut){
+const exists=wires.some(w=>w.dstId===wireStart.comp.id&&w.dstPin===wireStart.pin);
+if(!exists){
+wires.push({srcId:pin.comp.id,srcPin:pin.idx,dstId:wireStart.comp.id,dstPin:wireStart.pin,val:0});
+playClick();propagate();
+}
+}else if(!wireStart.isInput&&!pin.isOut&&pin.comp.id!==wireStart.comp.id){
+const exists=wires.some(w=>w.dstId===pin.comp.id&&w.dstPin===pin.idx);
+if(!exists){
+wires.push({srcId:wireStart.comp.id,srcPin:wireStart.pin,dstId:pin.comp.id,dstPin:pin.idx,val:0});
+playClick();propagate();
+}
+}
+}
+wireStart=null;draw();
+}
+dragging=null;dragType=null;
+});
+
+cv.addEventListener('contextmenu',(e)=>{
+e.preventDefault();
+const rect=cv.getBoundingClientRect();
+const sx=e.clientX-rect.left,sy=e.clientY-rect.top;
+const comp=findCompAt(sx,sy);
+if(comp){
+const idx=components.indexOf(comp);
+if(idx>=0)components.splice(idx,1);
+for(let i=wires.length-1;i>=0;i--){
+if(wires[i].srcId===comp.id||wires[i].dstId===comp.id)wires.splice(i,1);
+}
+if(selComp===comp)selComp=null;
+propagate();draw();
+}
+});
+
+cv.addEventListener('wheel',(e)=>{
+e.preventDefault();
+const rect=cv.getBoundingClientRect();
+const sx=e.clientX-rect.left,sy=e.clientY-rect.top;
+const w=toWorld(sx,sy);
+const d=e.deltaY>0?0.9:1.1;
+zoom=Math.max(0.2,Math.min(5,zoom*d));
+camX=w.x-sx/zoom;camY=w.y-sy/zoom;
+draw();
+},{passive:false});
+
+// Sidebar drag
+document.querySelectorAll('.sb-item').forEach(el=>{
+el.addEventListener('mousedown',(e)=>{
+e.preventDefault();
+const type=el.dataset.type;
+const rect=cv.getBoundingClientRect();
+const w=toWorld(rect.width/2,rect.height/2);
+const c=createComp(type,snapGrid(w.x),snapGrid(w.y));
+if(c){components.push(c);playClick();propagate();draw()}
+});
+});
+
+// Levels
+const LEVELS=[
+{title:'L1: AND Gate',desc:'Connect two switches to an AND gate. LED should light only when BOTH switches are ON.',table:[['A','B','LED'],['0','0','0'],['0','1','0'],['1','0','0'],['1','1','1']],check:checkTruthTable,ins:2,outs:1,fn:(a,b)=>[a&b]},
+{title:'L2: OR Gate',desc:'Connect two switches to an OR gate. LED should light when EITHER switch is ON.',table:[['A','B','LED'],['0','0','0'],['0','1','1'],['1','0','1'],['1','1','1']],check:checkTruthTable,ins:2,outs:1,fn:(a,b)=>[a|b]},
+{title:'L3: NOT Gate',desc:'Connect a switch through a NOT gate to an LED. LED should be ON when switch is OFF.',table:[['A','LED'],['0','1'],['1','0']],check:checkTruthTable,ins:1,outs:1,fn:(a)=>[a?0:1]},
+{title:'L4: XOR from basics',desc:'Build XOR using only AND, OR, and NOT gates. Output HIGH when inputs differ.',table:[['A','B','Q'],['0','0','0'],['0','1','1'],['1','0','1'],['1','1','0']],check:checkTruthTable,ins:2,outs:1,fn:(a,b)=>[(a^b)&1]},
+{title:'L5: NAND gate',desc:'Build a NAND gate. Output LOW only when both inputs HIGH.',table:[['A','B','Q'],['0','0','1'],['0','1','1'],['1','0','1'],['1','1','0']],check:checkTruthTable,ins:2,outs:1,fn:(a,b)=>[(a&b)?0:1]},
+{title:'L6: Half Adder',desc:'Build a half adder: Sum=XOR, Carry=AND of two inputs.',table:[['A','B','Sum','Carry'],['0','0','0','0'],['0','1','1','0'],['1','0','1','0'],['1','1','0','1']],check:checkTruthTable,ins:2,outs:2,fn:(a,b)=>[(a^b)&1,a&b]},
+{title:'L7: SR Latch',desc:'Build an SR latch using two NOR gates with feedback. Set=1 should store 1, Reset=1 should store 0.',check:null,ins:0,outs:0,fn:null},
+{title:'L8: D Flip-Flop',desc:'Use a D flip-flop. Connect a switch to D and a clock to CLK. Verify Q follows D on clock rising edge.',check:null,ins:0,outs:0,fn:null},
+{title:'L9: Toggle Counter',desc:'Create a toggle: connect a D flip-flop Q\' back to D with a clock. Q should toggle each cycle.',check:null,ins:0,outs:0,fn:null},
+{title:'L10: Full Adder',desc:'Build a full adder with A, B, and Carry-in inputs producing Sum and Carry-out.',table:[['A','B','Cin','Sum','Cout'],['0','0','0','0','0'],['0','0','1','1','0'],['0','1','0','1','0'],['0','1','1','0','1'],['1','0','0','1','0'],['1','0','1','0','1'],['1','1','0','0','1'],['1','1','1','1','1']],check:checkTruthTable,ins:3,outs:2,fn:(a,b,c)=>{const s=a+b+c;return[s&1,(s>>1)&1]}},
+{title:'L11: 2-bit Adder',desc:'Build a 2-bit adder: A1A0 + B1B0 = S2S1S0. Chain two full adders.',check:null,ins:0,outs:0,fn:null},
+{title:'L12: 4-bit Adder',desc:'Extend to a 4-bit ripple-carry adder. Chain four full adders together.',check:null,ins:0,outs:0,fn:null},
+{title:'L13: MUX logic',desc:'Build a 4-to-1 multiplexer using basic gates and smaller muxes.',check:null,ins:0,outs:0,fn:null},
+{title:'L14: ALU slice',desc:'Build a 1-bit ALU supporting AND, OR, ADD operations selected by 2-bit control.',check:null,ins:0,outs:0,fn:null},
+{title:'L15: Program Counter',desc:'Build a 4-bit program counter that increments on each clock cycle using flip-flops and adders.',check:null,ins:0,outs:0,fn:null}
+];
+
+function checkTruthTable(){
+const lvl=LEVELS[curLevel];if(!lvl||!lvl.fn)return false;
+const switches=components.filter(c=>c.type==='SWITCH').sort((a,b)=>a.x-b.x||a.y-b.y);
+const leds=components.filter(c=>c.type==='LED').sort((a,b)=>a.x-b.x||a.y-b.y);
+if(switches.length<lvl.ins||leds.length<lvl.outs)return false;
+const combos=1<<lvl.ins;
+for(let m=0;m<combos;m++){
+for(let i=0;i<lvl.ins;i++)switches[i].state=(m>>i)&1;
+propagate();propagate();
+const expected=lvl.fn(...switches.slice(0,lvl.ins).map(s=>s.state));
+for(let o=0;o<lvl.outs;o++){
+if((leds[o].lit?1:0)!==expected[o])return false;
+}
+}
+// restore
+for(const s of switches)s.state=0;
+propagate();draw();
+return true;
+}
+
+function showMsg(txt,dur){
+const mb=document.getElementById('msgBox');mb.textContent=txt;mb.style.display='block';
+setTimeout(()=>{mb.style.display='none'},dur||2000);
+}
+
+// Level grid
+const levelGrid=document.getElementById('levelGrid');
+const completedLvls=JSON.parse(localStorage.getItem('cl_levels')||'[]');
+function renderLevelGrid(){
+levelGrid.innerHTML='';
+for(let i=0;i<LEVELS.length;i++){
+const d=document.createElement('div');d.className='lvl-btn';
+if(completedLvls.includes(i))d.classList.add('done');
+if(i===curLevel)d.classList.add('cur');
+d.textContent=i+1;
+d.addEventListener('click',()=>loadLevel(i));
+levelGrid.appendChild(d);
+}
+}
+renderLevelGrid();
+
+function loadLevel(idx){
+curLevel=idx;mode='level';
+document.getElementById('btnSandbox').classList.remove('active');
+const lvl=LEVELS[idx];
+const lp=document.getElementById('levelPanel');
+document.getElementById('lvlTitle').textContent=lvl.title;
+let html='<p>'+lvl.desc+'</p>';
+if(lvl.table){
+html+='<table><tr>';
+for(const h of lvl.table[0])html+='<th>'+h+'</th>';
+html+='</tr>';
+for(let r=1;r<lvl.table.length;r++){
+html+='<tr>';for(const v of lvl.table[r])html+='<td>'+v+'</td>';html+='</tr>';
+}
+html+='</table>';
+}
+document.getElementById('lvlBody').innerHTML=html;
+lp.classList.add('show');document.getElementById('overlay').classList.add('show');
+renderLevelGrid();
+}
+
+document.getElementById('lvlClose').addEventListener('click',()=>{
+document.getElementById('levelPanel').classList.remove('show');
+document.getElementById('overlay').classList.remove('show');
+});
+
+document.getElementById('btnSandbox').addEventListener('click',()=>{
+curLevel=-1;mode='sandbox';
+document.getElementById('btnSandbox').classList.add('active');
+renderLevelGrid();
+});
+
+document.getElementById('btnCheck').addEventListener('click',()=>{
+if(curLevel<0){showMsg('Select a level first!');return}
+const lvl=LEVELS[curLevel];
+if(!lvl.fn){showMsg('This level is self-guided. Verify manually!');return}
+if(checkTruthTable()){
+if(!completedLvls.includes(curLevel)){completedLvls.push(curLevel);localStorage.setItem('cl_levels',JSON.stringify(completedLvls))}
+showMsg('✅ Level '+(curLevel+1)+' PASSED!',3000);renderLevelGrid();
+}else{showMsg('❌ Truth table mismatch. Keep trying!',3000)}
+});
+
+// Oscilloscope
+let oscOn=false;
+document.getElementById('btnOsc').addEventListener('click',()=>{
+oscOn=!oscOn;
+document.getElementById('oscPanel').classList.toggle('show',oscOn);
+document.getElementById('btnOsc').classList.toggle('active',oscOn);
+});
+
+function updateOsc(){
+if(!oscOn)return;
+oscTime++;
+if(selComp&&selComp.outputs.length>0){
+if(!oscTraces.length||oscTraces[0].id!==selComp.id){
+oscTraces=[{id:selComp.id,name:selComp.type,data:[]}];
+}
+oscTraces[0].data.push(selComp.outVals[0]||0);
+if(oscTraces[0].data.length>300)oscTraces[0].data.shift();
+}
+drawOsc();
+}
+
+function drawOsc(){
+const w=oscCv.width,h=oscCv.height;
+oscCtx.fillStyle='#0a0a1a';oscCtx.fillRect(0,0,w,h);
+oscCtx.strokeStyle='#1a2a3a';oscCtx.lineWidth=1;
+for(let y=0;y<h;y+=30){oscCtx.beginPath();oscCtx.moveTo(0,y);oscCtx.lineTo(w,y);oscCtx.stroke()}
+for(let x=0;x<w;x+=30){oscCtx.beginPath();oscCtx.moveTo(x,0);oscCtx.lineTo(x,h);oscCtx.stroke()}
+if(oscTraces.length&&oscTraces[0].data.length>1){
+const d=oscTraces[0].data;
+oscCtx.strokeStyle='#00ff88';oscCtx.lineWidth=2;
+oscCtx.beginPath();
+for(let i=0;i<d.length;i++){
+const x=(i/300)*w;
+const y=d[i]?20:h-20;
+if(i===0)oscCtx.moveTo(x,y);
+else{
+const py=d[i-1]?20:h-20;
+if(py!==y){oscCtx.lineTo(x,py);oscCtx.lineTo(x,y)}
+else oscCtx.lineTo(x,y);
+}
+}
+oscCtx.stroke();
+oscCtx.fillStyle='#00ff88';oscCtx.font='10px Courier New';
+oscCtx.fillText(oscTraces[0].name+' Q',4,14);
+}else{
+oscCtx.fillStyle='#445';oscCtx.font='11px Courier New';oscCtx.textAlign='center';
+oscCtx.fillText('Select a component to trace',w/2,h/2);oscCtx.textAlign='left';
+}
+}
+
+// Save/Load
+document.getElementById('btnSave').addEventListener('click',()=>{
+const slot=document.getElementById('selSlot').value;
+const data={components:components.map(c=>({id:c.id,type:c.type,x:c.x,y:c.y,state:c.state,stored:c.stored,rate:c.rate})),wires:wires.map(w=>({srcId:w.srcId,srcPin:w.srcPin,dstId:w.dstId,dstPin:w.dstPin})),nextId};
+localStorage.setItem('cl_save_'+slot,JSON.stringify(data));
+showMsg('Saved to Slot '+(parseInt(slot)+1));
+});
+
+document.getElementById('btnLoad').addEventListener('click',()=>{
+const slot=document.getElementById('selSlot').value;
+const raw=localStorage.getItem('cl_save_'+slot);
+if(!raw){showMsg('Slot empty!');return}
+const data=JSON.parse(raw);
+components.length=0;wires.length=0;
+for(const cd of data.components){
+const c=createComp(cd.type,cd.x,cd.y);
+if(c){c.id=cd.id;if(cd.state!==undefined)c.state=cd.state;if(cd.stored!==undefined)c.stored=cd.stored;if(cd.rate!==undefined)c.rate=cd.rate;components.push(c)}
+}
+for(const wd of data.wires)wires.push({srcId:wd.srcId,srcPin:wd.srcPin,dstId:wd.dstId,dstPin:wd.dstPin,val:0});
+nextId=data.nextId||nextId;
+propagate();draw();showMsg('Loaded from Slot '+(parseInt(slot)+1));
+});
+
+document.getElementById('btnClear').addEventListener('click',()=>{
+components.length=0;wires.length=0;selComp=null;oscTraces=[];propagate();draw();showMsg('Canvas cleared');
+});
+
+// Clock tick and animation loop
+let lastTime=0;
+function tick(ts){
+const dt=ts-lastTime;
+if(dt>50){
+lastTime=ts;
+clockTick++;
+for(const c of components){
+if(c.type==='CLOCK'){
+const period=Math.max(2,c.rate||10);
+if(clockTick%period===0)c.state=c.state?0:1;
+}
+}
+propagate();
+updateOsc();
+}
+draw();
+requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// Center camera initially
+camX=-W/(2*zoom)+300;camY=-H/(2*zoom)+200;
+
+})();
+</script>
+</body>
+</html>

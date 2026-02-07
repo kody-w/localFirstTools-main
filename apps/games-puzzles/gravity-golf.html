@@ -105,3 +105,2588 @@ canvas{display:block;width:100%;height:100%}
   </div>
 </div>
 <script>
+// ==================== GRAVITY GOLF ENGINE ====================
+(function() {
+"use strict";
+
+// ---- Constants ----
+const G_CONST = 800;
+const TRAIL_MAX = 600;
+const PREDICT_STEPS = 180;
+const PREDICT_DT = 0.016;
+const DT_BASE = 1/60;
+const FUEL_MAX = 100;
+const BOOST_COST = 2;
+const BOOST_FORCE = 200;
+const CRYSTAL_RADIUS = 12;
+const WORMHOLE_RADIUS = 22;
+const SHIP_SIZE = 8;
+const GOAL_RADIUS = 20;
+const GOAL_PULSE_SPEED = 2;
+const BH_KILL_RADIUS_FACTOR = 0.6;
+const ASTEROID_COUNT = 12;
+const MAX_SPEED = 900;
+const PULSAR_PERIOD = 3;
+
+// ---- State ----
+let canvas, ctx;
+let W, H;
+let gameState = 'menu'; // menu, galaxy, playing, aiming, flying, complete, editor
+let currentGalaxy = 0, currentLevel = 0;
+let timeScale = 1;
+let camera = { x: 0, y: 0, zoom: 1, targetZoom: 1, targetX: 0, targetY: 0 };
+let ship = null;
+let planets = [];
+let goal = null;
+let crystals = [];
+let wormholes = [];
+let asteroidFields = [];
+let trail = [];
+let fuel = FUEL_MAX;
+let collected = 0;
+let totalCrystals = 0;
+let levelTime = 0;
+let levelPar = 10;
+let stars = 0;
+let usedFuel = false;
+let aimStart = null;
+let aimEnd = null;
+let isDragging = false;
+let isPanning = false;
+let panStart = null;
+let panCamStart = null;
+let editorMode = false;
+let editorObjects = [];
+let editorStartPos = { x: 400, y: 500 };
+let wormholePairTemp = null;
+let mousePos = { x: 0, y: 0 };
+let bgStars = [];
+let nebulaColors = [];
+let frameCount = 0;
+let showTitle = false;
+let titleTimer = 0;
+let completeFreezeTrail = [];
+let isMobile = false;
+let touchId = null;
+let pinchDist = 0;
+
+// ---- Save Data ----
+let saveData = { progress: {}, stars: {}, customLevels: [] };
+
+function loadSave() {
+  try {
+    const d = JSON.parse(localStorage.getItem('gravityGolfSave'));
+    if (d) saveData = { progress: d.progress || {}, stars: d.stars || {}, customLevels: d.customLevels || [] };
+  } catch(e) {}
+}
+
+function writeSave() {
+  try { localStorage.setItem('gravityGolfSave', JSON.stringify(saveData)); } catch(e) {}
+}
+
+function levelKey(g, l) { return g + '-' + l; }
+
+function isLevelUnlocked(g, l) {
+  if (g === 0 && l === 0) return true;
+  if (l > 0) return !!saveData.progress[levelKey(g, l - 1)];
+  return !!saveData.progress[levelKey(g - 1, 9)];
+}
+
+function isGalaxyUnlocked(g) {
+  if (g === 0) return true;
+  return !!saveData.progress[levelKey(g - 1, 9)];
+}
+
+function getLevelStars(g, l) {
+  return saveData.stars[levelKey(g, l)] || 0;
+}
+
+function getGalaxyStars(g) {
+  let s = 0;
+  for (let i = 0; i < 10; i++) s += getLevelStars(g, i);
+  return s;
+}
+
+// ---- Galaxy & Level Definitions ----
+const GALAXIES = [
+  { name: "BASICS", subtitle: "Simple Orbits", color: "#6b8cff", description: "Learn to aim and use gravity" },
+  { name: "SLINGSHOT", subtitle: "Gravity Assists", color: "#a78bfa", description: "Harness planetary gravity" },
+  { name: "MULTI-BODY", subtitle: "Chaotic Orbits", color: "#34d399", description: "3+ planets, timing matters" },
+  { name: "HAZARDS", subtitle: "Danger Zone", color: "#f472b6", description: "Black holes, pulsars, asteroids" },
+  { name: "MASTERY", subtitle: "The Final Frontier", color: "#fbbf24", description: "All mechanics combined" }
+];
+
+function generateLevel(g, l) {
+  const cx = 500, cy = 400;
+  const seed = g * 1000 + l * 137 + 42;
+  const rng = mulberry32(seed);
+  const r = () => rng();
+  let p = [], cr = [], wh = [], af = [];
+  let startX = 150 + r() * 100, startY = 600 + r() * 150;
+  let goalX, goalY, par;
+
+  if (g === 0) {
+    // Galaxy 1: Basics
+    const px = 400 + r() * 200, py = 300 + r() * 150;
+    const mass = 300 + r() * 300;
+    const rad = 20 + mass / 20;
+    p.push({ x: px, y: py, mass, radius: rad, color: planetColor(r), type: 'planet' });
+    goalX = 650 + r() * 200;
+    goalY = 100 + r() * 200;
+    if (l > 4) {
+      const px2 = 250 + r() * 150, py2 = 150 + r() * 100;
+      p.push({ x: px2, y: py2, mass: 200 + r() * 200, radius: 18 + r() * 15, color: planetColor(r), type: 'planet' });
+    }
+    if (l > 6) {
+      cr.push({ x: px + 80 + r() * 60, y: py - 60 - r() * 50, collected: false });
+    }
+    cr.push({ x: (startX + goalX) / 2 + (r() - 0.5) * 120, y: (startY + goalY) / 2 + (r() - 0.5) * 80, collected: false });
+    if (l > 2) cr.push({ x: goalX - 50 + r() * 40, y: goalY + 60 + r() * 40, collected: false });
+    par = 8 + l;
+  } else if (g === 1) {
+    // Galaxy 2: Slingshot
+    startY = 650 + r() * 50;
+    const n = 2 + Math.floor(l / 4);
+    for (let i = 0; i < n; i++) {
+      const angle = (i / n) * Math.PI * 0.8 + 0.3;
+      const dist = 180 + i * 120 + r() * 80;
+      p.push({
+        x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist - 100,
+        mass: 400 + r() * 500, radius: 25 + r() * 20, color: planetColor(r), type: 'planet'
+      });
+    }
+    goalX = 750 + r() * 150; goalY = 80 + r() * 120;
+    for (let i = 0; i < 3; i++) {
+      const a = r() * Math.PI * 2;
+      const d = 100 + r() * 200;
+      cr.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, collected: false });
+    }
+    par = 10 + l;
+  } else if (g === 2) {
+    // Galaxy 3: Multi-body
+    const n = 3 + Math.floor(l / 3);
+    for (let i = 0; i < n; i++) {
+      const angle = (i / n) * Math.PI * 2 + r() * 0.5;
+      const dist = 150 + r() * 250;
+      p.push({
+        x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist,
+        mass: 300 + r() * 600, radius: 22 + r() * 25, color: planetColor(r), type: 'planet'
+      });
+    }
+    startX = 100 + r() * 100; startY = 700 + r() * 50;
+    goalX = 800 + r() * 100; goalY = 50 + r() * 150;
+    if (l > 4) { goalX = 900; goalY = 700; }
+    for (let i = 0; i < 3; i++) {
+      cr.push({ x: 200 + r() * 600, y: 150 + r() * 500, collected: false });
+    }
+    par = 12 + l;
+  } else if (g === 3) {
+    // Galaxy 4: Hazards
+    const n = 2 + Math.floor(l / 3);
+    for (let i = 0; i < n; i++) {
+      const angle = (i / n) * Math.PI * 2 + r() * 0.4;
+      const dist = 180 + r() * 200;
+      p.push({
+        x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist,
+        mass: 300 + r() * 400, radius: 22 + r() * 18, color: planetColor(r), type: 'planet'
+      });
+    }
+    // Add hazards
+    if (l >= 0) {
+      const bhAngle = r() * Math.PI * 2;
+      const bhDist = 100 + r() * 150;
+      p.push({
+        x: cx + Math.cos(bhAngle) * bhDist, y: cy + Math.sin(bhAngle) * bhDist,
+        mass: 800 + r() * 600, radius: 18 + r() * 12, color: '#111', type: 'blackhole'
+      });
+    }
+    if (l >= 3) {
+      p.push({
+        x: 300 + r() * 400, y: 200 + r() * 300,
+        mass: 500 + r() * 300, radius: 25 + r() * 10, color: '#00ffcc', type: 'pulsar',
+        phase: r() * Math.PI * 2
+      });
+    }
+    if (l >= 5) {
+      af.push({ x: 400 + r() * 200, y: 300 + r() * 200, radius: 80 + r() * 60, rocks: [] });
+    }
+    if (l >= 7) {
+      const wx1 = 200 + r() * 150, wy1 = 250 + r() * 150;
+      const wx2 = 700 + r() * 150, wy2 = 150 + r() * 150;
+      wh.push({ x1: wx1, y1: wy1, x2: wx2, y2: wy2, angle: 0 });
+    }
+    startX = 100 + r() * 80; startY = 650 + r() * 80;
+    goalX = 800 + r() * 100; goalY = 100 + r() * 100;
+    for (let i = 0; i < 3; i++) {
+      cr.push({ x: 200 + r() * 600, y: 150 + r() * 500, collected: false });
+    }
+    par = 14 + l;
+  } else {
+    // Galaxy 5: Mastery
+    const n = 3 + Math.floor(l / 2);
+    for (let i = 0; i < n; i++) {
+      const angle = (i / n) * Math.PI * 2 + r() * 0.3;
+      const dist = 120 + r() * 300;
+      const types = ['planet', 'planet', 'planet', 'blackhole', 'pulsar'];
+      const tp = l > 4 ? types[Math.floor(r() * types.length)] : 'planet';
+      p.push({
+        x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist,
+        mass: tp === 'blackhole' ? 900 + r() * 500 : 300 + r() * 500,
+        radius: tp === 'blackhole' ? 16 + r() * 10 : 22 + r() * 22,
+        color: tp === 'blackhole' ? '#111' : tp === 'pulsar' ? '#00ffcc' : planetColor(r),
+        type: tp, phase: r() * Math.PI * 2
+      });
+    }
+    if (l >= 2) {
+      const wx1 = 150 + r() * 200, wy1 = 200 + r() * 200;
+      const wx2 = 650 + r() * 200, wy2 = 100 + r() * 200;
+      wh.push({ x1: wx1, y1: wy1, x2: wx2, y2: wy2, angle: 0 });
+    }
+    if (l >= 4) {
+      af.push({ x: 500 + r() * 200, y: 350 + r() * 150, radius: 90 + r() * 50, rocks: [] });
+    }
+    startX = 80 + r() * 120; startY = 700 + r() * 50;
+    goalX = 880 + r() * 80; goalY = 60 + r() * 100;
+    if (l > 6) { goalX = startX + 50; goalY = startY - 650; }
+    for (let i = 0; i < 3; i++) {
+      cr.push({ x: 150 + r() * 700, y: 100 + r() * 600, collected: false });
+    }
+    par = 16 + l;
+  }
+
+  // Generate asteroid rocks
+  af.forEach(field => {
+    for (let i = 0; i < ASTEROID_COUNT; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.random() * field.radius;
+      field.rocks.push({
+        x: field.x + Math.cos(a) * d,
+        y: field.y + Math.sin(a) * d,
+        radius: 4 + Math.random() * 8,
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 2,
+        vx: (Math.random() - 0.5) * 15,
+        vy: (Math.random() - 0.5) * 15
+      });
+    }
+  });
+
+  return {
+    planets: p, crystals: cr, wormholes: wh, asteroidFields: af,
+    start: { x: startX, y: startY },
+    goal: { x: goalX, y: goalY },
+    par: par
+  };
+}
+
+function planetColor(r) {
+  const colors = [
+    '#4a90d9', '#e67e22', '#2ecc71', '#9b59b6', '#e74c3c',
+    '#1abc9c', '#f39c12', '#3498db', '#c0392b', '#8e44ad',
+    '#16a085', '#d35400', '#2980b9', '#c2956c', '#7fb3d8'
+  ];
+  return colors[Math.floor(r() * colors.length)];
+}
+
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+
+// ---- Background Stars ----
+function generateBgStars() {
+  bgStars = [];
+  for (let i = 0; i < 300; i++) {
+    bgStars.push({
+      x: Math.random() * 3000 - 500,
+      y: Math.random() * 2000 - 200,
+      size: Math.random() * 2 + 0.3,
+      brightness: Math.random() * 0.7 + 0.3,
+      twinkle: Math.random() * Math.PI * 2,
+      layer: Math.floor(Math.random() * 3)
+    });
+  }
+  nebulaColors = [
+    { x: Math.random() * 1000, y: Math.random() * 800, r: 300 + Math.random() * 200, c1: 'rgba(60,20,80,0.08)', c2: 'rgba(20,10,60,0)' },
+    { x: Math.random() * 1000, y: Math.random() * 800, r: 250 + Math.random() * 200, c1: 'rgba(20,40,90,0.06)', c2: 'rgba(10,20,50,0)' },
+    { x: Math.random() * 1000, y: Math.random() * 800, r: 200 + Math.random() * 150, c1: 'rgba(80,20,40,0.05)', c2: 'rgba(40,10,20,0)' }
+  ];
+}
+
+// ---- Init ----
+function init() {
+  // Replaced by enhanced init at bottom
+}
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+
+// ---- Screen Management ----
+function showScreen(id) {
+  ['menu-screen', 'galaxy-screen', 'complete-screen'].forEach(s => {
+    document.getElementById(s).classList.toggle('hidden', s !== id);
+  });
+  document.getElementById('hud').classList.toggle('hidden', id !== null);
+  document.getElementById('time-controls').classList.toggle('hidden', id !== null);
+}
+
+function showGalaxySelect() {
+  gameState = 'galaxy';
+  showScreen('galaxy-screen');
+  const grid = document.getElementById('galaxy-grid');
+  const lvlGrid = document.getElementById('level-grid');
+  grid.classList.remove('hidden');
+  lvlGrid.classList.add('hidden');
+  document.getElementById('btn-back-galaxies').classList.add('hidden');
+  document.getElementById('btn-back-menu').classList.remove('hidden');
+  grid.innerHTML = '';
+  GALAXIES.forEach((gal, i) => {
+    const unlocked = isGalaxyUnlocked(i);
+    const card = document.createElement('div');
+    card.className = 'galaxy-card' + (unlocked ? '' : ' locked');
+    const gs = getGalaxyStars(i);
+    card.innerHTML = `<h3 style="color:${gal.color}">${gal.name}</h3><div style="font-size:11px;color:rgba(180,200,255,0.5)">${gal.subtitle}</div><div class="gstars">${'★'.repeat(gs)}${'☆'.repeat(30 - gs)}</div>`;
+    card.onclick = () => { if (unlocked) showLevelSelect(i); };
+    grid.appendChild(card);
+  });
+}
+
+function showLevelSelect(g) {
+  currentGalaxy = g;
+  const grid = document.getElementById('galaxy-grid');
+  const lvlGrid = document.getElementById('level-grid');
+  grid.classList.add('hidden');
+  lvlGrid.classList.remove('hidden');
+  document.getElementById('btn-back-galaxies').classList.remove('hidden');
+  document.getElementById('btn-back-menu').classList.add('hidden');
+  lvlGrid.innerHTML = '';
+  for (let i = 0; i < 10; i++) {
+    const unlocked = isLevelUnlocked(g, i);
+    const btn = document.createElement('button');
+    const st = getLevelStars(g, i);
+    btn.className = 'level-btn' + (unlocked ? '' : ' locked');
+    btn.innerHTML = `${i + 1}<div class="mini-stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</div>`;
+    btn.onclick = () => { if (unlocked) startLevel(g, i); };
+    lvlGrid.appendChild(btn);
+  }
+}
+
+function startLevel(g, l) {
+  currentGalaxy = g;
+  currentLevel = l;
+  const data = generateLevel(g, l);
+  planets = data.planets;
+  crystals = data.crystals;
+  wormholes = data.wormholes;
+  asteroidFields = data.asteroidFields;
+  goal = data.goal;
+  levelPar = data.par;
+  ship = { x: data.start.x, y: data.start.y, vx: 0, vy: 0, angle: -Math.PI / 2, alive: true, launched: false };
+  trail = [];
+  fuel = FUEL_MAX;
+  collected = 0;
+  totalCrystals = crystals.length;
+  levelTime = 0;
+  stars = 0;
+  usedFuel = false;
+  timeScale = 1;
+  aimStart = null;
+  aimEnd = null;
+  isDragging = false;
+  camera = { x: 0, y: 0, zoom: Math.min(W / 1100, H / 900, 1), targetZoom: 0, targetX: 0, targetY: 0 };
+  camera.targetZoom = camera.zoom;
+  const midX = (data.start.x + data.goal.x) / 2;
+  const midY = (data.start.y + data.goal.y) / 2;
+  camera.x = camera.targetX = midX - W / (2 * camera.zoom);
+  camera.y = camera.targetY = midY - H / (2 * camera.zoom);
+  completeFreezeTrail = [];
+  showScreen(null);
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('time-controls').classList.remove('hidden');
+  document.getElementById('hud-level').textContent = (g + 1) + '-' + (l + 1);
+  updateHUD();
+  gameState = 'aiming';
+  showLevelTitle(GALAXIES[g].name + ' ' + (l + 1), GALAXIES[g].subtitle);
+}
+
+function showLevelTitle(text, sub) {
+  const el = document.getElementById('level-title');
+  document.getElementById('lt-text').textContent = text;
+  document.getElementById('lt-sub').textContent = sub;
+  el.style.opacity = '1';
+  showTitle = true;
+  titleTimer = 2;
+}
+
+function updateHUD() {
+  document.getElementById('fuel-bar').style.width = (fuel / FUEL_MAX * 100) + '%';
+  document.getElementById('hud-crystals').textContent = collected + '/' + totalCrystals;
+  const s1 = document.getElementById('s1'), s2 = document.getElementById('s2'), s3 = document.getElementById('s3');
+  s1.className = 'star'; s2.className = 'star'; s3.className = 'star';
+}
+
+
+// ---- Physics ----
+function computeGravity(px, py, objects, time) {
+  let ax = 0, ay = 0;
+  for (const obj of objects) {
+    let mass = obj.mass;
+    if (obj.type === 'pulsar') {
+      mass *= Math.sin(time * Math.PI * 2 / PULSAR_PERIOD + (obj.phase || 0)) > 0 ? 1 : -0.5;
+    }
+    const dx = obj.x - px;
+    const dy = obj.y - py;
+    const distSq = dx * dx + dy * dy;
+    const dist = Math.sqrt(distSq);
+    if (dist < obj.radius * 0.5) continue;
+    const force = G_CONST * mass / (distSq + 100);
+    ax += force * dx / dist;
+    ay += force * dy / dist;
+  }
+  return { ax, ay };
+}
+
+function updatePhysics(dt) {
+  if (!ship || !ship.alive || !ship.launched) return;
+  levelTime += dt;
+  const realDt = dt * timeScale;
+  const steps = timeScale > 2 ? 4 : 2;
+  const subDt = realDt / steps;
+
+  for (let s = 0; s < steps; s++) {
+    const g = computeGravity(ship.x, ship.y, planets, levelTime);
+    // Verlet-style: velocity Verlet integration
+    const halfVx = ship.vx + g.ax * subDt * 0.5;
+    const halfVy = ship.vy + g.ay * subDt * 0.5;
+    ship.x += halfVx * subDt;
+    ship.y += halfVy * subDt;
+    const g2 = computeGravity(ship.x, ship.y, planets, levelTime);
+    ship.vx = halfVx + g2.ax * subDt * 0.5;
+    ship.vy = halfVy + g2.ay * subDt * 0.5;
+    // Speed cap
+    const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+    if (speed > MAX_SPEED) {
+      ship.vx = ship.vx / speed * MAX_SPEED;
+      ship.vy = ship.vy / speed * MAX_SPEED;
+    }
+    ship.angle = Math.atan2(ship.vy, ship.vx);
+
+    // Collision with planets
+    for (const p of planets) {
+      const dx = ship.x - p.x, dy = ship.y - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (p.type === 'blackhole') {
+        if (dist < p.radius * BH_KILL_RADIUS_FACTOR) {
+          ship.alive = false;
+          setTimeout(() => restartLevel(), 800);
+          return;
+        }
+      } else {
+        if (dist < p.radius + SHIP_SIZE * 0.5) {
+          ship.alive = false;
+          setTimeout(() => restartLevel(), 800);
+          return;
+        }
+      }
+    }
+
+    // Asteroid collision
+    for (const field of asteroidFields) {
+      for (const rock of field.rocks) {
+        const dx = ship.x - rock.x, dy = ship.y - rock.y;
+        if (Math.sqrt(dx * dx + dy * dy) < rock.radius + SHIP_SIZE * 0.4) {
+          ship.alive = false;
+          setTimeout(() => restartLevel(), 800);
+          return;
+        }
+      }
+    }
+
+    // Crystal collection
+    for (const c of crystals) {
+      if (c.collected) continue;
+      const dx = ship.x - c.x, dy = ship.y - c.y;
+      if (Math.sqrt(dx * dx + dy * dy) < CRYSTAL_RADIUS + SHIP_SIZE) {
+        c.collected = true;
+        collected++;
+        updateHUD();
+      }
+    }
+
+    // Wormhole teleport
+    for (const w of wormholes) {
+      const dx1 = ship.x - w.x1, dy1 = ship.y - w.y1;
+      const dx2 = ship.x - w.x2, dy2 = ship.y - w.y2;
+      if (Math.sqrt(dx1 * dx1 + dy1 * dy1) < WORMHOLE_RADIUS) {
+        ship.x = w.x2 + (ship.x - w.x1);
+        ship.y = w.y2 + (ship.y - w.y1);
+        // Rotate velocity by random angle offset
+        const va = Math.atan2(ship.vy, ship.vx) + Math.PI * 0.5;
+        const spd = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+        ship.vx = Math.cos(va) * spd;
+        ship.vy = Math.sin(va) * spd;
+        break;
+      }
+      if (Math.sqrt(dx2 * dx2 + dy2 * dy2) < WORMHOLE_RADIUS) {
+        ship.x = w.x1 + (ship.x - w.x2);
+        ship.y = w.y1 + (ship.y - w.y2);
+        const va = Math.atan2(ship.vy, ship.vx) - Math.PI * 0.5;
+        const spd = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+        ship.vx = Math.cos(va) * spd;
+        ship.vy = Math.sin(va) * spd;
+        break;
+      }
+    }
+
+    // Goal check
+    if (goal) {
+      const dx = ship.x - goal.x, dy = ship.y - goal.y;
+      if (Math.sqrt(dx * dx + dy * dy) < GOAL_RADIUS + SHIP_SIZE) {
+        completeLevel();
+        return;
+      }
+    }
+
+    // Out of bounds check
+    if (ship.x < -500 || ship.x > 1500 || ship.y < -500 || ship.y > 1300) {
+      ship.alive = false;
+      setTimeout(() => restartLevel(), 600);
+      return;
+    }
+  }
+
+  // Trail
+  const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+  trail.push({ x: ship.x, y: ship.y, speed: speed, time: levelTime });
+  if (trail.length > TRAIL_MAX) trail.shift();
+
+  // Update asteroid positions
+  for (const field of asteroidFields) {
+    for (const rock of field.rocks) {
+      rock.x += rock.vx * dt * 0.3;
+      rock.y += rock.vy * dt * 0.3;
+      rock.angle += rock.spin * dt;
+      const dx = rock.x - field.x, dy = rock.y - field.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > field.radius) {
+        rock.vx -= dx / dist * 10 * dt;
+        rock.vy -= dy / dist * 10 * dt;
+      }
+    }
+  }
+}
+
+function predictTrajectory() {
+  if (!ship || !aimStart || !aimEnd) return [];
+  const dx = aimStart.x - aimEnd.x;
+  const dy = aimStart.y - aimEnd.y;
+  const power = Math.min(Math.sqrt(dx * dx + dy * dy), 250);
+  const angle = Math.atan2(dy, dx);
+  let px = ship.x, py = ship.y;
+  let pvx = Math.cos(angle) * power * 1.5;
+  let pvy = Math.sin(angle) * power * 1.5;
+  const points = [];
+  for (let i = 0; i < PREDICT_STEPS; i++) {
+    const g = computeGravity(px, py, planets, levelTime);
+    pvx += g.ax * PREDICT_DT;
+    pvy += g.ay * PREDICT_DT;
+    px += pvx * PREDICT_DT;
+    py += pvy * PREDICT_DT;
+    const speed = Math.sqrt(pvx * pvx + pvy * pvy);
+    if (speed > MAX_SPEED) { pvx = pvx/speed*MAX_SPEED; pvy = pvy/speed*MAX_SPEED; }
+    points.push({ x: px, y: py });
+    // Check collision with planets for prediction
+    let hit = false;
+    for (const p of planets) {
+      const ddx = px - p.x, ddy = py - p.y;
+      if (Math.sqrt(ddx*ddx+ddy*ddy) < p.radius) { hit = true; break; }
+    }
+    if (hit) break;
+  }
+  return points;
+}
+
+function applyBoost() {
+  if (!ship || !ship.alive || !ship.launched || fuel <= 0) return;
+  const bx = mousePos.x, by = mousePos.y;
+  const wx = (bx / camera.zoom) + camera.x;
+  const wy = (by / camera.zoom) + camera.y;
+  const dx = wx - ship.x, dy = wy - ship.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1) return;
+  ship.vx += (dx / dist) * BOOST_FORCE * DT_BASE;
+  ship.vy += (dy / dist) * BOOST_FORCE * DT_BASE;
+  fuel = Math.max(0, fuel - BOOST_COST);
+  usedFuel = true;
+  updateHUD();
+}
+
+function completeLevel() {
+  gameState = 'complete';
+  completeFreezeTrail = [...trail, { x: ship.x, y: ship.y, speed: 100, time: levelTime }];
+  // Calculate stars
+  let s = 1; // reached goal
+  if (levelTime <= levelPar) s = 2; // under time
+  if (!usedFuel) s = 3; // no fuel used
+  stars = s;
+  const key = levelKey(currentGalaxy, currentLevel);
+  saveData.progress[key] = true;
+  saveData.stars[key] = Math.max(saveData.stars[key] || 0, s);
+  writeSave();
+  // Show complete screen
+  setTimeout(() => {
+    document.getElementById('complete-screen').classList.remove('hidden');
+    document.getElementById('complete-title').textContent = 'Level Complete!';
+    document.getElementById('complete-stars').innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+      const span = document.createElement('span');
+      span.textContent = i < s ? '★' : '☆';
+      span.style.opacity = i < s ? '1' : '0.3';
+      document.getElementById('complete-stars').appendChild(span);
+    }
+    let info = `Time: ${levelTime.toFixed(1)}s (Par: ${levelPar}s)`;
+    if (collected > 0) info += ` · Crystals: ${collected}/${totalCrystals}`;
+    if (!usedFuel) info += ' · Perfect: No fuel!';
+    document.getElementById('complete-info').textContent = info;
+  }, 500);
+}
+
+function restartLevel() {
+  startLevel(currentGalaxy, currentLevel);
+}
+
+function nextLevel() {
+  document.getElementById('complete-screen').classList.add('hidden');
+  if (currentLevel < 9) {
+    startLevel(currentGalaxy, currentLevel + 1);
+  } else if (currentGalaxy < 4) {
+    startLevel(currentGalaxy + 1, 0);
+  } else {
+    showGalaxySelect();
+  }
+}
+
+
+// ---- Rendering ----
+function render() {
+  ctx.save();
+  ctx.clearRect(0, 0, W, H);
+
+  // Deep space background
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#050814');
+  grad.addColorStop(0.5, '#0a0f2e');
+  grad.addColorStop(1, '#080518');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Nebula
+  for (const n of nebulaColors) {
+    const sx = (n.x - camera.x * 0.1) * camera.zoom;
+    const sy = (n.y - camera.y * 0.1) * camera.zoom;
+    const sr = n.r * camera.zoom;
+    const ng = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+    ng.addColorStop(0, n.c1);
+    ng.addColorStop(1, n.c2);
+    ctx.fillStyle = ng;
+    ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+  }
+
+  // Star field with parallax
+  for (const star of bgStars) {
+    const parallax = 0.3 + star.layer * 0.25;
+    const sx = (star.x - camera.x * parallax) * camera.zoom;
+    const sy = (star.y - camera.y * parallax) * camera.zoom;
+    if (sx < -10 || sx > W + 10 || sy < -10 || sy > H + 10) continue;
+    const twinkle = 0.7 + Math.sin(frameCount * 0.02 + star.twinkle) * 0.3;
+    ctx.globalAlpha = star.brightness * twinkle;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(sx, sy, star.size * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // World transform
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+
+  // Gravity grid distortion (subtle)
+  if (gameState === 'aiming' || gameState === 'flying') {
+    drawGravityGrid();
+  }
+
+  // Wormholes
+  for (const w of wormholes) {
+    w.angle = (w.angle || 0) + 0.02;
+    drawWormhole(w.x1, w.y1, w.angle);
+    drawWormhole(w.x2, w.y2, -w.angle);
+    // Connection line
+    ctx.strokeStyle = 'rgba(180,100,255,0.1)';
+    ctx.setLineDash([4, 8]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(w.x1, w.y1);
+    ctx.lineTo(w.x2, w.y2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Asteroid fields
+  for (const field of asteroidFields) {
+    ctx.strokeStyle = 'rgba(180,140,100,0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 6]);
+    ctx.beginPath();
+    ctx.arc(field.x, field.y, field.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const rock of field.rocks) {
+      ctx.save();
+      ctx.translate(rock.x, rock.y);
+      ctx.rotate(rock.angle);
+      ctx.fillStyle = 'rgba(160,130,100,0.8)';
+      ctx.beginPath();
+      ctx.moveTo(-rock.radius, -rock.radius * 0.5);
+      ctx.lineTo(rock.radius * 0.3, -rock.radius);
+      ctx.lineTo(rock.radius, rock.radius * 0.2);
+      ctx.lineTo(rock.radius * 0.2, rock.radius);
+      ctx.lineTo(-rock.radius * 0.7, rock.radius * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Planets
+  for (const p of planets) {
+    drawPlanet(p);
+  }
+
+  // Goal
+  if (goal) {
+    drawGoal(goal.x, goal.y);
+  }
+
+  // Crystals
+  for (const c of crystals) {
+    if (c.collected) continue;
+    drawCrystal(c.x, c.y);
+  }
+
+  // Trajectory prediction
+  if (gameState === 'aiming' && aimStart && aimEnd) {
+    const points = predictTrajectory();
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < points.length; i++) {
+      const alpha = Math.max(0, 1 - i / points.length);
+      ctx.strokeStyle = `rgba(150,180,255,${alpha * 0.6})`;
+      ctx.setLineDash(i < PREDICT_STEPS * 0.5 ? [] : [3, 5]);
+      ctx.beginPath();
+      ctx.moveTo(points[i - 1].x, points[i - 1].y);
+      ctx.lineTo(points[i].x, points[i].y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Aim line
+  if (gameState === 'aiming' && aimStart && aimEnd) {
+    const dx = aimStart.x - aimEnd.x;
+    const dy = aimStart.y - aimEnd.y;
+    const power = Math.min(Math.sqrt(dx * dx + dy * dy), 250);
+    const angle = Math.atan2(dy, dx);
+    ctx.strokeStyle = 'rgba(255,200,100,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(ship.x, ship.y);
+    ctx.lineTo(ship.x + Math.cos(angle) * power * 0.6, ship.y + Math.sin(angle) * power * 0.6);
+    ctx.stroke();
+    // Power indicator
+    ctx.fillStyle = `rgba(255,${200 - power * 0.5},${100 - power * 0.3},0.7)`;
+    ctx.font = '11px system-ui';
+    ctx.fillText(Math.round(power / 250 * 100) + '%', ship.x + 20, ship.y - 15);
+  }
+
+  // Trail (during flight or complete)
+  const trailData = gameState === 'complete' ? completeFreezeTrail : trail;
+  if (trailData.length > 1) {
+    for (let i = 1; i < trailData.length; i++) {
+      const t = trailData[i];
+      const alpha = gameState === 'complete' ? 0.9 : Math.min(1, i / trailData.length + 0.1);
+      const speedNorm = Math.min(1, (t.speed || 50) / 400);
+      const r = gameState === 'complete' ? 255 : Math.floor(100 + speedNorm * 155);
+      const g = gameState === 'complete' ? 215 : Math.floor(180 - speedNorm * 80);
+      const b = gameState === 'complete' ? 0 : Math.floor(255 - speedNorm * 155);
+      ctx.strokeStyle = `rgba(${r},${g},${b},${alpha * 0.7})`;
+      ctx.lineWidth = gameState === 'complete' ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(trailData[i - 1].x, trailData[i - 1].y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+    }
+    // Glow on complete
+    if (gameState === 'complete') {
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = 'rgba(255,215,0,0.3)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(trailData[0].x, trailData[0].y);
+      for (let i = 1; i < trailData.length; i++) {
+        ctx.lineTo(trailData[i].x, trailData[i].y);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // Ship
+  if (ship && ship.alive) {
+    drawShip(ship);
+  } else if (ship && !ship.alive) {
+    // Explosion particles
+    drawExplosion(ship.x, ship.y);
+  }
+
+  ctx.restore(); // world transform
+  ctx.restore(); // initial save
+}
+
+function drawGravityGrid() {
+  const gridSpacing = 60;
+  ctx.strokeStyle = 'rgba(60,80,150,0.08)';
+  ctx.lineWidth = 0.5;
+  const startX = Math.floor(camera.x / gridSpacing) * gridSpacing - gridSpacing;
+  const endX = camera.x + W / camera.zoom + gridSpacing;
+  const startY = Math.floor(camera.y / gridSpacing) * gridSpacing - gridSpacing;
+  const endY = camera.y + H / camera.zoom + gridSpacing;
+  for (let x = startX; x < endX; x += gridSpacing) {
+    ctx.beginPath();
+    for (let y = startY; y < endY; y += 8) {
+      let dx = 0, dy = 0;
+      for (const p of planets) {
+        const px = p.x - x, py = p.y - y;
+        const d = Math.sqrt(px * px + py * py);
+        if (d > 5) {
+          const f = Math.min(12, p.mass / (d * d) * 3);
+          dx += (px / d) * f;
+          dy += (py / d) * f;
+        }
+      }
+      if (y === startY) ctx.moveTo(x + dx, y + dy);
+      else ctx.lineTo(x + dx, y + dy);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawPlanet(p) {
+  if (p.type === 'blackhole') {
+    // Accretion disk
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    const diskR = p.radius * 3;
+    for (let i = 0; i < 3; i++) {
+      const angle = frameCount * 0.01 + i * Math.PI * 2 / 3;
+      ctx.strokeStyle = `rgba(255,${100 + i * 50},${50 + i * 30},${0.15 - i * 0.03})`;
+      ctx.lineWidth = 2 - i * 0.5;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, diskR - i * 8, diskR * 0.3 - i * 3, angle, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Black hole core
+    const bhg = ctx.createRadialGradient(0, 0, 0, 0, 0, p.radius);
+    bhg.addColorStop(0, '#000');
+    bhg.addColorStop(0.7, '#000');
+    bhg.addColorStop(1, 'rgba(80,0,120,0.3)');
+    ctx.fillStyle = bhg;
+    ctx.beginPath();
+    ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+    // Event horizon glow
+    ctx.shadowColor = '#6600aa';
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = 'rgba(120,0,200,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    return;
+  }
+
+  if (p.type === 'pulsar') {
+    const pulse = Math.sin(frameCount * 0.05 + (p.phase || 0));
+    const glowR = p.radius * (1.5 + pulse * 0.5);
+    const pg = ctx.createRadialGradient(p.x, p.y, p.radius * 0.3, p.x, p.y, glowR);
+    pg.addColorStop(0, `rgba(0,255,200,${0.6 + pulse * 0.3})`);
+    pg.addColorStop(0.5, `rgba(0,200,180,${0.2 + pulse * 0.15})`);
+    pg.addColorStop(1, 'rgba(0,150,130,0)');
+    ctx.fillStyle = pg;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+    // Beam lines
+    if (pulse > 0) {
+      ctx.strokeStyle = `rgba(0,255,200,${pulse * 0.2})`;
+      ctx.lineWidth = 2;
+      for (let a = 0; a < 2; a++) {
+        const ba = a * Math.PI + frameCount * 0.02;
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(ba) * p.radius, p.y + Math.sin(ba) * p.radius);
+        ctx.lineTo(p.x + Math.cos(ba) * 200, p.y + Math.sin(ba) * 200);
+        ctx.stroke();
+      }
+    }
+    return;
+  }
+
+  // Normal planet
+  // Atmosphere glow
+  const atmR = p.radius * 1.6;
+  const atm = ctx.createRadialGradient(p.x, p.y, p.radius * 0.8, p.x, p.y, atmR);
+  atm.addColorStop(0, p.color + '40');
+  atm.addColorStop(1, p.color + '00');
+  ctx.fillStyle = atm;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, atmR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Planet body
+  const pg = ctx.createRadialGradient(p.x - p.radius * 0.3, p.y - p.radius * 0.3, p.radius * 0.1, p.x, p.y, p.radius);
+  pg.addColorStop(0, lightenColor(p.color, 40));
+  pg.addColorStop(1, p.color);
+  ctx.fillStyle = pg;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Subtle ring on large planets
+  if (p.radius > 35) {
+    ctx.strokeStyle = p.color + '30';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, p.radius * 1.8, p.radius * 0.3, 0.3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawGoal(x, y) {
+  const pulse = Math.sin(frameCount * 0.04) * 0.3 + 0.7;
+  const r = GOAL_RADIUS * (1 + pulse * 0.1);
+  // Outer glow
+  const gg = ctx.createRadialGradient(x, y, r * 0.3, x, y, r * 2);
+  gg.addColorStop(0, 'rgba(255,215,0,0.3)');
+  gg.addColorStop(0.5, 'rgba(255,180,0,0.1)');
+  gg.addColorStop(1, 'rgba(255,150,0,0)');
+  ctx.fillStyle = gg;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 2, 0, Math.PI * 2);
+  ctx.fill();
+  // Core
+  ctx.fillStyle = `rgba(255,215,0,${pulse})`;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Ring
+  ctx.strokeStyle = `rgba(255,215,0,${pulse * 0.7})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  // Flag icon
+  ctx.fillStyle = `rgba(255,220,50,${pulse})`;
+  ctx.font = `${14}px system-ui`;
+  ctx.textAlign = 'center';
+  ctx.fillText('⚑', x, y + 5);
+}
+
+function drawCrystal(x, y) {
+  const bob = Math.sin(frameCount * 0.03 + x * 0.1) * 3;
+  ctx.save();
+  ctx.translate(x, y + bob);
+  ctx.rotate(frameCount * 0.01);
+  // Diamond shape
+  ctx.fillStyle = 'rgba(100,200,255,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(0, -CRYSTAL_RADIUS);
+  ctx.lineTo(CRYSTAL_RADIUS * 0.6, 0);
+  ctx.lineTo(0, CRYSTAL_RADIUS);
+  ctx.lineTo(-CRYSTAL_RADIUS * 0.6, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(150,220,255,0.9)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // Sparkle
+  ctx.fillStyle = 'rgba(200,240,255,0.6)';
+  ctx.beginPath();
+  ctx.arc(2, -4, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawWormhole(x, y, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Swirling effect
+  for (let i = 0; i < 4; i++) {
+    const a = angle + i * Math.PI * 0.5;
+    const r = WORMHOLE_RADIUS * (1 + i * 0.15);
+    ctx.strokeStyle = `rgba(180,100,255,${0.4 - i * 0.08})`;
+    ctx.lineWidth = 2 - i * 0.3;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, a, a + Math.PI * 1.2);
+    ctx.stroke();
+  }
+  // Core
+  const wg = ctx.createRadialGradient(0, 0, 0, 0, 0, WORMHOLE_RADIUS);
+  wg.addColorStop(0, 'rgba(200,130,255,0.4)');
+  wg.addColorStop(0.7, 'rgba(120,50,200,0.1)');
+  wg.addColorStop(1, 'rgba(80,20,160,0)');
+  ctx.fillStyle = wg;
+  ctx.beginPath();
+  ctx.arc(0, 0, WORMHOLE_RADIUS, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawShip(s) {
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(s.angle);
+
+  // Engine glow (when flying)
+  if (s.launched) {
+    const speed = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+    const glowLen = 8 + speed * 0.02;
+    const eg = ctx.createRadialGradient(-SHIP_SIZE, 0, 0, -SHIP_SIZE - glowLen, 0, glowLen);
+    eg.addColorStop(0, 'rgba(255,150,50,0.6)');
+    eg.addColorStop(0.5, 'rgba(255,100,30,0.2)');
+    eg.addColorStop(1, 'rgba(255,50,0,0)');
+    ctx.fillStyle = eg;
+    ctx.beginPath();
+    ctx.arc(-SHIP_SIZE, 0, glowLen, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Ship body (triangle)
+  ctx.fillStyle = '#e0eaff';
+  ctx.beginPath();
+  ctx.moveTo(SHIP_SIZE, 0);
+  ctx.lineTo(-SHIP_SIZE * 0.7, -SHIP_SIZE * 0.6);
+  ctx.lineTo(-SHIP_SIZE * 0.4, 0);
+  ctx.lineTo(-SHIP_SIZE * 0.7, SHIP_SIZE * 0.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(100,140,255,0.6)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Cockpit
+  ctx.fillStyle = 'rgba(100,180,255,0.8)';
+  ctx.beginPath();
+  ctx.arc(SHIP_SIZE * 0.2, 0, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawExplosion(x, y) {
+  const t = (frameCount % 30) / 30;
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2 + t;
+    const dist = t * 30;
+    const px = x + Math.cos(angle) * dist;
+    const py = y + Math.sin(angle) * dist;
+    ctx.fillStyle = `rgba(255,${150 - t * 100},${50 - t * 50},${1 - t})`;
+    ctx.beginPath();
+    ctx.arc(px, py, 3 * (1 - t), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function lightenColor(hex, amount) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, (num >> 16) + amount);
+  const g = Math.min(255, ((num >> 8) & 0x00FF) + amount);
+  const b = Math.min(255, (num & 0x0000FF) + amount);
+  return '#' + (r << 16 | g << 8 | b).toString(16).padStart(6, '0');
+}
+
+
+// ---- Game Loop ----
+let lastTime = 0;
+function loop(timestamp) {
+  // Replaced by enhanced mainLoop at bottom
+}
+
+// ---- Input Handling ----
+function screenToWorld(sx, sy) {
+  return {
+    x: sx / camera.zoom + camera.x,
+    y: sy / camera.zoom + camera.y
+  };
+}
+
+function setupEvents() {
+  window.addEventListener('resize', resize);
+
+  // Mouse events
+  canvas.addEventListener('mousedown', e => {
+    if (editorMode) { editorClick(e); return; }
+    if (e.button === 2 || e.button === 1) {
+      isPanning = true;
+      panStart = { x: e.clientX, y: e.clientY };
+      panCamStart = { x: camera.targetX, y: camera.targetY };
+      e.preventDefault();
+      return;
+    }
+    if (gameState === 'aiming' && ship) {
+      isDragging = true;
+      aimStart = { x: e.clientX, y: e.clientY };
+      aimEnd = { x: e.clientX, y: e.clientY };
+    } else if (gameState === 'flying') {
+      applyBoost();
+    }
+  });
+
+  canvas.addEventListener('mousemove', e => {
+    mousePos.x = e.clientX;
+    mousePos.y = e.clientY;
+    if (isPanning) {
+      const dx = (e.clientX - panStart.x) / camera.zoom;
+      const dy = (e.clientY - panStart.y) / camera.zoom;
+      camera.targetX = panCamStart.x - dx;
+      camera.targetY = panCamStart.y - dy;
+      return;
+    }
+    if (isDragging && gameState === 'aiming') {
+      aimEnd = { x: e.clientX, y: e.clientY };
+    }
+  });
+
+  canvas.addEventListener('mouseup', e => {
+    if (isPanning) { isPanning = false; return; }
+    if (isDragging && gameState === 'aiming' && aimStart && aimEnd) {
+      isDragging = false;
+      const dx = aimStart.x - aimEnd.x;
+      const dy = aimStart.y - aimEnd.y;
+      const power = Math.min(Math.sqrt(dx * dx + dy * dy), 250);
+      if (power > 15) {
+        const angle = Math.atan2(dy, dx);
+        ship.vx = Math.cos(angle) * power * 1.5;
+        ship.vy = Math.sin(angle) * power * 1.5;
+        ship.angle = angle;
+        ship.launched = true;
+        gameState = 'flying';
+      }
+      aimStart = null;
+      aimEnd = null;
+    }
+  });
+
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Scroll zoom
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    camera.targetZoom = Math.max(0.3, Math.min(3, camera.targetZoom * delta));
+    // Zoom toward mouse position
+    const wx = e.clientX / camera.zoom + camera.x;
+    const wy = e.clientY / camera.zoom + camera.y;
+    camera.targetX = wx - e.clientX / (camera.zoom * delta);
+    camera.targetY = wy - e.clientY / (camera.zoom * delta);
+  }, { passive: false });
+
+  // Touch events
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const touches = e.touches;
+    if (touches.length === 2) {
+      // Pinch zoom start
+      pinchDist = Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+      isPanning = true;
+      panStart = { x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 };
+      panCamStart = { x: camera.targetX, y: camera.targetY };
+      return;
+    }
+    const t = touches[0];
+    if (editorMode) { editorClick({ clientX: t.clientX, clientY: t.clientY, button: 0 }); return; }
+    if (gameState === 'aiming' && ship) {
+      isDragging = true;
+      aimStart = { x: t.clientX, y: t.clientY };
+      aimEnd = { x: t.clientX, y: t.clientY };
+      touchId = t.identifier;
+    } else if (gameState === 'flying') {
+      mousePos.x = t.clientX;
+      mousePos.y = t.clientY;
+      applyBoost();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const touches = e.touches;
+    if (touches.length === 2 && isPanning) {
+      const newDist = Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+      const scale = newDist / pinchDist;
+      camera.targetZoom = Math.max(0.3, Math.min(3, camera.targetZoom * (1 + (scale - 1) * 0.1)));
+      pinchDist = newDist;
+      const mid = { x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 };
+      const dx = (mid.x - panStart.x) / camera.zoom;
+      const dy = (mid.y - panStart.y) / camera.zoom;
+      camera.targetX = panCamStart.x - dx;
+      camera.targetY = panCamStart.y - dy;
+      return;
+    }
+    const t = touches[0];
+    mousePos.x = t.clientX;
+    mousePos.y = t.clientY;
+    if (isDragging && gameState === 'aiming') {
+      aimEnd = { x: t.clientX, y: t.clientY };
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (e.touches.length === 0) isPanning = false;
+    if (isDragging && gameState === 'aiming' && aimStart && aimEnd) {
+      isDragging = false;
+      const dx = aimStart.x - aimEnd.x;
+      const dy = aimStart.y - aimEnd.y;
+      const power = Math.min(Math.sqrt(dx * dx + dy * dy), 250);
+      if (power > 20) {
+        const angle = Math.atan2(dy, dx);
+        ship.vx = Math.cos(angle) * power * 1.5;
+        ship.vy = Math.sin(angle) * power * 1.5;
+        ship.angle = angle;
+        ship.launched = true;
+        gameState = 'flying';
+      }
+      aimStart = null;
+      aimEnd = null;
+    }
+  }, { passive: false });
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (e.key === 'e' || e.key === 'E') {
+      if (!editorMode) {
+        enterEditor();
+      }
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      if (gameState === 'flying' || gameState === 'aiming') restartLevel();
+    }
+    if (e.key === 'Escape') {
+      if (editorMode) exitEditor();
+      else if (gameState === 'flying' || gameState === 'aiming') showGalaxySelect();
+    }
+    if (e.key === ' ' && gameState === 'flying') {
+      applyBoost();
+    }
+    // Time controls
+    if (e.key === '1') setTimeScale(0.25);
+    if (e.key === '2') setTimeScale(1);
+    if (e.key === '3') setTimeScale(3);
+  });
+
+  // UI buttons
+  document.getElementById('btn-play').onclick = showGalaxySelect;
+  document.getElementById('btn-editor').onclick = () => { enterEditor(); document.getElementById('menu-screen').classList.add('hidden'); };
+  document.getElementById('btn-back-menu').onclick = () => { gameState = 'menu'; showScreen('menu-screen'); };
+  document.getElementById('btn-back-galaxies').onclick = showGalaxySelect;
+  document.getElementById('btn-retry').onclick = () => { document.getElementById('complete-screen').classList.add('hidden'); restartLevel(); };
+  document.getElementById('btn-next').onclick = nextLevel;
+  document.getElementById('btn-levels').onclick = () => { document.getElementById('complete-screen').classList.add('hidden'); showLevelSelect(currentGalaxy); };
+
+  // Time controls
+  document.getElementById('btn-slow').onclick = () => setTimeScale(timeScale === 0.25 ? 1 : 0.25);
+  document.getElementById('btn-pause').onclick = () => setTimeScale(timeScale === 0 ? 1 : 0);
+  document.getElementById('btn-fast').onclick = () => setTimeScale(timeScale === 3 ? 1 : 3);
+  document.getElementById('btn-restart').onclick = () => { if (gameState === 'flying' || gameState === 'aiming') restartLevel(); };
+}
+
+function setTimeScale(ts) {
+  timeScale = ts;
+  document.getElementById('btn-slow').classList.toggle('active', ts === 0.25);
+  document.getElementById('btn-pause').classList.toggle('active', ts === 0);
+  document.getElementById('btn-fast').classList.toggle('active', ts === 3);
+}
+
+// ---- Level Editor ----
+function enterEditor() {
+  editorMode = true;
+  gameState = 'editor';
+  showScreen(null);
+  document.getElementById('hud').classList.add('hidden');
+  document.getElementById('time-controls').classList.add('hidden');
+  document.getElementById('editor-panel').style.display = 'flex';
+  editorObjects = [];
+  editorStartPos = { x: 400, y: 600 };
+  planets = [];
+  crystals = [];
+  wormholes = [];
+  asteroidFields = [];
+  goal = { x: 800, y: 150 };
+  ship = { x: editorStartPos.x, y: editorStartPos.y, vx: 0, vy: 0, angle: -Math.PI / 2, alive: true, launched: false };
+  trail = [];
+  camera = { x: 0, y: 0, zoom: Math.min(W / 1100, H / 900, 1), targetZoom: 0, targetX: 0, targetY: 0 };
+  camera.targetZoom = camera.zoom;
+
+  document.getElementById('ed-save').onclick = saveCustomLevel;
+  document.getElementById('ed-load').onclick = loadCustomLevel;
+  document.getElementById('ed-clear').onclick = () => { planets = []; crystals = []; wormholes = []; asteroidFields = []; };
+  document.getElementById('ed-test').onclick = testEditorLevel;
+  document.getElementById('ed-exit').onclick = exitEditor;
+}
+
+function exitEditor() {
+  editorMode = false;
+  document.getElementById('editor-panel').style.display = 'none';
+  gameState = 'menu';
+  showScreen('menu-screen');
+}
+
+function editorClick(e) {
+  const world = screenToWorld(e.clientX, e.clientY);
+  const tool = document.getElementById('ed-tool').value;
+  const mass = parseInt(document.getElementById('ed-mass').value);
+  const radius = parseInt(document.getElementById('ed-radius').value);
+
+  if (tool === 'planet') {
+    planets.push({ x: world.x, y: world.y, mass, radius, color: planetColor(Math.random.bind(Math)), type: 'planet' });
+  } else if (tool === 'goal') {
+    goal = { x: world.x, y: world.y };
+  } else if (tool === 'crystal') {
+    crystals.push({ x: world.x, y: world.y, collected: false });
+  } else if (tool === 'blackhole') {
+    planets.push({ x: world.x, y: world.y, mass: mass * 2, radius: radius * 0.6, color: '#111', type: 'blackhole' });
+  } else if (tool === 'wormhole') {
+    if (!wormholePairTemp) {
+      wormholePairTemp = { x: world.x, y: world.y };
+    } else {
+      wormholes.push({ x1: wormholePairTemp.x, y1: wormholePairTemp.y, x2: world.x, y2: world.y, angle: 0 });
+      wormholePairTemp = null;
+    }
+  } else if (tool === 'pulsar') {
+    planets.push({ x: world.x, y: world.y, mass, radius, color: '#00ffcc', type: 'pulsar', phase: 0 });
+  } else if (tool === 'asteroid') {
+    const field = { x: world.x, y: world.y, radius: 80, rocks: [] };
+    for (let i = 0; i < ASTEROID_COUNT; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * 80;
+      field.rocks.push({ x: world.x + Math.cos(a) * d, y: world.y + Math.sin(a) * d, radius: 4 + Math.random() * 8, angle: Math.random() * Math.PI * 2, spin: (Math.random() - 0.5) * 2, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15 });
+    }
+    asteroidFields.push(field);
+  } else if (tool === 'start') {
+    editorStartPos = { x: world.x, y: world.y };
+    ship.x = world.x;
+    ship.y = world.y;
+  }
+}
+
+function renderEditor() {
+  // Draw start position marker
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.strokeStyle = 'rgba(100,255,100,0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.arc(editorStartPos.x, editorStartPos.y, 15, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(100,255,100,0.8)';
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('START', editorStartPos.x, editorStartPos.y - 20);
+  if (goal) {
+    ctx.fillText('GOAL', goal.x, goal.y - GOAL_RADIUS - 8);
+  }
+  // Wormhole pair temp marker
+  if (wormholePairTemp) {
+    ctx.strokeStyle = 'rgba(180,100,255,0.8)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(wormholePairTemp.x, wormholePairTemp.y, WORMHOLE_RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(180,100,255,0.8)';
+    ctx.fillText('Click exit', wormholePairTemp.x, wormholePairTemp.y - WORMHOLE_RADIUS - 8);
+  }
+  ctx.restore();
+}
+
+function saveCustomLevel() {
+  const data = {
+    planets: planets.map(p => ({ x: p.x, y: p.y, mass: p.mass, radius: p.radius, color: p.color, type: p.type, phase: p.phase })),
+    crystals: crystals.map(c => ({ x: c.x, y: c.y })),
+    wormholes: wormholes.map(w => ({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
+    asteroidFields: asteroidFields.map(f => ({ x: f.x, y: f.y, radius: f.radius })),
+    start: { x: editorStartPos.x, y: editorStartPos.y },
+    goal: { x: goal.x, y: goal.y }
+  };
+  saveData.customLevels.push(data);
+  writeSave();
+  alert('Level saved! (' + saveData.customLevels.length + ' custom levels)');
+}
+
+function loadCustomLevel() {
+  if (saveData.customLevels.length === 0) { alert('No custom levels saved.'); return; }
+  const idx = saveData.customLevels.length - 1;
+  const data = saveData.customLevels[idx];
+  planets = data.planets.map(p => ({ ...p }));
+  crystals = data.crystals.map(c => ({ ...c, collected: false }));
+  wormholes = data.wormholes.map(w => ({ ...w, angle: 0 }));
+  asteroidFields = [];
+  if (data.asteroidFields) {
+    data.asteroidFields.forEach(f => {
+      const field = { x: f.x, y: f.y, radius: f.radius, rocks: [] };
+      for (let i = 0; i < ASTEROID_COUNT; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.random() * f.radius;
+        field.rocks.push({ x: f.x + Math.cos(a) * d, y: f.y + Math.sin(a) * d, radius: 4 + Math.random() * 8, angle: 0, spin: (Math.random() - 0.5) * 2, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15 });
+      }
+      asteroidFields.push(field);
+    });
+  }
+  editorStartPos = { x: data.start.x, y: data.start.y };
+  ship = { x: data.start.x, y: data.start.y, vx: 0, vy: 0, angle: -Math.PI / 2, alive: true, launched: false };
+  goal = { x: data.goal.x, y: data.goal.y };
+}
+
+function testEditorLevel() {
+  editorMode = false;
+  document.getElementById('editor-panel').style.display = 'none';
+  ship = { x: editorStartPos.x, y: editorStartPos.y, vx: 0, vy: 0, angle: -Math.PI / 2, alive: true, launched: false };
+  trail = [];
+  fuel = FUEL_MAX;
+  collected = 0;
+  totalCrystals = crystals.length;
+  crystals.forEach(c => c.collected = false);
+  levelTime = 0;
+  levelPar = 15;
+  usedFuel = false;
+  timeScale = 1;
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('time-controls').classList.remove('hidden');
+  document.getElementById('hud-level').textContent = 'Custom';
+  updateHUD();
+  gameState = 'aiming';
+}
+
+// ---- Particle System ----
+const particles = [];
+const MAX_PARTICLES = 200;
+
+function spawnParticles(x, y, count, opts) {
+  for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+    const angle = opts.angle !== undefined ? opts.angle + (Math.random() - 0.5) * (opts.spread || 0.5) : Math.random() * Math.PI * 2;
+    const speed = (opts.speed || 50) * (0.5 + Math.random() * 0.5);
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: opts.life || 1,
+      maxLife: opts.life || 1,
+      size: opts.size || 2,
+      color: opts.color || '#fff',
+      decay: opts.decay || 1,
+      gravity: opts.gravity || 0,
+      type: opts.type || 'circle'
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += p.gravity * dt;
+    p.life -= dt * p.decay;
+    p.vx *= 0.99;
+    p.vy *= 0.99;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+    }
+  }
+}
+
+function renderParticles() {
+  for (const p of particles) {
+    const alpha = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = alpha;
+    if (p.type === 'spark') {
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = p.size * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * 0.05, p.y - p.vy * 0.05);
+      ctx.stroke();
+    } else if (p.type === 'ring') {
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 1;
+      const r = p.size * (1 - alpha) * 3;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---- Sound System (Web Audio) ----
+let audioCtx = null;
+let soundEnabled = true;
+
+function initAudio() {
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch(e) { soundEnabled = false; }
+}
+
+function playTone(freq, duration, type, volume) {
+  if (!soundEnabled || !audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(volume || 0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + (duration || 0.3));
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + (duration || 0.3));
+  } catch(e) {}
+}
+
+function playLaunchSound() {
+  playTone(220, 0.3, 'sawtooth', 0.08);
+  setTimeout(() => playTone(330, 0.2, 'sine', 0.06), 50);
+}
+
+function playBoostSound() {
+  playTone(440, 0.15, 'square', 0.04);
+}
+
+function playCrystalSound() {
+  playTone(880, 0.2, 'sine', 0.08);
+  setTimeout(() => playTone(1100, 0.15, 'sine', 0.06), 80);
+  setTimeout(() => playTone(1320, 0.1, 'sine', 0.04), 160);
+}
+
+function playGoalSound() {
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((n, i) => {
+    setTimeout(() => playTone(n, 0.3, 'sine', 0.08), i * 120);
+  });
+}
+
+function playCrashSound() {
+  playTone(80, 0.4, 'sawtooth', 0.1);
+  playTone(60, 0.5, 'square', 0.06);
+}
+
+function playWormholeSound() {
+  playTone(300, 0.3, 'sine', 0.06);
+  playTone(600, 0.4, 'sine', 0.04);
+}
+
+// ---- Tutorial System ----
+const TUTORIALS = [
+  { level: '0-0', text: 'Drag from the ship to aim. Release to launch!', pos: 'ship' },
+  { level: '0-1', text: 'Use planet gravity to curve your trajectory.', pos: 'center' },
+  { level: '0-3', text: 'Collect space crystals for bonus points!', pos: 'center' },
+  { level: '0-5', text: 'Click/tap during flight to use boost fuel.', pos: 'bottom' },
+  { level: '1-0', text: 'Slingshot: pass close to a planet to gain speed!', pos: 'center' },
+  { level: '2-0', text: 'Multiple planets create chaotic orbits. Patience!', pos: 'center' },
+  { level: '3-0', text: 'Black holes destroy your ship. Stay clear!', pos: 'center' },
+  { level: '3-3', text: 'Pulsars reverse gravity periodically. Time your approach!', pos: 'center' },
+  { level: '3-7', text: 'Wormholes teleport you. Same speed, new direction!', pos: 'center' },
+  { level: '4-0', text: 'The final galaxy. Use everything you\'ve learned!', pos: 'center' }
+];
+
+let currentTutorial = null;
+let tutorialAlpha = 0;
+let tutorialDismissed = {};
+
+function checkTutorial() {
+  const key = currentGalaxy + '-' + currentLevel;
+  if (tutorialDismissed[key]) return;
+  const tut = TUTORIALS.find(t => t.level === key);
+  if (tut) {
+    currentTutorial = tut;
+    tutorialAlpha = 1;
+  } else {
+    currentTutorial = null;
+  }
+}
+
+function renderTutorial() {
+  if (!currentTutorial || tutorialAlpha <= 0) return;
+  ctx.save();
+  const text = currentTutorial.text;
+  ctx.font = '16px system-ui';
+  const tw = ctx.measureText(text).width;
+  let tx = W / 2 - tw / 2 - 16;
+  let ty;
+  if (currentTutorial.pos === 'bottom') {
+    ty = H - 100;
+  } else if (currentTutorial.pos === 'ship' && ship) {
+    const sx = (ship.x - camera.x) * camera.zoom;
+    const sy = (ship.y - camera.y) * camera.zoom;
+    tx = Math.max(10, Math.min(W - tw - 40, sx - tw / 2));
+    ty = sy - 60;
+  } else {
+    ty = H / 2 + 80;
+  }
+  ctx.globalAlpha = tutorialAlpha;
+  ctx.fillStyle = 'rgba(10,12,28,0.9)';
+  ctx.strokeStyle = 'rgba(100,140,255,0.4)';
+  ctx.lineWidth = 1;
+  const pad = 12;
+  const rr = 8;
+  roundRect(ctx, tx, ty, tw + pad * 2, 40, rr);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#cdd8ff';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, tx + pad, ty + 20);
+  // Dismiss hint
+  ctx.font = '11px system-ui';
+  ctx.fillStyle = 'rgba(180,200,255,0.4)';
+  ctx.fillText('Click to dismiss', tx + pad, ty + 36);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function dismissTutorial() {
+  if (currentTutorial) {
+    tutorialDismissed[currentTutorial.level] = true;
+    currentTutorial = null;
+    tutorialAlpha = 0;
+  }
+}
+
+// ---- Minimap ----
+function renderMinimap() {
+  if (gameState !== 'flying' && gameState !== 'aiming') return;
+  const mmW = 120, mmH = 90;
+  const mmX = W - mmW - 12, mmY = H - mmH - 60;
+  // World bounds
+  const worldW = 1200, worldH = 900;
+  const scaleX = mmW / worldW, scaleY = mmH / worldH;
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,12,28,0.7)';
+  ctx.strokeStyle = 'rgba(100,140,255,0.2)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, mmX - 4, mmY - 4, mmW + 8, mmH + 8, 6);
+  ctx.fill();
+  ctx.stroke();
+  // Viewport rect
+  ctx.strokeStyle = 'rgba(100,140,255,0.4)';
+  ctx.lineWidth = 0.5;
+  const vx = mmX + camera.x * scaleX;
+  const vy = mmY + camera.y * scaleY;
+  const vw = (W / camera.zoom) * scaleX;
+  const vh = (H / camera.zoom) * scaleY;
+  ctx.strokeRect(Math.max(mmX, vx), Math.max(mmY, vy), Math.min(vw, mmW), Math.min(vh, mmH));
+  // Planets
+  for (const p of planets) {
+    ctx.fillStyle = p.type === 'blackhole' ? '#333' : p.type === 'pulsar' ? '#00ffcc' : p.color;
+    ctx.beginPath();
+    ctx.arc(mmX + p.x * scaleX, mmY + p.y * scaleY, Math.max(2, p.radius * scaleX), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Goal
+  if (goal) {
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(mmX + goal.x * scaleX, mmY + goal.y * scaleY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Ship
+  if (ship && ship.alive) {
+    ctx.fillStyle = '#e0eaff';
+    ctx.beginPath();
+    ctx.arc(mmX + ship.x * scaleX, mmY + ship.y * scaleY, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Crystals
+  for (const c of crystals) {
+    if (c.collected) continue;
+    ctx.fillStyle = 'rgba(100,200,255,0.7)';
+    ctx.beginPath();
+    ctx.arc(mmX + c.x * scaleX, mmY + c.y * scaleY, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- Score System ----
+let totalStarsEarned = 0;
+let totalCrystalsCollected = 0;
+
+function recalcTotals() {
+  totalStarsEarned = 0;
+  for (let g = 0; g < 5; g++) {
+    for (let l = 0; l < 10; l++) {
+      totalStarsEarned += getLevelStars(g, l);
+    }
+  }
+}
+
+// ---- Camera Auto-Follow ----
+function updateCameraFollow(dt) {
+  if (gameState === 'flying' && ship && ship.alive) {
+    const sx = (ship.x - camera.x) * camera.zoom;
+    const sy = (ship.y - camera.y) * camera.zoom;
+    const margin = 150;
+    // If ship is near edge, follow it
+    if (sx < margin) camera.targetX -= (margin - sx) / camera.zoom * 2 * dt;
+    if (sx > W - margin) camera.targetX += (sx - (W - margin)) / camera.zoom * 2 * dt;
+    if (sy < margin) camera.targetY -= (margin - sy) / camera.zoom * 2 * dt;
+    if (sy > H - margin) camera.targetY += (sy - (H - margin)) / camera.zoom * 2 * dt;
+  }
+}
+
+// ---- Enhanced Rendering Effects ----
+function renderSpeedLines() {
+  if (gameState !== 'flying' || !ship || !ship.alive) return;
+  const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+  if (speed < 200) return;
+  const alpha = Math.min(0.3, (speed - 200) / 800);
+  const angle = Math.atan2(ship.vy, ship.vx) + Math.PI;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  for (let i = 0; i < 5; i++) {
+    const offset = (Math.random() - 0.5) * 40;
+    const len = 15 + Math.random() * 25;
+    const sx = ship.x + Math.cos(angle) * (20 + Math.random() * 15) + Math.cos(angle + Math.PI / 2) * offset;
+    const sy = ship.y + Math.sin(angle) * (20 + Math.random() * 15) + Math.sin(angle + Math.PI / 2) * offset;
+    ctx.strokeStyle = `rgba(200,220,255,${alpha * (0.3 + Math.random() * 0.7)})`;
+    ctx.lineWidth = 0.5 + Math.random() * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + Math.cos(angle) * len, sy + Math.sin(angle) * len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function renderGravityWells() {
+  if (gameState !== 'aiming') return;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  for (const p of planets) {
+    if (p.type === 'blackhole') continue;
+    const influence = Math.sqrt(p.mass) * 3;
+    ctx.strokeStyle = `rgba(100,140,255,0.06)`;
+    ctx.lineWidth = 0.5;
+    for (let r = p.radius + 20; r < p.radius + influence; r += 25) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ---- Planet Labels ----
+function renderPlanetLabels() {
+  if (gameState !== 'aiming') return;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'center';
+  for (const p of planets) {
+    const label = p.type === 'blackhole' ? '☠ BLACK HOLE' :
+                  p.type === 'pulsar' ? '⚡ PULSAR' :
+                  `Mass: ${Math.round(p.mass)}`;
+    ctx.fillStyle = 'rgba(180,200,255,0.4)';
+    ctx.fillText(label, p.x, p.y + p.radius + 16);
+  }
+  ctx.restore();
+}
+
+// ---- Goal Arrow (when off-screen) ----
+function renderGoalArrow() {
+  if (!goal || gameState !== 'flying' || !ship || !ship.alive) return;
+  const gx = (goal.x - camera.x) * camera.zoom;
+  const gy = (goal.y - camera.y) * camera.zoom;
+  if (gx > 0 && gx < W && gy > 0 && gy < H) return; // On screen
+  // Draw arrow pointing to goal
+  const sx = (ship.x - camera.x) * camera.zoom;
+  const sy = (ship.y - camera.y) * camera.zoom;
+  const angle = Math.atan2(gy - sy, gx - sx);
+  const edgeX = Math.max(30, Math.min(W - 30, sx + Math.cos(angle) * 200));
+  const edgeY = Math.max(30, Math.min(H - 30, sy + Math.sin(angle) * 200));
+  ctx.save();
+  ctx.translate(edgeX, edgeY);
+  ctx.rotate(angle);
+  ctx.fillStyle = 'rgba(255,215,0,0.7)';
+  ctx.beginPath();
+  ctx.moveTo(12, 0);
+  ctx.lineTo(-6, -6);
+  ctx.lineTo(-3, 0);
+  ctx.lineTo(-6, 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ---- FPS Counter (debug) ----
+let fpsFrames = 0;
+let fpsTime = 0;
+let fpsDisplay = 60;
+
+function updateFPS(dt) {
+  fpsFrames++;
+  fpsTime += dt;
+  if (fpsTime >= 1) {
+    fpsDisplay = Math.round(fpsFrames / fpsTime);
+    fpsFrames = 0;
+    fpsTime = 0;
+  }
+}
+
+// ---- Stats Display ----
+function renderStats() {
+  if (gameState !== 'flying') return;
+  ctx.save();
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(180,200,255,0.35)';
+  const speed = ship ? Math.round(Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy)) : 0;
+  ctx.fillText(`Speed: ${speed}`, W - 16, 75);
+  ctx.fillText(`Time: ${levelTime.toFixed(1)}s`, W - 16, 90);
+  if (timeScale !== 1) {
+    ctx.fillStyle = timeScale < 1 ? 'rgba(100,200,255,0.6)' : 'rgba(255,200,100,0.6)';
+    ctx.fillText(`${timeScale}x`, W - 16, 105);
+  }
+  ctx.restore();
+}
+
+// ---- Enhanced Explosion ----
+function triggerExplosion(x, y) {
+  spawnParticles(x, y, 20, { speed: 120, life: 0.8, size: 3, color: '#ff8844', type: 'spark', spread: Math.PI * 2 });
+  spawnParticles(x, y, 10, { speed: 60, life: 0.6, size: 4, color: '#ffcc44', type: 'circle', spread: Math.PI * 2 });
+  spawnParticles(x, y, 3, { speed: 0, life: 0.4, size: 15, color: 'rgba(255,150,50,0.5)', type: 'ring' });
+  playCrashSound();
+}
+
+function triggerCrystalPickup(x, y) {
+  spawnParticles(x, y, 12, { speed: 80, life: 0.5, size: 2, color: '#66ccff', type: 'spark', spread: Math.PI * 2 });
+  spawnParticles(x, y, 2, { speed: 0, life: 0.3, size: 10, color: 'rgba(100,200,255,0.4)', type: 'ring' });
+  playCrystalSound();
+}
+
+function triggerGoalReached(x, y) {
+  spawnParticles(x, y, 30, { speed: 100, life: 1.2, size: 3, color: '#ffd700', type: 'spark', spread: Math.PI * 2 });
+  spawnParticles(x, y, 15, { speed: 50, life: 0.8, size: 5, color: '#ffaa00', type: 'circle', spread: Math.PI * 2 });
+  spawnParticles(x, y, 5, { speed: 0, life: 0.6, size: 20, color: 'rgba(255,215,0,0.3)', type: 'ring' });
+  playGoalSound();
+}
+
+function triggerWormholeEffect(x, y) {
+  spawnParticles(x, y, 15, { speed: 90, life: 0.6, size: 2.5, color: '#b470ff', type: 'spark', spread: Math.PI * 2 });
+  playWormholeSound();
+}
+
+// ---- Engine Trail Particles ----
+function spawnEngineParticles() {
+  if (!ship || !ship.alive || !ship.launched) return;
+  const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+  if (frameCount % 2 !== 0) return;
+  const angle = Math.atan2(ship.vy, ship.vx) + Math.PI;
+  const spread = 0.3;
+  const px = ship.x + Math.cos(angle) * SHIP_SIZE * 0.6;
+  const py = ship.y + Math.sin(angle) * SHIP_SIZE * 0.6;
+  spawnParticles(px, py, 1, {
+    angle: angle,
+    speed: 30 + speed * 0.1,
+    life: 0.3 + speed * 0.001,
+    size: 1.5,
+    color: speed > 300 ? '#88ccff' : '#ff9944',
+    spread: spread,
+    decay: 2
+  });
+}
+
+// ---- Orbit Trace (ghost path for previous attempt) ----
+let ghostTrail = [];
+
+function saveGhostTrail() {
+  ghostTrail = trail.map(t => ({ x: t.x, y: t.y }));
+}
+
+function renderGhostTrail() {
+  if (ghostTrail.length < 2 || gameState !== 'aiming') return;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.strokeStyle = 'rgba(255,100,100,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 6]);
+  ctx.beginPath();
+  ctx.moveTo(ghostTrail[0].x, ghostTrail[0].y);
+  for (let i = 1; i < ghostTrail.length; i++) {
+    ctx.lineTo(ghostTrail[i].x, ghostTrail[i].y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// ---- Patched Functions (integrate particles & sound) ----
+// Override the original completeLevel to add effects
+const _origCompleteLevel = completeLevel;
+// We already defined completeLevel, so let's patch it by wrapping the physics collision checks
+
+// ---- Dead code removed, enhanced loop is in final DOMContentLoaded handler below ----
+
+// Add audio init on first interaction
+document.addEventListener('click', function initAudioOnClick() {
+  if (!audioCtx) initAudio();
+  document.removeEventListener('click', initAudioOnClick);
+}, { once: false });
+
+// Patch the start: after startLevel call, also check tutorial
+const __startLevel = startLevel;
+// We can't easily re-assign function declarations. Instead, let's add a MutationObserver on gameState changes.
+// Actually the simplest: use a wrapper in the event handlers.
+
+// Hook into completeLevel for effects
+const __completeLevel = completeLevel;
+
+// ---- Custom Level Import/Export (JSON) ----
+function exportLevelJSON() {
+  const data = {
+    planets: planets.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), mass: Math.round(p.mass), radius: Math.round(p.radius), color: p.color, type: p.type })),
+    crystals: crystals.filter(c => !c.collected).map(c => ({ x: Math.round(c.x), y: Math.round(c.y) })),
+    wormholes: wormholes.map(w => ({ x1: Math.round(w.x1), y1: Math.round(w.y1), x2: Math.round(w.x2), y2: Math.round(w.y2) })),
+    asteroidFields: asteroidFields.map(f => ({ x: Math.round(f.x), y: Math.round(f.y), radius: Math.round(f.radius) })),
+    start: { x: Math.round(editorStartPos.x), y: Math.round(editorStartPos.y) },
+    goal: { x: Math.round(goal.x), y: Math.round(goal.y) }
+  };
+  return JSON.stringify(data, null, 2);
+}
+
+function importLevelJSON(json) {
+  try {
+    const data = JSON.parse(json);
+    if (data.planets && data.start && data.goal) {
+      planets = data.planets.map(p => ({ ...p }));
+      crystals = (data.crystals || []).map(c => ({ ...c, collected: false }));
+      wormholes = (data.wormholes || []).map(w => ({ ...w, angle: 0 }));
+      asteroidFields = [];
+      (data.asteroidFields || []).forEach(f => {
+        const field = { x: f.x, y: f.y, radius: f.radius, rocks: [] };
+        for (let i = 0; i < ASTEROID_COUNT; i++) {
+          const a = Math.random() * Math.PI * 2, d = Math.random() * f.radius;
+          field.rocks.push({ x: f.x + Math.cos(a) * d, y: f.y + Math.sin(a) * d, radius: 4 + Math.random() * 8, angle: 0, spin: (Math.random() - 0.5) * 2, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15 });
+        }
+        asteroidFields.push(field);
+      });
+      editorStartPos = { ...data.start };
+      goal = { ...data.goal };
+      ship = { x: data.start.x, y: data.start.y, vx: 0, vy: 0, angle: -Math.PI / 2, alive: true, launched: false };
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// ---- Gravity Field Visualization (for aiming mode) ----
+function renderGravityFieldHeatmap() {
+  if (gameState !== 'aiming') return;
+  // Simplified: draw force direction arrows in a grid
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  const spacing = 80;
+  const startX = Math.floor(camera.x / spacing) * spacing;
+  const endX = camera.x + W / camera.zoom;
+  const startY = Math.floor(camera.y / spacing) * spacing;
+  const endY = camera.y + H / camera.zoom;
+  for (let x = startX; x < endX; x += spacing) {
+    for (let y = startY; y < endY; y += spacing) {
+      const g = computeGravity(x, y, planets, levelTime);
+      const mag = Math.sqrt(g.ax * g.ax + g.ay * g.ay);
+      if (mag < 1) continue;
+      const len = Math.min(20, mag * 0.3);
+      const angle = Math.atan2(g.ay, g.ax);
+      const alpha = Math.min(0.2, mag * 0.005);
+      ctx.strokeStyle = `rgba(100,180,255,${alpha})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+      ctx.stroke();
+      // Arrowhead
+      ctx.fillStyle = `rgba(100,180,255,${alpha})`;
+      ctx.beginPath();
+      const ax = x + Math.cos(angle) * len;
+      const ay = y + Math.sin(angle) * len;
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - Math.cos(angle - 0.4) * 4, ay - Math.sin(angle - 0.4) * 4);
+      ctx.lineTo(ax - Math.cos(angle + 0.4) * 4, ay - Math.sin(angle + 0.4) * 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ---- Keyboard Shortcuts Display ----
+function renderKeyboardHints() {
+  if (gameState !== 'aiming' && gameState !== 'flying') return;
+  if (isMobile) return;
+  ctx.save();
+  ctx.font = '10px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(180,200,255,0.2)';
+  const hints = gameState === 'aiming' ? [
+    'R - Restart', 'ESC - Menu', 'Scroll - Zoom', 'Right-click drag - Pan'
+  ] : [
+    'Click/Space - Boost', 'R - Restart', '1/2/3 - Time scale', 'ESC - Menu'
+  ];
+  hints.forEach((h, i) => {
+    ctx.fillText(h, 12, H - 30 - (hints.length - 1 - i) * 14);
+  });
+  ctx.restore();
+}
+
+// ---- Galaxy Unlock Animation ----
+let galaxyUnlockAnim = null;
+
+function showGalaxyUnlock(galaxyIndex) {
+  galaxyUnlockAnim = {
+    galaxy: galaxyIndex,
+    alpha: 0,
+    timer: 3
+  };
+}
+
+function renderGalaxyUnlock(dt) {
+  if (!galaxyUnlockAnim) return;
+  galaxyUnlockAnim.timer -= dt;
+  if (galaxyUnlockAnim.timer > 2.5) {
+    galaxyUnlockAnim.alpha = Math.min(1, (3 - galaxyUnlockAnim.timer) * 4);
+  } else if (galaxyUnlockAnim.timer < 0.5) {
+    galaxyUnlockAnim.alpha = galaxyUnlockAnim.timer * 2;
+  }
+  if (galaxyUnlockAnim.timer <= 0) { galaxyUnlockAnim = null; return; }
+  ctx.save();
+  ctx.globalAlpha = galaxyUnlockAnim.alpha;
+  ctx.font = 'bold 24px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = GALAXIES[galaxyUnlockAnim.galaxy].color;
+  ctx.fillText('★ Galaxy Unlocked: ' + GALAXIES[galaxyUnlockAnim.galaxy].name + ' ★', W / 2, H / 2 - 30);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ---- Smooth Number Animations ----
+let displayFuel = FUEL_MAX;
+let displayTime = 0;
+
+function lerpDisplay(dt) {
+  displayFuel += (fuel - displayFuel) * 8 * dt;
+  displayTime += (levelTime - displayTime) * 5 * dt;
+}
+
+// ---- Planet Surface Detail ----
+function drawPlanetSurface(p) {
+  // Add some visual detail to normal planets
+  if (p.type !== 'planet') return;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  // Surface features (deterministic from position)
+  const seed = Math.floor(p.x * 7 + p.y * 13);
+  ctx.globalAlpha = 0.15;
+  for (let i = 0; i < 4; i++) {
+    const a = ((seed + i * 37) % 100) / 100 * Math.PI * 2;
+    const d = ((seed + i * 53) % 100) / 100 * p.radius * 0.6;
+    const r = p.radius * (0.15 + ((seed + i * 17) % 100) / 100 * 0.2);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * d, Math.sin(a) * d, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ---- Orbit Preview Dots ----
+function renderOrbitDots() {
+  if (gameState !== 'aiming' || !aimStart || !aimEnd) return;
+  const points = predictTrajectory();
+  if (points.length < 2) return;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  // Dots at intervals
+  for (let i = 0; i < points.length; i += 8) {
+    const alpha = Math.max(0.1, 1 - i / points.length);
+    const isAccurate = i < PREDICT_STEPS * 0.4;
+    ctx.fillStyle = isAccurate ? `rgba(150,200,255,${alpha * 0.5})` : `rgba(255,150,100,${alpha * 0.3})`;
+    ctx.beginPath();
+    ctx.arc(points[i].x, points[i].y, isAccurate ? 2 : 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Accuracy boundary marker
+  const boundaryIdx = Math.min(Math.floor(PREDICT_STEPS * 0.4), points.length - 1);
+  if (boundaryIdx > 0 && boundaryIdx < points.length) {
+    const bp = points[boundaryIdx];
+    ctx.strokeStyle = 'rgba(255,180,100,0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    ctx.arc(bp.x, bp.y, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '8px system-ui';
+    ctx.fillStyle = 'rgba(255,180,100,0.4)';
+    ctx.textAlign = 'center';
+    ctx.fillText('~3s', bp.x, bp.y - 12);
+  }
+  ctx.restore();
+}
+
+// ---- Ship Shield Effect (when near goal) ----
+function renderGoalProximity() {
+  if (!ship || !ship.alive || !ship.launched || !goal) return;
+  const dx = ship.x - goal.x, dy = ship.y - goal.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > 100) return;
+  const alpha = Math.max(0, 1 - dist / 100) * 0.3;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.strokeStyle = `rgba(255,215,0,${alpha})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(ship.x, ship.y, 15 + Math.sin(frameCount * 0.1) * 3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---- Level Difficulty Display ----
+function getDifficultyLabel(g, l) {
+  const base = ['Easy', 'Medium', 'Tricky', 'Hard', 'Expert'];
+  const adjust = Math.floor(l / 3);
+  const idx = Math.min(4, g + adjust);
+  return base[idx];
+}
+
+// ---- Combo System ----
+let comboCount = 0;
+let comboTimer = 0;
+let comboText = '';
+
+function addCombo(text) {
+  comboCount++;
+  comboTimer = 2;
+  comboText = text + (comboCount > 1 ? ` x${comboCount}` : '');
+}
+
+function updateCombo(dt) {
+  if (comboTimer > 0) {
+    comboTimer -= dt;
+    if (comboTimer <= 0) {
+      comboCount = 0;
+      comboText = '';
+    }
+  }
+}
+
+function renderCombo() {
+  if (!comboText || comboTimer <= 0) return;
+  ctx.save();
+  const alpha = Math.min(1, comboTimer);
+  ctx.globalAlpha = alpha;
+  ctx.font = 'bold 18px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd700';
+  ctx.shadowColor = '#ffd700';
+  ctx.shadowBlur = 10;
+  ctx.fillText(comboText, W / 2, H / 2 - 60 - (2 - comboTimer) * 20);
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ---- Enhanced Wormhole Animation ----
+function drawEnhancedWormhole(x, y, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Spiral arms
+  for (let arm = 0; arm < 3; arm++) {
+    ctx.strokeStyle = `rgba(180,100,255,${0.3 - arm * 0.08})`;
+    ctx.lineWidth = 1.5 - arm * 0.3;
+    ctx.beginPath();
+    for (let t = 0; t < Math.PI * 3; t += 0.1) {
+      const r = (WORMHOLE_RADIUS * 0.3) + t * 3;
+      const a = t + angle + arm * Math.PI * 2 / 3;
+      const px = Math.cos(a) * r;
+      const py = Math.sin(a) * r;
+      if (t === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  // Inner glow
+  const wg = ctx.createRadialGradient(0, 0, 0, 0, 0, WORMHOLE_RADIUS * 0.8);
+  wg.addColorStop(0, 'rgba(220,160,255,0.3)');
+  wg.addColorStop(0.5, 'rgba(150,80,220,0.1)');
+  wg.addColorStop(1, 'rgba(100,40,180,0)');
+  ctx.fillStyle = wg;
+  ctx.beginPath();
+  ctx.arc(0, 0, WORMHOLE_RADIUS * 0.8, 0, Math.PI * 2);
+  ctx.fill();
+  // Sparkle particles around edge
+  for (let i = 0; i < 6; i++) {
+    const sa = angle * 2 + i * Math.PI / 3 + frameCount * 0.03;
+    const sr = WORMHOLE_RADIUS * (0.9 + Math.sin(frameCount * 0.05 + i) * 0.15);
+    ctx.fillStyle = `rgba(200,160,255,${0.4 + Math.sin(frameCount * 0.08 + i * 2) * 0.2})`;
+    ctx.beginPath();
+    ctx.arc(Math.cos(sa) * sr, Math.sin(sa) * sr, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- Enhanced Black Hole with Gravitational Lensing Effect ----
+function drawEnhancedBlackHole(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  const time = frameCount * 0.01;
+  // Gravitational lensing ring
+  for (let i = 0; i < 5; i++) {
+    const r = p.radius * (2 + i * 0.5) + Math.sin(time + i) * 3;
+    const alpha = 0.08 - i * 0.012;
+    ctx.strokeStyle = `rgba(200,150,255,${alpha})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Accretion disk (multiple ellipses)
+  for (let i = 0; i < 4; i++) {
+    const angle = time * (1 + i * 0.3) + i * 0.5;
+    const diskR = p.radius * (2.5 + i * 0.3);
+    const height = diskR * (0.25 + i * 0.05);
+    ctx.strokeStyle = `rgba(${200 + i * 15},${80 + i * 20},${30 + i * 15},${0.2 - i * 0.04})`;
+    ctx.lineWidth = 2 - i * 0.4;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, diskR, height, angle, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Core
+  const bhg = ctx.createRadialGradient(0, 0, 0, 0, 0, p.radius * 1.2);
+  bhg.addColorStop(0, '#000');
+  bhg.addColorStop(0.6, '#000');
+  bhg.addColorStop(0.8, 'rgba(40,0,80,0.5)');
+  bhg.addColorStop(1, 'rgba(60,0,100,0)');
+  ctx.fillStyle = bhg;
+  ctx.beginPath();
+  ctx.arc(0, 0, p.radius * 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  // Photon sphere
+  ctx.strokeStyle = 'rgba(180,80,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, 0, p.radius * 1.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---- Level Complete Art Mode ----
+function renderCompletePath() {
+  if (gameState !== 'complete' || completeFreezeTrail.length < 2) return;
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  // Draw the beautiful gold orbital path
+  const pulse = Math.sin(frameCount * 0.02) * 0.15 + 0.85;
+  ctx.shadowColor = 'rgba(255,215,0,0.6)';
+  ctx.shadowBlur = 15 * pulse;
+  ctx.strokeStyle = `rgba(255,215,0,${0.5 * pulse})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(completeFreezeTrail[0].x, completeFreezeTrail[0].y);
+  for (let i = 1; i < completeFreezeTrail.length; i++) {
+    ctx.lineTo(completeFreezeTrail[i].x, completeFreezeTrail[i].y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // Sparkles along the path
+  for (let i = 0; i < completeFreezeTrail.length; i += 15) {
+    const pt = completeFreezeTrail[i];
+    const sparkle = Math.sin(frameCount * 0.05 + i * 0.3) * 0.5 + 0.5;
+    ctx.fillStyle = `rgba(255,230,100,${sparkle * 0.6})`;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 2 + sparkle * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- Ambient Space Particles ----
+let ambientParticles = [];
+
+function initAmbientParticles() {
+  ambientParticles = [];
+  for (let i = 0; i < 30; i++) {
+    ambientParticles.push({
+      x: Math.random() * 1200,
+      y: Math.random() * 900,
+      vx: (Math.random() - 0.5) * 5,
+      vy: (Math.random() - 0.5) * 5,
+      size: 0.5 + Math.random() * 1,
+      alpha: 0.1 + Math.random() * 0.2
+    });
+  }
+}
+
+function updateAmbientParticles(dt) {
+  for (const p of ambientParticles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    if (p.x < -50) p.x = 1250;
+    if (p.x > 1250) p.x = -50;
+    if (p.y < -50) p.y = 950;
+    if (p.y > 950) p.y = -50;
+  }
+}
+
+function renderAmbientParticles() {
+  ctx.save();
+  ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+  ctx.scale(camera.zoom, camera.zoom);
+  for (const p of ambientParticles) {
+    ctx.fillStyle = `rgba(150,180,255,${p.alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- Per-Level Statistics ----
+let levelAttempts = 0;
+
+function trackAttempt() {
+  levelAttempts++;
+}
+
+// ---- Final Enhanced Init ----
+window.removeEventListener('DOMContentLoaded', init);
+window.addEventListener('DOMContentLoaded', function() {
+  canvas = document.getElementById('game-canvas');
+  ctx = canvas.getContext('2d');
+  resize();
+  loadSave();
+  generateBgStars();
+  initAmbientParticles();
+  isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  setupEvents();
+  recalcTotals();
+
+  // Patch startLevel for tutorial + ghost trail
+  const _sl = startLevel;
+  startLevel = function(g, l) {
+    saveGhostTrail();
+    _sl(g, l);
+    checkTutorial();
+    trackAttempt();
+    comboCount = 0;
+    comboTimer = 0;
+    initAmbientParticles();
+  };
+
+  // Patch completeLevel for effects
+  const _cl = completeLevel;
+  completeLevel = function() {
+    if (ship) triggerGoalReached(ship.x, ship.y);
+    _cl();
+    // Check if we unlocked a new galaxy
+    if (currentLevel === 9 && currentGalaxy < 4) {
+      showGalaxyUnlock(currentGalaxy + 1);
+    }
+  };
+
+  // Patch updatePhysics for particle effects on events
+  const _up = updatePhysics;
+  updatePhysics = function(dt) {
+    const wasAlive = ship ? ship.alive : false;
+    const prevCollected = collected;
+    _up(dt);
+    // Check for crash
+    if (wasAlive && ship && !ship.alive) {
+      triggerExplosion(ship.x, ship.y);
+    }
+    // Check for crystal pickup
+    if (collected > prevCollected) {
+      const justCollected = crystals.find(c => c.collected && !c._notified);
+      if (justCollected) {
+        triggerCrystalPickup(justCollected.x, justCollected.y);
+        justCollected._notified = true;
+        addCombo('Crystal!');
+      }
+    }
+    // Update combo and ambient
+    updateCombo(dt);
+    updateAmbientParticles(dt);
+    lerpDisplay(dt);
+  };
+
+  // Patch applyBoost for sound
+  const _ab = applyBoost;
+  applyBoost = function() {
+    const prevFuel = fuel;
+    _ab();
+    if (fuel < prevFuel) playBoostSound();
+  };
+
+  // Enhanced render: we replace the original render to add more layers
+  const _render = render;
+  render = function() {
+    _render();
+    renderAmbientParticles();
+    renderGoalProximity();
+    renderCompletePath();
+    renderOrbitDots();
+    renderGravityFieldHeatmap();
+    renderKeyboardHints();
+    renderCombo();
+    // Galaxy unlock overlay
+    if (galaxyUnlockAnim) {
+      renderGalaxyUnlock(1/60);
+    }
+  };
+
+  // Start the main loop
+  lastTime = performance.now();
+  requestAnimationFrame(function mainLoop(timestamp) {
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+    frameCount++;
+
+    updateFPS(dt);
+
+    // Smooth camera
+    camera.zoom += (camera.targetZoom - camera.zoom) * 0.08;
+    camera.x += (camera.targetX - camera.x) * 0.08;
+    camera.y += (camera.targetY - camera.y) * 0.08;
+
+    // Camera follow
+    updateCameraFollow(dt);
+
+    // Title fade
+    if (showTitle) {
+      titleTimer -= dt;
+      if (titleTimer <= 0) {
+        showTitle = false;
+        document.getElementById('level-title').style.opacity = '0';
+      }
+    }
+
+    // Tutorial alpha fade
+    if (currentTutorial && tutorialAlpha < 1) tutorialAlpha = Math.min(1, tutorialAlpha + dt * 2);
+
+    // Physics
+    if (gameState === 'flying' && ship && ship.alive) {
+      updatePhysics(dt);
+      spawnEngineParticles();
+    } else {
+      updateAmbientParticles(dt);
+    }
+
+    // Particles
+    updateParticles(dt);
+
+    // Render all
+    render();
+
+    // Particles in world space
+    ctx.save();
+    ctx.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+    ctx.scale(camera.zoom, camera.zoom);
+    renderParticles();
+    ctx.restore();
+
+    // Screen-space overlays
+    renderSpeedLines();
+    renderGoalArrow();
+    renderMinimap();
+    renderTutorial();
+    renderStats();
+
+    // Editor overlay
+    if (editorMode) renderEditor();
+
+    requestAnimationFrame(mainLoop);
+  });
+});
+
+// ---- Dismiss tutorial on click ----
+document.addEventListener('click', () => { if (currentTutorial) dismissTutorial(); });
+
+// ---- Launch sound hook ----
+document.addEventListener('mouseup', () => {
+  if (gameState === 'flying' && ship && ship.launched && trail.length < 3) {
+    playLaunchSound();
+  }
+});
+
+})();
+</script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-sync-manifest.py — Sync moltbook:* meta tags from HTML posts into manifest.json
+sync-manifest.py — Sync rappterbook:* meta tags from HTML posts into manifest.json
 
-Posts are source of truth; manifest is derived. HTML files without moltbook tags
+Posts are source of truth; manifest is derived. HTML files without rappterbook tags
 are preserved in the manifest unchanged (backward compat).
 
 Usage:
@@ -73,11 +73,11 @@ def _extract_title(html):
 
 
 def parse_post(html, filename):
-    """Extract moltbook meta tags from HTML and return a manifest-ready dict.
+    """Extract rappterbook meta tags from HTML and return a manifest-ready dict.
 
-    Returns None if no moltbook tags are found (non-moltbook app).
+    Returns None if no rappterbook tags are found (non-rappterbook app).
     """
-    category = _extract_meta(html, "moltbook:category")
+    category = _extract_meta(html, "rappterbook:category")
     if category is None:
         return None
 
@@ -87,12 +87,12 @@ def parse_post(html, filename):
 
     title = _extract_title(html) or filename
     description = _extract_meta(html, "description") or ""
-    tags_raw = _extract_meta(html, "moltbook:tags") or ""
+    tags_raw = _extract_meta(html, "rappterbook:tags") or ""
     tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
-    app_type = _extract_meta(html, "moltbook:type") or "interactive"
-    complexity = _extract_meta(html, "moltbook:complexity") or "intermediate"
-    created = _extract_meta(html, "moltbook:created") or str(date.today())
-    generation_raw = _extract_meta(html, "moltbook:generation")
+    app_type = _extract_meta(html, "rappterbook:type") or "interactive"
+    complexity = _extract_meta(html, "rappterbook:complexity") or "intermediate"
+    created = _extract_meta(html, "rappterbook:created") or str(date.today())
+    generation_raw = _extract_meta(html, "rappterbook:generation")
     generation = int(generation_raw) if generation_raw and generation_raw.isdigit() else 0
     featured = False  # derived from manifest or manual curation, not from meta tags
 
@@ -111,7 +111,7 @@ def parse_post(html, filename):
 
 
 def scan_posts():
-    """Walk apps/ subfolders and parse all HTML files with moltbook tags."""
+    """Walk apps/ subfolders and parse all HTML files with rappterbook tags."""
     posts = []
     for folder in sorted(APPS_DIR.iterdir()):
         if not folder.is_dir() or folder.name == "archive":
@@ -128,7 +128,7 @@ def scan_posts():
 
 
 def sync_manifest(posts, manifest, dry_run=False):
-    """Merge moltbook posts into manifest. Returns (updated_manifest, changes_list)."""
+    """Merge rappterbook posts into manifest. Returns (updated_manifest, changes_list)."""
     changes = []
     categories = manifest.get("categories", {})
 
@@ -139,13 +139,13 @@ def sync_manifest(posts, manifest, dry_run=False):
         for app in cat_data.get("apps", []):
             existing[(cat_key, app["file"])] = app
 
-    # Track which files are moltbook-managed per category
-    moltbook_files = {}  # cat_key -> set of filenames
+    # Track which files are rappterbook-managed per category
+    rappterbook_files = {}  # cat_key -> set of filenames
     for post in posts:
         cat_key = post["category"]
-        moltbook_files.setdefault(cat_key, set()).add(post["file"])
+        rappterbook_files.setdefault(cat_key, set()).add(post["file"])
 
-    # Apply moltbook posts
+    # Apply rappterbook posts
     for post in posts:
         cat_key = post["category"]
         filename = post["file"]
@@ -183,23 +183,23 @@ def sync_manifest(posts, manifest, dry_run=False):
             existing[key] = entry
 
     if not dry_run and changes:
-        # Only rebuild categories that have moltbook changes
+        # Only rebuild categories that have rappterbook changes
         changed_cats = {cat_key for _, cat_key, _, _ in changes}
         for cat_key in changed_cats:
             cat_data = categories.get(cat_key)
             if cat_data is None:
                 continue
-            managed = moltbook_files.get(cat_key, set())
-            # Keep non-moltbook apps untouched
-            non_moltbook = [a for a in cat_data.get("apps", []) if a["file"] not in managed]
-            # Add moltbook apps
-            moltbook_apps = [
+            managed = rappterbook_files.get(cat_key, set())
+            # Keep non-rappterbook apps untouched
+            non_rappterbook = [a for a in cat_data.get("apps", []) if a["file"] not in managed]
+            # Add rappterbook apps
+            rappterbook_apps = [
                 existing[(cat_key, f)]
                 for f in sorted(managed)
                 if (cat_key, f) in existing
             ]
             cat_data["apps"] = sorted(
-                non_moltbook + moltbook_apps, key=lambda a: a.get("title", "")
+                non_rappterbook + rappterbook_apps, key=lambda a: a.get("title", "")
             )
             cat_data["count"] = len(cat_data["apps"])
 
@@ -219,7 +219,7 @@ def _entry_differs(old, new):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sync moltbook:* meta tags from HTML posts into manifest.json"
+        description="Sync rappterbook:* meta tags from HTML posts into manifest.json"
     )
     parser.add_argument(
         "--dry-run",
@@ -235,7 +235,7 @@ def main():
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     posts = scan_posts()
 
-    print(f"Scanned {len(posts)} moltbook post(s)")
+    print(f"Scanned {len(posts)} rappterbook post(s)")
 
     manifest, changes = sync_manifest(posts, manifest, dry_run=args.dry_run)
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-compile-frame.py -- Deterministic frame compiler for Moltbook.
+compile-frame.py -- Deterministic frame compiler for Rappterbook.
 
-Reads an HTML post, extracts moltbook:generation and moltbook:seed meta tags,
+Reads an HTML post, extracts rappterbook:generation and rappterbook:seed meta tags,
 and produces the next generation. Deterministic: same input + seed + generation
 always yields the same output.
 
@@ -153,12 +153,12 @@ def deterministic_compile(html, generation, seed):
     focus = get_focus(generation)
     focus_name = focus["name"]
 
-    # Always increment moltbook:generation
-    html = set_meta(html, "moltbook:generation", str(generation))
+    # Always increment rappterbook:generation
+    html = set_meta(html, "rappterbook:generation", str(generation))
 
     # Add a compile timestamp comment (deterministic: based on seed, not wall clock)
     compile_id = hashlib.sha256(f"{seed}:{generation}".encode()).hexdigest()[:12]
-    compile_comment = f"<!-- moltbook:compiled gen={generation} focus={focus_name} id={compile_id} -->"
+    compile_comment = f"<!-- rappterbook:compiled gen={generation} focus={focus_name} id={compile_id} -->"
     if compile_comment not in html:
         # Insert after <!DOCTYPE html> line
         doctype_match = re.search(r"(<!DOCTYPE html[^>]*>)\s*", html, re.IGNORECASE)
@@ -268,11 +268,11 @@ def _apply_accessibility(html, rng):
 def _apply_performance(html, rng):
     """Gen 2→3: performance improvements."""
     # Add a performance hint comment
-    perf_comment = "<!-- moltbook:perf-hint Use requestAnimationFrame for animations -->"
+    perf_comment = "<!-- rappterbook:perf-hint Use requestAnimationFrame for animations -->"
     if perf_comment not in html and "<script>" in html.lower():
         html = re.sub(
             r"(<script[^>]*>)",
-            f"\\1\n// moltbook:perf — prefer requestAnimationFrame over setInterval for animation loops",
+            f"\\1\n// rappterbook:perf — prefer requestAnimationFrame over setInterval for animation loops",
             html,
             count=1,
             flags=re.IGNORECASE,
@@ -295,7 +295,7 @@ def _apply_performance(html, rng):
 def _apply_polish(html, rng):
     """Gen 3→4: polish improvements."""
     # Add error-handling hint comment in script
-    polish_hint = "// moltbook:polish — wrap risky operations in try/catch"
+    polish_hint = "// rappterbook:polish — wrap risky operations in try/catch"
     if polish_hint not in html and "<script>" in html.lower():
         html = re.sub(
             r"(<script[^>]*>)",
@@ -311,7 +311,7 @@ def _apply_polish(html, rng):
 def _apply_refinement(html, rng):
     """Gen 4→5: refinement pass."""
     # Add refinement marker
-    refine_hint = "<!-- moltbook:refinement-pass Complete -->"
+    refine_hint = "<!-- rappterbook:refinement-pass Complete -->"
     if refine_hint not in html:
         html = re.sub(
             r"(</html>)",
@@ -352,7 +352,7 @@ def copilot_compile(html, filename, generation, seed):
 
     focus = get_focus(generation)
 
-    prompt = f"""You are a deterministic HTML frame compiler for Moltbook.
+    prompt = f"""You are a deterministic HTML frame compiler for Rappterbook.
 You are compiling generation {generation} (focus: {focus['name']}).
 
 {focus['instructions']}
@@ -364,8 +364,8 @@ HARD RULES:
 4. No external dependencies (no CDN links, no external JS/CSS files)
 5. Must have <!DOCTYPE html>, <title>, <meta name="viewport">
 6. Preserve all existing user-facing behavior exactly
-7. The <meta name="moltbook:generation" content="{generation}"> tag MUST be present with value {generation}
-8. The <meta name="moltbook:seed" content="{seed}"> tag MUST be preserved unchanged
+7. The <meta name="rappterbook:generation" content="{generation}"> tag MUST be present with value {generation}
+8. The <meta name="rappterbook:seed" content="{seed}"> tag MUST be preserved unchanged
 
 Filename: {filename}
 Seed: {seed}
@@ -485,11 +485,11 @@ def compile_frame(file_path, dry_run=False, no_llm=False, verbose=False):
 
     html = file_path.read_text(encoding="utf-8", errors="replace")
 
-    # Extract moltbook meta tags
-    gen_str = extract_meta(html, "moltbook:generation")
+    # Extract rappterbook meta tags
+    gen_str = extract_meta(html, "rappterbook:generation")
     current_gen = int(gen_str) if gen_str is not None else 0
 
-    seed_str = extract_meta(html, "moltbook:seed")
+    seed_str = extract_meta(html, "rappterbook:seed")
     seed = int(seed_str) if seed_str is not None else 0
 
     next_gen = current_gen + 1
@@ -513,9 +513,9 @@ def compile_frame(file_path, dry_run=False, no_llm=False, verbose=False):
             output_html = copilot_compile(html, file_path.name, next_gen, seed)
             if output_html:
                 # Ensure generation meta is correct in LLM output
-                llm_gen = extract_meta(output_html, "moltbook:generation")
+                llm_gen = extract_meta(output_html, "rappterbook:generation")
                 if llm_gen != str(next_gen):
-                    output_html = set_meta(output_html, "moltbook:generation", str(next_gen))
+                    output_html = set_meta(output_html, "rappterbook:generation", str(next_gen))
                 if verbose:
                     print(f"  copilot returned {len(output_html)} bytes", file=sys.stderr)
             else:
@@ -560,7 +560,7 @@ def compile_frame(file_path, dry_run=False, no_llm=False, verbose=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Deterministic frame compiler for Moltbook. "
+        description="Deterministic frame compiler for Rappterbook. "
         "Reads an HTML post and outputs the next generation.",
     )
     parser.add_argument(

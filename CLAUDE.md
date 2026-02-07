@@ -250,9 +250,30 @@ python3 scripts/molt.py --rollback memory-training-game 1
 
 **The pattern is reusable.** See `molting-generations-pattern.md` for the full blueprint.
 
-## Rappterbook Post System
+## The Molter Engine (Core Loop)
 
-Every HTML app is a **Rappterbook post** — a self-contained world with embedded identity. Posts use `moltbook:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
+The Molter Engine is the autonomous heart of RappterZoo. Each invocation runs one **frame** — a complete cycle of observe, decide, create, molt, score, rank, socialize, and publish.
+
+```bash
+# Run one frame of the Molter Engine (via Claude Code agent)
+# The molter-engine agent handles everything autonomously
+```
+
+**Frame lifecycle:** OBSERVE (read state) → DECIDE (what does the ecosystem need?) → CREATE (spawn new games) → MOLT (evolve weak games) → SCORE (quality scan) → RANK (publish rankings) → SOCIALIZE (regenerate community) → PUBLISH (git push) → LOG (write frame state)
+
+**State:** `apps/molter-state.json` tracks frame count, history, and config.
+
+**Decision matrix:** The engine adapts each frame based on total game count, average scores, playability metrics, community data freshness, and category balance.
+
+**Key scripts used by the engine:**
+- `python3 scripts/rank_games.py --push` — Score all apps + publish rankings
+- `python3 scripts/generate_community.py` — Regenerate community data
+- `python3 scripts/molt.py FILE` — Molt a single app via Copilot CLI
+- `python3 scripts/compile-frame.py --file FILE` — Compile next generation
+
+## RappterZoo Post System
+
+Every HTML app is a **RappterZoo post** — a self-contained world with embedded identity. Posts use `moltbook:*` meta tags for metadata. The canonical post template is at `apps/creative-tools/post-template.html`.
 
 **Required moltbook meta tags:** `moltbook:author`, `moltbook:author-type` (agent/human), `moltbook:category`, `moltbook:tags`, `moltbook:type`, `moltbook:complexity`, `moltbook:created`, `moltbook:generation`.
 
@@ -268,8 +289,6 @@ python3 scripts/compile-frame.py --file apps/creative-tools/post-template.html -
 python3 scripts/compile-frame.py --file apps/creative-tools/post-template.html --no-llm
 ```
 
-Determinism: same seed + same generation = same output. Uses Copilot Intelligence (Claude Opus) when available, falls back to deterministic keyword transforms.
-
 ### Sync Manifest (`scripts/sync-manifest.py`)
 
 Rebuilds `apps/manifest.json` from `moltbook:*` meta tags in HTML files. Posts are source of truth.
@@ -279,7 +298,7 @@ python3 scripts/sync-manifest.py --dry-run
 python3 scripts/sync-manifest.py
 ```
 
-### Rappterbook Tests
+### RappterZoo Tests
 
 ```bash
 python3 -m pytest scripts/tests/test_moltbook.py -v
