@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RECURSION — The Game Inside The Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 1200px;
+            height: 80vh;
+            background: #000;
+            border: 2px solid #333;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            font-size: 14px;
+        }
+
+        #layerIndicator {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .layer-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #333;
+            border: 1px solid #666;
+            transition: all 0.3s;
+        }
+
+        .layer-dot.discovered {
+            background: #444;
+            border-color: #888;
+        }
+
+        .layer-dot.active {
+            background: #0f0;
+            border-color: #0f0;
+            box-shadow: 0 0 10px #0f0;
+        }
+
+        #awarenessBar {
+            flex: 1;
+            max-width: 200px;
+            margin: 0 20px;
+            height: 20px;
+            background: #222;
+            border: 1px solid #444;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #awarenessFill {
+            height: 100%;
+            background: linear-gradient(90deg, #f00, #ff0);
+            width: 0%;
+            transition: width 0.5s;
+        }
+
+        #awarenessText {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10px;
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        #messageBox {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #fff;
+            padding: 15px 25px;
+            max-width: 600px;
+            text-align: center;
+            display: none;
+            z-index: 200;
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+
+        #glitchOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 150;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0) 0px,
+                rgba(0, 0, 0, 0.5) 1px,
+                rgba(0, 0, 0, 0) 2px
+            );
+            animation: glitchPulse 2s infinite;
+        }
+
+        @keyframes glitchPulse {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 0.3; }
+        }
+
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 300;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #startScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px #0f0;
+            letter-spacing: 5px;
+        }
+
+        #startScreen p {
+            font-size: 16px;
+            margin-bottom: 30px;
+            max-width: 600px;
+            line-height: 1.6;
+            color: #888;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            background: #0f0;
+            color: #000;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .btn:hover {
+            background: #fff;
+            box-shadow: 0 0 20px #0f0;
+        }
+
+        #editorPanel {
+            position: absolute;
+            right: 10px;
+            top: 60px;
+            bottom: 10px;
+            width: 300px;
+            background: rgba(30, 30, 30, 0.95);
+            border: 1px solid #555;
+            padding: 15px;
+            overflow-y: auto;
+            display: none;
+            z-index: 250;
+        }
+
+        .editor-section {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #444;
+        }
+
+        .editor-section h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #0f0;
+        }
+
+        .editor-control {
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .editor-btn {
+            padding: 5px 10px;
+            background: #333;
+            border: 1px solid #555;
+            color: #fff;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+        }
+
+        .editor-btn:hover {
+            background: #555;
+        }
+
+        .editor-btn.active {
+            background: #0f0;
+            color: #000;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 20px;
+            border: 1px solid #444;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+        }
+
+        .glitch-text {
+            animation: glitchText 0.3s infinite;
+        }
+
+        @keyframes glitchText {
+            0% { transform: translate(0); }
+            20% { transform: translate(-2px, 2px); }
+            40% { transform: translate(2px, -2px); }
+            60% { transform: translate(-2px, -2px); }
+            80% { transform: translate(2px, 2px); }
+            100% { transform: translate(0); }
+        }
+
+        #transitionScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 400;
+            flex-direction: column;
+        }
+
+        #transitionScreen h2 {
+            font-size: 36px;
+            margin-bottom: 20px;
+            animation: glitchText 0.3s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui">
+            <div id="layerIndicator">
+                <div class="layer-dot active"></div>
+                <div class="layer-dot"></div>
+                <div class="layer-dot"></div>
+                <div class="layer-dot"></div>
+                <div class="layer-dot"></div>
+            </div>
+            <div id="awarenessBar">
+                <div id="awarenessFill"></div>
+                <div id="awarenessText">AWARENESS: 0%</div>
+            </div>
+            <div id="layerName">LAYER 1: PIXEL QUEST</div>
+        </div>
+
+        <div id="messageBox"></div>
+        <div id="glitchOverlay"></div>
+
+        <div id="editorPanel">
+            <div class="editor-section">
+                <h3>// LAYER MODIFIERS</h3>
+                <div class="editor-control">
+                    <span>L1: Player Flight</span>
+                    <button class="editor-btn" data-mod="l1-flight">OFF</button>
+                </div>
+                <div class="editor-control">
+                    <span>L1: Invincibility</span>
+                    <button class="editor-btn" data-mod="l1-invincible">OFF</button>
+                </div>
+                <div class="editor-control">
+                    <span>L2: Room Awareness</span>
+                    <button class="editor-btn" data-mod="l2-aware">OFF</button>
+                </div>
+                <div class="editor-control">
+                    <span>L3: Disable Enemies</span>
+                    <button class="editor-btn" data-mod="l3-nowar">OFF</button>
+                </div>
+                <div class="editor-control">
+                    <span>L3: Infinite Resources</span>
+                    <button class="editor-btn" data-mod="l3-resources">OFF</button>
+                </div>
+            </div>
+            <div class="editor-section">
+                <h3>// REALITY BREAKS</h3>
+                <div class="editor-control">
+                    <button class="editor-btn" id="paradoxBtn" style="width: 100%;">CREATE PARADOX</button>
+                </div>
+                <p style="font-size: 10px; color: #666; margin-top: 10px;">
+                    Enable conflicting rules across layers to break the recursion.
+                </p>
+            </div>
+            <div class="editor-section">
+                <h3>// NAVIGATION</h3>
+                <div class="editor-control">
+                    <button class="editor-btn layer-jump" data-layer="0">LAYER 1</button>
+                    <button class="editor-btn layer-jump" data-layer="1">LAYER 2</button>
+                    <button class="editor-btn layer-jump" data-layer="2">LAYER 3</button>
+                </div>
+                <div class="editor-control">
+                    <button class="editor-btn layer-jump" data-layer="3">LAYER 4</button>
+                    <button class="editor-btn layer-jump" data-layer="4">LAYER 5</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="startScreen">
+            <h1>RECURSION</h1>
+            <p>
+                What you think is a simple game is actually a lie.<br>
+                Five layers of reality nest inside each other.<br>
+                Break through each one to discover the truth.<br><br>
+                <strong>Arrow keys to move, SPACE to interact/jump</strong><br>
+                Find the glitches. Increase awareness. Escape.
+            </p>
+            <button class="btn" id="startBtn">BEGIN</button>
+        </div>
+
+        <div id="transitionScreen">
+            <h2>REALITY FRACTURE DETECTED</h2>
+            <p style="font-size: 18px; color: #888;">Transitioning layers...</p>
+        </div>
+
+        <div id="controls">
+            ARROW KEYS: Move | SPACE: Jump/Interact | ESC: Menu
+        </div>
+    </div>
+
+    <script>
+        // ===== GAME STATE =====
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = {
+            currentLayer: 0,
+            layersDiscovered: [true, false, false, false, false],
+            awareness: [0, 0, 0, 0, 0],
+            inventory: [],
+            editorModifiers: {
+                'l1-flight': false,
+                'l1-invincible': false,
+                'l2-aware': false,
+                'l3-nowar': false,
+                'l3-resources': false
+            },
+            breakthroughsAchieved: [false, false, false, false, false],
+            paradoxCreated: false,
+            gameWon: false
+        };
+
+        let keys = {};
+        let lastTime = 0;
+
+        // ===== UTILITIES =====
+        function resizeCanvas() {
+            const container = document.getElementById('gameContainer');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        function showMessage(text, duration = 3000) {
+            const box = document.getElementById('messageBox');
+            box.textContent = text;
+            box.style.display = 'block';
+            setTimeout(() => {
+                box.style.display = 'none';
+            }, duration);
+        }
+
+        function updateUI() {
+            const dots = document.querySelectorAll('.layer-dot');
+            dots.forEach((dot, i) => {
+                dot.classList.toggle('discovered', gameState.layersDiscovered[i]);
+                dot.classList.toggle('active', i === gameState.currentLayer);
+            });
+
+            const awareness = gameState.awareness[gameState.currentLayer];
+            document.getElementById('awarenessFill').style.width = awareness + '%';
+            document.getElementById('awarenessText').textContent = `AWARENESS: ${Math.floor(awareness)}%`;
+
+            const layerNames = [
+                'LAYER 1: PIXEL QUEST',
+                'LAYER 2: THE PLAYER\'S ROOM',
+                'LAYER 3: COMMAND & CONQUER',
+                'LAYER 4: VOID',
+                'LAYER 5: THE EDITOR'
+            ];
+            document.getElementById('layerName').textContent = layerNames[gameState.currentLayer];
+
+            if (gameState.awareness[gameState.currentLayer] > 50) {
+                document.getElementById('glitchOverlay').style.opacity =
+                    (gameState.awareness[gameState.currentLayer] - 50) / 100;
+            } else {
+                document.getElementById('glitchOverlay').style.opacity = 0;
+            }
+        }
+
+        function addAwareness(amount) {
+            gameState.awareness[gameState.currentLayer] = Math.min(100,
+                gameState.awareness[gameState.currentLayer] + amount);
+            updateUI();
+
+            if (gameState.awareness[gameState.currentLayer] >= 100 &&
+                !gameState.breakthroughsAchieved[gameState.currentLayer]) {
+                triggerBreakthrough();
+            }
+        }
+
+        function triggerBreakthrough() {
+            gameState.breakthroughsAchieved[gameState.currentLayer] = true;
+
+            if (gameState.currentLayer < 4) {
+                const nextLayer = gameState.currentLayer + 1;
+                showTransition(() => {
+                    gameState.layersDiscovered[nextLayer] = true;
+                    switchLayer(nextLayer);
+                    showMessage(`BREAKTHROUGH! LAYER ${nextLayer + 1} DISCOVERED`, 4000);
+                });
+            } else {
+                // Layer 5 breakthrough = editor access
+                document.getElementById('editorPanel').style.display = 'block';
+                showMessage('THE EDITOR IS YOURS. REWRITE REALITY.', 4000);
+            }
+        }
+
+        function showTransition(callback) {
+            const screen = document.getElementById('transitionScreen');
+            screen.style.display = 'flex';
+            setTimeout(() => {
+                callback();
+                setTimeout(() => {
+                    screen.style.display = 'none';
+                }, 1000);
+            }, 2000);
+        }
+
+        function switchLayer(layerIndex) {
+            if (!gameState.layersDiscovered[layerIndex]) return;
+
+            gameState.currentLayer = layerIndex;
+            initLayer(layerIndex);
+            updateUI();
+        }
+
+        function saveGame() {
+            localStorage.setItem('recursion_save', JSON.stringify(gameState));
+        }
+
+        function loadGame() {
+            const saved = localStorage.getItem('recursion_save');
+            if (saved) {
+                gameState = { ...gameState, ...JSON.parse(saved) };
+                updateUI();
+            }
+        }
+
+        // ===== LAYER 1: PIXEL QUEST =====
+        let layer1 = {
+            player: { x: 50, y: 0, vx: 0, vy: 0, w: 16, h: 16, onGround: false },
+            platforms: [],
+            enemies: [],
+            glitches: [],
+            coins: [],
+            level: 0,
+            scrollX: 0,
+            glitchZone: null
+        };
+
+        function initLayer1() {
+            layer1.level = 0;
+            loadLevel1(0);
+        }
+
+        function loadLevel1(levelNum) {
+            layer1.platforms = [];
+            layer1.enemies = [];
+            layer1.glitches = [];
+            layer1.coins = [];
+            layer1.player.x = 50;
+            layer1.player.y = 200;
+            layer1.player.vx = 0;
+            layer1.player.vy = 0;
+            layer1.scrollX = 0;
+
+            // Level layouts
+            if (levelNum === 0) {
+                // Simple intro level
+                layer1.platforms.push(
+                    { x: 0, y: 400, w: 200, h: 20 },
+                    { x: 250, y: 350, w: 100, h: 20 },
+                    { x: 400, y: 300, w: 100, h: 20 },
+                    { x: 550, y: 350, w: 100, h: 20 },
+                    { x: 700, y: 400, w: 300, h: 20 }
+                );
+                layer1.enemies.push(
+                    { x: 300, y: 330, vx: 1, w: 12, h: 12 },
+                    { x: 750, y: 380, vx: -1, w: 12, h: 12 }
+                );
+                layer1.coins.push(
+                    { x: 280, y: 320 },
+                    { x: 430, y: 270 },
+                    { x: 580, y: 320 }
+                );
+                layer1.glitches.push({ x: 800, y: 360, w: 20, h: 20, type: 'minor' });
+            } else if (levelNum === 1) {
+                // Harder platforming
+                layer1.platforms.push(
+                    { x: 0, y: 400, w: 150, h: 20 },
+                    { x: 200, y: 350, w: 80, h: 20 },
+                    { x: 330, y: 300, w: 80, h: 20 },
+                    { x: 460, y: 250, w: 80, h: 20 },
+                    { x: 590, y: 300, w: 80, h: 20 },
+                    { x: 720, y: 350, w: 80, h: 20 },
+                    { x: 850, y: 400, w: 200, h: 20 }
+                );
+                layer1.enemies.push(
+                    { x: 240, y: 330, vx: 1, w: 12, h: 12 },
+                    { x: 500, y: 230, vx: -1, w: 12, h: 12 },
+                    { x: 900, y: 380, vx: 1, w: 12, h: 12 }
+                );
+                layer1.glitches.push(
+                    { x: 400, y: 220, w: 20, h: 20, type: 'minor' },
+                    { x: 950, y: 360, w: 20, h: 20, type: 'major' }
+                );
+            } else if (levelNum === 2) {
+                // Final level with glitch zone
+                layer1.platforms.push(
+                    { x: 0, y: 400, w: 200, h: 20 },
+                    { x: 250, y: 350, w: 100, h: 20 },
+                    { x: 400, y: 300, w: 100, h: 20 },
+                    { x: 550, y: 250, w: 100, h: 20 },
+                    { x: 700, y: 300, w: 100, h: 20 },
+                    { x: 850, y: 350, w: 100, h: 20 },
+                    { x: 1000, y: 300, w: 200, h: 20 }
+                );
+                layer1.enemies.push(
+                    { x: 280, y: 330, vx: 1, w: 12, h: 12 },
+                    { x: 430, y: 280, vx: -1, w: 12, h: 12 },
+                    { x: 580, y: 230, vx: 1, w: 12, h: 12 },
+                    { x: 880, y: 330, vx: -1, w: 12, h: 12 }
+                );
+                layer1.glitches.push(
+                    { x: 300, y: 310, w: 20, h: 20, type: 'major' },
+                    { x: 600, y: 210, w: 20, h: 20, type: 'major' }
+                );
+                // The final glitch zone (breakthrough point)
+                layer1.glitchZone = { x: 1050, y: 240, w: 80, h: 60 };
+            }
+        }
+
+        function updateLayer1(dt) {
+            const p = layer1.player;
+            const canFly = gameState.editorModifiers['l1-flight'];
+            const invincible = gameState.editorModifiers['l1-invincible'];
+
+            // Input
+            if (keys.ArrowLeft) p.vx = -200;
+            else if (keys.ArrowRight) p.vx = 200;
+            else p.vx = 0;
+
+            if (keys[' '] && (p.onGround || canFly)) {
+                p.vy = canFly ? -300 : -400;
+                p.onGround = false;
+            }
+
+            // Gravity
+            if (!canFly) {
+                p.vy += 1200 * dt;
+            } else {
+                p.vy *= 0.9;
+            }
+
+            // Update position
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+
+            // Platform collision
+            p.onGround = false;
+            layer1.platforms.forEach(plat => {
+                if (p.x + p.w > plat.x && p.x < plat.x + plat.w) {
+                    if (p.y + p.h > plat.y && p.y + p.h < plat.y + 20 && p.vy > 0) {
+                        p.y = plat.y - p.h;
+                        p.vy = 0;
+                        p.onGround = true;
+                    }
+                }
+            });
+
+            // Enemy collision
+            if (!invincible) {
+                layer1.enemies.forEach(e => {
+                    if (Math.abs(p.x - e.x) < 16 && Math.abs(p.y - e.y) < 16) {
+                        // Hit! Reset position
+                        p.x = 50;
+                        p.y = 200;
+                        p.vx = 0;
+                        p.vy = 0;
+                        showMessage('HIT! RESPAWNING...');
+                    }
+                });
+            }
+
+            // Enemy movement
+            layer1.enemies.forEach(e => {
+                e.x += e.vx;
+                if (e.vx > 0 && e.x > 1000) e.vx = -1;
+                if (e.vx < 0 && e.x < 100) e.vx = 1;
+            });
+
+            // Coin collection
+            layer1.coins = layer1.coins.filter(c => {
+                if (Math.abs(p.x - c.x) < 20 && Math.abs(p.y - c.y) < 20) {
+                    addAwareness(5);
+                    return false;
+                }
+                return true;
+            });
+
+            // Glitch collection
+            layer1.glitches = layer1.glitches.filter(g => {
+                if (Math.abs(p.x - g.x) < 20 && Math.abs(p.y - g.y) < 20) {
+                    addAwareness(g.type === 'major' ? 15 : 10);
+                    showMessage('GLITCH COLLECTED! SOMETHING FEELS... WRONG');
+                    return false;
+                }
+                return true;
+            });
+
+            // Glitch zone (breakthrough)
+            if (layer1.glitchZone) {
+                const gz = layer1.glitchZone;
+                if (p.x + p.w > gz.x && p.x < gz.x + gz.w &&
+                    p.y + p.h > gz.y && p.y < gz.y + gz.h) {
+                    addAwareness(50);
+                    showMessage('THE WORLD IS TEARING APART...');
+                }
+            }
+
+            // Level progression
+            if (p.x > 1100 && layer1.level < 2) {
+                layer1.level++;
+                loadLevel1(layer1.level);
+                showMessage(`LEVEL ${layer1.level + 1}`);
+            }
+
+            // Camera
+            layer1.scrollX = Math.max(0, p.x - canvas.width / 2);
+
+            // Bounds
+            if (p.y > canvas.height) {
+                p.x = 50;
+                p.y = 200;
+                p.vy = 0;
+            }
+        }
+
+        function renderLayer1() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(-layer1.scrollX, 0);
+
+            // Platforms
+            ctx.fillStyle = '#0f0';
+            layer1.platforms.forEach(plat => {
+                ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+            });
+
+            // Enemies
+            ctx.fillStyle = '#f00';
+            layer1.enemies.forEach(e => {
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+            });
+
+            // Coins
+            ctx.fillStyle = '#ff0';
+            layer1.coins.forEach(c => {
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Glitches
+            layer1.glitches.forEach(g => {
+                const colors = ['#f0f', '#0ff', '#ff0', '#f00'];
+                ctx.fillStyle = colors[Math.floor(Date.now() / 100) % colors.length];
+                ctx.fillRect(g.x, g.y, g.w, g.h);
+            });
+
+            // Glitch zone
+            if (layer1.glitchZone) {
+                const gz = layer1.glitchZone;
+                ctx.strokeStyle = '#f0f';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(gz.x, gz.y, gz.w, gz.h);
+                ctx.fillStyle = 'rgba(255, 0, 255, 0.1)';
+                ctx.fillRect(gz.x, gz.y, gz.w, gz.h);
+            }
+
+            // Player
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(layer1.player.x, layer1.player.y, layer1.player.w, layer1.player.h);
+
+            ctx.restore();
+        }
+
+        // ===== LAYER 2: THE PLAYER'S ROOM =====
+        let layer2 = {
+            playerPos: { x: 400, y: 300 },
+            objects: [],
+            selectedObject: null,
+            inventory: [],
+            puzzlesSolved: []
+        };
+
+        function initLayer2() {
+            layer2.playerPos = { x: 400, y: 300 };
+            layer2.objects = [
+                { id: 'computer', x: 300, y: 200, w: 80, h: 60, name: 'Computer', desc: 'Running Pixel Quest...', interactive: true },
+                { id: 'poster', x: 100, y: 150, w: 60, h: 80, name: 'Poster', desc: 'Pixel Quest fan art. Why do I have this?', interactive: true },
+                { id: 'desk', x: 280, y: 250, w: 120, h: 20, name: 'Desk', desc: 'A cluttered desk', interactive: false },
+                { id: 'note1', x: 500, y: 300, w: 30, h: 20, name: 'Note', desc: 'REALITY IS LAYERED', interactive: true },
+                { id: 'glitch1', x: 600, y: 100, w: 40, h: 40, name: 'Glitch', desc: 'The wall texture is repeating...', interactive: true },
+                { id: 'mirror', x: 150, y: 250, w: 50, h: 70, name: 'Mirror', desc: 'Your reflection looks... pixelated?', interactive: true },
+                { id: 'door', x: 700, y: 200, w: 60, h: 100, name: 'Door', desc: 'Locked. Needs a key.', interactive: true },
+                { id: 'key', x: 550, y: 350, w: 20, h: 10, name: 'Key', desc: 'Might unlock something', interactive: true, takeable: true }
+            ];
+            layer2.inventory = [];
+            layer2.puzzlesSolved = [];
+            layer2.selectedObject = null;
+        }
+
+        function updateLayer2(dt) {
+            const speed = 150;
+            const p = layer2.playerPos;
+
+            if (keys.ArrowLeft) p.x -= speed * dt;
+            if (keys.ArrowRight) p.x += speed * dt;
+            if (keys.ArrowUp) p.y -= speed * dt;
+            if (keys.ArrowDown) p.y += speed * dt;
+
+            p.x = Math.max(50, Math.min(canvas.width - 50, p.x));
+            p.y = Math.max(50, Math.min(canvas.height - 50, p.y));
+
+            // Interaction
+            if (keys[' '] && !layer2.spacePressed) {
+                layer2.spacePressed = true;
+
+                // Find nearby objects
+                const nearby = layer2.objects.filter(obj => {
+                    const dist = Math.hypot(obj.x - p.x, obj.y - p.y);
+                    return dist < 80 && obj.interactive;
+                });
+
+                if (nearby.length > 0) {
+                    const obj = nearby[0];
+
+                    if (obj.takeable && !layer2.inventory.includes(obj.id)) {
+                        layer2.inventory.push(obj.id);
+                        showMessage(`Picked up: ${obj.name}`);
+                        addAwareness(10);
+                    } else if (obj.id === 'glitch1' && !layer2.puzzlesSolved.includes('glitch1')) {
+                        layer2.puzzlesSolved.push('glitch1');
+                        addAwareness(20);
+                        showMessage('THE TEXTURE BREAKS. YOU SEE CODE UNDERNEATH.');
+                    } else if (obj.id === 'computer' && !layer2.puzzlesSolved.includes('computer')) {
+                        layer2.puzzlesSolved.push('computer');
+                        addAwareness(15);
+                        showMessage('The game is running... but who is playing ME?');
+                    } else if (obj.id === 'mirror' && !layer2.puzzlesSolved.includes('mirror')) {
+                        layer2.puzzlesSolved.push('mirror');
+                        addAwareness(15);
+                        showMessage('Your reflection glitches. You are not real.');
+                    } else if (obj.id === 'door') {
+                        if (layer2.inventory.includes('key')) {
+                            if (!layer2.puzzlesSolved.includes('door')) {
+                                layer2.puzzlesSolved.push('door');
+                                addAwareness(30);
+                                showMessage('The door opens to... ANOTHER LAYER OF REALITY?');
+                            }
+                        } else {
+                            showMessage('The door is locked.');
+                        }
+                    } else if (obj.id === 'note1' && !layer2.puzzlesSolved.includes('note1')) {
+                        layer2.puzzlesSolved.push('note1');
+                        addAwareness(10);
+                        showMessage(obj.desc);
+                    } else {
+                        showMessage(obj.desc);
+                    }
+                }
+            }
+
+            if (!keys[' ']) {
+                layer2.spacePressed = false;
+            }
+
+            // Awareness modifier
+            if (gameState.editorModifiers['l2-aware']) {
+                addAwareness(0.1);
+            }
+        }
+
+        function renderLayer2() {
+            // Isometric-ish room
+            ctx.fillStyle = '#2a1810';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Floor
+            ctx.fillStyle = '#3a2820';
+            ctx.fillRect(50, canvas.height - 150, canvas.width - 100, 150);
+
+            // Walls
+            ctx.fillStyle = '#4a3830';
+            ctx.fillRect(50, 50, 20, canvas.height - 200);
+            ctx.fillRect(canvas.width - 70, 50, 20, canvas.height - 200);
+
+            // Objects
+            layer2.objects.forEach(obj => {
+                // Shadow
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.fillRect(obj.x + 5, obj.y + obj.h + 5, obj.w, 10);
+
+                // Object
+                if (obj.id === 'computer') {
+                    ctx.fillStyle = '#888';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.fillStyle = '#0f0';
+                    ctx.fillRect(obj.x + 10, obj.y + 5, 60, 40);
+                } else if (obj.id === 'poster') {
+                    ctx.fillStyle = '#ff00ff';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                } else if (obj.id === 'desk') {
+                    ctx.fillStyle = '#654321';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                } else if (obj.id.includes('note')) {
+                    ctx.fillStyle = '#ffffe0';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                } else if (obj.id.includes('glitch')) {
+                    const colors = ['#f0f', '#0ff', '#ff0'];
+                    ctx.fillStyle = colors[Math.floor(Date.now() / 200) % colors.length];
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                } else if (obj.id === 'mirror') {
+                    ctx.fillStyle = '#aaddff';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                } else if (obj.id === 'door') {
+                    ctx.fillStyle = '#654321';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.fillStyle = '#ffd700';
+                    ctx.beginPath();
+                    ctx.arc(obj.x + 10, obj.y + 50, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (obj.id === 'key' && !layer2.inventory.includes('key')) {
+                    ctx.fillStyle = '#ffd700';
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                }
+
+                // Interaction indicator
+                const dist = Math.hypot(obj.x - layer2.playerPos.x, obj.y - layer2.playerPos.y);
+                if (dist < 80 && obj.interactive) {
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(obj.x - 5, obj.y - 5, obj.w + 10, obj.h + 10);
+                }
+            });
+
+            // Player (isometric view)
+            ctx.fillStyle = '#ff6600';
+            ctx.beginPath();
+            ctx.arc(layer2.playerPos.x, layer2.playerPos.y, 15, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inventory display
+            if (layer2.inventory.length > 0) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(10, canvas.height - 50, 200, 40);
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px Courier New';
+                ctx.fillText('Inventory: ' + layer2.inventory.join(', '), 20, canvas.height - 25);
+            }
+        }
+
+        // ===== LAYER 3: COMMAND & CONQUER =====
+        let layer3 = {
+            camera: { x: 0, y: 0 },
+            units: [],
+            buildings: [],
+            resources: { attention: 100, bandwidth: 50, engagement: 75 },
+            selectedUnits: [],
+            enemies: [],
+            gridSize: 40
+        };
+
+        function initLayer3() {
+            layer3.camera = { x: 0, y: 0 };
+            layer3.resources = { attention: 100, bandwidth: 50, engagement: 75 };
+            layer3.units = [
+                { x: 200, y: 200, type: 'player', health: 100, target: null },
+                { x: 240, y: 200, type: 'player', health: 100, target: null },
+                { x: 220, y: 240, type: 'player', health: 100, target: null }
+            ];
+            layer3.buildings = [
+                { x: 100, y: 100, type: 'base', health: 500 }
+            ];
+            layer3.enemies = [
+                { x: 600, y: 300, type: 'algorithm', health: 80, vx: 0, vy: 0 },
+                { x: 650, y: 350, type: 'algorithm', health: 80, vx: 0, vy: 0 },
+                { x: 700, y: 250, type: 'algorithm', health: 80, vx: 0, vy: 0 }
+            ];
+            layer3.selectedUnits = [];
+        }
+
+        function updateLayer3(dt) {
+            // Camera control
+            const camSpeed = 300;
+            if (keys.ArrowLeft) layer3.camera.x -= camSpeed * dt;
+            if (keys.ArrowRight) layer3.camera.x += camSpeed * dt;
+            if (keys.ArrowUp) layer3.camera.y -= camSpeed * dt;
+            if (keys.ArrowDown) layer3.camera.y += camSpeed * dt;
+
+            // Resource generation
+            if (gameState.editorModifiers['l3-resources']) {
+                layer3.resources.attention = 999;
+                layer3.resources.bandwidth = 999;
+                layer3.resources.engagement = 999;
+            } else {
+                layer3.resources.engagement += 0.5;
+            }
+
+            // Unit AI
+            const noWar = gameState.editorModifiers['l3-nowar'];
+
+            layer3.units.forEach(unit => {
+                if (!unit.target) {
+                    // Find nearest enemy
+                    if (!noWar && layer3.enemies.length > 0) {
+                        let nearest = layer3.enemies[0];
+                        let minDist = Infinity;
+                        layer3.enemies.forEach(e => {
+                            const dist = Math.hypot(e.x - unit.x, e.y - unit.y);
+                            if (dist < minDist) {
+                                minDist = dist;
+                                nearest = e;
+                            }
+                        });
+                        if (minDist < 300) unit.target = nearest;
+                    }
+                }
+
+                if (unit.target) {
+                    const dx = unit.target.x - unit.x;
+                    const dy = unit.target.y - unit.y;
+                    const dist = Math.hypot(dx, dy);
+
+                    if (dist > 50) {
+                        unit.x += (dx / dist) * 50 * dt;
+                        unit.y += (dy / dist) * 50 * dt;
+                    } else {
+                        // Attack
+                        unit.target.health -= 10 * dt;
+                    }
+
+                    if (unit.target.health <= 0) {
+                        unit.target = null;
+                    }
+                }
+            });
+
+            // Enemy AI
+            if (!noWar) {
+                layer3.enemies.forEach(enemy => {
+                    if (!enemy.target && layer3.units.length > 0) {
+                        enemy.target = layer3.units[0];
+                    }
+
+                    if (enemy.target) {
+                        const dx = enemy.target.x - enemy.x;
+                        const dy = enemy.target.y - enemy.y;
+                        const dist = Math.hypot(dx, dy);
+
+                        if (dist > 40) {
+                            enemy.x += (dx / dist) * 30 * dt;
+                            enemy.y += (dy / dist) * 30 * dt;
+                        } else {
+                            enemy.target.health -= 15 * dt;
+                        }
+
+                        if (enemy.target.health <= 0) {
+                            enemy.target = null;
+                        }
+                    }
+                });
+            }
+
+            // Remove dead entities
+            layer3.enemies = layer3.enemies.filter(e => e.health > 0);
+            layer3.units = layer3.units.filter(u => u.health > 0);
+
+            // Awareness from events
+            if (layer3.enemies.length === 0 && !layer3.enemiesDefeated) {
+                layer3.enemiesDefeated = true;
+                addAwareness(40);
+                showMessage('THE ALGORITHM IS DEFEATED. THE BORDERS ARE VISIBLE.');
+            }
+
+            // Edge detection (glitch)
+            layer3.units.forEach(unit => {
+                if (Math.abs(unit.x) > 800 || Math.abs(unit.y) > 600) {
+                    addAwareness(10);
+                    showMessage('UNIT REACHED THE EDGE. REALITY BENDS.');
+                    unit.x = Math.max(-800, Math.min(800, unit.x));
+                    unit.y = Math.max(-600, Math.min(600, unit.y));
+                }
+            });
+        }
+
+        function renderLayer3() {
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(-layer3.camera.x + canvas.width / 2, -layer3.camera.y + canvas.height / 2);
+
+            // Grid
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            const gridSize = layer3.gridSize;
+            for (let x = -1000; x < 1000; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, -1000);
+                ctx.lineTo(x, 1000);
+                ctx.stroke();
+            }
+            for (let y = -1000; y < 1000; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(-1000, y);
+                ctx.lineTo(1000, y);
+                ctx.stroke();
+            }
+
+            // Buildings
+            layer3.buildings.forEach(b => {
+                ctx.fillStyle = '#0066cc';
+                ctx.fillRect(b.x - 40, b.y - 40, 80, 80);
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px Courier New';
+                ctx.fillText('BASE', b.x - 15, b.y);
+            });
+
+            // Units
+            layer3.units.forEach(unit => {
+                ctx.fillStyle = '#00ff00';
+                ctx.beginPath();
+                ctx.arc(unit.x, unit.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Health bar
+                ctx.fillStyle = '#f00';
+                ctx.fillRect(unit.x - 10, unit.y - 15, 20, 3);
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(unit.x - 10, unit.y - 15, 20 * (unit.health / 100), 3);
+            });
+
+            // Enemies
+            layer3.enemies.forEach(enemy => {
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(enemy.x - 8, enemy.y - 8, 16, 16);
+
+                // Health bar
+                ctx.fillStyle = '#f00';
+                ctx.fillRect(enemy.x - 10, enemy.y - 15, 20, 3);
+                ctx.fillStyle = '#ff0';
+                ctx.fillRect(enemy.x - 10, enemy.y - 15, 20 * (enemy.health / 80), 3);
+            });
+
+            // Edge boundaries (visible when awareness is high)
+            if (gameState.awareness[2] > 50) {
+                ctx.strokeStyle = '#ff00ff';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(-800, -600, 1600, 1200);
+            }
+
+            ctx.restore();
+
+            // UI Panel
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(10, 10, 250, 100);
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Courier New';
+            ctx.fillText('RESOURCES:', 20, 30);
+            ctx.fillText(`Attention: ${Math.floor(layer3.resources.attention)}`, 20, 50);
+            ctx.fillText(`Bandwidth: ${Math.floor(layer3.resources.bandwidth)}`, 20, 70);
+            ctx.fillText(`Engagement: ${Math.floor(layer3.resources.engagement)}`, 20, 90);
+
+            ctx.fillText(`Units: ${layer3.units.length}  Enemies: ${layer3.enemies.length}`, 20, 110);
+        }
+
+        // ===== LAYER 4: VOID =====
+        let layer4 = {
+            player: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0 },
+            fragments: [],
+            editorPieces: [],
+            collectedPieces: 0,
+            fogParticles: []
+        };
+
+        function initLayer4() {
+            layer4.player = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0 };
+            layer4.collectedPieces = 0;
+            layer4.fragments = [];
+            layer4.editorPieces = [];
+            layer4.fogParticles = [];
+
+            // Generate floating code fragments
+            for (let i = 0; i < 30; i++) {
+                layer4.fragments.push({
+                    x: (Math.random() - 0.5) * 2000,
+                    y: (Math.random() - 0.5) * 2000,
+                    z: (Math.random() - 0.5) * 2000,
+                    text: ['if(reality)', 'while(true)', 'break;', 'NPC.think()', 'delete player;'][Math.floor(Math.random() * 5)],
+                    vy: (Math.random() - 0.5) * 10
+                });
+            }
+
+            // Editor pieces
+            const positions = [
+                [300, 0, -200],
+                [-400, 100, 300],
+                [200, -150, -400],
+                [-300, 200, 100],
+                [0, -300, -300]
+            ];
+            positions.forEach((pos, i) => {
+                layer4.editorPieces.push({
+                    x: pos[0], y: pos[1], z: pos[2],
+                    collected: false,
+                    id: i
+                });
+            });
+
+            // Fog particles
+            for (let i = 0; i < 100; i++) {
+                layer4.fogParticles.push({
+                    x: (Math.random() - 0.5) * 3000,
+                    y: (Math.random() - 0.5) * 3000,
+                    z: (Math.random() - 0.5) * 3000,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: (Math.random() - 0.5) * 5,
+                    vz: (Math.random() - 0.5) * 5
+                });
+            }
+        }
+
+        function updateLayer4(dt) {
+            const p = layer4.player;
+            const speed = 100;
+
+            // Movement
+            let forward = 0, strafe = 0, up = 0;
+            if (keys.ArrowUp || keys.w) forward = 1;
+            if (keys.ArrowDown || keys.s) forward = -1;
+            if (keys.ArrowLeft) p.yaw += 2 * dt;
+            if (keys.ArrowRight) p.yaw -= 2 * dt;
+            if (keys.a) strafe = -1;
+            if (keys.d) strafe = 1;
+            if (keys[' ']) up = 1;
+            if (keys.Shift) up = -1;
+
+            p.vx = Math.cos(p.yaw) * forward * speed + Math.cos(p.yaw + Math.PI / 2) * strafe * speed;
+            p.vz = Math.sin(p.yaw) * forward * speed + Math.sin(p.yaw + Math.PI / 2) * strafe * speed;
+            p.vy = up * speed;
+
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.z += p.vz * dt;
+
+            // Update fragments
+            layer4.fragments.forEach(f => {
+                f.y += f.vy * dt;
+                if (f.y > 1000) f.y = -1000;
+                if (f.y < -1000) f.y = 1000;
+            });
+
+            // Update fog
+            layer4.fogParticles.forEach(fog => {
+                fog.x += fog.vx * dt;
+                fog.y += fog.vy * dt;
+                fog.z += fog.vz * dt;
+
+                if (Math.abs(fog.x) > 1500) fog.vx *= -1;
+                if (Math.abs(fog.y) > 1500) fog.vy *= -1;
+                if (Math.abs(fog.z) > 1500) fog.vz *= -1;
+            });
+
+            // Collect editor pieces
+            layer4.editorPieces.forEach(piece => {
+                if (!piece.collected) {
+                    const dist = Math.hypot(p.x - piece.x, p.y - piece.y, p.z - piece.z);
+                    if (dist < 50) {
+                        piece.collected = true;
+                        layer4.collectedPieces++;
+                        addAwareness(20);
+                        showMessage(`EDITOR FRAGMENT ${layer4.collectedPieces}/5 COLLECTED`);
+
+                        if (layer4.collectedPieces === 5) {
+                            addAwareness(100);
+                            showMessage('ALL FRAGMENTS ASSEMBLED. THE PORTAL OPENS.');
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderLayer4() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const p = layer4.player;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const fov = 500;
+
+            // Render fog
+            layer4.fogParticles.forEach(fog => {
+                const dx = fog.x - p.x;
+                const dy = fog.y - p.y;
+                const dz = fog.z - p.z;
+
+                // Rotate
+                const rx = dx * Math.cos(-p.yaw) - dz * Math.sin(-p.yaw);
+                const rz = dx * Math.sin(-p.yaw) + dz * Math.cos(-p.yaw);
+
+                if (rz > 10) {
+                    const screenX = centerX + (rx / rz) * fov;
+                    const screenY = centerY - (dy / rz) * fov;
+                    const size = 100 / rz;
+
+                    ctx.fillStyle = `rgba(100, 50, 150, ${0.2 / (rz / 100)})`;
+                    ctx.fillRect(screenX - size / 2, screenY - size / 2, size, size);
+                }
+            });
+
+            // Render fragments
+            ctx.font = '14px Courier New';
+            layer4.fragments.forEach(f => {
+                const dx = f.x - p.x;
+                const dy = f.y - p.y;
+                const dz = f.z - p.z;
+
+                const rx = dx * Math.cos(-p.yaw) - dz * Math.sin(-p.yaw);
+                const rz = dx * Math.sin(-p.yaw) + dz * Math.cos(-p.yaw);
+
+                if (rz > 10) {
+                    const screenX = centerX + (rx / rz) * fov;
+                    const screenY = centerY - (dy / rz) * fov;
+                    const alpha = Math.min(1, 500 / rz);
+
+                    ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`;
+                    ctx.fillText(f.text, screenX, screenY);
+                }
+            });
+
+            // Render editor pieces
+            layer4.editorPieces.forEach(piece => {
+                if (piece.collected) return;
+
+                const dx = piece.x - p.x;
+                const dy = piece.y - p.y;
+                const dz = piece.z - p.z;
+
+                const rx = dx * Math.cos(-p.yaw) - dz * Math.sin(-p.yaw);
+                const rz = dx * Math.sin(-p.yaw) + dz * Math.cos(-p.yaw);
+
+                if (rz > 10) {
+                    const screenX = centerX + (rx / rz) * fov;
+                    const screenY = centerY - (dy / rz) * fov;
+                    const size = 800 / rz;
+
+                    ctx.strokeStyle = '#ffff00';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(screenX - size / 2, screenY - size / 2, size, size);
+                    ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+                    ctx.fillRect(screenX - size / 2, screenY - size / 2, size, size);
+                }
+            });
+
+            // Crosshair
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(centerX - 10, centerY);
+            ctx.lineTo(centerX + 10, centerY);
+            ctx.moveTo(centerX, centerY - 10);
+            ctx.lineTo(centerX, centerY + 10);
+            ctx.stroke();
+
+            // Info
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px Courier New';
+            ctx.fillText(`Editor Fragments: ${layer4.collectedPieces}/5`, 10, canvas.height - 20);
+        }
+
+        // ===== LAYER 5: THE EDITOR =====
+        function initLayer5() {
+            // Editor is UI-based, init happens via editor panel
+            showMessage('YOU HAVE ACCESSED THE EDITOR. MODIFY REALITY.', 5000);
+            document.getElementById('editorPanel').style.display = 'block';
+        }
+
+        function updateLayer5(dt) {
+            // Editor layer is mostly UI interaction
+        }
+
+        function renderLayer5() {
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#000';
+            ctx.font = '24px Courier New';
+            ctx.fillText('// THE EDITOR', 50, 60);
+
+            ctx.font = '14px Courier New';
+            ctx.fillText('You now have control over all layers.', 50, 100);
+            ctx.fillText('Use the panel on the right to modify reality.', 50, 130);
+            ctx.fillText('Create a PARADOX to break the recursion.', 50, 160);
+
+            // Visual representation of layers
+            const layerY = 220;
+            const layerSpacing = 80;
+            const layerNames = ['PIXEL QUEST', 'THE ROOM', 'COMMAND', 'VOID', 'EDITOR'];
+
+            layerNames.forEach((name, i) => {
+                const y = layerY + i * layerSpacing;
+                ctx.strokeStyle = gameState.layersDiscovered[i] ? '#0f0' : '#666';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(50, y, 300, 60);
+
+                ctx.fillStyle = gameState.layersDiscovered[i] ? '#000' : '#666';
+                ctx.fillText(`LAYER ${i + 1}: ${name}`, 60, y + 35);
+            });
+
+            if (gameState.paradoxCreated) {
+                ctx.fillStyle = '#f00';
+                ctx.font = '20px Courier New';
+                ctx.fillText('!! PARADOX ACTIVE !!', 50, layerY + layerNames.length * layerSpacing + 40);
+                ctx.fillText('RECURSION BREAKING...', 50, layerY + layerNames.length * layerSpacing + 70);
+            }
+        }
+
+        // ===== LAYER INITIALIZATION =====
+        function initLayer(layerIndex) {
+            switch(layerIndex) {
+                case 0: initLayer1(); break;
+                case 1: initLayer2(); break;
+                case 2: initLayer3(); break;
+                case 3: initLayer4(); break;
+                case 4: initLayer5(); break;
+            }
+        }
+
+        // ===== MAIN GAME LOOP =====
+        function update(dt) {
+            switch(gameState.currentLayer) {
+                case 0: updateLayer1(dt); break;
+                case 1: updateLayer2(dt); break;
+                case 2: updateLayer3(dt); break;
+                case 3: updateLayer4(dt); break;
+                case 4: updateLayer5(dt); break;
+            }
+        }
+
+        function render() {
+            switch(gameState.currentLayer) {
+                case 0: renderLayer1(); break;
+                case 1: renderLayer2(); break;
+                case 2: renderLayer3(); break;
+                case 3: renderLayer4(); break;
+                case 4: renderLayer5(); break;
+            }
+
+            // Victory condition
+            if (gameState.paradoxCreated && !gameState.gameWon) {
+                renderVictoryScreen();
+            }
+        }
+
+        function renderVictoryScreen() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#0f0';
+            ctx.font = '48px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('RECURSION BROKEN', canvas.width / 2, canvas.height / 2 - 50);
+
+            ctx.font = '20px Courier New';
+            ctx.fillStyle = '#fff';
+            ctx.fillText('All layers have collapsed into one reality.', canvas.width / 2, canvas.height / 2 + 20);
+            ctx.fillText('You are free.', canvas.width / 2, canvas.height / 2 + 60);
+
+            ctx.font = '14px Courier New';
+            ctx.fillStyle = '#888';
+            ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 120);
+            ctx.textAlign = 'left';
+
+            gameState.gameWon = true;
+        }
+
+        function gameLoop(timestamp) {
+            const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+            lastTime = timestamp;
+
+            update(dt);
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ===== EVENT HANDLERS =====
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+
+            if (e.key === 'Escape') {
+                // Could add pause menu
+            }
+
+            if (e.key === 'r' && gameState.gameWon) {
+                location.reload();
+            }
+
+            // Prevent default for game keys
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none';
+            initLayer1();
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        });
+
+        // Editor controls
+        document.querySelectorAll('.editor-btn[data-mod]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mod = btn.dataset.mod;
+                gameState.editorModifiers[mod] = !gameState.editorModifiers[mod];
+                btn.textContent = gameState.editorModifiers[mod] ? 'ON' : 'OFF';
+                btn.classList.toggle('active', gameState.editorModifiers[mod]);
+                saveGame();
+            });
+        });
+
+        document.querySelectorAll('.layer-jump').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const layer = parseInt(btn.dataset.layer);
+                if (gameState.layersDiscovered[layer]) {
+                    switchLayer(layer);
+                }
+            });
+        });
+
+        document.getElementById('paradoxBtn').addEventListener('click', () => {
+            // Check if enough modifiers are active
+            const activeCount = Object.values(gameState.editorModifiers).filter(v => v).length;
+            if (activeCount >= 3) {
+                gameState.paradoxCreated = true;
+                document.getElementById('paradoxBtn').textContent = 'PARADOX ACTIVE';
+                document.getElementById('paradoxBtn').style.background = '#f00';
+                showMessage('REALITY IS COLLAPSING. ALL LAYERS MERGE.', 5000);
+                saveGame();
+            } else {
+                showMessage('Need at least 3 conflicting modifiers active.', 3000);
+            }
+        });
+
+        // Auto-save every 10 seconds
+        setInterval(() => {
+            if (!document.getElementById('startScreen').style.display) {
+                saveGame();
+            }
+        }, 10000);
+
+        // ===== INITIALIZATION =====
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        loadGame();
+        updateUI();
+    </script>
+</body>
+</html>
