@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Visualizer Universe</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+
+        #controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 320px;
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            transition: opacity 0.3s;
+        }
+
+        #controls.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .section {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin: 4px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.active {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 0 20px rgba(245, 87, 108, 0.5);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        select, input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: white;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+
+        input[type="range"] {
+            padding: 0;
+            height: 6px;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 40px;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .button-grid button {
+            margin: 0;
+            font-size: 0.8em;
+            padding: 8px;
+        }
+
+        #dropZone {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        #dropZone:hover, #dropZone.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+        }
+
+        #fps {
+            color: #0f0;
+        }
+
+        .value-display {
+            font-size: 0.85em;
+            color: #667eea;
+            margin-top: 4px;
+        }
+
+        .color-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .color-input-wrapper {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .color-input-wrapper label {
+            font-size: 0.75em;
+            margin-bottom: 4px;
+        }
+
+        #toggleControls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1001;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="controls">
+        <h1>Audio Visualizer Universe</h1>
+
+        <div class="section">
+            <label>Audio Source</label>
+            <button id="micBtn">Microphone</button>
+            <button id="toneBtn">Tone Generator</button>
+            <button id="stopBtn">Stop</button>
+
+            <div id="dropZone">
+                Drop audio file here<br>or click to browse
+            </div>
+            <input type="file" id="fileInput" accept="audio/*" style="display: none;">
+        </div>
+
+        <div class="section" id="toneControls" style="display: none;">
+            <label>Tone Frequency: <span id="freqValue">440 Hz</span></label>
+            <input type="range" id="freqSlider" min="20" max="20000" value="440" step="1">
+        </div>
+
+        <div class="section">
+            <label>Visualization Mode</label>
+            <div class="button-grid">
+                <button class="mode-btn active" data-mode="0">Circular</button>
+                <button class="mode-btn" data-mode="1">Landscape</button>
+                <button class="mode-btn" data-mode="2">Nebula</button>
+                <button class="mode-btn" data-mode="3">Kaleidoscope</button>
+                <button class="mode-btn" data-mode="4">Starfield</button>
+                <button class="mode-btn" data-mode="5">DNA Helix</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Color Theme</label>
+            <select id="themeSelect">
+                <option value="neon">Neon</option>
+                <option value="ocean">Ocean</option>
+                <option value="fire">Fire</option>
+                <option value="synthwave">Synthwave</option>
+                <option value="custom">Custom</option>
+            </select>
+
+            <div id="customColors" style="display: none; margin-top: 10px;">
+                <div class="color-inputs">
+                    <div class="color-input-wrapper">
+                        <label>Primary</label>
+                        <input type="color" id="color1" value="#667eea">
+                    </div>
+                    <div class="color-input-wrapper">
+                        <label>Secondary</label>
+                        <input type="color" id="color2" value="#764ba2">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>Sensitivity: <span id="sensValue">1.0x</span></label>
+            <input type="range" id="sensitivity" min="0.1" max="5" value="1" step="0.1">
+        </div>
+
+        <div class="section">
+            <button id="fullscreenBtn">Fullscreen</button>
+        </div>
+    </div>
+
+    <button id="toggleControls">Hide Controls (H)</button>
+
+    <div id="info">
+        <div>Mode: <span id="modeName">Circular Spectrum</span></div>
+        <div>FPS: <span id="fps">60</span></div>
+    </div>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        // Audio context
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let bufferLength;
+        let source;
+        let oscillator;
+        let gainNode;
+
+        // Visualization state
+        let currentMode = 0;
+        let sensitivity = 1.0;
+        let colorTheme = 'neon';
+        let customColor1 = '#667eea';
+        let customColor2 = '#764ba2';
+
+        // Color themes
+        const themes = {
+            neon: ['#ff00ff', '#00ffff', '#ffff00', '#ff0080'],
+            ocean: ['#0077be', '#00d4ff', '#40e0d0', '#7fffd4'],
+            fire: ['#ff4500', '#ff6347', '#ff8c00', '#ffd700'],
+            synthwave: ['#ff00ff', '#00ffff', '#ff1493', '#7b68ee'],
+            custom: [customColor1, customColor2]
+        };
+
+        // Particles for nebula mode
+        let particles = [];
+        const particleCount = 2000;
+
+        // Stars for starfield mode
+        let stars = [];
+        const starCount = 1000;
+
+        // FPS tracking
+        let lastFrameTime = performance.now();
+        let fps = 60;
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+
+        // Mode names
+        const modeNames = [
+            'Circular Spectrum',
+            'Waveform Landscape',
+            'Particle Nebula',
+            'Geometric Kaleidoscope',
+            'Starfield Warp',
+            'DNA Helix'
+        ];
+
+        // Initialize
+        function init() {
+            initParticles();
+            initStars();
+            setupEventListeners();
+            animate();
+        }
+
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2,
+                    size: Math.random() * 2 + 0.5,
+                    hue: Math.random() * 360
+                });
+            }
+        }
+
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < starCount; i++) {
+                stars.push({
+                    x: (Math.random() - 0.5) * width * 2,
+                    y: (Math.random() - 0.5) * height * 2,
+                    z: Math.random() * width,
+                    size: Math.random() * 2
+                });
+            }
+        }
+
+        function setupAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            bufferLength = analyser.frequencyBinCount;
+            dataArray = new Uint8Array(bufferLength);
+
+            gainNode = audioContext.createGain();
+            gainNode.connect(audioContext.destination);
+        }
+
+        async function startMicrophone() {
+            if (!audioContext) setupAudio();
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stopCurrentSource();
+                source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                analyser.connect(gainNode);
+            } catch (err) {
+                alert('Microphone access denied: ' + err.message);
+            }
+        }
+
+        function startToneGenerator() {
+            if (!audioContext) setupAudio();
+
+            stopCurrentSource();
+            oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+            oscillator.connect(analyser);
+            analyser.connect(gainNode);
+            oscillator.start();
+
+            document.getElementById('toneControls').style.display = 'block';
+        }
+
+        function startAudioFile(file) {
+            if (!audioContext) setupAudio();
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                audioContext.decodeAudioData(e.target.result, function(buffer) {
+                    stopCurrentSource();
+                    source = audioContext.createBufferSource();
+                    source.buffer = buffer;
+                    source.loop = true;
+                    source.connect(analyser);
+                    analyser.connect(gainNode);
+                    source.start();
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function stopCurrentSource() {
+            if (source) {
+                try {
+                    if (source.mediaStream) {
+                        source.mediaStream.getTracks().forEach(track => track.stop());
+                    }
+                    source.disconnect();
+                } catch (e) {}
+                source = null;
+            }
+            if (oscillator) {
+                try {
+                    oscillator.stop();
+                    oscillator.disconnect();
+                } catch (e) {}
+                oscillator = null;
+            }
+            document.getElementById('toneControls').style.display = 'none';
+        }
+
+        function getColors() {
+            if (colorTheme === 'custom') {
+                return [customColor1, customColor2];
+            }
+            return themes[colorTheme];
+        }
+
+        function getAverageVolume() {
+            if (!dataArray) return 0;
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            return (sum / bufferLength / 255) * sensitivity;
+        }
+
+        function getBassLevel() {
+            if (!dataArray) return 0;
+            let sum = 0;
+            const bassRange = Math.floor(bufferLength * 0.1);
+            for (let i = 0; i < bassRange; i++) {
+                sum += dataArray[i];
+            }
+            return (sum / bassRange / 255) * sensitivity;
+        }
+
+        function getMidLevel() {
+            if (!dataArray) return 0;
+            let sum = 0;
+            const start = Math.floor(bufferLength * 0.1);
+            const end = Math.floor(bufferLength * 0.5);
+            for (let i = start; i < end; i++) {
+                sum += dataArray[i];
+            }
+            return (sum / (end - start) / 255) * sensitivity;
+        }
+
+        function getTrebleLevel() {
+            if (!dataArray) return 0;
+            let sum = 0;
+            const start = Math.floor(bufferLength * 0.5);
+            for (let i = start; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            return (sum / (bufferLength - start) / 255) * sensitivity;
+        }
+
+        // Visualization modes
+        function drawCircularSpectrum() {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(width, height) / 3;
+            const barCount = 128;
+            const colors = getColors();
+
+            for (let i = 0; i < barCount; i++) {
+                const angle = (i / barCount) * Math.PI * 2;
+                const value = dataArray[Math.floor(i * bufferLength / barCount)];
+                const barHeight = (value / 255) * radius * sensitivity;
+
+                const x1 = centerX + Math.cos(angle) * radius;
+                const y1 = centerY + Math.sin(angle) * radius;
+                const x2 = centerX + Math.cos(angle) * (radius + barHeight);
+                const y2 = centerY + Math.sin(angle) * (radius + barHeight);
+
+                const colorIndex = Math.floor(i / barCount * colors.length);
+                const color = colors[colorIndex % colors.length];
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+
+                // Glow effect
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = color;
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function drawWaveformLandscape() {
+            if (!analyser) return;
+            analyser.getByteTimeDomainData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+
+            const colors = getColors();
+            const layers = 20;
+            const baseY = height * 0.8;
+
+            for (let layer = 0; layer < layers; layer++) {
+                const alpha = 1 - (layer / layers) * 0.7;
+                const scale = 1 - (layer / layers) * 0.5;
+                const offset = (layer / layers) * height * 0.3;
+
+                ctx.strokeStyle = colors[layer % colors.length];
+                ctx.globalAlpha = alpha;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+
+                const sliceWidth = width / bufferLength;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = baseY - offset + (v - 1) * height * 0.2 * sensitivity * scale;
+
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                    x += sliceWidth;
+                }
+
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function drawParticleNebula() {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+
+            const bass = getBassLevel();
+            const mid = getMidLevel();
+            const treble = getTrebleLevel();
+            const colors = getColors();
+
+            particles.forEach((particle, i) => {
+                // Update position
+                const freqIndex = Math.floor(i / particles.length * bufferLength);
+                const freq = dataArray[freqIndex] / 255;
+
+                particle.vx += (Math.random() - 0.5) * bass * 2;
+                particle.vy += (Math.random() - 0.5) * mid * 2;
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+
+                // Friction
+                particle.vx *= 0.98;
+                particle.vy *= 0.98;
+
+                // Wrap around
+                if (particle.x < 0) particle.x = width;
+                if (particle.x > width) particle.x = 0;
+                if (particle.y < 0) particle.y = height;
+                if (particle.y > height) particle.y = 0;
+
+                // Draw
+                const size = particle.size * (1 + freq * treble * 3);
+                const colorIndex = Math.floor(freq * colors.length);
+                ctx.fillStyle = colors[colorIndex % colors.length];
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function drawKaleidoscope() {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const segments = 12;
+            const colors = getColors();
+            const time = Date.now() * 0.001;
+
+            ctx.save();
+            ctx.translate(centerX, centerY);
+
+            for (let seg = 0; seg < segments; seg++) {
+                ctx.save();
+                ctx.rotate((seg / segments) * Math.PI * 2);
+
+                for (let i = 0; i < 50; i++) {
+                    const freqIndex = Math.floor(i * bufferLength / 50);
+                    const value = dataArray[freqIndex] / 255;
+                    const radius = i * 10 + value * 100 * sensitivity;
+                    const size = 5 + value * 20;
+                    const angle = time + i * 0.1;
+
+                    const x = Math.cos(angle) * radius;
+                    const y = Math.sin(angle) * radius;
+
+                    ctx.fillStyle = colors[i % colors.length];
+                    ctx.globalAlpha = 0.6;
+                    ctx.beginPath();
+                    ctx.arc(x, y, size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+
+        function drawStarfield() {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            const volume = getAverageVolume();
+            const speed = 1 + volume * 20;
+            const colors = getColors();
+
+            ctx.save();
+            ctx.translate(width / 2, height / 2);
+
+            stars.forEach((star, i) => {
+                star.z -= speed;
+                if (star.z <= 0) {
+                    star.x = (Math.random() - 0.5) * width * 2;
+                    star.y = (Math.random() - 0.5) * height * 2;
+                    star.z = width;
+                }
+
+                const x = (star.x / star.z) * width;
+                const y = (star.y / star.z) * height;
+                const size = (1 - star.z / width) * star.size * (1 + volume * 2);
+
+                const freqIndex = Math.floor(i / stars.length * bufferLength);
+                const freq = dataArray[freqIndex] / 255;
+                const colorIndex = Math.floor(freq * colors.length);
+
+                ctx.fillStyle = colors[colorIndex % colors.length];
+                ctx.shadowBlur = size * 2;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            ctx.restore();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawDNAHelix() {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            const colors = getColors();
+            const time = Date.now() * 0.001;
+            const segments = 100;
+            const spacing = height / segments;
+
+            for (let i = 0; i < segments; i++) {
+                const y = i * spacing;
+                const freqIndex = Math.floor(i * bufferLength / segments);
+                const value = dataArray[freqIndex] / 255;
+                const angle = time + i * 0.2;
+                const radius = 100 + value * 200 * sensitivity;
+
+                const x1 = width / 2 + Math.cos(angle) * radius;
+                const x2 = width / 2 - Math.cos(angle) * radius;
+
+                const color1 = colors[0];
+                const color2 = colors[1 % colors.length];
+
+                // Strand 1
+                ctx.fillStyle = color1;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = color1;
+                ctx.beginPath();
+                ctx.arc(x1, y, 5 + value * 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Strand 2
+                ctx.fillStyle = color2;
+                ctx.shadowColor = color2;
+                ctx.beginPath();
+                ctx.arc(x2, y, 5 + value * 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Connection
+                if (i % 5 === 0) {
+                    ctx.strokeStyle = colors[2 % colors.length];
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y);
+                    ctx.lineTo(x2, y);
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+                }
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // FPS calculation
+            const now = performance.now();
+            frameCount++;
+            if (now - lastFpsUpdate > 1000) {
+                fps = Math.round(frameCount * 1000 / (now - lastFpsUpdate));
+                frameCount = 0;
+                lastFpsUpdate = now;
+                document.getElementById('fps').textContent = fps;
+            }
+
+            // Draw current mode
+            switch(currentMode) {
+                case 0: drawCircularSpectrum(); break;
+                case 1: drawWaveformLandscape(); break;
+                case 2: drawParticleNebula(); break;
+                case 3: drawKaleidoscope(); break;
+                case 4: drawStarfield(); break;
+                case 5: drawDNAHelix(); break;
+            }
+        }
+
+        function setupEventListeners() {
+            // Resize
+            window.addEventListener('resize', () => {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                initParticles();
+                initStars();
+            });
+
+            // Audio source buttons
+            document.getElementById('micBtn').addEventListener('click', startMicrophone);
+            document.getElementById('toneBtn').addEventListener('click', startToneGenerator);
+            document.getElementById('stopBtn').addEventListener('click', stopCurrentSource);
+
+            // Tone frequency
+            document.getElementById('freqSlider').addEventListener('input', (e) => {
+                const freq = parseFloat(e.target.value);
+                document.getElementById('freqValue').textContent = freq + ' Hz';
+                if (oscillator) {
+                    oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+                }
+            });
+
+            // File drop
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+
+            dropZone.addEventListener('click', () => fileInput.click());
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('audio/')) {
+                    startAudioFile(file);
+                }
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    startAudioFile(file);
+                }
+            });
+
+            // Mode buttons
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentMode = parseInt(btn.dataset.mode);
+                    document.getElementById('modeName').textContent = modeNames[currentMode];
+                });
+            });
+
+            // Theme select
+            document.getElementById('themeSelect').addEventListener('change', (e) => {
+                colorTheme = e.target.value;
+                document.getElementById('customColors').style.display =
+                    colorTheme === 'custom' ? 'block' : 'none';
+            });
+
+            // Custom colors
+            document.getElementById('color1').addEventListener('input', (e) => {
+                customColor1 = e.target.value;
+                themes.custom[0] = customColor1;
+            });
+
+            document.getElementById('color2').addEventListener('input', (e) => {
+                customColor2 = e.target.value;
+                themes.custom[1] = customColor2;
+            });
+
+            // Sensitivity
+            document.getElementById('sensitivity').addEventListener('input', (e) => {
+                sensitivity = parseFloat(e.target.value);
+                document.getElementById('sensValue').textContent = sensitivity.toFixed(1) + 'x';
+            });
+
+            // Fullscreen
+            document.getElementById('fullscreenBtn').addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                } else {
+                    document.exitFullscreen();
+                }
+            });
+
+            // Toggle controls
+            const controlsPanel = document.getElementById('controls');
+            const toggleBtn = document.getElementById('toggleControls');
+            let controlsVisible = true;
+
+            function toggleControls() {
+                controlsVisible = !controlsVisible;
+                controlsPanel.classList.toggle('hidden');
+                toggleBtn.textContent = controlsVisible ? 'Hide Controls (H)' : 'Show Controls (H)';
+            }
+
+            toggleBtn.addEventListener('click', toggleControls);
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'h' || e.key === 'H') {
+                    toggleControls();
+                }
+                if (e.key === 'f' || e.key === 'F') {
+                    if (!document.fullscreenElement) {
+                        document.documentElement.requestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                }
+                // Number keys for mode switching
+                const num = parseInt(e.key);
+                if (num >= 1 && num <= 6) {
+                    currentMode = num - 1;
+                    document.querySelectorAll('.mode-btn').forEach((btn, i) => {
+                        btn.classList.toggle('active', i === currentMode);
+                    });
+                    document.getElementById('modeName').textContent = modeNames[currentMode];
+                }
+            });
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>
