@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fungal Bloom - Living Mycelial Art</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="generative_art">
+<meta name="rappterzoo:tags" content="generative,art,simulation,canvas,procedural,interactive,biology">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080608;color:#e0dcd0;font-family:'Georgia',serif;overflow:hidden;width:100vw;height:100vh}
+canvas{display:block;position:absolute;top:0;left:0;cursor:crosshair}
+#controls{position:absolute;top:12px;right:12px;background:rgba(10,8,8,0.92);border:1px solid rgba(180,140,90,0.3);border-radius:10px;padding:14px;width:220px;z-index:10;font-size:12px;box-shadow:0 4px 20px rgba(0,0,0,0.6);backdrop-filter:blur(8px)}
+#controls h3{color:#c8a060;font-size:14px;margin-bottom:10px;font-weight:normal;letter-spacing:1px}
+.cg{margin-bottom:10px}
+.cl{color:#888;font-size:11px;display:flex;justify-content:space-between;margin-bottom:3px}
+.cl span{color:#c8a060}
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:#333;border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:#c8a060;border-radius:50%;cursor:pointer;box-shadow:0 0 6px rgba(200,160,96,0.4)}
+.br{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.bt{background:rgba(200,160,96,0.08);border:1px solid rgba(200,160,96,0.25);border-radius:5px;padding:6px 10px;color:#c8a060;font-family:Georgia,serif;font-size:11px;cursor:pointer;transition:all 0.2s}
+.bt:hover{background:rgba(200,160,96,0.18);border-color:rgba(200,160,96,0.6);transform:translateY(-1px);box-shadow:0 3px 10px rgba(200,160,96,0.15)}
+.bt.act{background:rgba(200,160,96,0.22);border-color:#c8a060}
+select{background:#151012;color:#c8a060;border:1px solid rgba(200,160,96,0.3);border-radius:4px;padding:4px 8px;font-family:Georgia,serif;font-size:11px;width:100%;outline:none;cursor:pointer}
+#info{position:absolute;bottom:12px;left:12px;background:rgba(10,8,8,0.85);border:1px solid rgba(180,140,90,0.2);border-radius:8px;padding:10px 14px;font-size:11px;color:#777;z-index:10;backdrop-filter:blur(4px)}
+#info span{color:#c8a060}
+#ttl{position:absolute;top:12px;left:12px;z-index:10;pointer-events:none}
+#ttl h1{font-size:22px;color:#c8a060;font-weight:normal;text-shadow:0 0 25px rgba(200,160,96,0.3);letter-spacing:2px}
+#ttl p{font-size:11px;color:#555;margin-top:3px}
+#pp{display:flex;gap:3px;margin-top:6px}
+.ps{width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,0.08)}
+@media(max-width:768px){#controls{width:180px;padding:10px;font-size:10px}#controls h3{font-size:12px}#ttl h1{font-size:17px}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ttl"><h1>Fungal Bloom</h1><p>Click to plant spores. Watch the mycelium grow.</p></div>
+<div id="controls">
+  <h3>Colony Parameters</h3>
+  <div class="cg"><div class="cl">Growth Rate <span id="vs">5</span></div><input type="range" id="rs" min="1" max="15" value="5" oninput="C.speed=+this.value;$('vs').textContent=this.value"></div>
+  <div class="cg"><div class="cl">Branching <span id="vb">4</span></div><input type="range" id="rb" min="1" max="12" value="4" oninput="C.branch=+this.value/100;$('vb').textContent=this.value"></div>
+  <div class="cg"><div class="cl">Max Depth <span id="vd">9</span></div><input type="range" id="rd" min="3" max="16" value="9" oninput="C.depth=+this.value;$('vd').textContent=this.value"></div>
+  <div class="cg"><div class="cl">Spore Drift <span id="vf">3</span></div><input type="range" id="rf" min="0" max="10" value="3" oninput="C.drift=+this.value/10;$('vf').textContent=this.value"></div>
+  <div class="cg"><div class="cl">Palette</div>
+    <select id="sp" onchange="setPal(this.value)">
+      <option value="earth">Earth Tones</option>
+      <option value="glow">Bioluminescent</option>
+      <option value="frost">Arctic Frost</option>
+      <option value="ember">Ember Glow</option>
+      <option value="abyss">Deep Abyss</option>
+      <option value="toxic">Toxic Garden</option>
+    </select>
+    <div id="pp"></div>
+  </div>
+  <div class="cg"><div class="cl">Tool</div>
+    <div class="br">
+      <button class="bt act" id="tg" onclick="setTool('grow')">Seed</button>
+      <button class="bt" id="tn" onclick="setTool('nourish')">Nourish</button>
+      <button class="bt" id="tc" onclick="setTool('cut')">Cut</button>
+    </div>
+  </div>
+  <div class="br">
+    <button class="bt" onclick="clearAll()">Clear</button>
+    <button class="bt" onclick="autoPlant()">Auto Plant</button>
+    <button class="bt" onclick="savePNG()">Save PNG</button>
+    <button class="bt" onclick="exportJSON()">Export</button>
+  </div>
+</div>
+<div id="info">Filaments: <span id="ih">0</span> | Nodes: <span id="in">0</span> | Spores: <span id="is">0</span> | FPS: <span id="if">60</span></div>
+
+<script>
+const $=id=>document.getElementById(id);
+// ===== AUDIO =====
+class Snd{constructor(){this.x=null;this.r=false}
+init(){if(this.r)return;try{this.x=new(window.AudioContext||window.webkitAudioContext)();this.r=true}catch(e){}}
+t(f,d,v,w){if(!this.x)return;try{const o=this.x.createOscillator(),g=this.x.createGain();o.type=w||'sine';o.frequency.setValueAtTime(f,this.x.currentTime);g.gain.setValueAtTime(v||0.025,this.x.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.x.currentTime+d);o.connect(g);g.connect(this.x.destination);o.start();o.stop(this.x.currentTime+d)}catch(e){}}
+grow(){this.t(180+Math.random()*250,0.35,0.02)}
+branch(){this.t(380+Math.random()*180,0.12,0.03,'triangle')}
+bloom(){this.t(550,0.5,0.035);setTimeout(()=>this.t(750,0.35,0.03),90)}
+seed(){this.t(280,0.2,0.035,'triangle');this.t(420,0.18,0.025)}
+cut(){this.t(90,0.18,0.035,'sawtooth')}
+}const snd=new Snd();
+
+// ===== PALETTES =====
+const PAL={
+  earth:['#8B7355','#6B8E23','#556B2F','#8FBC8F','#D2B48C','#F5DEB3','#A0522D'],
+  glow:['#00FF88','#00DDBB','#0099FF','#5500FF','#FF00DD','#00FFBB','#88FF22'],
+  frost:['#B0E0E6','#ADD8E6','#87CEEB','#E0FFFF','#DCDCDC','#A0C4E8','#C8E8F0'],
+  ember:['#FF4500','#FF6347','#FF8C00','#FFD700','#FF3300','#CC2200','#FFAA44'],
+  abyss:['#1A0044','#2A0066','#4400AA','#6600CC','#8800FF','#AA44FF','#3300AA'],
+  toxic:['#88FF00','#AAFF44','#44DD00','#CCFF88','#00AA22','#66FF33','#228B22']
+};
+
+// ===== CONFIG =====
+const C={speed:5,branch:0.04,depth:9,drift:0.3,pal:'earth',tool:'grow'};
+
+// ===== STATE =====
+let hyphae=[],nodes=[],spores=[],nutrients=[],frame=0,fps=60,fc=0,ft=0;
+
+// ===== CANVAS =====
+const cv=document.getElementById('c');
+const cx=cv.getContext('2d');
+const bg=document.createElement('canvas');
+const bx=bg.getContext('2d');
+function resize(){cv.width=bg.width=innerWidth;cv.height=bg.height=innerHeight;bx.fillStyle='#080608';bx.fillRect(0,0,bg.width,bg.height)}
+addEventListener('resize',resize);resize();
+
+// ===== HYPHA =====
+class Hypha{
+  constructor(x,y,a,d){
+    this.x=x;this.y=y;this.a=a;this.d=d;
+    this.sp=C.speed*(0.7+Math.random()*0.6);
+    this.life=1;this.age=0;this.alive=true;
+    this.thick=Math.max(0.4,3.5-d*0.35);
+    this.segs=[{x,y}];
+    this.branched=false;this.nutr=1;
+    this.col=PAL[C.pal][Math.floor(Math.random()*PAL[C.pal].length)];
+    this.wb=Math.random()*0.35;this.ws=0.015+Math.random()*0.03;
+    this.curveB=(Math.random()-0.5)*0.02;
+  }
+  update(){
+    if(!this.alive)return;
+    this.age++;
+    // Nutrient attraction
+    let ba=this.a,bd=Infinity;
+    for(const n of nutrients){const dx=n.x-this.x,dy=n.y-this.y,dd=Math.sqrt(dx*dx+dy*dy);
+      if(dd<n.r&&dd<bd){bd=dd;ba=Math.atan2(dy,dx);this.nutr=Math.min(2.2,this.nutr+0.012)}}
+    this.a+=(ba-this.a)*(bd<100?0.12:0);
+    this.a+=Math.sin(this.age*this.ws)*this.wb+this.curveB;
+    this.a+=(Math.random()-0.5)*0.12;
+    const sp=this.sp*this.nutr*(1-this.d*0.06);
+    this.x+=Math.cos(this.a)*sp;this.y+=Math.sin(this.a)*sp;
+    this.segs.push({x:this.x,y:this.y});
+    if(this.segs.length>250)this.segs.shift();
+    // Branch
+    if(Math.random()<C.branch*this.nutr&&this.d<C.depth&&this.age>15){
+      const ba2=this.a+(Math.random()>0.5?1:-1)*(0.25+Math.random()*0.9);
+      hyphae.push(new Hypha(this.x,this.y,ba2,this.d+1));snd.branch();
+      nodes.push({x:this.x,y:this.y,r:1.5+Math.random()*2.5,c:this.col,l:1,a:0,bl:false});
+      if(this.d>2&&Math.random()<0.6)this.branched=true;
+    }
+    // Decay
+    this.life-=0.0015*(1+this.d*0.12);this.nutr=Math.max(0.25,this.nutr-0.0008);
+    if(this.life<=0||this.x<-60||this.x>cv.width+60||this.y<-60||this.y>cv.height+60){
+      this.alive=false;
+      if(Math.random()<0.12)spores.push({x:this.x,y:this.y,vx:(Math.random()-0.5)*C.drift,vy:-0.4-Math.random()*C.drift,l:100+Math.random()*80,c:this.col,s:0.8+Math.random()*1.5});
+    }
+    if(this.age%120===0&&this.d<3){nodes.push({x:this.x,y:this.y,r:3+Math.random()*5,c:this.col,l:1,a:0,bl:true});snd.bloom()}
+  }
+  draw(c){
+    if(this.segs.length<2)return;
+    c.strokeStyle=this.col;c.lineWidth=this.thick*this.nutr;c.lineCap='round';c.globalAlpha=this.life*0.85;
+    c.beginPath();c.moveTo(this.segs[0].x,this.segs[0].y);
+    for(let i=1;i<this.segs.length;i++)c.lineTo(this.segs[i].x,this.segs[i].y);
+    c.stroke();
+    if(this.age<40){c.lineWidth=this.thick*2.5;c.globalAlpha=this.life*0.06;c.beginPath();c.moveTo(this.segs[0].x,this.segs[0].y);for(let i=1;i<this.segs.length;i++)c.lineTo(this.segs[i].x,this.segs[i].y);c.stroke()}
+    c.globalAlpha=1;
+  }
+}
+
+// ===== FUNCTIONS =====
+function plantSpore(x,y){
+  snd.init();snd.seed();
+  const n=4+Math.floor(Math.random()*7);
+  for(let i=0;i<n;i++){const a=i/n*Math.PI*2+Math.random()*0.4;hyphae.push(new Hypha(x,y,a,0))}
+  nodes.push({x,y,r:5,c:PAL[C.pal][0],l:1,a:0,bl:true});
+  nutrients.push({x,y,r:70+Math.random()*40,str:1,l:500+Math.random()*500});
+}
+function nourish(x,y){snd.init();snd.t(340,0.12,0.025,'triangle');nutrients.push({x,y,r:60+Math.random()*30,str:1,l:350+Math.random()*250})}
+function cut(x,y,r){snd.init();snd.cut();hyphae.forEach(h=>{if(!h.alive)return;const d=Math.sqrt((h.x-x)**2+(h.y-y)**2);if(d<r){h.alive=false;for(let i=0;i<4;i++)spores.push({x:h.x+Math.random()*8-4,y:h.y+Math.random()*8-4,vx:(Math.random()-0.5)*1.2,vy:-0.8-Math.random(),l:50+Math.random()*40,c:h.col,s:0.8+Math.random()})}})}
+
+// ===== INPUT =====
+let mdn=false,mx=0,my=0;
+cv.addEventListener('mousedown',e=>{mdn=true;mx=e.clientX;my=e.clientY;doTool(e.clientX,e.clientY)});
+cv.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;if(mdn){if(C.tool==='cut')cut(e.clientX,e.clientY,45);if(C.tool==='nourish')nourish(e.clientX,e.clientY)}});
+cv.addEventListener('mouseup',()=>mdn=false);
+cv.addEventListener('touchstart',e=>{const t=e.touches[0];mdn=true;mx=t.clientX;my=t.clientY;doTool(t.clientX,t.clientY);snd.init()},{passive:true});
+cv.addEventListener('touchmove',e=>{const t=e.touches[0];mx=t.clientX;my=t.clientY;if(C.tool==='cut')cut(t.clientX,t.clientY,45);if(C.tool==='nourish')nourish(t.clientX,t.clientY)},{passive:true});
+cv.addEventListener('touchend',()=>mdn=false,{passive:true});
+function doTool(x,y){switch(C.tool){case 'grow':plantSpore(x,y);break;case 'nourish':nourish(x,y);break;case 'cut':cut(x,y,45);break}}
+
+// ===== UI =====
+function setTool(t){C.tool=t;document.querySelectorAll('.br .bt').forEach(b=>b.classList.remove('act'));$('t'+t[0]).classList.add('act')}
+function setPal(p){C.pal=p;updPP()}
+function updPP(){$('pp').innerHTML=PAL[C.pal].map(c=>'<div class="ps" style="background:'+c+'"></div>').join('')}
+function clearAll(){hyphae=[];nodes=[];spores=[];nutrients=[];bx.fillStyle='#080608';bx.fillRect(0,0,bg.width,bg.height)}
+function autoPlant(){for(let i=0;i<4+Math.floor(Math.random()*4);i++)plantSpore(80+Math.random()*(cv.width-160),80+Math.random()*(cv.height-160))}
+function savePNG(){const a=document.createElement('a');a.download='fungal-bloom-'+Date.now()+'.png';a.href=cv.toDataURL();a.click()}
+function exportJSON(){const d={pal:C.pal,settings:C,nodeCount:nodes.length};const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const a=document.createElement('a');a.download='fungal-bloom-'+Date.now()+'.json';a.href=URL.createObjectURL(b);a.click()}
+
+// ===== SAVE/LOAD =====
+function saveS(){try{localStorage.setItem('fungalBloom_cfg',JSON.stringify(C))}catch(e){}}
+function loadS(){try{const d=localStorage.getItem('fungalBloom_cfg');if(d){const s=JSON.parse(d);Object.assign(C,s);$('rs').value=C.speed;$('rb').value=Math.round(C.branch*100);$('rd').value=C.depth;$('rf').value=Math.round(C.drift*10);$('sp').value=C.pal;$('vs').textContent=C.speed;$('vb').textContent=Math.round(C.branch*100);$('vd').textContent=C.depth;$('vf').textContent=Math.round(C.drift*10)}}catch(e){}}
+
+// ===== LOOP =====
+let lt=0;
+function loop(t){
+  const dt=(t-lt)/1000;lt=t;frame++;fc++;
+  if(t-ft>=1000){fps=fc;fc=0;ft=t;saveS()}
+  // Update
+  for(let i=hyphae.length-1;i>=0;i--){hyphae[i].update();if(!hyphae[i].alive){hyphae[i].draw(bx);hyphae.splice(i,1)}}
+  for(let i=nutrients.length-1;i>=0;i--){nutrients[i].l--;nutrients[i].str=nutrients[i].l/500;if(nutrients[i].l<=0)nutrients.splice(i,1)}
+  for(const n of nodes){n.a++;n.l=Math.max(0,n.l-0.0015)}
+  for(let i=spores.length-1;i>=0;i--){const s=spores[i];s.x+=s.vx;s.y+=s.vy;s.vy+=0.008;s.l--;if(s.l<=0){spores.splice(i,1);if(Math.random()<0.04&&s.y<cv.height)plantSpore(s.x,s.y)}}
+  if(hyphae.length>600){const ex=hyphae.length-600;for(let i=0;i<ex;i++){hyphae[i].draw(bx);hyphae[i].alive=false}hyphae=hyphae.filter(h=>h.alive)}
+  // Render
+  cx.drawImage(bg,0,0);
+  if(frame%150===0){bx.fillStyle='rgba(8,6,8,0.008)';bx.fillRect(0,0,bg.width,bg.height)}
+  for(const n of nutrients){const a=n.str*0.12;const g=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);g.addColorStop(0,'rgba(200,160,96,'+a+')');g.addColorStop(1,'rgba(200,160,96,0)');cx.fillStyle=g;cx.beginPath();cx.arc(n.x,n.y,n.r,0,Math.PI*2);cx.fill()}
+  for(const h of hyphae)h.draw(cx);
+  for(const n of nodes){if(n.l<=0)continue;cx.globalAlpha=n.l;if(n.bl){const p=1+Math.sin(n.a*0.04)*0.35;const g=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r*p*2.2);g.addColorStop(0,n.c);g.addColorStop(0.5,n.c+'77');g.addColorStop(1,n.c+'00');cx.fillStyle=g;cx.beginPath();cx.arc(n.x,n.y,n.r*p*2.2,0,Math.PI*2);cx.fill()}cx.fillStyle=n.c;cx.beginPath();cx.arc(n.x,n.y,n.r,0,Math.PI*2);cx.fill();cx.globalAlpha=1}
+  for(const s of spores){cx.globalAlpha=s.l/120;cx.fillStyle=s.c;cx.beginPath();cx.arc(s.x,s.y,s.s,0,Math.PI*2);cx.fill();cx.globalAlpha=1}
+  // Cursor
+  if(C.tool==='grow'){cx.strokeStyle='rgba(200,160,96,0.25)';cx.lineWidth=1;cx.setLineDash([3,4]);cx.beginPath();cx.arc(mx,my,14,0,Math.PI*2);cx.stroke();cx.setLineDash([])}
+  else if(C.tool==='nourish'){cx.strokeStyle='rgba(200,160,96,0.15)';cx.lineWidth=1;cx.beginPath();cx.arc(mx,my,65,0,Math.PI*2);cx.stroke()}
+  else if(C.tool==='cut'){cx.strokeStyle='rgba(255,80,80,0.25)';cx.lineWidth=1;cx.beginPath();cx.arc(mx,my,45,0,Math.PI*2);cx.stroke()}
+  // Ambient particles
+  if(frame%10===0){const ax=Math.random()*cv.width,ay=Math.random()*cv.height;spores.push({x:ax,y:ay,vx:(Math.random()-0.5)*0.15,vy:-0.15,l:40+Math.random()*30,c:'rgba(200,160,96,0.15)',s:0.8})}
+  // HUD
+  $('ih').textContent=hyphae.length;$('in').textContent=nodes.length;$('is').textContent=spores.length;$('if').textContent=fps;
+  requestAnimationFrame(loop);
+}
+loadS();updPP();requestAnimationFrame(loop);
+setTimeout(()=>plantSpore(cv.width/2,cv.height/2),400);
+</script>
+</body>
+</html>

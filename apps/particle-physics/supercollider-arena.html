@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supercollider Arena - Particle Physics Battle</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="particle_physics">
+<meta name="rappterzoo:tags" content="game,physics,particles,canvas,action,audio">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050510;color:#e0e0e0;font-family:'Courier New',monospace;overflow:hidden;width:100vw;height:100vh}
+canvas{display:block;position:absolute;top:0;left:0}
+#hud{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.8);border:1px solid #00ccff;border-radius:8px;padding:8px 14px;font-size:13px;display:flex;gap:16px;z-index:10;box-shadow:0 0 15px rgba(0,204,255,0.2)}
+.hi{display:flex;align-items:center;gap:4px}
+.hl{color:#888;font-size:11px}
+.hv{font-weight:bold;font-size:15px}
+.hp-bar{width:120px;height:10px;background:#222;border-radius:5px;overflow:hidden;margin-left:5px}
+.hp-fill{height:100%;border-radius:5px;transition:width 0.3s}
+#abilities{position:absolute;bottom:15px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:10}
+.ability-btn{width:60px;height:60px;background:rgba(0,0,0,0.8);border:2px solid #444;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e0e0e0;font-size:10px;cursor:pointer;transition:all 0.2s;position:relative}
+.ability-btn:hover{border-color:#00ccff;transform:translateY(-3px);box-shadow:0 5px 15px rgba(0,204,255,0.3)}
+.ability-btn.ready{border-color:#00ff88}
+.ability-btn.cooldown{border-color:#ff4444;opacity:0.6}
+.ability-icon{font-size:22px;margin-bottom:2px}
+.ability-cd{position:absolute;bottom:2px;font-size:9px;color:#ff8800}
+.ability-key{position:absolute;top:2px;right:4px;font-size:9px;color:#888}
+#menu{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100}
+#menu h1{font-size:44px;color:#00ccff;text-shadow:0 0 30px rgba(0,204,255,0.6);margin-bottom:8px}
+#menu h2{font-size:16px;color:#888;margin-bottom:35px;font-weight:normal}
+.mbtn{background:linear-gradient(135deg,#0a0a2e,#1a1a4e);border:2px solid #00ccff;border-radius:8px;padding:14px 38px;color:#e0e0e0;font-family:'Courier New',monospace;font-size:17px;cursor:pointer;margin:7px;min-width:240px;transition:all 0.3s}
+.mbtn:hover{background:linear-gradient(135deg,#1a1a4e,#2a2a6e);border-color:#00ff88;transform:scale(1.05);box-shadow:0 0 20px rgba(0,255,136,0.3)}
+.dlbl{font-size:11px;color:#888;margin-top:3px}
+#go-screen,#win-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:100}
+#go-screen h1{font-size:40px;color:#ff4444;text-shadow:0 0 30px rgba(255,68,68,0.5);margin-bottom:20px}
+#win-screen h1{font-size:40px;color:#ffaa00;text-shadow:0 0 30px rgba(255,170,0,0.5);margin-bottom:20px}
+.sd{color:#aaa;font-size:15px;margin:4px}.sd span{color:#00ff88}
+#pause{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:90}
+#pause.active{display:flex}
+#pause h1{font-size:36px;color:#ffaa00;margin-bottom:25px}
+#scores{margin-top:20px;border:1px solid #333;border-radius:8px;padding:12px;background:rgba(0,0,0,0.5);min-width:280px}
+#scores h3{color:#ffaa00;margin-bottom:8px}
+.se{display:flex;justify-content:space-between;padding:2px 0;color:#888;font-size:13px}
+.se .rk{color:#ffaa00;width:28px}.se .nm{color:#e0e0e0;flex:1}.se .pt{color:#00ff88}
+#wave-announce{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);font-size:40px;color:#00ccff;text-shadow:0 0 40px rgba(0,204,255,0.8);display:none;z-index:50;pointer-events:none;text-align:center}
+@media(max-width:768px){
+#hud{font-size:10px;padding:5px 8px;gap:8px}.hv{font-size:12px}.hp-bar{width:80px;height:7px}
+.ability-btn{width:48px;height:48px;font-size:8px}.ability-icon{font-size:18px}
+#menu h1{font-size:30px}.mbtn{padding:10px 22px;font-size:14px;min-width:180px}
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hi"><span class="hl">HP</span><div class="hp-bar"><div class="hp-fill" id="hp-bar" style="width:100%;background:linear-gradient(90deg,#ff4444,#ff8844)"></div></div></div>
+  <div class="hi"><span class="hl">Energy</span><div class="hp-bar"><div class="hp-fill" id="en-bar" style="width:100%;background:linear-gradient(90deg,#0088ff,#00ccff)"></div></div></div>
+  <div class="hi"><span class="hl">Wave</span><span class="hv" style="color:#00ccff" id="h-wave">1</span></div>
+  <div class="hi"><span class="hl">Score</span><span class="hv" style="color:#00ff88" id="h-score">0</span></div>
+  <div class="hi"><span class="hl">Combo</span><span class="hv" style="color:#ff44ff" id="h-combo">x1</span></div>
+</div>
+<div id="abilities">
+  <div class="ability-btn ready" id="ab0" onclick="useAbility(0)"><span class="ability-key">1</span><span class="ability-icon">o</span><span>Photon</span></div>
+  <div class="ability-btn ready" id="ab1" onclick="useAbility(1)"><span class="ability-key">2</span><span class="ability-icon">~</span><span>Wave</span></div>
+  <div class="ability-btn ready" id="ab2" onclick="useAbility(2)"><span class="ability-key">3</span><span class="ability-icon">#</span><span>Shield</span></div>
+  <div class="ability-btn" id="ab3" onclick="useAbility(3)" style="display:none"><span class="ability-key">4</span><span class="ability-icon">@</span><span>Fusion</span></div>
+</div>
+<div id="wave-announce"></div>
+<div id="menu">
+  <h1>SUPERCOLLIDER ARENA</h1>
+  <h2>Particle Physics Battle Game</h2>
+  <button class="mbtn" onclick="startGame('easy')">Easy Mode<div class="dlbl">Fewer particles, slower decay</div></button>
+  <button class="mbtn" onclick="startGame('normal')">Normal Mode<div class="dlbl">Balanced antimatter challenge</div></button>
+  <button class="mbtn" onclick="startGame('hard')">Hard Mode<div class="dlbl">Maximum entropy, boss rush</div></button>
+  <div id="scores"><h3>High Scores</h3><div id="sl"></div></div>
+</div>
+<div id="go-screen">
+  <h1>ANNIHILATED</h1>
+  <div class="sd">Wave reached: <span id="gs-wave">1</span></div>
+  <div class="sd">Particles destroyed: <span id="gs-kills">0</span></div>
+  <div class="sd">Max combo: <span id="gs-combo">x1</span></div>
+  <div class="sd">Final score: <span id="gs-score">0</span></div>
+  <button class="mbtn" onclick="toMenu()" style="margin-top:20px">Play Again (R)</button>
+</div>
+<div id="win-screen">
+  <h1>GRAND UNIFICATION</h1>
+  <h2 style="color:#ffaa00;font-size:16px;margin-bottom:15px">All 30 waves conquered!</h2>
+  <div class="sd">Particles destroyed: <span id="ws-kills">0</span></div>
+  <div class="sd">Max combo: <span id="ws-combo">x1</span></div>
+  <div class="sd">Final score: <span id="ws-score">0</span></div>
+  <button class="mbtn" onclick="toMenu()" style="margin-top:20px">Play Again</button>
+</div>
+<div id="pause"><h1>PAUSED</h1><button class="mbtn" onclick="togglePause()">Resume (ESC)</button><button class="mbtn" onclick="toMenu()">Quit</button></div>
+
+<script>
+// ===== AUDIO =====
+class SFX{
+  constructor(){this.c=null;this.ok=false}
+  init(){if(this.ok)return;try{this.c=new(window.AudioContext||window.webkitAudioContext)();this.ok=true}catch(e){}}
+  tone(t,f,d,v){if(!this.c)return;try{const o=this.c.createOscillator(),g=this.c.createGain();o.type=t;o.frequency.setValueAtTime(f,this.c.currentTime);g.gain.setValueAtTime(v||0.12,this.c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.c.currentTime+d);o.connect(g);g.connect(this.c.destination);o.start();o.stop(this.c.currentTime+d)}catch(e){}}
+  shoot(){this.tone('sine',800,0.08,0.1);this.tone('square',600,0.05,0.05)}
+  wave(){this.tone('sine',400,0.2,0.12);this.tone('triangle',300,0.3,0.08)}
+  shield(){this.tone('sine',500,0.15,0.1);this.tone('sine',700,0.1,0.08)}
+  fusion(){this.tone('sawtooth',200,0.4,0.15);this.tone('sine',100,0.5,0.1)}
+  hit(){this.tone('sawtooth',150,0.12,0.15);this.tone('square',100,0.1,0.08)}
+  kill(){this.tone('sine',600,0.08,0.1);setTimeout(()=>this.tone('sine',800,0.06,0.08),50)}
+  combo(){this.tone('sine',500+G.combo*40,0.08,0.1)}
+  boss(){this.tone('sawtooth',60,0.6,0.2);setTimeout(()=>this.tone('square',50,0.5,0.15),150)}
+  die(){for(let i=0;i<6;i++)setTimeout(()=>this.tone('sawtooth',200-i*25,0.15,0.08),i*80)}
+  win(){[523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>this.tone('sine',f,0.25,0.1),i*130))}
+  pickup(){this.tone('sine',900,0.06,0.08);this.tone('sine',1200,0.05,0.06)}
+  waveStart(){this.tone('triangle',440,0.15,0.1);setTimeout(()=>this.tone('triangle',660,0.15,0.1),120)}
+}
+const sfx=new SFX();
+
+// ===== GAME STATE =====
+const G={
+  state:'menu',diff:'normal',
+  w:0,h:0,
+  px:0,py:0,pvx:0,pvy:0,hp:100,maxHp:100,energy:100,maxEnergy:100,
+  speed:4,score:0,combo:1,maxCombo:1,kills:0,
+  wave:1,maxWaves:30,waveTimer:0,waveDelay:180,spawning:false,
+  enemies:[],bullets:[],particles:[],pickups:[],
+  abilities:[
+    {name:'Photon',cd:0,maxCd:8,cost:5,unlocked:true},
+    {name:'Wave',cd:0,maxCd:45,cost:20,unlocked:true},
+    {name:'Shield',cd:0,maxCd:90,cost:30,unlocked:true},
+    {name:'Fusion',cd:0,maxCd:120,cost:50,unlocked:false}
+  ],
+  shieldActive:false,shieldTimer:0,
+  shakeX:0,shakeY:0,shakeT:0,
+  keys:{},mouse:{x:0,y:0,down:false},
+  frame:0,
+  highScores:[],
+  mods:{easy:{eMul:0.6,dMul:0.5,spdMul:0.8},normal:{eMul:1,dMul:1,spdMul:1},hard:{eMul:1.5,dMul:1.5,spdMul:1.3}},
+  arenaR:0,
+  comboTimer:0
+};
+
+// ===== ENEMY TYPES =====
+const ETYPES=[
+  {name:'electron',hp:15,speed:1.5,dmg:5,score:50,color:'#4488ff',r:8,behavior:'chase'},
+  {name:'positron',hp:20,speed:2,dmg:8,score:75,color:'#ff4488',r:9,behavior:'orbit'},
+  {name:'muon',hp:30,speed:1,dmg:10,score:100,color:'#44ffaa',r:10,behavior:'zigzag'},
+  {name:'neutron',hp:50,speed:0.8,dmg:15,score:120,color:'#aaaaaa',r:12,behavior:'tank'},
+  {name:'quark',hp:10,speed:3.5,dmg:4,score:60,color:'#ff8800',r:6,behavior:'swarm'},
+  {name:'boson',hp:25,speed:2.5,dmg:12,score:150,color:'#ffff44',r:11,behavior:'teleport'},
+  {name:'antimatter',hp:200,speed:1.2,dmg:25,score:500,color:'#ff0044',r:22,behavior:'boss'}
+];
+
+// ===== CANVAS =====
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+function resize(){canvas.width=G.w=innerWidth;canvas.height=G.h=innerHeight;G.arenaR=Math.min(G.w,G.h)*0.42}
+addEventListener('resize',resize);resize();
+
+// ===== INPUT =====
+addEventListener('keydown',e=>{G.keys[e.key]=true;if(e.key==='Escape'){if(G.state==='playing')togglePause();else if(G.state==='paused')togglePause()}if((e.key==='r'||e.key==='R')&&(G.state==='gameover'||G.state==='victory'))toMenu();if(e.key>='1'&&e.key<='4')useAbility(parseInt(e.key)-1);sfx.init()});
+addEventListener('keyup',e=>{G.keys[e.key]=false});
+addEventListener('mousemove',e=>{G.mouse.x=e.clientX;G.mouse.y=e.clientY});
+addEventListener('mousedown',e=>{G.mouse.down=true;sfx.init();if(G.state==='playing')useAbility(0)});
+addEventListener('mouseup',()=>{G.mouse.down=false});
+addEventListener('touchstart',e=>{const t=e.touches[0];G.mouse.x=t.clientX;G.mouse.y=t.clientY;G.mouse.down=true;sfx.init();if(G.state==='playing')useAbility(0)},{passive:true});
+addEventListener('touchmove',e=>{const t=e.touches[0];G.mouse.x=t.clientX;G.mouse.y=t.clientY},{passive:true});
+addEventListener('touchend',()=>{G.mouse.down=false},{passive:true});
+
+// ===== SAVE/LOAD =====
+function saveHS(){try{localStorage.setItem('superCollider_hs',JSON.stringify(G.highScores))}catch(e){}}
+function loadHS(){try{const d=localStorage.getItem('superCollider_hs');if(d)G.highScores=JSON.parse(d)}catch(e){}}
+function addHS(s,w,d){G.highScores.push({score:s,wave:w,diff:d,date:new Date().toLocaleDateString()});G.highScores.sort((a,b)=>b.score-a.score);G.highScores=G.highScores.slice(0,10);saveHS()}
+function renderHS(){const l=document.getElementById('sl');if(!G.highScores.length){l.innerHTML='<div style="color:#666;font-size:12px">No scores yet</div>';return}l.innerHTML=G.highScores.map((s,i)=>'<div class="se"><span class="rk">#'+(i+1)+'</span><span class="nm">Wave '+s.wave+' ('+s.diff+')</span><span class="pt">'+s.score+'</span></div>').join('')}
+
+// ===== PARTICLES =====
+class Pt{constructor(x,y,vx,vy,c,l,s){this.x=x;this.y=y;this.vx=vx;this.vy=vy;this.c=c;this.l=l;this.ml=l;this.s=s||2}
+update(){this.x+=this.vx;this.y+=this.vy;this.vx*=0.97;this.vy*=0.97;this.l--}}
+function spawnPts(x,y,c,n,spd){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=spd||2+Math.random()*3;G.particles.push(new Pt(x,y,Math.cos(a)*s,Math.sin(a)*s,c,25+Math.random()*20,1.5+Math.random()*2))}}
+
+// ===== GAME FUNCTIONS =====
+function startGame(d){sfx.init();sfx.waveStart();G.diff=d;G.state='playing';G.wave=1;G.score=0;G.combo=1;G.maxCombo=1;G.kills=0;G.hp=100;G.maxHp=100;G.energy=100;G.px=G.w/2;G.py=G.h/2;G.pvx=0;G.pvy=0;G.enemies=[];G.bullets=[];G.particles=[];G.pickups=[];G.waveTimer=0;G.spawning=true;G.shieldActive=false;G.shieldTimer=0;G.comboTimer=0;G.frame=0;
+G.abilities.forEach(a=>{a.cd=0});G.abilities[3].unlocked=false;
+document.getElementById('menu').style.display='none';document.getElementById('go-screen').style.display='none';document.getElementById('win-screen').style.display='none';
+document.getElementById('ab3').style.display='none';
+spawnWave()}
+
+function spawnWave(){const m=G.mods[G.diff];const count=Math.floor((3+G.wave*1.5)*m.eMul);const maxType=Math.min(Math.floor(G.wave/4),ETYPES.length-2);
+announceWave('WAVE '+G.wave);
+for(let i=0;i<count;i++){const angle=Math.random()*Math.PI*2;const dist=G.arenaR+50+Math.random()*100;const sx=G.w/2+Math.cos(angle)*dist;const sy=G.h/2+Math.sin(angle)*dist;const ti=Math.floor(Math.random()*(maxType+1));const t=ETYPES[ti];const scale=1+G.wave*0.08;
+G.enemies.push({x:sx,y:sy,vx:0,vy:0,hp:Math.floor(t.hp*scale),maxHp:Math.floor(t.hp*scale),speed:t.speed*m.spdMul*(0.9+Math.random()*0.2),dmg:Math.floor(t.dmg*m.dMul*scale),score:t.score,color:t.color,r:t.r,behavior:t.behavior,name:t.name,flash:0,orbitAngle:Math.random()*Math.PI*2,teleportCd:0,alive:true})}
+// Boss every 5 waves
+if(G.wave%5===0){const angle=Math.random()*Math.PI*2;const dist=G.arenaR+100;const t=ETYPES[6];const scale=1+G.wave*0.1;
+G.enemies.push({x:G.w/2+Math.cos(angle)*dist,y:G.h/2+Math.sin(angle)*dist,vx:0,vy:0,hp:Math.floor(t.hp*scale),maxHp:Math.floor(t.hp*scale),speed:t.speed*m.spdMul,dmg:Math.floor(t.dmg*m.dMul),score:t.score,color:t.color,r:t.r,behavior:t.behavior,name:t.name,flash:0,orbitAngle:0,teleportCd:0,alive:true});sfx.boss()}
+// Unlock fusion at wave 8
+if(G.wave>=8&&!G.abilities[3].unlocked){G.abilities[3].unlocked=true;document.getElementById('ab3').style.display='flex'}}
+
+function announceWave(txt){const el=document.getElementById('wave-announce');el.textContent=txt;el.style.display='block';el.style.opacity='1';el.style.transform='translate(-50%,-50%) scale(1)';
+setTimeout(()=>{el.style.transition='opacity 1s, transform 1s';el.style.opacity='0';el.style.transform='translate(-50%,-50%) scale(1.5)';setTimeout(()=>{el.style.display='none';el.style.transition=''},1000)},1500)}
+
+function useAbility(idx){if(G.state!=='playing')return;const a=G.abilities[idx];if(!a||!a.unlocked||a.cd>0||G.energy<a.cost)return;
+a.cd=a.maxCd;G.energy-=a.cost;
+const dx=G.mouse.x-G.px,dy=G.mouse.y-G.py;const dist=Math.sqrt(dx*dx+dy*dy)||1;const nx=dx/dist,ny=dy/dist;
+switch(idx){
+case 0:sfx.shoot();for(let i=-1;i<=1;i++){const spread=i*0.15;const bx=nx*Math.cos(spread)-ny*Math.sin(spread);const by=nx*Math.sin(spread)+ny*Math.cos(spread);G.bullets.push({x:G.px,y:G.py,vx:bx*10,vy:by*10,dmg:10+G.wave,r:4,color:'#00ccff',life:60,type:'photon',pierce:0})}break;
+case 1:sfx.wave();for(let i=0;i<12;i++){const a2=i/12*Math.PI*2;G.bullets.push({x:G.px,y:G.py,vx:Math.cos(a2)*6,vy:Math.sin(a2)*6,dmg:15+G.wave,r:6,color:'#ff44ff',life:40,type:'wave',pierce:2})}break;
+case 2:sfx.shield();G.shieldActive=true;G.shieldTimer=120;break;
+case 3:sfx.fusion();const fx=G.px+nx*80,fy=G.py+ny*80;G.enemies.forEach(e=>{if(!e.alive)return;const ed=Math.sqrt((e.x-fx)**2+(e.y-fy)**2);if(ed<120){const fusionDmg=50+G.wave*3;e.hp-=fusionDmg;e.flash=8;spawnPts(e.x,e.y,'#ffaa00',8,4);if(e.hp<=0){killEnemy(e)}}});spawnPts(fx,fy,'#ffaa00',30,6);shake(12,15);break;
+}}
+
+function killEnemy(e){e.alive=false;G.kills++;G.combo++;if(G.combo>G.maxCombo)G.maxCombo=G.combo;G.comboTimer=120;G.score+=Math.floor(e.score*G.combo*0.5);sfx.kill();sfx.combo();spawnPts(e.x,e.y,e.color,12,3);
+// Drop pickup
+if(Math.random()<0.25){const types=['hp','energy','score'];G.pickups.push({x:e.x,y:e.y,type:types[Math.floor(Math.random()*types.length)],life:300})}}
+
+function shake(i,d){G.shakeX=(Math.random()-0.5)*i;G.shakeY=(Math.random()-0.5)*i;G.shakeT=d}
+
+function takeDmg(d){if(G.shieldActive){d=Math.floor(d*0.2);spawnPts(G.px,G.py,'#4488ff',5,2)}G.hp-=d;sfx.hit();shake(6+d*0.3,10);spawnPts(G.px,G.py,'#ff4444',6,2);if(G.hp<=0){G.hp=0;gameOver()}}
+
+function gameOver(){G.state='gameover';sfx.die();addHS(G.score,G.wave,G.diff);document.getElementById('gs-wave').textContent=G.wave;document.getElementById('gs-kills').textContent=G.kills;document.getElementById('gs-combo').textContent='x'+G.maxCombo;document.getElementById('gs-score').textContent=G.score;document.getElementById('go-screen').style.display='flex'}
+
+function victory(){G.state='victory';sfx.win();G.score+=10000*(G.diff==='hard'?3:G.diff==='normal'?2:1);addHS(G.score,G.wave,G.diff);document.getElementById('ws-kills').textContent=G.kills;document.getElementById('ws-combo').textContent='x'+G.maxCombo;document.getElementById('ws-score').textContent=G.score;document.getElementById('win-screen').style.display='flex'}
+
+function toMenu(){G.state='menu';document.getElementById('menu').style.display='flex';document.getElementById('go-screen').style.display='none';document.getElementById('win-screen').style.display='none';document.getElementById('pause').classList.remove('active');renderHS()}
+
+function togglePause(){if(G.state==='playing'){G.state='paused';document.getElementById('pause').classList.add('active')}else if(G.state==='paused'){G.state='playing';document.getElementById('pause').classList.remove('active')}}
+
+// ===== UPDATE =====
+function update(){if(G.state!=='playing')return;G.frame++;
+// Regen energy
+G.energy=Math.min(G.maxEnergy,G.energy+0.15);
+// Cooldowns
+G.abilities.forEach(a=>{if(a.cd>0)a.cd--});
+// Shield timer
+if(G.shieldActive){G.shieldTimer--;if(G.shieldTimer<=0)G.shieldActive=false}
+// Combo decay
+if(G.comboTimer>0){G.comboTimer--}else{if(G.combo>1)G.combo=Math.max(1,G.combo-1);G.comboTimer=60}
+// Player movement
+const spd=G.speed;let mx=0,my=0;
+if(G.keys['w']||G.keys['W']||G.keys['ArrowUp'])my=-1;
+if(G.keys['s']||G.keys['S']||G.keys['ArrowDown'])my=1;
+if(G.keys['a']||G.keys['A']||G.keys['ArrowLeft'])mx=-1;
+if(G.keys['d']||G.keys['D']||G.keys['ArrowRight'])mx=1;
+if(mx||my){const ml=Math.sqrt(mx*mx+my*my);mx/=ml;my/=ml}
+G.pvx+=(mx*spd-G.pvx)*0.2;G.pvy+=(my*spd-G.pvy)*0.2;
+G.px+=G.pvx;G.py+=G.pvy;
+// Clamp to arena
+const cx=G.w/2,cy=G.h/2;const pdx=G.px-cx,pdy=G.py-cy;const pdist=Math.sqrt(pdx*pdx+pdy*pdy);
+if(pdist>G.arenaR-15){G.px=cx+pdx/pdist*(G.arenaR-15);G.py=cy+pdy/pdist*(G.arenaR-15)}
+// Auto-fire on hold
+if(G.mouse.down&&G.frame%12===0&&G.abilities[0].cd<=0)useAbility(0);
+// Update bullets
+for(let i=G.bullets.length-1;i>=0;i--){const b=G.bullets[i];b.x+=b.vx;b.y+=b.vy;b.life--;if(b.life<=0){G.bullets.splice(i,1);continue}
+// Bullet-enemy collision
+let hit=false;for(const e of G.enemies){if(!e.alive)continue;const d=Math.sqrt((b.x-e.x)**2+(b.y-e.y)**2);if(d<b.r+e.r){e.hp-=b.dmg;e.flash=6;spawnPts(b.x,b.y,b.color,4,2);if(e.hp<=0)killEnemy(e);if(b.pierce<=0){hit=true;break}else{b.pierce--;b.dmg*=0.7}}}
+if(hit){G.bullets.splice(i,1)}}
+// Update enemies
+const mod=G.mods[G.diff];
+for(const e of G.enemies){if(!e.alive)continue;
+const dx=G.px-e.x,dy=G.py-e.y;const dist=Math.sqrt(dx*dx+dy*dy)||1;const nx=dx/dist,ny=dy/dist;
+switch(e.behavior){
+case 'chase':e.vx+=(nx*e.speed-e.vx)*0.05;e.vy+=(ny*e.speed-e.vy)*0.05;break;
+case 'orbit':e.orbitAngle+=0.02;const ox=G.px+Math.cos(e.orbitAngle)*150,oy=G.py+Math.sin(e.orbitAngle)*150;e.vx+=(ox-e.x)*0.01;e.vy+=(oy-e.y)*0.01;break;
+case 'zigzag':e.vx+=(nx*e.speed-e.vx)*0.03;e.vy+=(ny*e.speed-e.vy)*0.03;e.vx+=Math.sin(G.frame*0.1)*0.5;break;
+case 'tank':e.vx+=(nx*e.speed*0.5-e.vx)*0.02;e.vy+=(ny*e.speed*0.5-e.vy)*0.02;break;
+case 'swarm':const sOff=Math.sin(G.frame*0.05+e.orbitAngle)*2;e.vx+=(nx*e.speed+sOff-e.vx)*0.06;e.vy+=(ny*e.speed-e.vy)*0.06;break;
+case 'teleport':e.teleportCd--;if(e.teleportCd<=0&&dist>100){const ta=Math.random()*Math.PI*2;e.x=G.px+Math.cos(ta)*120;e.y=G.py+Math.sin(ta)*120;e.teleportCd=90;spawnPts(e.x,e.y,e.color,8,3)}e.vx+=(nx*e.speed-e.vx)*0.04;e.vy+=(ny*e.speed-e.vy)*0.04;break;
+case 'boss':e.vx+=(nx*e.speed-e.vx)*0.03;e.vy+=(ny*e.speed-e.vy)*0.03;
+// Boss shoots
+if(G.frame%40===0){for(let i=0;i<8;i++){const ba=i/8*Math.PI*2+G.frame*0.01;G.bullets.push({x:e.x,y:e.y,vx:Math.cos(ba)*4,vy:Math.sin(ba)*4,dmg:0,r:5,color:'#ff0044',life:80,type:'enemy',pierce:0})}}break;}
+e.x+=e.vx;e.y+=e.vy;e.vx*=0.95;e.vy*=0.95;
+// Keep in arena (loosely)
+const edx=e.x-cx,edy=e.y-cy;const edist=Math.sqrt(edx*edx+edy*edy);
+if(edist>G.arenaR+50){e.x=cx+edx/edist*(G.arenaR+50);e.y=cy+edy/edist*(G.arenaR+50)}
+// Player collision
+if(dist<e.r+12&&e.flash<=0){takeDmg(e.dmg);e.flash=30}
+if(e.flash>0)e.flash--}
+// Enemy bullets hit player
+for(let i=G.bullets.length-1;i>=0;i--){const b=G.bullets[i];if(b.type!=='enemy')continue;const d=Math.sqrt((b.x-G.px)**2+(b.y-G.py)**2);if(d<b.r+12){takeDmg(5+G.wave);G.bullets.splice(i,1)}}
+// Pickups
+for(let i=G.pickups.length-1;i>=0;i--){const p=G.pickups[i];p.life--;if(p.life<=0){G.pickups.splice(i,1);continue}const d=Math.sqrt((p.x-G.px)**2+(p.y-G.py)**2);if(d<25){sfx.pickup();switch(p.type){case 'hp':G.hp=Math.min(G.maxHp,G.hp+20);spawnPts(p.x,p.y,'#44ff44',6,2);break;case 'energy':G.energy=Math.min(G.maxEnergy,G.energy+30);spawnPts(p.x,p.y,'#00aaff',6,2);break;case 'score':G.score+=200;spawnPts(p.x,p.y,'#ffaa00',6,2);break}G.pickups.splice(i,1)}}
+// Particles
+for(let i=G.particles.length-1;i>=0;i--){G.particles[i].update();if(G.particles[i].l<=0)G.particles.splice(i,1)}
+// Shake
+if(G.shakeT>0){G.shakeT--;G.shakeX*=0.8;G.shakeY*=0.8}
+// Wave completion
+const aliveCount=G.enemies.filter(e=>e.alive).length;
+if(aliveCount===0&&!G.spawning){G.waveTimer++;if(G.waveTimer>=G.waveDelay){G.waveTimer=0;G.wave++;if(G.wave>G.maxWaves){victory();return}sfx.waveStart();spawnWave()}}
+if(aliveCount>0)G.spawning=false;
+// Ambient particles
+if(G.frame%8===0){const aa=Math.random()*Math.PI*2;const ar=G.arenaR*0.8+Math.random()*G.arenaR*0.2;G.particles.push(new Pt(cx+Math.cos(aa)*ar,cy+Math.sin(aa)*ar,(Math.random()-0.5)*0.3,(Math.random()-0.5)*0.3,'rgba(0,204,255,0.2)',40,1))}
+// HUD
+document.getElementById('hp-bar').style.width=(G.hp/G.maxHp*100)+'%';
+document.getElementById('en-bar').style.width=(G.energy/G.maxEnergy*100)+'%';
+document.getElementById('h-wave').textContent=G.wave;
+document.getElementById('h-score').textContent=G.score;
+document.getElementById('h-combo').textContent='x'+G.combo;
+// Ability buttons
+G.abilities.forEach((a,i)=>{if(!a.unlocked)return;const el=document.getElementById('ab'+i);if(a.cd>0){el.classList.remove('ready');el.classList.add('cooldown');const cdEl=el.querySelector('.ability-cd');if(cdEl)cdEl.textContent=Math.ceil(a.cd/60)+'s';else{const s=document.createElement('span');s.className='ability-cd';s.textContent=Math.ceil(a.cd/60)+'s';el.appendChild(s)}}else{el.classList.add('ready');el.classList.remove('cooldown');const cdEl=el.querySelector('.ability-cd');if(cdEl)cdEl.remove()}})}
+
+// ===== RENDER =====
+function render(){
+ctx.fillStyle='#050510';ctx.fillRect(0,0,G.w,G.h);
+if(G.state==='menu'||G.state==='gameover'||G.state==='victory')return;
+ctx.save();
+if(G.shakeT>0)ctx.translate(G.shakeX,G.shakeY);
+const cx=G.w/2,cy=G.h/2;
+// Arena ring
+const grad=ctx.createRadialGradient(cx,cy,G.arenaR-30,cx,cy,G.arenaR+10);
+grad.addColorStop(0,'rgba(0,204,255,0)');
+grad.addColorStop(0.7,'rgba(0,204,255,0.05)');
+grad.addColorStop(1,'rgba(0,204,255,0.15)');
+ctx.fillStyle=grad;ctx.beginPath();ctx.arc(cx,cy,G.arenaR+10,0,Math.PI*2);ctx.fill();
+// Arena border
+ctx.strokeStyle='rgba(0,204,255,0.3)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,G.arenaR,0,Math.PI*2);ctx.stroke();
+// Grid
+ctx.strokeStyle='rgba(0,204,255,0.03)';ctx.lineWidth=1;
+for(let x=0;x<G.w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,G.h);ctx.stroke()}
+for(let y=0;y<G.h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(G.w,y);ctx.stroke()}
+// Pickups
+for(const p of G.pickups){const pulse=0.6+Math.sin(G.frame*0.08)*0.3;let c;switch(p.type){case 'hp':c='#44ff44';break;case 'energy':c='#00aaff';break;case 'score':c='#ffaa00';break}
+ctx.globalAlpha=pulse;ctx.fillStyle=c;ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1}
+// Bullets
+for(const b of G.bullets){ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();
+// Trail
+ctx.fillStyle=b.color+'44';ctx.beginPath();ctx.arc(b.x-b.vx,b.y-b.vy,b.r*0.7,0,Math.PI*2);ctx.fill()}
+// Enemies
+for(const e of G.enemies){if(!e.alive)continue;
+// Glow
+const eg=ctx.createRadialGradient(e.x,e.y,0,e.x,e.y,e.r*2);eg.addColorStop(0,e.color+'44');eg.addColorStop(1,e.color+'00');ctx.fillStyle=eg;ctx.beginPath();ctx.arc(e.x,e.y,e.r*2,0,Math.PI*2);ctx.fill();
+// Body
+ctx.fillStyle=e.flash>0?'#ffffff':e.color;ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fill();
+// Name for boss
+if(e.behavior==='boss'){ctx.fillStyle='#fff';ctx.font='bold 12px monospace';ctx.textAlign='center';ctx.fillText('BOSS',e.x,e.y-e.r-8)}
+// HP bar
+if(e.hp<e.maxHp){const bw=e.r*2+4;const hpPct=e.hp/e.maxHp;ctx.fillStyle='#333';ctx.fillRect(e.x-bw/2,e.y-e.r-6,bw,3);ctx.fillStyle=hpPct>0.5?'#44ff44':hpPct>0.25?'#ffaa00':'#ff4444';ctx.fillRect(e.x-bw/2,e.y-e.r-6,bw*hpPct,3)}}
+// Player
+// Shield
+if(G.shieldActive){const sa=0.3+Math.sin(G.frame*0.1)*0.15;ctx.strokeStyle=`rgba(68,136,255,${sa})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(G.px,G.py,25,0,Math.PI*2);ctx.stroke();ctx.fillStyle=`rgba(68,136,255,${sa*0.3})`;ctx.beginPath();ctx.arc(G.px,G.py,25,0,Math.PI*2);ctx.fill()}
+// Glow
+const pg=ctx.createRadialGradient(G.px,G.py,0,G.px,G.py,20);pg.addColorStop(0,'rgba(0,255,136,0.2)');pg.addColorStop(1,'rgba(0,255,136,0)');ctx.fillStyle=pg;ctx.beginPath();ctx.arc(G.px,G.py,20,0,Math.PI*2);ctx.fill();
+// Body
+ctx.fillStyle='#00ff88';ctx.beginPath();ctx.arc(G.px,G.py,12,0,Math.PI*2);ctx.fill();
+ctx.fillStyle='#000';ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.fillText('+',G.px,G.py+4);
+// Aim line
+const dx=G.mouse.x-G.px,dy=G.mouse.y-G.py;const dd=Math.sqrt(dx*dx+dy*dy)||1;
+ctx.strokeStyle='rgba(0,255,136,0.2)';ctx.lineWidth=1;ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(G.px,G.py);ctx.lineTo(G.px+dx/dd*60,G.py+dy/dd*60);ctx.stroke();ctx.setLineDash([]);
+// Particles
+for(const p of G.particles){const al=p.l/p.ml;ctx.globalAlpha=al;ctx.fillStyle=p.c;ctx.fillRect(p.x-p.s/2,p.y-p.s/2,p.s,p.s)}
+ctx.globalAlpha=1;ctx.restore()}
+
+// ===== LOOP =====
+function loop(){update();render();requestAnimationFrame(loop)}
+loadHS();renderHS();loop();
+</script>
+</body>
+</html>

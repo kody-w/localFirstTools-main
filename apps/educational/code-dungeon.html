@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Dungeon - Programming Puzzle Roguelike</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="educational_tools">
+<meta name="rappterzoo:tags" content="game,educational,programming,roguelike,canvas,puzzle">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+  }
+  #ui-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #ui-overlay > * { pointer-events: auto; }
+  #hud {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(0,0,0,0.8);
+    border: 1px solid #00ff88;
+    border-radius: 8px;
+    padding: 10px 15px;
+    font-size: 14px;
+    display: flex;
+    gap: 20px;
+    box-shadow: 0 0 15px rgba(0,255,136,0.2);
+  }
+  .hud-item { display: flex; align-items: center; gap: 5px; }
+  .hud-label { color: #888; font-size: 12px; }
+  .hud-value { color: #00ff88; font-weight: bold; font-size: 16px; }
+  .hud-health { color: #ff4444; }
+  .hud-xp { color: #ffaa00; }
+  .hud-floor { color: #44aaff; }
+  .hud-combo { color: #ff44ff; }
+  #code-panel {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.9);
+    border: 2px solid #00aaff;
+    border-radius: 10px;
+    padding: 15px;
+    width: 90%;
+    max-width: 700px;
+    display: none;
+    box-shadow: 0 0 30px rgba(0,170,255,0.3);
+  }
+  #code-panel.active { display: block; }
+  #code-panel h3 {
+    color: #00aaff;
+    margin-bottom: 10px;
+    font-size: 16px;
+  }
+  #code-prompt {
+    color: #ccc;
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  #code-input {
+    width: 100%;
+    background: #111;
+    color: #00ff88;
+    border: 1px solid #333;
+    border-radius: 5px;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    outline: none;
+    resize: none;
+  }
+  #code-input:focus { border-color: #00aaff; }
+  #code-options {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .code-option {
+    background: #1a1a2e;
+    border: 1px solid #444;
+    border-radius: 5px;
+    padding: 8px 15px;
+    color: #e0e0e0;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .code-option:hover {
+    background: #2a2a4e;
+    border-color: #00aaff;
+    transform: translateY(-2px);
+    box-shadow: 0 3px 10px rgba(0,170,255,0.3);
+  }
+  .code-option.correct {
+    background: #0a3a0a;
+    border-color: #00ff88;
+    animation: correctFlash 0.5s;
+  }
+  .code-option.wrong {
+    background: #3a0a0a;
+    border-color: #ff4444;
+    animation: wrongShake 0.5s;
+  }
+  @keyframes correctFlash {
+    0%,100% { box-shadow: none; }
+    50% { box-shadow: 0 0 20px rgba(0,255,136,0.8); }
+  }
+  @keyframes wrongShake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-5px); }
+    40% { transform: translateX(5px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(3px); }
+  }
+  #menu-screen, #gameover-screen, #victory-screen {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #menu-screen h1 {
+    font-size: 48px;
+    color: #00ff88;
+    text-shadow: 0 0 30px rgba(0,255,136,0.5);
+    margin-bottom: 10px;
+  }
+  #menu-screen h2 {
+    font-size: 18px;
+    color: #888;
+    margin-bottom: 40px;
+    font-weight: normal;
+  }
+  .menu-btn {
+    background: linear-gradient(135deg, #1a1a3e, #2a2a5e);
+    border: 2px solid #00aaff;
+    border-radius: 8px;
+    padding: 15px 40px;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    cursor: pointer;
+    margin: 8px;
+    transition: all 0.3s;
+    min-width: 250px;
+  }
+  .menu-btn:hover {
+    background: linear-gradient(135deg, #2a2a5e, #3a3a7e);
+    border-color: #00ff88;
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+  .difficulty-label {
+    font-size: 12px;
+    color: #888;
+    margin-top: 3px;
+  }
+  #gameover-screen h1 {
+    font-size: 42px;
+    color: #ff4444;
+    text-shadow: 0 0 30px rgba(255,68,68,0.5);
+    margin-bottom: 20px;
+  }
+  #victory-screen h1 {
+    font-size: 42px;
+    color: #ffaa00;
+    text-shadow: 0 0 30px rgba(255,170,0,0.5);
+    margin-bottom: 20px;
+  }
+  .stats-display {
+    color: #aaa;
+    font-size: 16px;
+    margin: 5px;
+  }
+  .stats-display span { color: #00ff88; }
+  #high-scores {
+    margin-top: 20px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 15px;
+    background: rgba(0,0,0,0.5);
+    min-width: 300px;
+  }
+  #high-scores h3 {
+    color: #ffaa00;
+    margin-bottom: 10px;
+  }
+  .score-entry {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    color: #888;
+    font-size: 14px;
+  }
+  .score-entry .rank { color: #ffaa00; width: 30px; }
+  .score-entry .name { color: #e0e0e0; flex: 1; }
+  .score-entry .pts { color: #00ff88; }
+  #pause-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 90;
+  }
+  #pause-overlay.active { display: flex; }
+  #pause-overlay h1 {
+    font-size: 36px;
+    color: #ffaa00;
+    margin-bottom: 30px;
+  }
+  #minimap {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 150px;
+    height: 150px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid #333;
+    border-radius: 5px;
+  }
+  #tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.9);
+    border: 1px solid #00aaff;
+    border-radius: 5px;
+    padding: 8px 12px;
+    color: #e0e0e0;
+    font-size: 12px;
+    display: none;
+    z-index: 50;
+    max-width: 250px;
+    pointer-events: none;
+  }
+  @media (max-width: 768px) {
+    #hud { font-size: 11px; padding: 6px 10px; gap: 10px; }
+    .hud-value { font-size: 13px; }
+    #code-panel { width: 95%; padding: 10px; }
+    .code-option { padding: 6px 10px; font-size: 12px; }
+    #menu-screen h1 { font-size: 32px; }
+    .menu-btn { padding: 10px 25px; font-size: 15px; min-width: 200px; }
+  }
+  #touch-controls {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    display: none;
+    gap: 5px;
+    z-index: 20;
+  }
+  @media (hover: none) and (pointer: coarse) {
+    #touch-controls { display: grid; grid-template-columns: 50px 50px 50px; grid-template-rows: 50px 50px 50px; }
+  }
+  .touch-btn {
+    width: 50px;
+    height: 50px;
+    background: rgba(0,170,255,0.3);
+    border: 1px solid rgba(0,170,255,0.5);
+    border-radius: 10px;
+    color: #fff;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .touch-btn:active { background: rgba(0,170,255,0.6); }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="ui-overlay">
+  <div id="hud">
+    <div class="hud-item"><span class="hud-label">HP</span><span class="hud-value hud-health" id="hud-hp">100</span></div>
+    <div class="hud-item"><span class="hud-label">Floor</span><span class="hud-value hud-floor" id="hud-floor">1</span></div>
+    <div class="hud-item"><span class="hud-label">XP</span><span class="hud-value hud-xp" id="hud-xp">0</span></div>
+    <div class="hud-item"><span class="hud-label">Score</span><span class="hud-value" id="hud-score">0</span></div>
+    <div class="hud-item"><span class="hud-label">Combo</span><span class="hud-value hud-combo" id="hud-combo">x1</span></div>
+    <div class="hud-item"><span class="hud-label">Lvl</span><span class="hud-value" id="hud-level">1</span></div>
+  </div>
+  <canvas id="minimap" width="150" height="150"></canvas>
+  <div id="code-panel">
+    <h3 id="code-title">Code Challenge</h3>
+    <div id="code-prompt"></div>
+    <div id="code-options"></div>
+  </div>
+  <div id="tooltip"></div>
+  <div id="touch-controls">
+    <div></div>
+    <div class="touch-btn" data-dir="up">^</div>
+    <div></div>
+    <div class="touch-btn" data-dir="left">&lt;</div>
+    <div class="touch-btn" data-dir="action">!</div>
+    <div class="touch-btn" data-dir="right">&gt;</div>
+    <div></div>
+    <div class="touch-btn" data-dir="down">v</div>
+    <div></div>
+  </div>
+</div>
+
+<div id="menu-screen">
+  <h1>CODE DUNGEON</h1>
+  <h2>A Programming Puzzle Roguelike</h2>
+  <button class="menu-btn" onclick="startGame('easy')">Easy Mode<div class="difficulty-label">Slower enemies, hints enabled</div></button>
+  <button class="menu-btn" onclick="startGame('normal')">Normal Mode<div class="difficulty-label">Balanced challenge</div></button>
+  <button class="menu-btn" onclick="startGame('hard')">Hard Mode<div class="difficulty-label">Fast enemies, no hints, harder puzzles</div></button>
+  <div id="high-scores" style="margin-top:30px">
+    <h3>High Scores</h3>
+    <div id="scores-list"></div>
+  </div>
+</div>
+
+<div id="gameover-screen" style="display:none">
+  <h1>SEGFAULT</h1>
+  <div class="stats-display">Floor reached: <span id="go-floor">1</span></div>
+  <div class="stats-display">Puzzles solved: <span id="go-puzzles">0</span></div>
+  <div class="stats-display">Final score: <span id="go-score">0</span></div>
+  <div class="stats-display">Combo record: <span id="go-combo">0</span></div>
+  <button class="menu-btn" onclick="resetToMenu()" style="margin-top:20px">Try Again (R)</button>
+  <button class="menu-btn" onclick="resetToMenu()">Main Menu</button>
+</div>
+
+<div id="victory-screen" style="display:none">
+  <h1>KERNEL MASTERY</h1>
+  <h2 style="color:#ffaa00;font-size:18px;margin-bottom:20px">You conquered all 20 floors!</h2>
+  <div class="stats-display">Puzzles solved: <span id="v-puzzles">0</span></div>
+  <div class="stats-display">Final score: <span id="v-score">0</span></div>
+  <div class="stats-display">Max combo: <span id="v-combo">0</span></div>
+  <div class="stats-display">Difficulty: <span id="v-diff">Normal</span></div>
+  <button class="menu-btn" onclick="resetToMenu()" style="margin-top:20px">Play Again</button>
+</div>
+
+<div id="pause-overlay">
+  <h1>PAUSED</h1>
+  <button class="menu-btn" onclick="togglePause()">Resume (ESC)</button>
+  <button class="menu-btn" onclick="resetToMenu()">Quit to Menu</button>
+</div>
+
+<script>
+// ===== AUDIO ENGINE =====
+class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.initialized = false;
+  }
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.initialized = true;
+    } catch(e) {}
+  }
+  play(type, freq, dur, vol) {
+    if (!this.ctx) return;
+    try {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      g.gain.setValueAtTime(vol || 0.15, this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+      o.connect(g);
+      g.connect(this.ctx.destination);
+      o.start();
+      o.stop(this.ctx.currentTime + dur);
+    } catch(e) {}
+  }
+  step() { this.play('square', 200 + Math.random()*100, 0.05, 0.05); }
+  hit() { this.play('sawtooth', 100, 0.2, 0.2); this.play('square', 80, 0.15, 0.1); }
+  correct() {
+    this.play('sine', 523, 0.1, 0.15);
+    setTimeout(() => this.play('sine', 659, 0.1, 0.15), 100);
+    setTimeout(() => this.play('sine', 784, 0.15, 0.15), 200);
+  }
+  wrong() {
+    this.play('sawtooth', 200, 0.15, 0.15);
+    setTimeout(() => this.play('sawtooth', 150, 0.2, 0.15), 100);
+  }
+  levelUp() {
+    [523,659,784,1047].forEach((f,i) => setTimeout(() => this.play('sine', f, 0.2, 0.12), i*120));
+  }
+  pickup() { this.play('sine', 880, 0.1, 0.1); this.play('sine', 1100, 0.08, 0.08); }
+  death() {
+    for(let i=0;i<5;i++) setTimeout(() => this.play('sawtooth', 200-i*30, 0.2, 0.1), i*100);
+  }
+  bossAppear() {
+    this.play('sawtooth', 80, 0.5, 0.2);
+    setTimeout(() => this.play('square', 60, 0.5, 0.15), 200);
+  }
+  victory() {
+    [523,659,784,1047,1319,1568].forEach((f,i) => setTimeout(() => this.play('sine', f, 0.3, 0.1), i*150));
+  }
+  menuSelect() { this.play('sine', 440, 0.08, 0.1); }
+  doorOpen() { this.play('triangle', 300, 0.15, 0.1); this.play('triangle', 400, 0.15, 0.08); }
+  comboUp() { this.play('sine', 600 + game.combo*50, 0.1, 0.12); }
+}
+const audio = new AudioEngine();
+
+// ===== PUZZLE DATABASE =====
+const PUZZLES = {
+  variables: [
+    { q: "What does `let x = 5; x += 3;` make x?", opts: ["8", "5", "3", "53"], ans: 0, topic: "Variables" },
+    { q: "Which keyword declares a constant?", opts: ["const", "let", "var", "static"], ans: 0, topic: "Variables" },
+    { q: "`typeof null` returns what?", opts: ["'object'", "'null'", "'undefined'", "error"], ans: 0, topic: "Types" },
+    { q: "What is `'5' + 3`?", opts: ["'53'", "8", "'8'", "NaN"], ans: 0, topic: "Coercion" },
+    { q: "`let a; console.log(a)` prints?", opts: ["undefined", "null", "0", "error"], ans: 0, topic: "Variables" },
+    { q: "What scope does `var` use?", opts: ["function", "block", "global only", "module"], ans: 0, topic: "Scope" },
+  ],
+  conditionals: [
+    { q: "What does `!true` evaluate to?", opts: ["false", "true", "null", "0"], ans: 0, topic: "Booleans" },
+    { q: "`0 == false` is?", opts: ["true", "false", "error", "undefined"], ans: 0, topic: "Equality" },
+    { q: "`0 === false` is?", opts: ["false", "true", "error", "undefined"], ans: 0, topic: "Strict Equality" },
+    { q: "Which is falsy?", opts: ["''", "'0'", "'false'", "[]"], ans: 0, topic: "Truthiness" },
+    { q: "`null == undefined` is?", opts: ["true", "false", "error", "null"], ans: 0, topic: "Nullish" },
+    { q: "Ternary syntax: `a ? b : c` -- if a is false?", opts: ["c", "b", "a", "undefined"], ans: 0, topic: "Ternary" },
+  ],
+  loops: [
+    { q: "`for(let i=0;i<3;i++){}` runs how many times?", opts: ["3", "4", "2", "infinite"], ans: 0, topic: "For Loop" },
+    { q: "Which stops the current iteration only?", opts: ["continue", "break", "return", "stop"], ans: 0, topic: "Loop Control" },
+    { q: "`while(false){}` executes how many times?", opts: ["0", "1", "infinite", "error"], ans: 0, topic: "While Loop" },
+    { q: "`do{...}while(false)` runs how many times?", opts: ["1", "0", "infinite", "error"], ans: 0, topic: "Do-While" },
+    { q: "What does `break` do in a loop?", opts: ["Exits the loop", "Skips iteration", "Restarts loop", "Nothing"], ans: 0, topic: "Break" },
+    { q: "`for...of` iterates over?", opts: ["values", "keys", "indices", "properties"], ans: 0, topic: "For-of" },
+  ],
+  functions: [
+    { q: "Arrow function: `(a,b) => a+b` is?", opts: ["function expression", "declaration", "constructor", "generator"], ans: 0, topic: "Arrow Functions" },
+    { q: "What does a function return without `return`?", opts: ["undefined", "null", "0", "false"], ans: 0, topic: "Return" },
+    { q: "What is a closure?", opts: ["Function + its scope", "A class", "A loop", "A module"], ans: 0, topic: "Closures" },
+    { q: "`function*` creates a?", opts: ["generator", "class", "promise", "module"], ans: 0, topic: "Generators" },
+    { q: "Default params: `function f(x=5){}` -- f() returns x as?", opts: ["5", "undefined", "null", "error"], ans: 0, topic: "Defaults" },
+    { q: "Rest params use which syntax?", opts: ["...args", "*args", "args[]", "&args"], ans: 0, topic: "Rest Params" },
+  ],
+  arrays: [
+    { q: "`[1,2,3].length` is?", opts: ["3", "2", "4", "undefined"], ans: 0, topic: "Arrays" },
+    { q: "Which method adds to the end?", opts: ["push", "pop", "shift", "unshift"], ans: 0, topic: "Array Methods" },
+    { q: "`[1,2,3].map(x=>x*2)` gives?", opts: ["[2,4,6]", "[1,2,3]", "[3,6,9]", "6"], ans: 0, topic: "Map" },
+    { q: "`[1,2,3].filter(x=>x>1)` gives?", opts: ["[2,3]", "[1]", "[1,2,3]", "[]"], ans: 0, topic: "Filter" },
+    { q: "`[1,2,3].reduce((a,b)=>a+b, 0)` is?", opts: ["6", "3", "0", "[1,2,3]"], ans: 0, topic: "Reduce" },
+    { q: "Spread: `[...a, ...b]` does what?", opts: ["Merges arrays", "Copies a", "Removes b", "Error"], ans: 0, topic: "Spread" },
+  ],
+  objects: [
+    { q: "Access property: `obj.key` or?", opts: ["obj['key']", "obj->key", "obj::key", "obj@key"], ans: 0, topic: "Objects" },
+    { q: "`Object.keys({a:1,b:2})` returns?", opts: ["['a','b']", "[1,2]", "{a:1,b:2}", "2"], ans: 0, topic: "Object.keys" },
+    { q: "Destructuring: `const {x} = {x:5}` -- x is?", opts: ["5", "{x:5}", "undefined", "error"], ans: 0, topic: "Destructuring" },
+    { q: "`'toString' in {}` is?", opts: ["true", "false", "error", "undefined"], ans: 0, topic: "Prototype" },
+    { q: "Optional chaining: `obj?.prop` when obj is null?", opts: ["undefined", "null", "error", "false"], ans: 0, topic: "Optional Chaining" },
+    { q: "Nullish coalescing: `null ?? 'default'`?", opts: ["'default'", "null", "undefined", "false"], ans: 0, topic: "Nullish Coalescing" },
+  ],
+  async: [
+    { q: "`Promise.resolve(5).then(v => v*2)` resolves to?", opts: ["10", "5", "Promise", "undefined"], ans: 0, topic: "Promises" },
+    { q: "What keyword pauses an async function?", opts: ["await", "yield", "pause", "sleep"], ans: 0, topic: "Async/Await" },
+    { q: "`setTimeout(fn, 0)` runs fn when?", opts: ["After current stack", "Immediately", "Never", "After 1ms"], ans: 0, topic: "Event Loop" },
+    { q: "Which handles rejected promises?", opts: [".catch()", ".then()", ".finally()", ".reject()"], ans: 0, topic: "Error Handling" },
+    { q: "`Promise.all([p1,p2])` resolves when?", opts: ["All resolve", "First resolves", "Any resolves", "First rejects"], ans: 0, topic: "Promise.all" },
+    { q: "`async function f(){ return 5; }` returns?", opts: ["Promise<5>", "5", "undefined", "async"], ans: 0, topic: "Async Functions" },
+  ],
+  dom: [
+    { q: "`document.getElementById('x')` returns?", opts: ["Element or null", "Array", "String", "Boolean"], ans: 0, topic: "DOM" },
+    { q: "Which creates a new element?", opts: ["createElement", "newElement", "addElement", "makeElement"], ans: 0, topic: "DOM Creation" },
+    { q: "`el.addEventListener('click', fn)` does what?", opts: ["Attaches handler", "Removes handler", "Fires click", "Creates element"], ans: 0, topic: "Events" },
+    { q: "`el.classList.toggle('active')` does what?", opts: ["Adds/removes class", "Checks class", "Deletes element", "Creates class"], ans: 0, topic: "ClassList" },
+    { q: "What property gets/sets HTML content?", opts: ["innerHTML", "textContent", "outerHTML", "nodeValue"], ans: 0, topic: "innerHTML" },
+    { q: "`event.preventDefault()` does what?", opts: ["Stops default action", "Stops propagation", "Removes listener", "Creates event"], ans: 0, topic: "Events" },
+  ],
+};
+
+const TOPICS_BY_FLOOR = [
+  'variables', 'variables', 'conditionals', 'conditionals', 'loops',
+  'loops', 'functions', 'functions', 'arrays', 'arrays',
+  'objects', 'objects', 'async', 'async', 'dom',
+  'dom', 'async', 'objects', 'functions', 'dom'
+];
+
+// ===== ENTITY TYPES =====
+class Entity {
+  constructor(x, y, type) {
+    this.x = x; this.y = y; this.type = type;
+    this.hp = 1; this.maxHp = 1;
+    this.alive = true;
+    this.flashTimer = 0;
+    this.animFrame = 0;
+    this.animTimer = 0;
+  }
+}
+
+class Enemy extends Entity {
+  constructor(x, y, subtype, floor) {
+    super(x, y, 'enemy');
+    this.subtype = subtype;
+    this.moveTimer = 0;
+    this.moveDelay = 30;
+    this.damage = 5;
+    this.xpValue = 10;
+    this.scoreValue = 50;
+    this.hasPuzzle = true;
+    this.color = '#ff4444';
+    this.symbol = '?';
+    this.aggroRange = 5;
+    this.patrolDir = Math.random() > 0.5 ? 1 : -1;
+    this.setupByType(subtype, floor);
+  }
+  setupByType(subtype, floor) {
+    const scale = 1 + floor * 0.15;
+    switch(subtype) {
+      case 'bug':
+        this.hp = this.maxHp = Math.floor(10 * scale);
+        this.damage = Math.floor(5 * scale);
+        this.moveDelay = 25;
+        this.color = '#ff6644';
+        this.symbol = 'B';
+        this.xpValue = 10;
+        this.scoreValue = 50;
+        break;
+      case 'syntax_error':
+        this.hp = this.maxHp = Math.floor(15 * scale);
+        this.damage = Math.floor(8 * scale);
+        this.moveDelay = 35;
+        this.color = '#ff4488';
+        this.symbol = 'S';
+        this.xpValue = 15;
+        this.scoreValue = 75;
+        break;
+      case 'null_pointer':
+        this.hp = this.maxHp = Math.floor(20 * scale);
+        this.damage = Math.floor(10 * scale);
+        this.moveDelay = 40;
+        this.color = '#aa44ff';
+        this.symbol = 'N';
+        this.xpValue = 20;
+        this.scoreValue = 100;
+        break;
+      case 'race_condition':
+        this.hp = this.maxHp = Math.floor(12 * scale);
+        this.damage = Math.floor(7 * scale);
+        this.moveDelay = 15;
+        this.color = '#ffaa00';
+        this.symbol = 'R';
+        this.xpValue = 25;
+        this.scoreValue = 120;
+        this.aggroRange = 8;
+        break;
+      case 'memory_leak':
+        this.hp = this.maxHp = Math.floor(30 * scale);
+        this.damage = Math.floor(6 * scale);
+        this.moveDelay = 50;
+        this.color = '#44ff88';
+        this.symbol = 'M';
+        this.xpValue = 20;
+        this.scoreValue = 90;
+        break;
+      case 'infinite_loop':
+        this.hp = this.maxHp = Math.floor(25 * scale);
+        this.damage = Math.floor(12 * scale);
+        this.moveDelay = 20;
+        this.color = '#ff8800';
+        this.symbol = 'L';
+        this.xpValue = 30;
+        this.scoreValue = 150;
+        this.aggroRange = 6;
+        break;
+      case 'boss':
+        this.hp = this.maxHp = Math.floor(80 * scale);
+        this.damage = Math.floor(20 * scale);
+        this.moveDelay = 30;
+        this.color = '#ff0000';
+        this.symbol = 'X';
+        this.xpValue = 100;
+        this.scoreValue = 500;
+        this.aggroRange = 10;
+        break;
+    }
+  }
+}
+
+// ===== DUNGEON GENERATOR =====
+class DungeonGenerator {
+  constructor(width, height) {
+    this.width = width;
+    this.height = height;
+  }
+  generate(floor) {
+    const map = [];
+    for (let y = 0; y < this.height; y++) {
+      map[y] = [];
+      for (let x = 0; x < this.width; x++) {
+        map[y][x] = 1; // wall
+      }
+    }
+    const rooms = [];
+    const numRooms = 6 + Math.floor(floor * 0.5);
+    for (let i = 0; i < numRooms * 3; i++) {
+      if (rooms.length >= numRooms) break;
+      const w = 4 + Math.floor(Math.random() * 6);
+      const h = 4 + Math.floor(Math.random() * 5);
+      const x = 2 + Math.floor(Math.random() * (this.width - w - 4));
+      const y = 2 + Math.floor(Math.random() * (this.height - h - 4));
+      let overlap = false;
+      for (const r of rooms) {
+        if (x < r.x + r.w + 1 && x + w + 1 > r.x && y < r.y + r.h + 1 && y + h + 1 > r.y) {
+          overlap = true; break;
+        }
+      }
+      if (!overlap) {
+        rooms.push({ x, y, w, h, cx: Math.floor(x + w/2), cy: Math.floor(y + h/2) });
+        for (let ry = y; ry < y + h; ry++)
+          for (let rx = x; rx < x + w; rx++)
+            map[ry][rx] = 0;
+      }
+    }
+    // Connect rooms with corridors
+    for (let i = 1; i < rooms.length; i++) {
+      const a = rooms[i-1], b = rooms[i];
+      let cx = a.cx, cy = a.cy;
+      while (cx !== b.cx) {
+        if (cy >= 0 && cy < this.height && cx >= 0 && cx < this.width) map[cy][cx] = 0;
+        cx += cx < b.cx ? 1 : -1;
+      }
+      while (cy !== b.cy) {
+        if (cy >= 0 && cy < this.height && cx >= 0 && cx < this.width) map[cy][cx] = 0;
+        cy += cy < b.cy ? 1 : -1;
+      }
+    }
+    return { map, rooms };
+  }
+}
+
+// ===== PARTICLE SYSTEM =====
+class Particle {
+  constructor(x, y, vx, vy, color, life, size) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.color = color;
+    this.life = life; this.maxLife = life;
+    this.size = size || 3;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vx *= 0.98;
+    this.vy *= 0.98;
+    this.life--;
+  }
+}
+
+// ===== GAME STATE =====
+const game = {
+  state: 'menu', // menu, playing, puzzle, paused, gameover, victory
+  difficulty: 'normal',
+  floor: 1,
+  maxFloors: 20,
+  score: 0,
+  combo: 1,
+  maxCombo: 1,
+  puzzlesSolved: 0,
+  puzzlesFailed: 0,
+  player: { x: 0, y: 0, hp: 100, maxHp: 100, xp: 0, level: 1, xpToNext: 50, abilities: ['attack'], shield: 0, lastMoveTime: 0 },
+  map: null,
+  rooms: null,
+  enemies: [],
+  items: [],
+  exit: null,
+  dungenW: 50,
+  dungenH: 40,
+  tileSize: 20,
+  cameraX: 0,
+  cameraY: 0,
+  particles: [],
+  shakeX: 0,
+  shakeY: 0,
+  shakeTimer: 0,
+  currentPuzzle: null,
+  currentEnemy: null,
+  explored: null,
+  fov: null,
+  moveDelay: 0,
+  keys: {},
+  lastKey: null,
+  frameCount: 0,
+  difficultyMods: {
+    easy: { enemyMult: 0.7, damageMult: 0.6, hintEnabled: true, puzzleTime: 0 },
+    normal: { enemyMult: 1.0, damageMult: 1.0, hintEnabled: false, puzzleTime: 0 },
+    hard: { enemyMult: 1.5, damageMult: 1.5, hintEnabled: false, puzzleTime: 15 }
+  },
+  highScores: [],
+  environmentTheme: 0,
+};
+
+// ===== ENVIRONMENT THEMES =====
+const THEMES = [
+  { name: 'Terminal', wall: '#1a2a1a', floor: '#0a1a0a', accent: '#00ff88', fog: '#051005' },
+  { name: 'Compiler', wall: '#2a1a2a', floor: '#1a0a1a', accent: '#ff44ff', fog: '#100510' },
+  { name: 'Network', wall: '#1a1a2a', floor: '#0a0a1a', accent: '#4488ff', fog: '#050510' },
+  { name: 'Memory', wall: '#2a2a1a', floor: '#1a1a0a', accent: '#ffaa00', fog: '#101005' },
+  { name: 'Kernel', wall: '#2a1a1a', floor: '#1a0a0a', accent: '#ff4444', fog: '#100505' },
+];
+
+// ===== CANVAS SETUP =====
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const minimapCanvas = document.getElementById('minimap');
+const minimapCtx = minimapCanvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== INPUT =====
+document.addEventListener('keydown', e => {
+  game.keys[e.key] = true;
+  game.lastKey = e.key;
+  if (e.key === 'Escape') {
+    if (game.state === 'playing') togglePause();
+    else if (game.state === 'paused') togglePause();
+  }
+  if ((e.key === 'r' || e.key === 'R') && (game.state === 'gameover' || game.state === 'victory')) {
+    resetToMenu();
+  }
+  if (game.state === 'menu') audio.init();
+});
+document.addEventListener('keyup', e => { game.keys[e.key] = false; });
+
+// Touch controls
+document.querySelectorAll('.touch-btn').forEach(btn => {
+  const dir = btn.dataset.dir;
+  btn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    audio.init();
+    if (dir === 'up') game.keys['ArrowUp'] = true;
+    if (dir === 'down') game.keys['ArrowDown'] = true;
+    if (dir === 'left') game.keys['ArrowLeft'] = true;
+    if (dir === 'right') game.keys['ArrowRight'] = true;
+    if (dir === 'action') game.keys[' '] = true;
+  });
+  btn.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (dir === 'up') game.keys['ArrowUp'] = false;
+    if (dir === 'down') game.keys['ArrowDown'] = false;
+    if (dir === 'left') game.keys['ArrowLeft'] = false;
+    if (dir === 'right') game.keys['ArrowRight'] = false;
+    if (dir === 'action') game.keys[' '] = false;
+  });
+});
+
+// ===== SAVE/LOAD =====
+function saveHighScores() {
+  try { localStorage.setItem('codeDungeon_scores', JSON.stringify(game.highScores)); } catch(e) {}
+}
+function loadHighScores() {
+  try {
+    const d = localStorage.getItem('codeDungeon_scores');
+    if (d) game.highScores = JSON.parse(d);
+  } catch(e) {}
+}
+function addHighScore(score, floor, difficulty) {
+  game.highScores.push({ score, floor, difficulty, date: new Date().toLocaleDateString() });
+  game.highScores.sort((a,b) => b.score - a.score);
+  game.highScores = game.highScores.slice(0, 10);
+  saveHighScores();
+}
+function renderHighScores() {
+  const list = document.getElementById('scores-list');
+  if (!game.highScores.length) {
+    list.innerHTML = '<div style="color:#666;font-size:13px">No scores yet</div>';
+    return;
+  }
+  list.innerHTML = game.highScores.map((s,i) =>
+    '<div class="score-entry"><span class="rank">#'+(i+1)+'</span><span class="name">Floor '+s.floor+' ('+s.difficulty+')</span><span class="pts">'+s.score+'</span></div>'
+  ).join('');
+}
+
+// ===== GAME FUNCTIONS =====
+function startGame(diff) {
+  audio.init();
+  audio.menuSelect();
+  game.difficulty = diff;
+  game.state = 'playing';
+  game.floor = 1;
+  game.score = 0;
+  game.combo = 1;
+  game.maxCombo = 1;
+  game.puzzlesSolved = 0;
+  game.puzzlesFailed = 0;
+  game.player.hp = 100;
+  game.player.maxHp = 100;
+  game.player.xp = 0;
+  game.player.level = 1;
+  game.player.xpToNext = 50;
+  game.player.abilities = ['attack'];
+  game.player.shield = 0;
+  game.particles = [];
+  document.getElementById('menu-screen').style.display = 'none';
+  document.getElementById('gameover-screen').style.display = 'none';
+  document.getElementById('victory-screen').style.display = 'none';
+  generateFloor();
+}
+
+function generateFloor() {
+  game.environmentTheme = (game.floor - 1) % THEMES.length;
+  const gen = new DungeonGenerator(game.dungenW, game.dungenH);
+  const { map, rooms } = gen.generate(game.floor);
+  game.map = map;
+  game.rooms = rooms;
+  game.explored = [];
+  game.fov = [];
+  for (let y = 0; y < game.dungenH; y++) {
+    game.explored[y] = [];
+    game.fov[y] = [];
+    for (let x = 0; x < game.dungenW; x++) {
+      game.explored[y][x] = false;
+      game.fov[y][x] = false;
+    }
+  }
+  // Place player in first room
+  const startRoom = rooms[0];
+  game.player.x = startRoom.cx;
+  game.player.y = startRoom.cy;
+  // Place exit in last room
+  const endRoom = rooms[rooms.length - 1];
+  game.exit = { x: endRoom.cx, y: endRoom.cy };
+  // Place enemies
+  game.enemies = [];
+  const enemyTypes = ['bug','syntax_error','null_pointer','race_condition','memory_leak','infinite_loop'];
+  const mod = game.difficultyMods[game.difficulty];
+  for (let i = 1; i < rooms.length - 1; i++) {
+    const room = rooms[i];
+    const numEnemies = Math.floor((1 + Math.random() * 2) * mod.enemyMult);
+    for (let j = 0; j < numEnemies; j++) {
+      const ex = room.x + 1 + Math.floor(Math.random() * (room.w - 2));
+      const ey = room.y + 1 + Math.floor(Math.random() * (room.h - 2));
+      const typeIdx = Math.min(Math.floor(Math.random() * Math.min(enemyTypes.length, 2 + game.floor * 0.3)), enemyTypes.length - 1);
+      game.enemies.push(new Enemy(ex, ey, enemyTypes[typeIdx], game.floor));
+    }
+  }
+  // Boss every 5 floors
+  if (game.floor % 5 === 0) {
+    const bossRoom = rooms[Math.floor(rooms.length / 2)];
+    const boss = new Enemy(bossRoom.cx, bossRoom.cy, 'boss', game.floor);
+    game.enemies.push(boss);
+    audio.bossAppear();
+  }
+  // Place items
+  game.items = [];
+  for (let i = 1; i < rooms.length; i++) {
+    if (Math.random() < 0.4) {
+      const room = rooms[i];
+      const ix = room.x + 1 + Math.floor(Math.random() * (room.w - 2));
+      const iy = room.y + 1 + Math.floor(Math.random() * (room.h - 2));
+      const types = ['health', 'shield', 'xp_boost'];
+      game.items.push({ x: ix, y: iy, type: types[Math.floor(Math.random() * types.length)], collected: false });
+    }
+  }
+  updateFOV();
+  audio.doorOpen();
+}
+
+function updateFOV() {
+  const radius = 6;
+  for (let y = 0; y < game.dungenH; y++)
+    for (let x = 0; x < game.dungenW; x++)
+      game.fov[y][x] = false;
+  for (let angle = 0; angle < 360; angle += 1) {
+    const rad = angle * Math.PI / 180;
+    const dx = Math.cos(rad);
+    const dy = Math.sin(rad);
+    let cx = game.player.x + 0.5;
+    let cy = game.player.y + 0.5;
+    for (let i = 0; i < radius; i++) {
+      const tx = Math.floor(cx);
+      const ty = Math.floor(cy);
+      if (tx < 0 || tx >= game.dungenW || ty < 0 || ty >= game.dungenH) break;
+      game.fov[ty][tx] = true;
+      game.explored[ty][tx] = true;
+      if (game.map[ty][tx] === 1) break;
+      cx += dx; cy += dy;
+    }
+  }
+}
+
+function tryMove(dx, dy) {
+  if (game.moveDelay > 0) return;
+  const nx = game.player.x + dx;
+  const ny = game.player.y + dy;
+  if (nx < 0 || nx >= game.dungenW || ny < 0 || ny >= game.dungenH) return;
+  if (game.map[ny][nx] === 1) return;
+  // Check for enemies
+  const enemy = game.enemies.find(e => e.alive && e.x === nx && e.y === ny);
+  if (enemy) {
+    startPuzzle(enemy);
+    return;
+  }
+  game.player.x = nx;
+  game.player.y = ny;
+  game.moveDelay = 8;
+  audio.step();
+  updateFOV();
+  // Check items
+  const item = game.items.find(i => !i.collected && i.x === nx && i.y === ny);
+  if (item) {
+    collectItem(item);
+  }
+  // Check exit
+  if (game.exit && nx === game.exit.x && ny === game.exit.y) {
+    nextFloor();
+  }
+}
+
+function collectItem(item) {
+  item.collected = true;
+  audio.pickup();
+  switch(item.type) {
+    case 'health':
+      game.player.hp = Math.min(game.player.maxHp, game.player.hp + 25);
+      spawnParticles(item.x * game.tileSize, item.y * game.tileSize, '#44ff44', 8);
+      break;
+    case 'shield':
+      game.player.shield += 15;
+      spawnParticles(item.x * game.tileSize, item.y * game.tileSize, '#4488ff', 8);
+      break;
+    case 'xp_boost':
+      game.player.xp += 20;
+      checkLevelUp();
+      spawnParticles(item.x * game.tileSize, item.y * game.tileSize, '#ffaa00', 8);
+      break;
+  }
+  game.score += 25;
+}
+
+function startPuzzle(enemy) {
+  game.state = 'puzzle';
+  game.currentEnemy = enemy;
+  const topicKey = TOPICS_BY_FLOOR[Math.min(game.floor - 1, TOPICS_BY_FLOOR.length - 1)];
+  const pool = PUZZLES[topicKey];
+  const puzzle = pool[Math.floor(Math.random() * pool.length)];
+  game.currentPuzzle = puzzle;
+  const panel = document.getElementById('code-panel');
+  panel.classList.add('active');
+  document.getElementById('code-title').textContent = puzzle.topic + ' Challenge';
+  document.getElementById('code-prompt').innerHTML = '<code>' + puzzle.q + '</code>';
+  const optionsDiv = document.getElementById('code-options');
+  // Shuffle options
+  const indices = puzzle.opts.map((_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  const correctIdx = indices.indexOf(puzzle.ans);
+  optionsDiv.innerHTML = indices.map((origIdx, dispIdx) => {
+    const isCorrect = origIdx === puzzle.ans;
+    const hint = game.difficultyMods[game.difficulty].hintEnabled && isCorrect ? ' style="border-color:#00ff8844"' : '';
+    return '<button class="code-option" data-correct="'+isCorrect+'" onclick="answerPuzzle(this, '+isCorrect+')"'+hint+'>' + puzzle.opts[origIdx] + '</button>';
+  }).join('');
+}
+
+function answerPuzzle(btn, correct) {
+  if (btn.classList.contains('correct') || btn.classList.contains('wrong')) return;
+  const panel = document.getElementById('code-panel');
+  if (correct) {
+    btn.classList.add('correct');
+    audio.correct();
+    game.puzzlesSolved++;
+    game.combo++;
+    if (game.combo > game.maxCombo) game.maxCombo = game.combo;
+    audio.comboUp();
+    const baseScore = game.currentEnemy.scoreValue;
+    const comboBonus = Math.floor(baseScore * (game.combo - 1) * 0.3);
+    game.score += baseScore + comboBonus;
+    game.player.xp += game.currentEnemy.xpValue;
+    checkLevelUp();
+    // Kill enemy
+    game.currentEnemy.alive = false;
+    spawnParticles(game.currentEnemy.x * game.tileSize, game.currentEnemy.y * game.tileSize, game.currentEnemy.color, 15);
+    shakeScreen(5, 8);
+    setTimeout(() => {
+      panel.classList.remove('active');
+      game.state = 'playing';
+      game.currentPuzzle = null;
+      game.currentEnemy = null;
+    }, 600);
+  } else {
+    btn.classList.add('wrong');
+    audio.wrong();
+    game.puzzlesFailed++;
+    game.combo = 1;
+    const mod = game.difficultyMods[game.difficulty];
+    const dmg = Math.floor(game.currentEnemy.damage * mod.damageMult);
+    if (game.player.shield > 0) {
+      const absorbed = Math.min(game.player.shield, dmg);
+      game.player.shield -= absorbed;
+      game.player.hp -= (dmg - absorbed);
+    } else {
+      game.player.hp -= dmg;
+    }
+    shakeScreen(8, 12);
+    spawnParticles(game.player.x * game.tileSize, game.player.y * game.tileSize, '#ff4444', 10);
+    if (game.player.hp <= 0) {
+      game.player.hp = 0;
+      setTimeout(() => {
+        panel.classList.remove('active');
+        gameOver();
+      }, 800);
+    }
+    // Show correct answer
+    document.querySelectorAll('.code-option').forEach(b => {
+      if (b.dataset.correct === 'true') b.style.borderColor = '#00ff88';
+    });
+  }
+}
+
+function checkLevelUp() {
+  while (game.player.xp >= game.player.xpToNext) {
+    game.player.xp -= game.player.xpToNext;
+    game.player.level++;
+    game.player.xpToNext = Math.floor(game.player.xpToNext * 1.5);
+    game.player.maxHp += 10;
+    game.player.hp = Math.min(game.player.hp + 20, game.player.maxHp);
+    audio.levelUp();
+    spawnParticles(game.player.x * game.tileSize, game.player.y * game.tileSize, '#ffaa00', 20);
+    // Unlock abilities
+    if (game.player.level === 3 && !game.player.abilities.includes('heal')) game.player.abilities.push('heal');
+    if (game.player.level === 5 && !game.player.abilities.includes('scan')) game.player.abilities.push('scan');
+    if (game.player.level === 8 && !game.player.abilities.includes('debug')) game.player.abilities.push('debug');
+  }
+}
+
+function nextFloor() {
+  if (game.floor >= game.maxFloors) {
+    victory();
+    return;
+  }
+  game.floor++;
+  audio.levelUp();
+  game.score += 200 * game.floor;
+  generateFloor();
+}
+
+function gameOver() {
+  game.state = 'gameover';
+  audio.death();
+  addHighScore(game.score, game.floor, game.difficulty);
+  document.getElementById('go-floor').textContent = game.floor;
+  document.getElementById('go-puzzles').textContent = game.puzzlesSolved;
+  document.getElementById('go-score').textContent = game.score;
+  document.getElementById('go-combo').textContent = 'x' + game.maxCombo;
+  document.getElementById('gameover-screen').style.display = 'flex';
+  document.getElementById('code-panel').classList.remove('active');
+}
+
+function victory() {
+  game.state = 'victory';
+  audio.victory();
+  const bonusMultiplier = game.difficulty === 'hard' ? 3 : game.difficulty === 'normal' ? 2 : 1;
+  game.score += 5000 * bonusMultiplier;
+  addHighScore(game.score, game.floor, game.difficulty);
+  document.getElementById('v-puzzles').textContent = game.puzzlesSolved;
+  document.getElementById('v-score').textContent = game.score;
+  document.getElementById('v-combo').textContent = 'x' + game.maxCombo;
+  document.getElementById('v-diff').textContent = game.difficulty;
+  document.getElementById('victory-screen').style.display = 'flex';
+  document.getElementById('code-panel').classList.remove('active');
+}
+
+function resetToMenu() {
+  game.state = 'menu';
+  document.getElementById('menu-screen').style.display = 'flex';
+  document.getElementById('gameover-screen').style.display = 'none';
+  document.getElementById('victory-screen').style.display = 'none';
+  document.getElementById('pause-overlay').classList.remove('active');
+  document.getElementById('code-panel').classList.remove('active');
+  renderHighScores();
+}
+
+function togglePause() {
+  if (game.state === 'playing') {
+    game.state = 'paused';
+    document.getElementById('pause-overlay').classList.add('active');
+  } else if (game.state === 'paused') {
+    game.state = 'playing';
+    document.getElementById('pause-overlay').classList.remove('active');
+  }
+}
+
+function shakeScreen(intensity, duration) {
+  game.shakeX = (Math.random() - 0.5) * intensity;
+  game.shakeY = (Math.random() - 0.5) * intensity;
+  game.shakeTimer = duration;
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    game.particles.push(new Particle(
+      x + game.tileSize/2, y + game.tileSize/2,
+      Math.cos(angle) * speed, Math.sin(angle) * speed,
+      color, 30 + Math.floor(Math.random() * 20),
+      2 + Math.random() * 3
+    ));
+  }
+}
+
+// ===== ENEMY AI =====
+function updateEnemies() {
+  for (const e of game.enemies) {
+    if (!e.alive) continue;
+    e.moveTimer++;
+    if (e.moveTimer < e.moveDelay) continue;
+    e.moveTimer = 0;
+    const dist = Math.abs(e.x - game.player.x) + Math.abs(e.y - game.player.y);
+    if (dist <= e.aggroRange) {
+      // Chase player
+      let dx = 0, dy = 0;
+      if (Math.abs(game.player.x - e.x) > Math.abs(game.player.y - e.y)) {
+        dx = game.player.x > e.x ? 1 : -1;
+      } else {
+        dy = game.player.y > e.y ? 1 : -1;
+      }
+      const nx = e.x + dx, ny = e.y + dy;
+      if (nx >= 0 && nx < game.dungenW && ny >= 0 && ny < game.dungenH && game.map[ny][nx] === 0) {
+        if (!(nx === game.player.x && ny === game.player.y)) {
+          const blocked = game.enemies.some(o => o !== e && o.alive && o.x === nx && o.y === ny);
+          if (!blocked) { e.x = nx; e.y = ny; }
+        }
+      }
+    } else {
+      // Patrol
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      const shuffled = dirs.sort(() => Math.random() - 0.5);
+      for (const [dx,dy] of shuffled) {
+        const nx = e.x + dx, ny = e.y + dy;
+        if (nx >= 0 && nx < game.dungenW && ny >= 0 && ny < game.dungenH && game.map[ny][nx] === 0) {
+          const blocked = game.enemies.some(o => o !== e && o.alive && o.x === nx && o.y === ny);
+          if (!blocked) { e.x = nx; e.y = ny; break; }
+        }
+      }
+    }
+    // Animation
+    e.animTimer++;
+    if (e.animTimer > 15) { e.animTimer = 0; e.animFrame = (e.animFrame + 1) % 2; }
+  }
+}
+
+// ===== RENDERING =====
+function render() {
+  const theme = THEMES[game.environmentTheme];
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (game.state === 'menu' || game.state === 'gameover' || game.state === 'victory') return;
+  // Camera
+  const targetCX = game.player.x * game.tileSize - canvas.width / 2 + game.tileSize / 2;
+  const targetCY = game.player.y * game.tileSize - canvas.height / 2 + game.tileSize / 2;
+  game.cameraX += (targetCX - game.cameraX) * 0.1;
+  game.cameraY += (targetCY - game.cameraY) * 0.1;
+  ctx.save();
+  if (game.shakeTimer > 0) {
+    ctx.translate(game.shakeX, game.shakeY);
+    game.shakeTimer--;
+    game.shakeX *= 0.8;
+    game.shakeY *= 0.8;
+  }
+  ctx.translate(-game.cameraX, -game.cameraY);
+  const ts = game.tileSize;
+  // Visible range
+  const startX = Math.max(0, Math.floor(game.cameraX / ts) - 1);
+  const startY = Math.max(0, Math.floor(game.cameraY / ts) - 1);
+  const endX = Math.min(game.dungenW, Math.ceil((game.cameraX + canvas.width) / ts) + 1);
+  const endY = Math.min(game.dungenH, Math.ceil((game.cameraY + canvas.height) / ts) + 1);
+  // Draw map
+  for (let y = startY; y < endY; y++) {
+    for (let x = startX; x < endX; x++) {
+      if (!game.explored[y] || !game.explored[y][x]) continue;
+      const inFOV = game.fov[y] && game.fov[y][x];
+      const alpha = inFOV ? 1 : 0.3;
+      if (game.map[y][x] === 1) {
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = theme.wall;
+        ctx.fillRect(x * ts, y * ts, ts, ts);
+        // Wall detail
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.fillRect(x * ts, y * ts, ts, 2);
+        ctx.fillRect(x * ts, y * ts, 2, ts);
+      } else {
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = theme.floor;
+        ctx.fillRect(x * ts, y * ts, ts, ts);
+        // Floor pattern
+        if ((x + y) % 2 === 0) {
+          ctx.fillStyle = 'rgba(255,255,255,0.02)';
+          ctx.fillRect(x * ts, y * ts, ts, ts);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  // Draw exit
+  if (game.exit && game.fov[game.exit.y] && game.fov[game.exit.y][game.exit.x]) {
+    const pulse = 0.5 + Math.sin(game.frameCount * 0.05) * 0.3;
+    ctx.fillStyle = `rgba(0, 255, 136, ${pulse})`;
+    ctx.fillRect(game.exit.x * ts + 2, game.exit.y * ts + 2, ts - 4, ts - 4);
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(game.exit.x * ts + 2, game.exit.y * ts + 2, ts - 4, ts - 4);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('>', game.exit.x * ts + ts/2, game.exit.y * ts + ts/2 + 5);
+  }
+  // Draw items
+  for (const item of game.items) {
+    if (item.collected) continue;
+    if (!game.fov[item.y] || !game.fov[item.y][item.x]) continue;
+    const bob = Math.sin(game.frameCount * 0.08 + item.x) * 2;
+    let color;
+    let symbol;
+    switch(item.type) {
+      case 'health': color = '#44ff44'; symbol = '+'; break;
+      case 'shield': color = '#4488ff'; symbol = 'S'; break;
+      case 'xp_boost': color = '#ffaa00'; symbol = '*'; break;
+    }
+    ctx.fillStyle = color;
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(symbol, item.x * ts + ts/2, item.y * ts + ts/2 + 5 + bob);
+  }
+  // Draw enemies
+  for (const e of game.enemies) {
+    if (!e.alive) continue;
+    if (!game.fov[e.y] || !game.fov[e.y][e.x]) continue;
+    // Body
+    ctx.fillStyle = e.color;
+    const wobble = e.animFrame === 1 ? 1 : 0;
+    ctx.fillRect(e.x * ts + 3 + wobble, e.y * ts + 3, ts - 6, ts - 6);
+    // Symbol
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(e.symbol, e.x * ts + ts/2, e.y * ts + ts/2 + 5);
+    // HP bar
+    if (e.hp < e.maxHp) {
+      const barW = ts - 4;
+      const hpPct = e.hp / e.maxHp;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(e.x * ts + 2, e.y * ts - 4, barW, 3);
+      ctx.fillStyle = hpPct > 0.5 ? '#44ff44' : hpPct > 0.25 ? '#ffaa00' : '#ff4444';
+      ctx.fillRect(e.x * ts + 2, e.y * ts - 4, barW * hpPct, 3);
+    }
+    // Flash
+    if (e.flashTimer > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${e.flashTimer / 10})`;
+      ctx.fillRect(e.x * ts + 3, e.y * ts + 3, ts - 6, ts - 6);
+      e.flashTimer--;
+    }
+  }
+  // Draw player
+  const px = game.player.x * ts;
+  const py = game.player.y * ts;
+  // Glow
+  const glowRadius = 30 + Math.sin(game.frameCount * 0.05) * 5;
+  const gradient = ctx.createRadialGradient(px + ts/2, py + ts/2, 0, px + ts/2, py + ts/2, glowRadius);
+  gradient.addColorStop(0, 'rgba(0,255,136,0.15)');
+  gradient.addColorStop(1, 'rgba(0,255,136,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(px - glowRadius, py - glowRadius, glowRadius*2 + ts, glowRadius*2 + ts);
+  // Body
+  ctx.fillStyle = '#00ff88';
+  ctx.fillRect(px + 2, py + 2, ts - 4, ts - 4);
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('@', px + ts/2, py + ts/2 + 5);
+  // Shield indicator
+  if (game.player.shield > 0) {
+    ctx.strokeStyle = '#4488ff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px + 1, py + 1, ts - 2, ts - 2);
+  }
+  // Particles
+  for (let i = game.particles.length - 1; i >= 0; i--) {
+    const p = game.particles[i];
+    p.update();
+    if (p.life <= 0) { game.particles.splice(i, 1); continue; }
+    const alpha = p.life / p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  // Minimap
+  renderMinimap();
+  // HUD
+  updateHUD();
+}
+
+function renderMinimap() {
+  minimapCtx.fillStyle = 'rgba(0,0,0,0.8)';
+  minimapCtx.fillRect(0, 0, 150, 150);
+  const scale = Math.min(150 / game.dungenW, 150 / game.dungenH);
+  for (let y = 0; y < game.dungenH; y++) {
+    for (let x = 0; x < game.dungenW; x++) {
+      if (!game.explored[y] || !game.explored[y][x]) continue;
+      const inFOV = game.fov[y] && game.fov[y][x];
+      if (game.map[y][x] === 0) {
+        minimapCtx.fillStyle = inFOV ? '#335533' : '#222222';
+        minimapCtx.fillRect(x * scale, y * scale, scale, scale);
+      }
+    }
+  }
+  // Player
+  minimapCtx.fillStyle = '#00ff88';
+  minimapCtx.fillRect(game.player.x * scale - 1, game.player.y * scale - 1, 3, 3);
+  // Exit
+  if (game.exit) {
+    minimapCtx.fillStyle = '#ffaa00';
+    minimapCtx.fillRect(game.exit.x * scale - 1, game.exit.y * scale - 1, 3, 3);
+  }
+  // Enemies in FOV
+  for (const e of game.enemies) {
+    if (!e.alive) continue;
+    if (game.fov[e.y] && game.fov[e.y][e.x]) {
+      minimapCtx.fillStyle = e.color;
+      minimapCtx.fillRect(e.x * scale, e.y * scale, 2, 2);
+    }
+  }
+}
+
+function updateHUD() {
+  document.getElementById('hud-hp').textContent = game.player.hp + '/' + game.player.maxHp;
+  document.getElementById('hud-floor').textContent = game.floor + '/' + game.maxFloors;
+  document.getElementById('hud-xp').textContent = game.player.xp + '/' + game.player.xpToNext;
+  document.getElementById('hud-score').textContent = game.score;
+  document.getElementById('hud-combo').textContent = 'x' + game.combo;
+  document.getElementById('hud-level').textContent = game.player.level;
+}
+
+// ===== GAME LOOP =====
+function update() {
+  if (game.state !== 'playing') return;
+  game.frameCount++;
+  if (game.moveDelay > 0) game.moveDelay--;
+  // Input
+  if (game.keys['ArrowUp'] || game.keys['w'] || game.keys['W']) tryMove(0, -1);
+  if (game.keys['ArrowDown'] || game.keys['s'] || game.keys['S']) tryMove(0, 1);
+  if (game.keys['ArrowLeft'] || game.keys['a'] || game.keys['A']) tryMove(-1, 0);
+  if (game.keys['ArrowRight'] || game.keys['d'] || game.keys['D']) tryMove(1, 0);
+  // Enemy AI
+  updateEnemies();
+  // Ambient particles
+  if (game.frameCount % 30 === 0) {
+    const theme = THEMES[game.environmentTheme];
+    const rx = game.player.x + Math.floor(Math.random() * 12) - 6;
+    const ry = game.player.y + Math.floor(Math.random() * 12) - 6;
+    if (rx >= 0 && rx < game.dungenW && ry >= 0 && ry < game.dungenH && game.map[ry][rx] === 0) {
+      game.particles.push(new Particle(
+        rx * game.tileSize + Math.random() * game.tileSize,
+        ry * game.tileSize + Math.random() * game.tileSize,
+        0, -0.3, theme.accent + '44', 60, 1.5
+      ));
+    }
+  }
+}
+
+function gameLoop() {
+  update();
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+// ===== INIT =====
+loadHighScores();
+renderHighScores();
+gameLoop();
+</script>
+</body>
+</html>
