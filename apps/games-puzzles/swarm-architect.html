@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="strategy,rts,canvas,audio,swarm,game">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Swarm Architect</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080c08;color:#c0d0c0;font-family:'Courier New',monospace;overflow:hidden;display:flex;justify-content:center;align-items:center;height:100vh}
+canvas{display:block;border:1px solid #1a2a1a;box-shadow:0 0 40px rgba(40,180,40,0.1)}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:20}
+#menu{background:radial-gradient(ellipse,#0c180c 0%,#080c08 70%)}
+#over{display:none;background:rgba(8,12,8,0.95)}
+#paused{display:none;background:rgba(8,12,8,0.85)}
+.title{font-size:38px;color:#44cc44;text-shadow:0 0 20px rgba(68,200,68,0.4);letter-spacing:5px;margin-bottom:6px}
+.sub{font-size:13px;color:#446644;margin-bottom:25px;max-width:420px;text-align:center;line-height:1.5}
+.btn{background:linear-gradient(135deg,#0c200c,#081008);border:1px solid #1a3a1a;color:#44cc44;padding:12px 40px;margin:6px;font-family:'Courier New',monospace;font-size:15px;cursor:pointer;transition:all 0.2s}
+.btn:hover{background:linear-gradient(135deg,#1a301a,#0c200c);border-color:#44cc44;box-shadow:0 0 15px rgba(68,200,68,0.3);transform:scale(1.05)}
+.go-t{font-size:30px;margin-bottom:8px}
+.go-win{color:#44ff44;text-shadow:0 0 15px rgba(68,255,68,0.4)}
+.go-lose{color:#ff4444;text-shadow:0 0 15px rgba(255,68,68,0.4)}
+.big-score{font-size:26px;color:#ffcc44;margin:8px}
+.st{color:#668866;font-size:13px;margin:8px;text-align:center}
+.hs{margin:12px;text-align:left}
+.hs div{color:#445;margin:2px 0;font-size:13px}
+.diff-l{color:#446;font-size:12px;margin-top:16px;margin-bottom:4px}
+#hud{position:fixed;top:8px;left:8px;font-size:12px;z-index:10;pointer-events:none;text-shadow:1px 1px 2px #000}
+#hud div{margin:2px 0}
+.h-bio{color:#44cc44}.h-res{color:#ffcc44}.h-pop{color:#44aaff}.h-wave{color:#ff8844}
+#controls{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:4px}
+#controls button{background:#0c200c;border:1px solid #1a3a1a;color:#44cc44;padding:6px 12px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;transition:all 0.15s}
+#controls button:hover{background:#1a301a;border-color:#44cc44}
+#controls button.active{background:#1a401a;border-color:#66ff66;color:#66ff66}
+#controls button.disabled{opacity:0.3;cursor:default}
+.hint{position:fixed;bottom:8px;right:8px;font-size:10px;color:#334;z-index:10;pointer-events:none;text-align:right}
+.hint div{margin:1px 0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="controls"></div>
+<div class="hint"><div>Click: Select/Command</div><div>1-5: Spawn Unit</div><div>SPACE: Next Wave</div><div>ESC: Pause | R: Restart</div></div>
+<div id="menu" class="overlay">
+<div class="title">SWARM ARCHITECT</div>
+<div class="sub">Command the hive mind. Spawn swarms of creatures. Overwhelm the fortress defenses. Evolve. Adapt. Consume.</div>
+<div class="diff-l">HIVE DIFFICULTY</div>
+<button class="btn" onclick="startGame(0)">DRONE (Easy)</button>
+<button class="btn" onclick="startGame(1)">QUEEN (Normal)</button>
+<button class="btn" onclick="startGame(2)">OVERMIND (Hard)</button>
+<div class="hs" id="menu-hs"></div>
+</div>
+<div id="over" class="overlay">
+<div class="go-t" id="go-t"></div>
+<div class="big-score" id="go-s"></div>
+<div class="st" id="go-st"></div>
+<div class="hs" id="go-hs"></div>
+<button class="btn" onclick="startGame(diff)">SWARM AGAIN</button>
+<button class="btn" onclick="toMenu()">MENU</button>
+</div>
+<div id="paused" class="overlay">
+<div class="title" style="font-size:24px">HIVE DORMANT</div>
+<div style="color:#446;margin:8px">The swarm waits...</div>
+<button class="btn" onclick="unpause()">RESUME</button>
+<button class="btn" onclick="toMenu()">QUIT</button>
+</div>
+<script>
+const cv=document.getElementById('c'),cx=cv.getContext('2d');
+let CW=800,CH=600;
+function resize(){const mw=innerWidth-20,mh=innerHeight-50;const sc=Math.min(mw/CW,mh/CH,1.5);cv.width=CW;cv.height=CH;cv.style.width=Math.floor(CW*sc)+'px';cv.style.height=Math.floor(CH*sc)+'px'}
+resize();addEventListener('resize',resize);
+const AC=new(AudioContext||webkitAudioContext)();
+function snd(type){const o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);const t=AC.currentTime;
+switch(type){
+case'spawn':o.type='sine';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(600,t+0.1);g.gain.setValueAtTime(0.06,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.1);o.start(t);o.stop(t+0.1);break;
+case'hit':o.type='sawtooth';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(60,t+0.15);g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.15);o.start(t);o.stop(t+0.15);break;
+case'die':o.type='sawtooth';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(40,t+0.2);g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);o.start(t);o.stop(t+0.2);break;
+case'build':o.type='triangle';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(200,t+0.15);g.gain.setValueAtTime(0.06,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.15);o.start(t);o.stop(t+0.15);break;
+case'wave':o.type='sawtooth';o.frequency.setValueAtTime(100,t);o.frequency.setValueAtTime(200,t+0.2);o.frequency.setValueAtTime(100,t+0.4);g.gain.setValueAtTime(0.12,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.5);o.start(t);o.stop(t+0.5);break;
+case'win':o.type='sine';o.frequency.setValueAtTime(523,t);o.frequency.setValueAtTime(659,t+0.15);o.frequency.setValueAtTime(784,t+0.3);o.frequency.setValueAtTime(1047,t+0.45);g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.6);o.start(t);o.stop(t+0.6);break;
+case'lose':o.type='sawtooth';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(30,t+1);g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.001,t+1);o.start(t);o.stop(t+1);break;
+case'click':o.type='sine';o.frequency.setValueAtTime(660,t);g.gain.setValueAtTime(0.04,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.03);o.start(t);o.stop(t+0.03);break;
+case'evolve':o.type='sine';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(900,t+0.3);g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.35);o.start(t);o.stop(t+0.35);break;
+case'collect':o.type='triangle';o.frequency.setValueAtTime(500,t);o.frequency.exponentialRampToValueAtTime(800,t+0.1);g.gain.setValueAtTime(0.05,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.1);o.start(t);o.stop(t+0.1);break;
+case'explode':o.type='sawtooth';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(50,t+0.4);g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.4);o.start(t);o.stop(t+0.4);break;
+}}
+const ST={MENU:0,PLAY:1,PAUSE:2,OVER:3};
+let state=ST.MENU,diff=1;
+// Unit types
+const UNIT_TYPES=[
+{name:'Drone',cost:10,hp:3,atk:1,speed:2.5,range:20,color:'#44cc44',size:4,
+ desc:'Fast, cheap swarm unit',key:'1'},
+{name:'Brute',cost:25,hp:10,atk:3,speed:1.2,range:25,color:'#88aa44',size:7,
+ desc:'Heavy melee tank',key:'2'},
+{name:'Spitter',cost:20,hp:4,atk:2,speed:1.5,range:120,color:'#44aacc',size:5,
+ desc:'Ranged acid attacker',key:'3'},
+{name:'Burrower',cost:30,hp:6,atk:4,speed:3,range:20,color:'#aa8844',size:5,
+ desc:'Fast flanker, ignores walls',key:'4'},
+{name:'Hivemind',cost:50,hp:8,atk:1,speed:1,range:80,color:'#aa44cc',size:8,
+ desc:'Buffs nearby swarm units',key:'5'}
+];
+// Enemy types
+const ENEMY_TYPES=[
+{name:'Guard',hp:5,atk:2,speed:0,range:80,color:'#ff4444',size:6,
+ fireRate:60,projectileSpeed:3},
+{name:'Cannon',hp:8,atk:4,speed:0,range:120,color:'#ff8844',size:8,
+ fireRate:90,projectileSpeed:4,splash:30},
+{name:'Sniper',hp:3,atk:6,speed:0,range:200,color:'#ffaa44',size:5,
+ fireRate:120,projectileSpeed:6},
+{name:'Healer',hp:4,atk:0,speed:0,range:60,color:'#44ff44',size:6,
+ fireRate:40,healRate:1},
+{name:'Boss',hp:50,atk:5,speed:0,range:100,color:'#ff00ff',size:12,
+ fireRate:30,projectileSpeed:3,splash:40,boss:true}
+];
+
+let units,enemies,projectiles,particles,resources;
+let wave,score,totalKills,unitsSpawned,unitsLost,biomass,maxBiomass;
+let selectedType,rallyPoint,screenShake,floats;
+let fortressHP,fortressMaxHP,hiveHP,hiveMaxHP;
+let waveTimer,waveActive,wavesCleared;
+let spawnCooldown,evolutionPoints,evolutions;
+
+function initGame(){
+units=[];enemies=[];projectiles=[];particles=[];floats=[];
+resources=[];
+wave=0;score=0;totalKills=0;unitsSpawned=0;unitsLost=0;
+biomass=[80,60,40][diff];maxBiomass=[200,150,100][diff];
+selectedType=0;rallyPoint={x:CW*0.5,y:CH*0.5};
+screenShake=0;
+fortressHP=[100,120,150][diff];fortressMaxHP=fortressHP;
+hiveHP=50;hiveMaxHP=50;
+waveTimer=0;waveActive=false;wavesCleared=0;
+spawnCooldown=0;
+evolutionPoints=0;
+evolutions={swarmSize:0,toughness:0,speed:0,regen:0};
+// Place fortress on right side
+generateWave(0);
+// Scatter some resources
+for(let i=0;i<8;i++){
+resources.push({x:100+Math.random()*(CW-300),y:50+Math.random()*(CH-100),
+amount:10+Math.floor(Math.random()*15),collected:false})}}
+
+function generateWave(waveNum){
+enemies=enemies.filter(e=>e.hp>0);
+const count=3+waveNum*2+diff;
+const fortX=CW-80;
+for(let i=0;i<count;i++){
+const typeIdx=Math.min(Math.floor(Math.random()*(1+waveNum*0.3)),ENEMY_TYPES.length-2);
+const et=ENEMY_TYPES[typeIdx];
+const ex=fortX-20+Math.random()*40;
+const ey=50+Math.random()*(CH-100);
+enemies.push({x:ex,y:ey,hp:et.hp+waveNum*0.5,maxHp:et.hp+waveNum*0.5,
+atk:et.atk,speed:et.speed,range:et.range,color:et.color,size:et.size,
+fireRate:et.fireRate,fireCooldown:Math.random()*et.fireRate,
+projectileSpeed:et.projectileSpeed||3,splash:et.splash||0,
+healRate:et.healRate||0,name:et.name,boss:et.boss||false,flashT:0})}
+// Boss every 5 waves
+if(waveNum>0&&waveNum%5===0){
+const bt=ENEMY_TYPES[4];
+enemies.push({x:fortX,y:CH/2,hp:bt.hp+waveNum*3,maxHp:bt.hp+waveNum*3,
+atk:bt.atk+waveNum*0.3,speed:0,range:bt.range,color:bt.color,size:bt.size,
+fireRate:bt.fireRate,fireCooldown:0,projectileSpeed:bt.projectileSpeed,
+splash:bt.splash,healRate:0,name:bt.name,boss:true,flashT:0})}
+// Add resources for new wave
+for(let i=0;i<3;i++){
+resources.push({x:100+Math.random()*(CW-300),y:50+Math.random()*(CH-100),
+amount:8+waveNum*2,collected:false})}
+waveActive=true;snd('wave')}
+
+function spawnUnit(typeIdx){
+if(typeIdx<0||typeIdx>=UNIT_TYPES.length)return;
+const ut=UNIT_TYPES[typeIdx];
+const cost=Math.floor(ut.cost*(1-evolutions.swarmSize*0.05));
+if(biomass<cost)return;
+biomass-=cost;spawnCooldown=10;
+const hpMult=1+evolutions.toughness*0.15;
+const spdMult=1+evolutions.speed*0.1;
+const sx=60+Math.random()*30;
+const sy=CH/2+(Math.random()-0.5)*200;
+units.push({x:sx,y:sy,hp:ut.hp*hpMult,maxHp:ut.hp*hpMult,
+atk:ut.atk,speed:ut.speed*spdMult,range:ut.range,color:ut.color,size:ut.size,
+type:typeIdx,name:ut.name,target:null,attackCooldown:0,
+flashT:0,buffed:false,regenTimer:0});
+unitsSpawned++;snd('spawn');
+spawnParts(sx,sy,ut.color,5,2,15)}
+
+function update(dt){
+const dtS=dt/16.67;
+// Biomass regen
+biomass=Math.min(biomass+0.02*dtS*(1+wave*0.05),maxBiomass);
+// Hive regen
+if(evolutions.regen>0)hiveHP=Math.min(hiveHP+evolutions.regen*0.01*dtS,hiveMaxHP);
+// Spawn cooldown
+if(spawnCooldown>0)spawnCooldown-=dtS;
+// Update units
+units.forEach(u=>{
+if(u.flashT>0)u.flashT-=dtS;
+u.buffed=false;
+// Check if near hivemind for buff
+units.forEach(h=>{
+if(h.type===4&&h!==u){
+const dist=Math.hypot(h.x-u.x,h.y-u.y);
+if(dist<80)u.buffed=true}});
+// Find nearest enemy or move to rally
+let nearest=null,nearDist=Infinity;
+enemies.forEach(e=>{
+const d=Math.hypot(e.x-u.x,e.y-u.y);
+if(d<nearDist){nearDist=d;nearest=e}});
+// Collect nearby resources
+resources.forEach(r=>{
+if(r.collected)return;
+const d=Math.hypot(r.x-u.x,r.y-u.y);
+if(d<20){r.collected=true;biomass=Math.min(biomass+r.amount,maxBiomass);
+snd('collect');spawnParts(r.x,r.y,'#ffcc44',5,2,15);
+floats.push({x:r.x,y:r.y,text:'+'+r.amount,color:'#ffcc44',life:30,vy:-1})}});
+if(nearest&&nearDist<u.range){
+// Attack
+u.attackCooldown-=dtS;
+if(u.attackCooldown<=0){
+const dmg=u.atk*(u.buffed?1.5:1);
+nearest.hp-=dmg;nearest.flashT=5;
+u.attackCooldown=20;
+snd('hit');
+// Ranged units shoot projectiles
+if(u.range>50){
+projectiles.push({x:u.x,y:u.y,
+tx:nearest.x,ty:nearest.y,speed:4,
+color:u.color,size:2,friendly:true,
+dmg:0,splash:0})}
+spawnParts(nearest.x,nearest.y,'#ff4444',3,1,10);
+if(nearest.hp<=0){
+score+=10*(1+wave*0.2);totalKills++;
+snd('die');spawnParts(nearest.x,nearest.y,nearest.color,10,3,20);
+// Drop evolution points
+evolutionPoints+=nearest.boss?5:1;
+floats.push({x:nearest.x,y:nearest.y,text:'+'+Math.floor(10*(1+wave*0.2)),color:'#ffcc44',life:30,vy:-1.5})}}}
+else if(nearest){
+// Move toward enemy
+const dx=nearest.x-u.x,dy=nearest.y-u.y;
+const d=Math.hypot(dx,dy);
+u.x+=dx/d*u.speed*dtS;u.y+=dy/d*u.speed*dtS}
+else{
+// Move toward rally point
+const dx=rallyPoint.x-u.x,dy=rallyPoint.y-u.y;
+const d=Math.hypot(dx,dy);
+if(d>10){u.x+=dx/d*u.speed*dtS;u.y+=dy/d*u.speed*dtS}}
+// Keep in bounds
+u.x=Math.max(10,Math.min(CW-10,u.x));
+u.y=Math.max(10,Math.min(CH-10,u.y))});
+// Remove dead units
+const beforeCount=units.length;
+units=units.filter(u=>u.hp>0);
+unitsLost+=beforeCount-units.length;
+// Remove dead enemies
+enemies=enemies.filter(e=>e.hp>0);
+// Update enemies
+enemies.forEach(e=>{
+if(e.flashT>0)e.flashT-=dtS;
+// Healer logic
+if(e.healRate>0){
+enemies.forEach(other=>{
+if(other!==e&&Math.hypot(other.x-e.x,other.y-e.y)<e.range){
+other.hp=Math.min(other.hp+e.healRate*0.02*dtS,other.maxHp)}});return}
+// Find nearest unit to attack
+let nearest=null,nearDist=Infinity;
+units.forEach(u=>{
+const d=Math.hypot(u.x-e.x,u.y-e.y);
+if(d<nearDist){nearDist=d;nearest=u}});
+// Attack hive if no units nearby
+if(!nearest||nearDist>e.range){
+const hiveDist=Math.hypot(60-e.x,CH/2-e.y);
+if(hiveDist<e.range){
+e.fireCooldown-=dtS;
+if(e.fireCooldown<=0){
+e.fireCooldown=e.fireRate;
+hiveHP-=e.atk*0.5;
+screenShake=Math.max(screenShake,3);
+snd('hit');spawnParts(60,CH/2,'#ff4444',5,2,15);
+if(hiveHP<=0)endGame(false)}}
+return}
+if(nearest&&nearDist<=e.range){
+e.fireCooldown-=dtS;
+if(e.fireCooldown<=0){
+e.fireCooldown=e.fireRate;
+// Fire projectile
+projectiles.push({x:e.x,y:e.y,
+tx:nearest.x,ty:nearest.y,speed:e.projectileSpeed,
+color:'#ff6644',size:3,friendly:false,
+dmg:e.atk,splash:e.splash})}}});
+// Update projectiles
+projectiles.forEach((p,i)=>{
+const dx=p.tx-p.x,dy=p.ty-p.y;
+const d=Math.hypot(dx,dy);
+if(d<p.speed*2){
+// Hit
+if(p.splash>0){
+const targets=p.friendly?enemies:units;
+targets.forEach(t=>{
+if(Math.hypot(t.x-p.tx,t.y-p.ty)<p.splash){
+t.hp-=p.dmg*0.5;t.flashT=5;
+spawnParts(t.x,t.y,'#ff8844',3,1,8)}})}
+if(!p.friendly){
+const hit=units.find(u=>Math.hypot(u.x-p.x,u.y-p.y)<15);
+if(hit){hit.hp-=p.dmg;hit.flashT=5;spawnParts(hit.x,hit.y,'#ff4444',3,1,10)}}
+spawnParts(p.x,p.y,p.color,4,2,12);
+projectiles.splice(i,1);return}
+p.x+=dx/d*p.speed*dtS;p.y+=dy/d*p.speed*dtS});
+// Wave management
+if(waveActive&&enemies.length===0){
+waveActive=false;wavesCleared++;wave++;
+score+=100*wave;
+biomass=Math.min(biomass+20+wave*5,maxBiomass);
+snd('evolve');
+floats.push({x:CW/2,y:CH/2,text:'WAVE '+wave+' CLEARED!',color:'#44ff44',life:60,vy:-0.5});
+// Auto-start next wave after delay
+waveTimer=180;
+// Win condition: clear 15 waves
+if(wave>=15){endGame(true);return}}
+if(!waveActive&&waveTimer>0){
+waveTimer-=dtS;
+if(waveTimer<=0)generateWave(wave)}
+// Remove collected resources
+resources=resources.filter(r=>!r.collected);
+// Particles
+particles.forEach((p,i)=>{
+p.x+=p.vx;p.y+=p.vy;p.vy+=0.02;p.vx*=0.97;p.life--;
+if(p.life<=0)particles.splice(i,1)});
+// Float texts
+floats.forEach((f,i)=>{f.y+=f.vy;f.life--;if(f.life<=0)floats.splice(i,1)});
+// Screen shake decay
+if(screenShake>0){screenShake*=0.9;if(screenShake<0.3)screenShake=0}}
+
+function evolve(stat){
+if(evolutionPoints<3)return;
+if(evolutions[stat]>=5)return;
+evolutionPoints-=3;evolutions[stat]++;
+snd('evolve');
+floats.push({x:CW/2,y:CH/2-30,text:stat.toUpperCase()+' +1',color:'#aa44cc',life:40,vy:-1})}
+
+function spawnParts(x,y,col,n,spd,life){
+for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2;
+particles.push({x,y,vx:Math.cos(a)*spd*(0.5+Math.random()),vy:Math.sin(a)*spd*(0.5+Math.random()),
+life:life*(0.5+Math.random()*0.5),maxLife:life,color:col,size:1+Math.random()*2})}}
+
+function render(){
+cx.fillStyle='#080c08';cx.fillRect(0,0,CW,CH);
+let sx=0,sy=0;
+if(screenShake>0){sx=(Math.random()-0.5)*screenShake*2;sy=(Math.random()-0.5)*screenShake*2}
+cx.save();cx.translate(sx,sy);
+// Grid background
+cx.strokeStyle='#0c140c';cx.lineWidth=0.5;
+for(let x=0;x<CW;x+=40){cx.beginPath();cx.moveTo(x,0);cx.lineTo(x,CH);cx.stroke()}
+for(let y=0;y<CH;y+=40){cx.beginPath();cx.moveTo(0,y);cx.lineTo(CW,y);cx.stroke()}
+// Hive (left side)
+const hiveGlow=0.15+Math.sin(Date.now()*0.003)*0.05;
+cx.fillStyle='rgba(68,200,68,'+hiveGlow+')';
+cx.beginPath();cx.arc(60,CH/2,35,0,Math.PI*2);cx.fill();
+cx.fillStyle='#1a3a1a';cx.beginPath();cx.arc(60,CH/2,30,0,Math.PI*2);cx.fill();
+cx.strokeStyle='#44cc44';cx.lineWidth=2;cx.beginPath();cx.arc(60,CH/2,30,0,Math.PI*2);cx.stroke();
+cx.fillStyle='#44cc44';cx.font='18px monospace';cx.textAlign='center';cx.fillText('HIVE',60,CH/2+5);
+// Hive HP bar
+const hiveBarW=60;
+cx.fillStyle='#1a1a1a';cx.fillRect(30,CH/2+35,hiveBarW,6);
+cx.fillStyle='#44cc44';cx.fillRect(30,CH/2+35,hiveBarW*(hiveHP/hiveMaxHP),6);
+// Fortress (right side)
+cx.fillStyle='#2a1a1a';cx.fillRect(CW-100,30,80,CH-60);
+cx.strokeStyle='#aa4444';cx.lineWidth=2;cx.strokeRect(CW-100,30,80,CH-60);
+cx.fillStyle='#ff4444';cx.font='12px monospace';cx.textAlign='center';cx.fillText('FORTRESS',CW-60,20);
+// Fortress HP bar
+cx.fillStyle='#1a1a1a';cx.fillRect(CW-90,CH-20,60,6);
+cx.fillStyle='#ff4444';cx.fillRect(CW-90,CH-20,60*(fortressHP/fortressMaxHP),6);
+// Resources
+resources.forEach(r=>{
+if(r.collected)return;
+const glow=0.5+Math.sin(Date.now()*0.005+r.x)*0.3;
+cx.fillStyle='rgba(255,200,68,'+glow+')';
+cx.beginPath();cx.arc(r.x,r.y,5,0,Math.PI*2);cx.fill();
+cx.fillStyle='#ffcc44';cx.font='8px monospace';cx.textAlign='center';
+cx.fillText(r.amount,r.x,r.y-8)});
+// Rally point
+cx.strokeStyle='rgba(68,200,68,0.3)';cx.lineWidth=1;
+cx.setLineDash([4,4]);
+cx.beginPath();cx.arc(rallyPoint.x,rallyPoint.y,15,0,Math.PI*2);cx.stroke();
+cx.setLineDash([]);
+cx.fillStyle='rgba(68,200,68,0.2)';cx.font='8px monospace';cx.textAlign='center';
+cx.fillText('RALLY',rallyPoint.x,rallyPoint.y+3);
+// Units
+units.forEach(u=>{
+const col=u.flashT>0?'#ffffff':u.buffed?'#ffff44':u.color;
+cx.fillStyle=col;
+cx.beginPath();cx.arc(u.x,u.y,u.size,0,Math.PI*2);cx.fill();
+// HP bar
+if(u.hp<u.maxHp){
+const bw=u.size*2;
+cx.fillStyle='#1a1a1a';cx.fillRect(u.x-bw/2,u.y-u.size-5,bw,2);
+cx.fillStyle='#44ff44';cx.fillRect(u.x-bw/2,u.y-u.size-5,bw*(u.hp/u.maxHp),2)}
+// Hivemind aura
+if(u.type===4){
+cx.strokeStyle='rgba(170,68,200,0.15)';cx.lineWidth=1;
+cx.beginPath();cx.arc(u.x,u.y,80,0,Math.PI*2);cx.stroke()}});
+// Enemies
+enemies.forEach(e=>{
+const col=e.flashT>0?'#ffffff':e.color;
+cx.fillStyle=col;
+if(e.boss){
+cx.beginPath();cx.arc(e.x,e.y,e.size,0,Math.PI*2);cx.fill();
+// Boss aura
+const aura=0.1+Math.sin(Date.now()*0.004)*0.05;
+cx.strokeStyle='rgba(255,0,255,'+aura+')';cx.lineWidth=2;
+cx.beginPath();cx.arc(e.x,e.y,e.size+5,0,Math.PI*2);cx.stroke()}
+else{cx.fillRect(e.x-e.size/2,e.y-e.size/2,e.size,e.size)}
+// Range indicator
+cx.strokeStyle='rgba(255,100,100,0.05)';cx.lineWidth=0.5;
+cx.beginPath();cx.arc(e.x,e.y,e.range,0,Math.PI*2);cx.stroke();
+// HP bar
+if(e.hp<e.maxHp){
+const bw=e.size*2;
+cx.fillStyle='#1a1a1a';cx.fillRect(e.x-bw/2,e.y-e.size-5,bw,3);
+cx.fillStyle='#ff4444';cx.fillRect(e.x-bw/2,e.y-e.size-5,bw*(e.hp/e.maxHp),3)}
+// Name for bosses
+if(e.boss){cx.fillStyle='#ff44ff';cx.font='10px monospace';cx.textAlign='center';
+cx.fillText(e.name,e.x,e.y-e.size-10)}});
+// Projectiles
+projectiles.forEach(p=>{
+cx.fillStyle=p.color;
+cx.beginPath();cx.arc(p.x,p.y,p.size,0,Math.PI*2);cx.fill()});
+// Particles
+particles.forEach(p=>{
+cx.globalAlpha=p.life/p.maxLife;cx.fillStyle=p.color;
+cx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size)});
+cx.globalAlpha=1;
+// Float texts
+floats.forEach(f=>{
+cx.globalAlpha=Math.min(1,f.life/15);cx.fillStyle=f.color;
+cx.font='bold 14px monospace';cx.textAlign='center';cx.fillText(f.text,f.x,f.y)});
+cx.globalAlpha=1;
+cx.restore();
+// HUD
+const hud=document.getElementById('hud');
+let h='';
+h+='<div class="h-bio">Biomass: '+Math.floor(biomass)+'/'+maxBiomass+'</div>';
+h+='<div class="h-pop">Swarm: '+units.length+' | Kills: '+totalKills+'</div>';
+h+='<div class="h-wave">Wave '+(wave+1)+(waveActive?'':' (PREP)')+'</div>';
+h+='<div class="h-res">Score: '+Math.floor(score)+'</div>';
+h+='<div style="color:#aa44cc">Evo Points: '+evolutionPoints+'</div>';
+// Evolution stats
+h+='<div style="color:#555;font-size:10px;margin-top:4px">';
+h+='Size:'+evolutions.swarmSize+' Tough:'+evolutions.toughness+' Spd:'+evolutions.speed+' Regen:'+evolutions.regen;
+h+='</div>';
+hud.innerHTML=h;
+// Controls
+const ctrl=document.getElementById('controls');
+let ctrlHTML='';
+UNIT_TYPES.forEach((ut,i)=>{
+const cost=Math.floor(ut.cost*(1-evolutions.swarmSize*0.05));
+const canAfford=biomass>=cost;
+ctrlHTML+='<button class="'+(selectedType===i?'active':'')+(canAfford?'':' disabled')+'" onclick="spawnUnit('+i+');snd(\'click\')">['+ut.key+'] '+ut.name+' ('+cost+')</button>'});
+ctrlHTML+='<button onclick="if(evolutionPoints>=3){evolve(\'swarmSize\')}" '+(evolutionPoints>=3?'':'class="disabled"')+'>EVO: Size</button>';
+ctrlHTML+='<button onclick="if(evolutionPoints>=3){evolve(\'toughness\')}" '+(evolutionPoints>=3?'':'class="disabled"')+'>EVO: Tough</button>';
+ctrlHTML+='<button onclick="if(evolutionPoints>=3){evolve(\'speed\')}" '+(evolutionPoints>=3?'':'class="disabled"')+'>EVO: Speed</button>';
+ctrlHTML+='<button onclick="if(evolutionPoints>=3){evolve(\'regen\')}" '+(evolutionPoints>=3?'':'class="disabled"')+'>EVO: Regen</button>';
+ctrl.innerHTML=ctrlHTML;
+// Wave countdown
+if(!waveActive&&waveTimer>0){
+cx.fillStyle='#ffcc44';cx.font='16px monospace';cx.textAlign='center';
+cx.fillText('Next wave in '+Math.ceil(waveTimer/60)+'...',CW/2,30)}}
+
+function endGame(won){
+state=ST.OVER;
+if(won){score+=2000;snd('win')}else snd('lose');
+saveHS();
+document.getElementById('over').style.display='flex';
+document.getElementById('go-t').textContent=won?'HIVE VICTORIOUS':'HIVE DESTROYED';
+document.getElementById('go-t').className=won?'go-t go-win':'go-t go-lose';
+document.getElementById('go-s').textContent='Score: '+Math.floor(score);
+document.getElementById('go-st').innerHTML='Waves: '+(wave+1)+' | Kills: '+totalKills+
+  '<br>Units Spawned: '+unitsSpawned+' | Units Lost: '+unitsLost+
+  '<br>Evolutions: Size:'+evolutions.swarmSize+' Tough:'+evolutions.toughness+' Spd:'+evolutions.speed;
+const hs=getHS();
+document.getElementById('go-hs').innerHTML=hs.length?'<div style="color:#44cc44;font-weight:bold">HIGH SCORES</div>'+
+  hs.slice(0,5).map((s,i)=>'<div>'+(i+1)+'. '+s.score+' - Wave '+s.wave+' ('+s.diff+')</div>').join(''):''}
+
+function saveHS(){
+const hs=JSON.parse(localStorage.getItem('swarmArch_hs')||'[]');
+hs.push({score:Math.floor(score),wave:wave+1,kills:totalKills,spawned:unitsSpawned,
+diff:['Drone','Queen','Overmind'][diff],date:new Date().toISOString().split('T')[0]});
+hs.sort((a,b)=>b.score-a.score);
+localStorage.setItem('swarmArch_hs',JSON.stringify(hs.slice(0,10)))}
+function getHS(){return JSON.parse(localStorage.getItem('swarmArch_hs')||'[]')}
+function showMenuHS(){
+const hs=getHS();
+document.getElementById('menu-hs').innerHTML=hs.length?'<div style="color:#44cc44;font-weight:bold;margin-bottom:4px">HIGH SCORES</div>'+
+  hs.slice(0,5).map((s,i)=>'<div>'+(i+1)+'. '+s.score+' - Wave '+s.wave+' ('+s.diff+')</div>').join(''):''}
+
+function startGame(d){
+diff=d;AC.resume();snd('click');
+document.getElementById('menu').style.display='none';
+document.getElementById('over').style.display='none';
+document.getElementById('paused').style.display='none';
+document.getElementById('controls').style.display='flex';
+state=ST.PLAY;initGame()}
+function toMenu(){state=ST.MENU;document.getElementById('menu').style.display='flex';
+document.getElementById('over').style.display='none';document.getElementById('paused').style.display='none';
+document.getElementById('controls').style.display='none';showMenuHS()}
+function unpause(){state=ST.PLAY;document.getElementById('paused').style.display='none'}
+window.startGame=startGame;window.toMenu=toMenu;window.unpause=unpause;
+window.spawnUnit=spawnUnit;window.evolve=evolve;window.snd=snd;
+
+addEventListener('keydown',e=>{
+if(state===ST.PLAY){
+if(e.key>='1'&&e.key<='5'){selectedType=parseInt(e.key)-1;spawnUnit(selectedType)}
+if(e.key===' '){e.preventDefault();if(!waveActive&&waveTimer>0){waveTimer=0;generateWave(wave)}}}
+if(e.key==='Escape'){
+if(state===ST.PLAY){state=ST.PAUSE;document.getElementById('paused').style.display='flex';snd('click')}
+else if(state===ST.PAUSE)unpause()}
+if((e.key==='r'||e.key==='R')&&state===ST.OVER)startGame(diff)});
+
+cv.addEventListener('click',e=>{
+if(state!==ST.PLAY)return;AC.resume();
+const rect=cv.getBoundingClientRect();
+const mx=(e.clientX-rect.left)*(CW/rect.width);
+const my=(e.clientY-rect.top)*(CH/rect.height);
+// Set rally point
+rallyPoint={x:mx,y:my};
+snd('click')});
+
+let lastTime=0;
+function loop(time){
+const dt=Math.min(time-lastTime,50);lastTime=time;
+if(state===ST.PLAY){update(dt);render()}
+else if(state===ST.MENU){
+cx.fillStyle='#080c08';cx.fillRect(0,0,CW,CH);
+cx.fillStyle='rgba(68,200,68,0.015)';
+for(let i=0;i<12;i++){
+const x=Math.sin(time*0.0005+i*0.5)*CW*0.3+CW*0.5;
+const y=Math.cos(time*0.0007+i*0.6)*CH*0.3+CH*0.5;
+cx.beginPath();cx.arc(x,y,20+Math.sin(time*0.002+i)*10,0,Math.PI*2);cx.fill()}}
+requestAnimationFrame(loop)}
+showMenuHS();document.getElementById('controls').style.display='none';
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

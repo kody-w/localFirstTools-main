@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="dice,roguelike,strategy,canvas,audio,game">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Bone Dice Gambit</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0808;color:#d8ccc0;font-family:'Courier New',monospace;overflow:hidden;display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column}
+canvas{display:block;border:2px solid #2a2018;box-shadow:0 0 40px rgba(180,120,40,0.12)}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:20}
+#menu{background:radial-gradient(ellipse,#1a1208 0%,#0a0808 70%)}
+#over{display:none;background:rgba(10,8,8,0.95)}
+#pause{display:none;background:rgba(10,8,8,0.85)}
+.title{font-size:42px;color:#cc9944;text-shadow:0 0 20px rgba(200,150,60,0.4);letter-spacing:4px;margin-bottom:6px}
+.sub{font-size:13px;color:#665544;margin-bottom:25px;max-width:400px;text-align:center;line-height:1.5}
+.btn{background:linear-gradient(135deg,#1a1208,#100a04);border:1px solid #3a2818;color:#cc9944;padding:12px 40px;margin:6px;font-family:'Courier New',monospace;font-size:15px;cursor:pointer;transition:all 0.2s}
+.btn:hover{background:linear-gradient(135deg,#2a1c10,#1a1208);border-color:#cc9944;box-shadow:0 0 15px rgba(200,150,60,0.3);transform:scale(1.05)}
+.go-t{font-size:30px;margin-bottom:8px}
+.go-win{color:#44cc88;text-shadow:0 0 15px rgba(68,200,136,0.4)}
+.go-lose{color:#cc4444;text-shadow:0 0 15px rgba(200,68,68,0.4)}
+.big-score{font-size:26px;color:#ffcc44;margin:8px}
+.st{color:#776;font-size:13px;margin:8px;text-align:center}
+.hs{margin:12px;text-align:left}
+.hs div{color:#554;margin:2px 0;font-size:13px}
+.diff-l{color:#554;font-size:12px;margin-top:16px;margin-bottom:4px}
+#game-ui{position:fixed;bottom:0;left:0;width:100%;height:auto;z-index:10;pointer-events:none}
+.hint{position:fixed;bottom:6px;right:6px;font-size:10px;color:#332;z-index:11;pointer-events:none;text-align:right}
+.hint div{margin:1px 0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint"><div>SPACE: Roll Dice</div><div>1-5: Select Die</div><div>E: Use Ability</div><div>ESC: Pause | R: Restart</div></div>
+<div id="menu" class="overlay">
+<div class="title">BONE DICE GAMBIT</div>
+<div class="sub">Roll cursed bone dice against Death himself. Build combos, chain powers, gamble your soul. Every roll could be your last.</div>
+<div class="diff-l">WAGER YOUR FATE</div>
+<button class="btn" onclick="startGame(0)">MORTAL (Easy)</button>
+<button class="btn" onclick="startGame(1)">DAMNED (Normal)</button>
+<button class="btn" onclick="startGame(2)">FORSAKEN (Hard)</button>
+<div class="hs" id="menu-hs"></div>
+</div>
+<div id="over" class="overlay">
+<div class="go-t" id="go-t"></div>
+<div class="big-score" id="go-s"></div>
+<div class="st" id="go-st"></div>
+<div class="hs" id="go-hs"></div>
+<button class="btn" onclick="startGame(diff)">ROLL AGAIN</button>
+<button class="btn" onclick="toMenu()">MENU</button>
+</div>
+<div id="pause" class="overlay">
+<div class="title" style="font-size:24px">DEATH WAITS</div>
+<div style="color:#554;margin:8px">The dice cool on the table...</div>
+<button class="btn" onclick="unpause()">RESUME</button>
+<button class="btn" onclick="toMenu()">QUIT</button>
+</div>
+<script>
+const cv=document.getElementById('c'),cx=cv.getContext('2d');
+let CW=700,CH=600;
+function resize(){
+const mw=innerWidth-20,mh=innerHeight-60;
+const sc=Math.min(mw/CW,mh/CH,1.5);
+cv.width=CW;cv.height=CH;
+cv.style.width=Math.floor(CW*sc)+'px';cv.style.height=Math.floor(CH*sc)+'px'}
+resize();addEventListener('resize',resize);
+const AC=new(AudioContext||webkitAudioContext)();
+function snd(type){
+const o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);const t=AC.currentTime;
+switch(type){
+case'roll':o.type='triangle';o.frequency.setValueAtTime(200+Math.random()*100,t);o.frequency.exponentialRampToValueAtTime(100,t+0.15);
+g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.15);o.start(t);o.stop(t+0.15);break;
+case'hit':o.type='sawtooth';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(60,t+0.2);
+g.gain.setValueAtTime(0.12,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);o.start(t);o.stop(t+0.2);break;
+case'combo':o.type='sine';o.frequency.setValueAtTime(500,t);o.frequency.setValueAtTime(700,t+0.1);o.frequency.setValueAtTime(900,t+0.2);
+g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.3);o.start(t);o.stop(t+0.3);break;
+case'death':o.type='sawtooth';o.frequency.setValueAtTime(250,t);o.frequency.exponentialRampToValueAtTime(30,t+1.2);
+g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.001,t+1.2);o.start(t);o.stop(t+1.2);break;
+case'win':o.type='sine';o.frequency.setValueAtTime(440,t);o.frequency.setValueAtTime(554,t+0.15);o.frequency.setValueAtTime(659,t+0.3);o.frequency.setValueAtTime(880,t+0.45);
+g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.6);o.start(t);o.stop(t+0.6);break;
+case'curse':o.type='square';o.frequency.setValueAtTime(100,t);o.frequency.setValueAtTime(80,t+0.2);o.frequency.setValueAtTime(60,t+0.4);
+g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.5);o.start(t);o.stop(t+0.5);break;
+case'heal':o.type='sine';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(700,t+0.25);
+g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.25);o.start(t);o.stop(t+0.25);break;
+case'click':o.type='sine';o.frequency.setValueAtTime(660,t);g.gain.setValueAtTime(0.04,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.03);o.start(t);o.stop(t+0.03);break;
+case'select':o.type='triangle';o.frequency.setValueAtTime(440,t);o.frequency.exponentialRampToValueAtTime(550,t+0.08);
+g.gain.setValueAtTime(0.06,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.08);o.start(t);o.stop(t+0.08);break;
+case'power':o.type='sawtooth';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(800,t+0.3);
+g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.35);o.start(t);o.stop(t+0.35);break;
+case'gamble':o.type='triangle';o.frequency.setValueAtTime(300,t);o.frequency.setValueAtTime(600,t+0.05);o.frequency.setValueAtTime(300,t+0.1);o.frequency.setValueAtTime(600,t+0.15);
+g.gain.setValueAtTime(0.06,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);o.start(t);o.stop(t+0.2);break;
+}}
+const ST={MENU:0,PLAY:1,PAUSE:2,OVER:3};
+let state=ST.MENU,diff=1;
+// Game state
+let player,death,dice,selectedDie,round,score,combo,maxCombo;
+let rollPhase,rollTimer,rollResults;
+let particles=[],floats=[],screenShake=0;
+let roundsWon=0,roundsLost=0,totalDamageDealt=0;
+let abilities,abilCooldowns;
+let deathDialogue='',dialogueTimer=0;
+let gamePhase; // 'roll','choose','resolve','death_turn','end_round'
+
+// Dice types
+const DIE_FACES={
+  bone:[1,2,3,4,5,6],
+  cursed:[0,1,2,3,6,6],
+  blessed:[2,3,4,5,6,6],
+  chaos:[1,1,1,6,6,6],
+  soul:[0,0,0,0,0,10]
+};
+const DIE_COLORS={bone:'#ccbb99',cursed:'#884444',blessed:'#4488aa',chaos:'#aa44aa',soul:'#ffcc44'};
+const DIE_NAMES={bone:'Bone Die',cursed:'Cursed Die',blessed:'Blessed Die',chaos:'Chaos Die',soul:'Soul Die'};
+
+// Death's dialogue
+const DEATH_TAUNTS=[
+'Your bones will join my collection.',
+'Roll well, mortal. It matters not.',
+'I have eternity. You have... this.',
+'The dice favor the dead.',
+'Even luck bows to Death.',
+'Interesting. But futile.',
+'You fight the inevitable.',
+'Your soul grows dimmer...',
+'SHALL WE CONTINUE?',
+'I admire your persistence. Briefly.',
+'The table is set. Your fate is written.',
+'Every roll brings you closer to me.'
+];
+const DEATH_HURT=[
+'Hmm. Unexpected.',
+'You wound me. Figuratively.',
+'A lucky roll. Enjoy it.',
+'The dice betray me? Impossible.',
+'Pain is... unfamiliar.',
+'You have earned a moment of dread from me.'
+];
+const DEATH_WINS=[
+'Your soul is mine now.',
+'The game ends. As all games do.',
+'Rest now. Forever.',
+'Death always wins eventually.',
+'Your defiance was... entertaining.'
+];
+const DEATH_LOSES=[
+'Impossible... how...',
+'You cheat! No mortal can...',
+'I will remember this. We WILL meet again.',
+'The dice... favor you. This time.'
+];
+
+function initGame(){
+const diffMult=[1.3,1.0,0.7];
+player={hp:Math.floor(30*diffMult[diff]),maxHp:Math.floor(30*diffMult[diff]),souls:3,shield:0,
+  damageBonus:0,rerolls:[1,2,3][diff]};
+death={hp:20,maxHp:20,atk:3+diff,phase:1,enraged:false};
+dice=[
+  {type:'bone',faces:DIE_FACES.bone,value:0,rolling:false,rollT:0,selected:false,locked:false},
+  {type:'bone',faces:DIE_FACES.bone,value:0,rolling:false,rollT:0,selected:false,locked:false},
+  {type:'bone',faces:DIE_FACES.bone,value:0,rolling:false,rollT:0,selected:false,locked:false},
+  {type:'cursed',faces:DIE_FACES.cursed,value:0,rolling:false,rollT:0,selected:false,locked:false},
+  {type:'chaos',faces:DIE_FACES.chaos,value:0,rolling:false,rollT:0,selected:false,locked:false}
+];
+selectedDie=-1;round=1;score=0;combo=0;maxCombo=0;
+roundsWon=0;roundsLost=0;totalDamageDealt=0;
+abilities={
+  soulBurn:{name:'Soul Burn',cooldown:0,maxCd:3,desc:'Sacrifice 1 soul for +5 damage'},
+  darkPact:{name:'Dark Pact',cooldown:0,maxCd:5,desc:'Lose 5 HP, double next roll'},
+  boneShield:{name:'Bone Shield',cooldown:0,maxCd:4,desc:'Block next damage'}
+};
+gamePhase='roll';
+deathDialogue=DEATH_TAUNTS[Math.floor(Math.random()*DEATH_TAUNTS.length)];
+dialogueTimer=120}
+
+function rollAllDice(){
+if(gamePhase!=='roll')return;
+snd('gamble');
+dice.forEach(d=>{
+if(!d.locked){d.rolling=true;d.rollT=30+Math.random()*20}});
+gamePhase='rolling'}
+
+function selectDie(idx){
+if(gamePhase!=='choose'||idx<0||idx>=dice.length)return;
+dice.forEach(d=>d.selected=false);
+dice[idx].selected=true;
+selectedDie=idx;
+snd('select')}
+
+function confirmSelection(){
+if(gamePhase!=='choose'||selectedDie<0)return;
+const d=dice[selectedDie];
+const value=d.value+player.damageBonus;
+player.damageBonus=0;
+// Calculate damage
+let damage=value;
+// Combo check - consecutive hits above 4
+if(value>=4){combo++;if(combo>maxCombo)maxCombo=combo;
+if(combo>=2){damage+=combo;snd('combo')}}
+else{combo=0}
+// Zero = curse
+if(d.value===0){
+player.hp-=3;snd('curse');
+deathDialogue='The cursed die bites back!';dialogueTimer=80;
+spawnParts(CW/2,CH/2,'#884444',10,3,25);screenShake=5}
+else{
+death.hp-=damage;totalDamageDealt+=damage;snd('hit');
+spawnParts(CW*0.7,CH*0.35,DIE_COLORS[d.type],12,4,25);
+floats.push({x:CW*0.7,y:CH*0.3,text:'-'+damage,color:'#ff4444',life:40,vy:-2});
+screenShake=Math.min(damage,10);
+if(damage>=8){
+deathDialogue=DEATH_HURT[Math.floor(Math.random()*DEATH_HURT.length)];dialogueTimer=80}}
+score+=damage*10*(1+combo*0.3);
+// Check death defeated
+if(death.hp<=0){
+endRound(true);return}
+// Death's turn
+gamePhase='death_turn';
+setTimeout(deathTurn,800)}
+
+function deathTurn(){
+if(state!==ST.PLAY||gamePhase!=='death_turn')return;
+// Death attacks
+let dmg=death.atk+(death.enraged?2:0);
+if(player.shield>0){player.shield--;dmg=0;snd('click');
+deathDialogue='Your shield crumbles...';dialogueTimer=60;
+floats.push({x:CW*0.3,y:CH*0.3,text:'BLOCKED',color:'#44aaff',life:30,vy:-1})}
+else{
+player.hp-=dmg;snd('hit');screenShake=6;
+spawnParts(CW*0.3,CH*0.35,'#ff4444',8,3,20);
+floats.push({x:CW*0.3,y:CH*0.3,text:'-'+dmg,color:'#ff4444',life:40,vy:-2});
+deathDialogue=DEATH_TAUNTS[Math.floor(Math.random()*DEATH_TAUNTS.length)];dialogueTimer=80}
+// Check player dead
+if(player.hp<=0){endGame(false);return}
+// Death special moves at low HP
+if(death.hp<death.maxHp*0.3&&!death.enraged){
+death.enraged=true;
+deathDialogue='ENOUGH! I GROW TIRED OF THIS GAME!';dialogueTimer=100;
+snd('curse');spawnParts(CW*0.7,CH*0.35,'#aa44aa',15,4,30)}
+// Reduce ability cooldowns
+Object.values(abilities).forEach(a=>{if(a.cooldown>0)a.cooldown--});
+// Next roll phase
+dice.forEach(d=>{d.selected=false;d.locked=false});
+selectedDie=-1;
+gamePhase='roll';
+// Random dialogue
+if(Math.random()<0.3){
+deathDialogue=DEATH_TAUNTS[Math.floor(Math.random()*DEATH_TAUNTS.length)];dialogueTimer=80}}
+
+function useAbility(name){
+if(gamePhase!=='roll'&&gamePhase!=='choose')return;
+const a=abilities[name];
+if(!a||a.cooldown>0)return;
+switch(name){
+case'soulBurn':
+if(player.souls<=0){deathDialogue='No souls left to burn...';dialogueTimer=60;return}
+player.souls--;player.damageBonus+=5;a.cooldown=a.maxCd;
+snd('power');spawnParts(CW*0.3,CH*0.35,'#ffcc44',12,3,25);
+deathDialogue='You sacrifice your own essence? Bold.';dialogueTimer=80;
+floats.push({x:CW*0.3,y:CH*0.4,text:'+5 DMG',color:'#ffcc44',life:35,vy:-1.5});break;
+case'darkPact':
+player.hp-=5;player.damageBonus+=Math.max(...dice.map(d=>d.value));
+a.cooldown=a.maxCd;snd('curse');screenShake=4;
+spawnParts(CW*0.3,CH*0.35,'#aa44aa',10,3,20);
+deathDialogue='A dark bargain... I approve.';dialogueTimer=80;
+floats.push({x:CW*0.3,y:CH*0.4,text:'DARK PACT',color:'#aa44aa',life:35,vy:-1.5});break;
+case'boneShield':
+player.shield=1;a.cooldown=a.maxCd;snd('select');
+spawnParts(CW*0.3,CH*0.35,'#4488aa',8,2,20);
+deathDialogue='A shield of bone? How quaint.';dialogueTimer=80;
+floats.push({x:CW*0.3,y:CH*0.4,text:'SHIELDED',color:'#4488aa',life:35,vy:-1.5});break;
+}}
+
+function endRound(playerWon){
+if(playerWon){
+roundsWon++;round++;score+=200*round;
+snd('win');
+// Death evolves
+death.hp=Math.floor(20+round*8);death.maxHp=death.hp;
+death.atk=3+diff+Math.floor(round*0.5);death.enraged=false;death.phase=Math.min(Math.floor(round/3)+1,4);
+// Reward player
+const hpGain=5;player.hp=Math.min(player.hp+hpGain,player.maxHp);
+if(round%3===0){player.souls++;
+deathDialogue='You win a soul. But I will take it back.';dialogueTimer=100}
+// Upgrade a die every 2 rounds
+if(round%2===0&&round<=8){
+const upgIdx=Math.min(Math.floor(round/2)-1,dice.length-1);
+const types=['blessed','chaos','soul'];
+const newType=types[Math.min(Math.floor(Math.random()*types.length),types.length-1)];
+dice[upgIdx]={type:newType,faces:DIE_FACES[newType],value:0,rolling:false,rollT:0,selected:false,locked:false};
+deathDialogue='A new die? It will not save you.';dialogueTimer=100}
+deathDialogue=deathDialogue||('Round '+round+'. Death reforms...');dialogueTimer=100;
+// Win condition: survive 10 rounds
+if(round>10){endGame(true);return}}
+else{
+roundsLost++;score-=50}
+gamePhase='roll';
+dice.forEach(d=>{d.selected=false;d.locked=false;d.value=0});
+selectedDie=-1}
+
+function endGame(won){
+state=ST.OVER;
+if(won){score+=1000;snd('win');deathDialogue=DEATH_LOSES[Math.floor(Math.random()*DEATH_LOSES.length)]}
+else{snd('death');deathDialogue=DEATH_WINS[Math.floor(Math.random()*DEATH_WINS.length)]}
+dialogueTimer=200;
+saveHS();
+document.getElementById('over').style.display='flex';
+document.getElementById('go-t').textContent=won?'YOU DEFEATED DEATH':'YOUR SOUL IS CLAIMED';
+document.getElementById('go-t').className=won?'go-t go-win':'go-t go-lose';
+document.getElementById('go-s').textContent='Score: '+Math.floor(score);
+document.getElementById('go-st').innerHTML='Rounds: '+round+' | Damage Dealt: '+totalDamageDealt+
+  '<br>Max Combo: '+maxCombo+' | Souls Remaining: '+player.souls+
+  '<br>Rounds Won: '+roundsWon+' | Rounds Lost: '+roundsLost;
+const hs=getHS();
+document.getElementById('go-hs').innerHTML=hs.length?'<div style="color:#cc9944;font-weight:bold">HIGH SCORES</div>'+
+  hs.slice(0,5).map((s,i)=>'<div>'+(i+1)+'. '+s.score+' - Rd'+s.round+' ('+s.diff+')</div>').join(''):''}
+
+function saveHS(){
+const hs=JSON.parse(localStorage.getItem('boneDice_hs')||'[]');
+hs.push({score:Math.floor(score),round,damage:totalDamageDealt,combo:maxCombo,
+  diff:['Mortal','Damned','Forsaken'][diff],date:new Date().toISOString().split('T')[0]});
+hs.sort((a,b)=>b.score-a.score);
+localStorage.setItem('boneDice_hs',JSON.stringify(hs.slice(0,10)))}
+function getHS(){return JSON.parse(localStorage.getItem('boneDice_hs')||'[]')}
+function showMenuHS(){
+const hs=getHS();
+document.getElementById('menu-hs').innerHTML=hs.length?'<div style="color:#cc9944;font-weight:bold;margin-bottom:4px">HIGH SCORES</div>'+
+  hs.slice(0,5).map((s,i)=>'<div>'+(i+1)+'. '+s.score+' - Rd'+s.round+' ('+s.diff+')</div>').join(''):''}
+
+function startGame(d){
+diff=d;AC.resume();snd('click');
+document.getElementById('menu').style.display='none';
+document.getElementById('over').style.display='none';
+document.getElementById('pause').style.display='none';
+state=ST.PLAY;particles=[];floats=[];
+initGame()}
+function toMenu(){state=ST.MENU;document.getElementById('menu').style.display='flex';
+document.getElementById('over').style.display='none';document.getElementById('pause').style.display='none';showMenuHS()}
+function unpause(){state=ST.PLAY;document.getElementById('pause').style.display='none'}
+window.startGame=startGame;window.toMenu=toMenu;window.unpause=unpause;
+
+function spawnParts(x,y,col,n,spd,life){
+for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2;
+particles.push({x,y,vx:Math.cos(a)*spd*(0.5+Math.random()),vy:Math.sin(a)*spd*(0.5+Math.random()),
+life:life*(0.5+Math.random()*0.5),maxLife:life,color:col,size:2+Math.random()*3})}}
+
+addEventListener('keydown',e=>{
+if(state===ST.PLAY){
+if(e.key===' '&&gamePhase==='roll'){e.preventDefault();rollAllDice()}
+if(e.key===' '&&gamePhase==='choose'){e.preventDefault();confirmSelection()}
+if(e.key>='1'&&e.key<='5'){selectDie(parseInt(e.key)-1)}
+if(e.key==='q'||e.key==='Q')useAbility('soulBurn');
+if(e.key==='w'||e.key==='W')useAbility('darkPact');
+if(e.key==='e'||e.key==='E')useAbility('boneShield')}
+if(e.key==='Escape'){
+if(state===ST.PLAY){state=ST.PAUSE;document.getElementById('pause').style.display='flex';snd('click')}
+else if(state===ST.PAUSE)unpause()}
+if((e.key==='r'||e.key==='R')&&state===ST.OVER)startGame(diff)});
+
+// Touch: tap dice to select, tap above to roll/confirm
+cv.addEventListener('click',e=>{
+if(state!==ST.PLAY)return;AC.resume();
+const rect=cv.getBoundingClientRect();
+const sx=CW/rect.width,sy=CH/rect.height;
+const mx=(e.clientX-rect.left)*sx,my=(e.clientY-rect.top)*sy;
+// Check dice clicks
+const diceY=CH*0.65;
+const diceStartX=CW/2-(dice.length*70)/2;
+for(let i=0;i<dice.length;i++){
+const dx=diceStartX+i*70+30;
+if(mx>dx-30&&mx<dx+30&&my>diceY-30&&my<diceY+30){
+selectDie(i);return}}
+// Click above dice = roll or confirm
+if(my<diceY-40){
+if(gamePhase==='roll')rollAllDice();
+else if(gamePhase==='choose')confirmSelection()}
+// Ability buttons at bottom
+const abY=CH-40;
+if(my>abY-20&&my<abY+20){
+if(mx<CW*0.33)useAbility('soulBurn');
+else if(mx<CW*0.66)useAbility('darkPact');
+else useAbility('boneShield')}});
+
+function drawDie(x,y,die,idx){
+const size=50;
+const col=DIE_COLORS[die.type];
+// Rolling animation
+if(die.rolling){
+die.rollT--;
+if(die.rollT<=0){
+die.rolling=false;
+die.value=die.faces[Math.floor(Math.random()*die.faces.length)];
+// Check if all dice done rolling
+if(!dice.some(d=>d.rolling)){gamePhase='choose';
+deathDialogue='Choose wisely, mortal...';dialogueTimer=80}}
+else{
+die.value=die.faces[Math.floor(Math.random()*die.faces.length)];
+if(die.rollT%5===0)snd('roll')}}
+// Draw die body
+cx.save();cx.translate(x,y);
+if(die.rolling){
+const angle=Math.sin(Date.now()*0.02+idx)*0.2;
+cx.rotate(angle)}
+// Shadow
+cx.fillStyle='rgba(0,0,0,0.3)';
+cx.fillRect(-size/2+3,3-size/2,size,size);
+// Body
+const gradient=cx.createLinearGradient(-size/2,-size/2,size/2,size/2);
+gradient.addColorStop(0,col);
+gradient.addColorStop(1,shadeColor(col,-30));
+cx.fillStyle=gradient;
+cx.fillRect(-size/2,-size/2,size,size);
+// Border
+cx.strokeStyle=die.selected?'#ffff44':'rgba(255,255,255,0.2)';
+cx.lineWidth=die.selected?3:1;
+cx.strokeRect(-size/2,-size/2,size,size);
+// Value
+cx.fillStyle=die.value===0?'#ff4444':'#1a1008';
+cx.font='bold 24px monospace';cx.textAlign='center';cx.textBaseline='middle';
+cx.fillText(die.value,0,2);
+// Die type label
+cx.fillStyle='rgba(255,255,255,0.5)';cx.font='8px monospace';
+cx.fillText(DIE_NAMES[die.type],0,size/2+10);
+// Slot number
+cx.fillStyle='#665';cx.font='10px monospace';
+cx.fillText('['+(idx+1)+']',0,-size/2-8);
+cx.restore()}
+
+function shadeColor(color,percent){
+const num=parseInt(color.replace('#',''),16);
+const amt=Math.round(2.55*percent);
+const R=Math.max(0,Math.min(255,(num>>16)+amt));
+const G=Math.max(0,Math.min(255,(num>>8&0x00FF)+amt));
+const B=Math.max(0,Math.min(255,(num&0x0000FF)+amt));
+return'#'+(0x1000000+R*0x10000+G*0x100+B).toString(16).slice(1)}
+
+function drawHP(x,y,w,h,current,max,color,label){
+cx.fillStyle='#1a1008';cx.fillRect(x,y,w,h);
+cx.strokeStyle='#2a2018';cx.lineWidth=1;cx.strokeRect(x,y,w,h);
+const ratio=Math.max(0,current/max);
+const grad=cx.createLinearGradient(x,y,x+w*ratio,y);
+grad.addColorStop(0,color);grad.addColorStop(1,shadeColor(color,-20));
+cx.fillStyle=grad;cx.fillRect(x+1,y+1,w*ratio-2,h-2);
+cx.fillStyle='#fff';cx.font='11px monospace';cx.textAlign='center';
+cx.fillText(label+': '+current+'/'+max,x+w/2,y+h/2+4)}
+
+function render(dt){
+cx.fillStyle='#0a0808';cx.fillRect(0,0,CW,CH);
+// Background ambience
+const deathGlow=death.enraged?0.05:0.02;
+cx.fillStyle='rgba(150,50,20,'+deathGlow+')';
+cx.fillRect(0,0,CW,CH);
+// Table
+cx.fillStyle='#14100c';
+cx.fillRect(20,20,CW-40,CH-40);
+cx.strokeStyle='#2a2018';cx.lineWidth=2;
+cx.strokeRect(20,20,CW-40,CH-40);
+// Felt texture dots
+cx.fillStyle='rgba(255,255,255,0.01)';
+for(let i=0;i<50;i++){
+cx.fillRect(30+Math.sin(i*7.3)*300+300,30+Math.cos(i*5.1)*250+250,2,2)}
+let sx=0,sy=0;
+if(screenShake>0){sx=(Math.random()-0.5)*screenShake*2;sy=(Math.random()-0.5)*screenShake*2;screenShake*=0.85;if(screenShake<0.3)screenShake=0}
+cx.save();cx.translate(sx,sy);
+// Player side (left)
+cx.fillStyle='#ccbb99';cx.font='16px monospace';cx.textAlign='center';
+cx.fillText('THE WARDEN',CW*0.25,50);
+drawHP(CW*0.05,60,CW*0.4,16,player.hp,player.maxHp,'#44aa44','HP');
+// Souls
+cx.fillStyle='#ffcc44';cx.font='12px monospace';cx.textAlign='left';
+cx.fillText('Souls: '+'*'.repeat(player.souls),CW*0.05,95);
+if(player.shield>0){cx.fillStyle='#4488aa';cx.fillText('SHIELDED',CW*0.3,95)}
+if(player.damageBonus>0){cx.fillStyle='#ffaa44';cx.fillText('+'+player.damageBonus+' DMG',CW*0.05,110)}
+// Death side (right)
+cx.fillStyle='#cc4444';cx.font='16px monospace';cx.textAlign='center';
+const deathName=['DEATH','DEATH (Phase '+death.phase+')','THE REAPER','THE END'][Math.min(death.phase-1,3)];
+cx.fillText(deathName,CW*0.75,50);
+drawHP(CW*0.55,60,CW*0.4,16,death.hp,death.maxHp,'#cc4444','HP');
+if(death.enraged){cx.fillStyle='#ff4444';cx.font='bold 12px monospace';cx.textAlign='center';cx.fillText('ENRAGED!',CW*0.75,95)}
+// Death avatar
+cx.fillStyle=death.enraged?'#ff4444':'#aaaaaa';
+cx.font='40px monospace';cx.textAlign='center';
+const skullBob=Math.sin(Date.now()*0.003)*3;
+cx.fillText('\u2620',CW*0.75,CH*0.3+skullBob);
+// Death phase indicator
+for(let p=0;p<death.phase;p++){
+cx.fillStyle=p<death.phase?'#cc4444':'#333';
+cx.beginPath();cx.arc(CW*0.65+p*15,CH*0.35,4,0,Math.PI*2);cx.fill()}
+// Dialogue
+if(dialogueTimer>0){
+dialogueTimer--;
+const alpha=Math.min(1,dialogueTimer/30);
+cx.globalAlpha=alpha;
+cx.fillStyle='#887766';cx.font='italic 13px monospace';cx.textAlign='center';
+cx.fillText('"'+deathDialogue+'"',CW/2,CH*0.42);
+cx.globalAlpha=1}
+// Round / Score info
+cx.fillStyle='#665544';cx.font='13px monospace';cx.textAlign='center';
+cx.fillText('Round '+round+' | Score: '+Math.floor(score)+(combo>1?' | Combo x'+combo:''),CW/2,CH*0.48);
+// Phase indicator
+cx.fillStyle=gamePhase==='roll'?'#cc9944':gamePhase==='choose'?'#44cc88':'#cc4444';
+cx.font='14px monospace';
+const phaseText=gamePhase==='roll'?'[SPACE] Roll the Bones':gamePhase==='choose'?'Select a die [1-5] then [SPACE]':gamePhase==='rolling'?'Rolling...':gamePhase==='death_turn'?'Death strikes...':'';
+cx.fillText(phaseText,CW/2,CH*0.53);
+// Draw dice
+const diceY=CH*0.65;
+const diceStartX=CW/2-(dice.length*70)/2;
+dice.forEach((d,i)=>{
+drawDie(diceStartX+i*70+30,diceY,d,i)});
+// Abilities
+const abY=CH-35;
+cx.font='11px monospace';cx.textAlign='center';
+const abList=[
+{key:'Q',name:abilities.soulBurn.name,cd:abilities.soulBurn.cooldown,color:'#ffcc44'},
+{key:'W',name:abilities.darkPact.name,cd:abilities.darkPact.cooldown,color:'#aa44aa'},
+{key:'E',name:abilities.boneShield.name,cd:abilities.boneShield.cooldown,color:'#4488aa'}
+];
+abList.forEach((ab,i)=>{
+const ax=CW*0.17+i*CW*0.33;
+cx.fillStyle=ab.cd>0?'#333':ab.color;
+cx.fillText('['+ab.key+'] '+ab.name+(ab.cd>0?' ('+ab.cd+')':''),ax,abY)});
+// Particles
+particles.forEach((p,i)=>{
+p.x+=p.vx;p.y+=p.vy;p.vy+=0.05;p.vx*=0.97;p.life--;
+if(p.life<=0){particles.splice(i,1);return}
+cx.globalAlpha=p.life/p.maxLife;cx.fillStyle=p.color;
+cx.beginPath();cx.arc(p.x,p.y,p.size*(p.life/p.maxLife),0,Math.PI*2);cx.fill()});
+cx.globalAlpha=1;
+// Float texts
+floats.forEach((ft,i)=>{
+ft.y+=ft.vy;ft.life--;
+if(ft.life<=0){floats.splice(i,1);return}
+cx.globalAlpha=Math.min(1,ft.life/15);cx.fillStyle=ft.color;
+cx.font='bold 18px monospace';cx.textAlign='center';cx.fillText(ft.text,ft.x,ft.y)});
+cx.globalAlpha=1;
+cx.restore()}
+
+let lastTime=0;
+function loop(time){
+const dt=Math.min(time-lastTime,50);lastTime=time;
+if(state===ST.PLAY){render(dt)}
+else if(state===ST.MENU){
+cx.fillStyle='#0a0808';cx.fillRect(0,0,CW,CH);
+cx.fillStyle='rgba(200,150,60,0.015)';
+for(let i=0;i<8;i++){
+const x=Math.sin(time*0.0005+i*0.7)*CW*0.3+CW*0.5;
+const y=Math.cos(time*0.0007+i*0.5)*CH*0.3+CH*0.5;
+cx.beginPath();cx.arc(x,y,25+Math.sin(time*0.002+i)*12,0,Math.PI*2);cx.fill()}}
+requestAnimationFrame(loop)}
+showMenuHS();requestAnimationFrame(loop);
+</script>
+</body>
+</html>

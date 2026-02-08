@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="roguelike,dungeon,procedural,canvas,audio,game">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Crypt Warden</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a12; color: #c8c8d4; font-family: 'Courier New', monospace; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+canvas { display: block; image-rendering: pixelated; border: 2px solid #2a2a3a; box-shadow: 0 0 30px rgba(80,40,120,0.3); }
+#ui-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+#hud { position: fixed; top: 10px; left: 10px; font-size: 14px; z-index: 11; pointer-events: none; text-shadow: 1px 1px 2px #000; }
+#hud div { margin: 2px 0; }
+.hud-hp { color: #ff4444; }
+.hud-level { color: #aa88ff; }
+.hud-score { color: #ffcc44; }
+.hud-keys { color: #44ccff; }
+.hud-combo { color: #ff8844; font-weight: bold; }
+#msg-log { position: fixed; bottom: 10px; left: 10px; font-size: 12px; z-index: 11; pointer-events: none; max-width: 400px; }
+#msg-log div { margin: 1px 0; opacity: 0.8; text-shadow: 1px 1px 2px #000; }
+.msg-damage { color: #ff6666; }
+.msg-pickup { color: #66ff66; }
+.msg-info { color: #8888cc; }
+.msg-boss { color: #ff44ff; font-weight: bold; }
+#menu-screen, #gameover-screen, #pause-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; pointer-events: all; }
+#menu-screen { background: radial-gradient(ellipse at center, #1a1028 0%, #0a0a12 70%); }
+#gameover-screen { background: rgba(10,10,18,0.95); display: none; }
+#pause-screen { background: rgba(10,10,18,0.85); display: none; }
+.menu-title { font-size: 48px; color: #aa66ff; text-shadow: 0 0 20px rgba(170,102,255,0.5); margin-bottom: 10px; letter-spacing: 4px; }
+.menu-subtitle { font-size: 16px; color: #666688; margin-bottom: 40px; }
+.menu-btn { background: linear-gradient(135deg, #2a1a3a, #1a1028); border: 1px solid #4a3a5a; color: #cc99ff; padding: 12px 36px; margin: 6px; font-family: 'Courier New', monospace; font-size: 16px; cursor: pointer; transition: all 0.2s; pointer-events: all; }
+.menu-btn:hover { background: linear-gradient(135deg, #3a2a5a, #2a1a3a); border-color: #aa66ff; box-shadow: 0 0 15px rgba(170,102,255,0.3); transform: scale(1.05); }
+.difficulty-label { color: #888; font-size: 12px; margin-top: 20px; }
+.score-display { font-size: 28px; color: #ffcc44; margin: 10px; }
+.gameover-title { font-size: 36px; color: #ff4444; text-shadow: 0 0 20px rgba(255,68,68,0.5); margin-bottom: 10px; }
+.gameover-win { color: #44ff44; text-shadow: 0 0 20px rgba(68,255,68,0.5); }
+.high-scores { margin: 20px; text-align: left; }
+.high-scores div { color: #aa88cc; margin: 3px 0; font-size: 14px; }
+.controls-hint { position: fixed; bottom: 10px; right: 10px; font-size: 11px; color: #444466; z-index: 11; pointer-events: none; text-align: right; }
+.controls-hint div { margin: 1px 0; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"></div>
+<div id="msg-log"></div>
+<div class="controls-hint">
+<div>WASD/Arrows: Move</div>
+<div>SPACE: Attack</div>
+<div>E: Use Item</div>
+<div>ESC: Pause</div>
+<div>R: Restart</div>
+</div>
+<div id="menu-screen">
+<div class="menu-title">CRYPT WARDEN</div>
+<div class="menu-subtitle">Descend. Seal the Ancient Evil. Or die trying.</div>
+<div class="difficulty-label">SELECT DIFFICULTY</div>
+<button class="menu-btn" onclick="startGame(0)">EASY - Warden Initiate</button>
+<button class="menu-btn" onclick="startGame(1)">NORMAL - Seasoned Warden</button>
+<button class="menu-btn" onclick="startGame(2)">HARD - Death March</button>
+<div class="high-scores" id="menu-scores"></div>
+</div>
+<div id="gameover-screen">
+<div class="gameover-title" id="gameover-title">YOU HAVE FALLEN</div>
+<div class="score-display" id="final-score"></div>
+<div id="gameover-stats"></div>
+<div class="high-scores" id="gameover-scores"></div>
+<button class="menu-btn" onclick="restartGame()">DESCEND AGAIN</button>
+<button class="menu-btn" onclick="goToMenu()">MAIN MENU</button>
+</div>
+<div id="pause-screen">
+<div class="menu-title" style="font-size:32px;">PAUSED</div>
+<div style="color:#888;margin:10px;">The crypt waits...</div>
+<button class="menu-btn" onclick="togglePause()">RESUME</button>
+<button class="menu-btn" onclick="goToMenu()">QUIT TO MENU</button>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const TILE = 16;
+const MAP_W = 50;
+const MAP_H = 40;
+const VIEW_W = 40;
+const VIEW_H = 30;
+
+let W, H;
+function resize() {
+  const maxW = window.innerWidth - 20;
+  const maxH = window.innerHeight - 20;
+  const scale = Math.min(Math.floor(maxW / (VIEW_W * TILE)), Math.floor(maxH / (VIEW_H * TILE)), 3);
+  W = VIEW_W * TILE * Math.max(scale, 1);
+  H = VIEW_H * TILE * Math.max(scale, 1);
+  canvas.width = VIEW_W * TILE;
+  canvas.height = VIEW_H * TILE;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Audio system
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  const t = audioCtx.currentTime;
+  switch(type) {
+    case 'hit':
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, t); osc.frequency.exponentialRampToValueAtTime(80, t+0.15);
+      gain.gain.setValueAtTime(0.15, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+      osc.start(t); osc.stop(t+0.15); break;
+    case 'kill':
+      osc.type = 'square'; osc.frequency.setValueAtTime(400, t); osc.frequency.exponentialRampToValueAtTime(100, t+0.25);
+      gain.gain.setValueAtTime(0.12, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.25);
+      osc.start(t); osc.stop(t+0.25); break;
+    case 'hurt':
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, t); osc.frequency.exponentialRampToValueAtTime(50, t+0.3);
+      gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.3);
+      osc.start(t); osc.stop(t+0.3); break;
+    case 'pickup':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(500, t); osc.frequency.exponentialRampToValueAtTime(800, t+0.15);
+      gain.gain.setValueAtTime(0.1, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+      osc.start(t); osc.stop(t+0.15); break;
+    case 'descend':
+      osc.type = 'triangle'; osc.frequency.setValueAtTime(600, t); osc.frequency.exponentialRampToValueAtTime(200, t+0.5);
+      gain.gain.setValueAtTime(0.15, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.5);
+      osc.start(t); osc.stop(t+0.5); break;
+    case 'boss':
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(80, t); osc.frequency.setValueAtTime(120, t+0.2); osc.frequency.setValueAtTime(60, t+0.4);
+      gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.6);
+      osc.start(t); osc.stop(t+0.6); break;
+    case 'menu':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(440, t); osc.frequency.exponentialRampToValueAtTime(660, t+0.1);
+      gain.gain.setValueAtTime(0.08, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.1);
+      osc.start(t); osc.stop(t+0.1); break;
+    case 'death':
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, t); osc.frequency.exponentialRampToValueAtTime(30, t+1.0);
+      gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.001, t+1.0);
+      osc.start(t); osc.stop(t+1.0); break;
+    case 'heal':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(400, t); osc.frequency.exponentialRampToValueAtTime(700, t+0.3);
+      gain.gain.setValueAtTime(0.08, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.3);
+      osc.start(t); osc.stop(t+0.3); break;
+    case 'key':
+      osc.type = 'triangle'; osc.frequency.setValueAtTime(800, t); osc.frequency.exponentialRampToValueAtTime(1200, t+0.2);
+      gain.gain.setValueAtTime(0.1, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.2);
+      osc.start(t); osc.stop(t+0.2); break;
+    case 'door':
+      osc.type = 'square'; osc.frequency.setValueAtTime(200, t); osc.frequency.setValueAtTime(300, t+0.1); osc.frequency.setValueAtTime(400, t+0.2);
+      gain.gain.setValueAtTime(0.1, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.3);
+      osc.start(t); osc.stop(t+0.3); break;
+    case 'combo':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(600, t); osc.frequency.exponentialRampToValueAtTime(1200, t+0.1);
+      gain.gain.setValueAtTime(0.12, t); gain.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+      osc.start(t); osc.stop(t+0.15); break;
+    case 'ambience':
+      osc.type = 'sine'; osc.frequency.setValueAtTime(55, t);
+      gain.gain.setValueAtTime(0.03, t); gain.gain.exponentialRampToValueAtTime(0.001, t+2.0);
+      osc.start(t); osc.stop(t+2.0); break;
+  }
+}
+
+// Game state
+const STATES = { MENU: 0, PLAYING: 1, PAUSED: 2, GAMEOVER: 3 };
+let state = STATES.MENU;
+let difficulty = 1;
+let player, enemies, items, particles, map, explored, visible;
+let level, score, combo, comboTimer, killStreak;
+let messages = [];
+let screenShake = 0;
+let shakeX = 0, shakeY = 0;
+let turnCount = 0;
+let bossKills = 0;
+let totalKills = 0;
+let itemsCollected = 0;
+let maxCombo = 0;
+let ambienceTimer = 0;
+
+const keys = {};
+const keyQueue = [];
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (state === STATES.PLAYING && !e.repeat) {
+    keyQueue.push(e.key);
+  }
+  if (e.key === 'Escape') {
+    if (state === STATES.PLAYING) togglePause();
+    else if (state === STATES.PAUSED) togglePause();
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    if (state === STATES.GAMEOVER) restartGame();
+  }
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// Touch controls
+let touchStart = null;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+});
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!touchStart) return;
+  const dx = e.changedTouches[0].clientX - touchStart.x;
+  const dy = e.changedTouches[0].clientY - touchStart.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 15) { keyQueue.push(' '); }
+  else if (Math.abs(dx) > Math.abs(dy)) { keyQueue.push(dx > 0 ? 'ArrowRight' : 'ArrowLeft'); }
+  else { keyQueue.push(dy > 0 ? 'ArrowDown' : 'ArrowUp'); }
+  touchStart = null;
+});
+
+// Tile types
+const T = { WALL: 0, FLOOR: 1, STAIRS: 2, DOOR: 3, TRAP: 4, CHEST: 5, PILLAR: 6, WATER: 7 };
+
+// Entity types
+const ENEMY_TYPES = {
+  skeleton: { hp: 3, atk: 1, spd: 2, xp: 10, char: 'S', color: '#ccccaa', name: 'Skeleton' },
+  ghost: { hp: 2, atk: 2, spd: 1, xp: 15, char: 'G', color: '#8888cc', name: 'Ghost' },
+  spider: { hp: 2, atk: 1, spd: 1, xp: 8, char: 's', color: '#886644', name: 'Spider' },
+  wraith: { hp: 5, atk: 3, spd: 2, xp: 25, char: 'W', color: '#aa44ff', name: 'Wraith' },
+  golem: { hp: 10, atk: 2, spd: 3, xp: 20, char: 'O', color: '#888866', name: 'Golem' },
+  necromancer: { hp: 6, atk: 4, spd: 2, xp: 35, char: 'N', color: '#ff44aa', name: 'Necromancer' },
+  mimic: { hp: 4, atk: 3, spd: 1, xp: 30, char: 'M', color: '#ccaa44', name: 'Mimic' },
+  boss_lich: { hp: 30, atk: 5, spd: 2, xp: 200, char: 'L', color: '#ff00ff', name: 'The Lich King', boss: true },
+  boss_dragon: { hp: 40, atk: 6, spd: 3, xp: 300, char: 'D', color: '#ff4400', name: 'Crypt Dragon', boss: true },
+  boss_ancient: { hp: 60, atk: 8, spd: 2, xp: 500, char: 'A', color: '#ffff00', name: 'The Ancient Evil', boss: true }
+};
+
+// Items
+const ITEM_TYPES = {
+  potion: { char: '!', color: '#ff4444', name: 'Health Potion', effect: 'heal' },
+  key: { char: 'k', color: '#ffff44', name: 'Crypt Key', effect: 'key' },
+  scroll_fire: { char: '?', color: '#ff8844', name: 'Scroll of Fire', effect: 'fire' },
+  scroll_ice: { char: '?', color: '#44aaff', name: 'Scroll of Ice', effect: 'ice' },
+  scroll_warp: { char: '?', color: '#aa44ff', name: 'Scroll of Warp', effect: 'warp' },
+  amulet: { char: '*', color: '#ffcc44', name: 'Warden Amulet', effect: 'buff' },
+  shield: { char: '[', color: '#aaaacc', name: 'Iron Shield', effect: 'shield' },
+  sword: { char: '/', color: '#ccccff', name: 'Silver Sword', effect: 'sword' }
+};
+
+// Player abilities
+const ABILITIES = {
+  slash: { name: 'Slash', cooldown: 0, maxCooldown: 0, range: 1, damage: 1 },
+  fireball: { name: 'Fireball', cooldown: 0, maxCooldown: 5, range: 4, damage: 4, unlockLevel: 3 },
+  heal: { name: 'Heal', cooldown: 0, maxCooldown: 8, range: 0, damage: -5, unlockLevel: 5 },
+  blink: { name: 'Blink', cooldown: 0, maxCooldown: 10, range: 5, damage: 0, unlockLevel: 7 }
+};
+
+function initPlayer() {
+  const diffMults = [1.5, 1.0, 0.7];
+  player = {
+    x: 0, y: 0, hp: Math.floor(20 * diffMults[difficulty]),
+    maxHp: Math.floor(20 * diffMults[difficulty]),
+    atk: 3, def: 1, xp: 0, xpNeeded: 30, lvl: 1,
+    keys: 0, items: [], abilities: ['slash'],
+    facing: { x: 0, y: 1 }, invuln: 0, comboMult: 1
+  };
+}
+
+// Procedural generation
+function generateMap(floorNum) {
+  map = [];
+  explored = [];
+  visible = [];
+  for (let y = 0; y < MAP_H; y++) {
+    map[y] = [];
+    explored[y] = [];
+    visible[y] = [];
+    for (let x = 0; x < MAP_W; x++) {
+      map[y][x] = T.WALL;
+      explored[y][x] = false;
+      visible[y][x] = false;
+    }
+  }
+  // BSP room generation
+  const rooms = [];
+  function splitBSP(x, y, w, h, depth) {
+    if (depth <= 0 || w < 8 || h < 8) {
+      const rw = 3 + Math.floor(Math.random() * (w - 5));
+      const rh = 3 + Math.floor(Math.random() * (h - 5));
+      const rx = x + 1 + Math.floor(Math.random() * (w - rw - 2));
+      const ry = y + 1 + Math.floor(Math.random() * (h - rh - 2));
+      rooms.push({ x: rx, y: ry, w: rw, h: rh, cx: Math.floor(rx + rw/2), cy: Math.floor(ry + rh/2) });
+      for (let dy = 0; dy < rh; dy++) {
+        for (let dx = 0; dx < rw; dx++) {
+          if (ry+dy >= 0 && ry+dy < MAP_H && rx+dx >= 0 && rx+dx < MAP_W) {
+            map[ry+dy][rx+dx] = T.FLOOR;
+          }
+        }
+      }
+      // Add pillars to large rooms
+      if (rw >= 6 && rh >= 6 && Math.random() < 0.4) {
+        for (let px = rx+2; px < rx+rw-2; px += 3) {
+          for (let py = ry+2; py < ry+rh-2; py += 3) {
+            if (map[py] && map[py][px] !== undefined) map[py][px] = T.PILLAR;
+          }
+        }
+      }
+      return;
+    }
+    if (w > h) {
+      const split = Math.floor(x + w * 0.3 + Math.random() * w * 0.4);
+      splitBSP(x, y, split - x, h, depth-1);
+      splitBSP(split, y, x + w - split, h, depth-1);
+    } else {
+      const split = Math.floor(y + h * 0.3 + Math.random() * h * 0.4);
+      splitBSP(x, y, w, split - y, depth-1);
+      splitBSP(x, split, w, y + h - split, depth-1);
+    }
+  }
+  splitBSP(1, 1, MAP_W-2, MAP_H-2, 4);
+  // Connect rooms with corridors
+  for (let i = 1; i < rooms.length; i++) {
+    const a = rooms[i-1], b = rooms[i];
+    let cx = a.cx, cy = a.cy;
+    while (cx !== b.cx) {
+      if (cy >= 0 && cy < MAP_H && cx >= 0 && cx < MAP_W && map[cy][cx] === T.WALL) map[cy][cx] = T.FLOOR;
+      cx += cx < b.cx ? 1 : -1;
+    }
+    while (cy !== b.cy) {
+      if (cy >= 0 && cy < MAP_H && cx >= 0 && cx < MAP_W && map[cy][cx] === T.WALL) map[cy][cx] = T.FLOOR;
+      cy += cy < b.cy ? 1 : -1;
+    }
+  }
+  // Add doors between corridors and rooms
+  for (let y = 1; y < MAP_H-1; y++) {
+    for (let x = 1; x < MAP_W-1; x++) {
+      if (map[y][x] === T.FLOOR) {
+        const wallsH = (map[y][x-1] === T.WALL ? 1 : 0) + (map[y][x+1] === T.WALL ? 1 : 0);
+        const wallsV = (map[y-1][x] === T.WALL ? 1 : 0) + (map[y+1][x] === T.WALL ? 1 : 0);
+        if ((wallsH === 2 && wallsV === 0) || (wallsV === 2 && wallsH === 0)) {
+          if (Math.random() < 0.15) map[y][x] = T.DOOR;
+        }
+      }
+    }
+  }
+  // Place stairs in last room
+  if (rooms.length > 0) {
+    const lastRoom = rooms[rooms.length - 1];
+    map[lastRoom.cy][lastRoom.cx] = T.STAIRS;
+  }
+  // Add traps
+  const trapCount = 3 + floorNum * 2;
+  for (let i = 0; i < trapCount; i++) {
+    const r = rooms[Math.floor(Math.random() * rooms.length)];
+    const tx = r.x + Math.floor(Math.random() * r.w);
+    const ty = r.y + Math.floor(Math.random() * r.h);
+    if (map[ty][tx] === T.FLOOR) map[ty][tx] = T.TRAP;
+  }
+  // Add water patches
+  if (Math.random() < 0.3 + floorNum * 0.05) {
+    const waterRoom = rooms[Math.floor(Math.random() * rooms.length)];
+    for (let dy = 0; dy < waterRoom.h; dy++) {
+      for (let dx = 0; dx < waterRoom.w; dx++) {
+        if (Math.random() < 0.4) {
+          const wy = waterRoom.y + dy, wx = waterRoom.x + dx;
+          if (map[wy][wx] === T.FLOOR) map[wy][wx] = T.WATER;
+        }
+      }
+    }
+  }
+  // Place player in first room
+  player.x = rooms[0].cx;
+  player.y = rooms[0].cy;
+  // Spawn enemies
+  enemies = [];
+  const enemyCount = 5 + floorNum * 3 + difficulty * 2;
+  const availableTypes = getEnemyTypesForLevel(floorNum);
+  for (let i = 0; i < enemyCount; i++) {
+    const r = rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
+    if (!r) continue;
+    const ex = r.x + Math.floor(Math.random() * r.w);
+    const ey = r.y + Math.floor(Math.random() * r.h);
+    if (map[ey][ex] !== T.FLOOR || (ex === player.x && ey === player.y)) continue;
+    const type = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+    const template = ENEMY_TYPES[type];
+    const scaleMult = 1 + (floorNum - 1) * 0.15 + difficulty * 0.1;
+    enemies.push({
+      x: ex, y: ey, type: type,
+      hp: Math.ceil(template.hp * scaleMult),
+      maxHp: Math.ceil(template.hp * scaleMult),
+      atk: Math.ceil(template.atk * scaleMult),
+      spd: template.spd, xp: Math.ceil(template.xp * scaleMult),
+      char: template.char, color: template.color, name: template.name,
+      boss: template.boss || false, turnCounter: 0,
+      alert: false, lastSawPlayer: null, stunned: 0,
+      flashTimer: 0
+    });
+  }
+  // Boss every 5 levels
+  if (floorNum > 0 && floorNum % 5 === 0) {
+    const bossRoom = rooms[Math.floor(rooms.length / 2)];
+    let bossType = 'boss_lich';
+    if (floorNum >= 15) bossType = 'boss_ancient';
+    else if (floorNum >= 10) bossType = 'boss_dragon';
+    const bt = ENEMY_TYPES[bossType];
+    const scaleMult = 1 + (floorNum - 1) * 0.1 + difficulty * 0.15;
+    enemies.push({
+      x: bossRoom.cx, y: bossRoom.cy, type: bossType,
+      hp: Math.ceil(bt.hp * scaleMult), maxHp: Math.ceil(bt.hp * scaleMult),
+      atk: Math.ceil(bt.atk * scaleMult), spd: bt.spd,
+      xp: Math.ceil(bt.xp * scaleMult),
+      char: bt.char, color: bt.color, name: bt.name,
+      boss: true, turnCounter: 0, alert: true, lastSawPlayer: null,
+      stunned: 0, flashTimer: 0
+    });
+    addMessage(bt.name + ' guards this floor!', 'boss');
+    playSound('boss');
+  }
+  // Spawn items
+  items = [];
+  const itemCount = 3 + Math.floor(floorNum * 0.5);
+  for (let i = 0; i < itemCount; i++) {
+    const r = rooms[Math.floor(Math.random() * rooms.length)];
+    const ix = r.x + Math.floor(Math.random() * r.w);
+    const iy = r.y + Math.floor(Math.random() * r.h);
+    if (map[iy][ix] !== T.FLOOR) continue;
+    const typeKeys = Object.keys(ITEM_TYPES);
+    const typeKey = typeKeys[Math.floor(Math.random() * typeKeys.length)];
+    const it = ITEM_TYPES[typeKey];
+    items.push({ x: ix, y: iy, type: typeKey, char: it.char, color: it.color, name: it.name, effect: it.effect });
+  }
+  // Always place at least one key if there are doors
+  const hasDoors = map.flat().includes(T.DOOR);
+  if (hasDoors) {
+    const kr = rooms[Math.floor(Math.random() * rooms.length)];
+    items.push({ x: kr.cx, y: kr.cy, type: 'key', char: 'k', color: '#ffff44', name: 'Crypt Key', effect: 'key' });
+  }
+}
+
+function getEnemyTypesForLevel(floorNum) {
+  const types = ['skeleton', 'spider'];
+  if (floorNum >= 2) types.push('ghost');
+  if (floorNum >= 4) types.push('wraith');
+  if (floorNum >= 5) types.push('golem');
+  if (floorNum >= 7) types.push('necromancer');
+  if (floorNum >= 3) types.push('mimic');
+  return types;
+}
+
+// FOV calculation (simple raycasting)
+function computeFOV() {
+  const radius = 7;
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) visible[y][x] = false;
+  for (let angle = 0; angle < 360; angle += 1) {
+    const rad = angle * Math.PI / 180;
+    const dx = Math.cos(rad);
+    const dy = Math.sin(rad);
+    let cx = player.x + 0.5, cy = player.y + 0.5;
+    for (let d = 0; d < radius; d++) {
+      const tx = Math.floor(cx), ty = Math.floor(cy);
+      if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) break;
+      visible[ty][tx] = true;
+      explored[ty][tx] = true;
+      if (map[ty][tx] === T.WALL || map[ty][tx] === T.PILLAR) break;
+      if (map[ty][tx] === T.DOOR) { break; }
+      cx += dx; cy += dy;
+    }
+  }
+}
+
+// Particles
+particles = [];
+function spawnParticles(x, y, color, count, speed, life) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    particles.push({
+      x: x * TILE + TILE/2, y: y * TILE + TILE/2,
+      vx: Math.cos(angle) * speed * (0.5 + Math.random()),
+      vy: Math.sin(angle) * speed * (0.5 + Math.random()),
+      life: life * (0.5 + Math.random() * 0.5),
+      maxLife: life, color: color, size: 1 + Math.random() * 2
+    });
+  }
+}
+
+function addMessage(text, type) {
+  messages.unshift({ text, type, timer: 180 });
+  if (messages.length > 6) messages.pop();
+}
+
+// Combat
+function attackEnemy(enemy, damage) {
+  const totalDmg = damage + player.atk + Math.floor(combo * 0.5);
+  enemy.hp -= totalDmg;
+  enemy.flashTimer = 10;
+  screenShake = 5;
+  combo++;
+  comboTimer = 30;
+  if (combo > maxCombo) maxCombo = combo;
+  playSound('hit');
+  if (combo >= 3) playSound('combo');
+  spawnParticles(enemy.x, enemy.y, '#ff4444', 5, 2, 20);
+  addMessage('Hit ' + enemy.name + ' for ' + totalDmg + (combo > 1 ? ' (x' + combo + ' combo!)' : ''), 'damage');
+  if (enemy.hp <= 0) {
+    killEnemy(enemy);
+  }
+}
+
+function killEnemy(enemy) {
+  const idx = enemies.indexOf(enemy);
+  if (idx >= 0) enemies.splice(idx, 1);
+  player.xp += enemy.xp;
+  score += enemy.xp * (1 + combo * 0.5);
+  totalKills++;
+  killStreak++;
+  playSound('kill');
+  spawnParticles(enemy.x, enemy.y, enemy.color, 12, 3, 30);
+  addMessage(enemy.name + ' destroyed! +' + enemy.xp + 'xp', 'pickup');
+  if (enemy.boss) {
+    bossKills++;
+    score += 500;
+    addMessage('BOSS DEFEATED! +500 bonus!', 'boss');
+  }
+  checkLevelUp();
+}
+
+function checkLevelUp() {
+  while (player.xp >= player.xpNeeded) {
+    player.xp -= player.xpNeeded;
+    player.lvl++;
+    player.xpNeeded = Math.floor(player.xpNeeded * 1.5);
+    player.maxHp += 3;
+    player.hp = Math.min(player.hp + 5, player.maxHp);
+    player.atk += 1;
+    if (player.lvl === 3 && !player.abilities.includes('fireball')) { player.abilities.push('fireball'); addMessage('Learned FIREBALL!', 'boss'); }
+    if (player.lvl === 5 && !player.abilities.includes('heal')) { player.abilities.push('heal'); addMessage('Learned HEAL!', 'boss'); }
+    if (player.lvl === 7 && !player.abilities.includes('blink')) { player.abilities.push('blink'); addMessage('Learned BLINK!', 'boss'); }
+    addMessage('Level Up! Now level ' + player.lvl, 'pickup');
+    playSound('pickup');
+    spawnParticles(player.x, player.y, '#ffff44', 15, 3, 40);
+  }
+}
+
+function playerTakeDamage(amount) {
+  if (player.invuln > 0) return;
+  const reduced = Math.max(1, amount - player.def);
+  player.hp -= reduced;
+  player.invuln = 3;
+  screenShake = 8;
+  combo = 0;
+  comboTimer = 0;
+  playSound('hurt');
+  spawnParticles(player.x, player.y, '#ff0000', 8, 2, 25);
+  addMessage('Took ' + reduced + ' damage!', 'damage');
+  if (player.hp <= 0) {
+    gameOver(false);
+  }
+}
+
+function useItem() {
+  if (player.items.length === 0) { addMessage('No items!', 'info'); return; }
+  const item = player.items.shift();
+  switch(item.effect) {
+    case 'heal': player.hp = Math.min(player.hp + 10, player.maxHp); playSound('heal'); addMessage('Healed 10 HP!', 'pickup'); spawnParticles(player.x, player.y, '#44ff44', 10, 2, 30); break;
+    case 'fire': {
+      const fx = player.x + player.facing.x * 2;
+      const fy = player.y + player.facing.y * 2;
+      enemies.forEach(e => {
+        const dist = Math.abs(e.x - fx) + Math.abs(e.y - fy);
+        if (dist <= 2) { attackEnemy(e, 8); spawnParticles(e.x, e.y, '#ff8844', 15, 4, 30); }
+      });
+      playSound('hit'); addMessage('Fire scroll unleashed!', 'boss');
+      break;
+    }
+    case 'ice': {
+      enemies.forEach(e => {
+        const dist = Math.abs(e.x - player.x) + Math.abs(e.y - player.y);
+        if (dist <= 4) { e.stunned = 5; spawnParticles(e.x, e.y, '#88ccff', 8, 2, 25); }
+      });
+      playSound('hit'); addMessage('Ice scroll freezes nearby enemies!', 'boss');
+      break;
+    }
+    case 'warp': {
+      const floors = [];
+      for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+        if (map[y][x] === T.FLOOR && enemies.every(e => e.x !== x || e.y !== y)) floors.push({x, y});
+      }
+      if (floors.length) { const t = floors[Math.floor(Math.random() * floors.length)]; player.x = t.x; player.y = t.y; }
+      playSound('descend'); addMessage('Warped to a new location!', 'info');
+      break;
+    }
+    case 'buff': player.atk += 2; player.def += 1; playSound('pickup'); addMessage('Amulet empowers you! +2 ATK, +1 DEF', 'pickup'); break;
+    case 'shield': player.def += 3; playSound('pickup'); addMessage('Shield equipped! +3 DEF', 'pickup'); break;
+    case 'sword': player.atk += 3; playSound('pickup'); addMessage('Silver Sword gleams! +3 ATK', 'pickup'); break;
+    default: addMessage('Used ' + item.name, 'info');
+  }
+}
+
+// Enemy AI
+function moveEnemies() {
+  enemies.forEach(e => {
+    if (e.stunned > 0) { e.stunned--; return; }
+    e.turnCounter++;
+    if (e.turnCounter < e.spd) return;
+    e.turnCounter = 0;
+    const dist = Math.abs(e.x - player.x) + Math.abs(e.y - player.y);
+    // Detection
+    if (visible[e.y] && visible[e.y][e.x]) {
+      e.alert = true;
+      e.lastSawPlayer = { x: player.x, y: player.y };
+    }
+    if (!e.alert) return;
+    // Adjacent? Attack!
+    if (dist === 1) {
+      playerTakeDamage(e.atk);
+      addMessage(e.name + ' attacks!', 'damage');
+      e.flashTimer = 5;
+      return;
+    }
+    // Boss special abilities
+    if (e.boss && dist <= 5 && Math.random() < 0.2) {
+      // Ranged attack
+      playerTakeDamage(Math.ceil(e.atk * 0.7));
+      addMessage(e.name + ' uses dark magic!', 'boss');
+      spawnParticles(player.x, player.y, e.color, 10, 3, 25);
+      playSound('boss');
+      return;
+    }
+    // Necromancer summons minions
+    if (e.type === 'necromancer' && Math.random() < 0.1 && enemies.length < 30) {
+      const sx = e.x + (Math.random() < 0.5 ? -1 : 1);
+      const sy = e.y + (Math.random() < 0.5 ? -1 : 1);
+      if (sx >= 0 && sx < MAP_W && sy >= 0 && sy < MAP_H && map[sy][sx] === T.FLOOR) {
+        const sk = ENEMY_TYPES.skeleton;
+        enemies.push({
+          x: sx, y: sy, type: 'skeleton', hp: sk.hp, maxHp: sk.hp, atk: sk.atk,
+          spd: sk.spd, xp: sk.xp, char: sk.char, color: sk.color, name: sk.name,
+          boss: false, turnCounter: 0, alert: true, lastSawPlayer: null, stunned: 0, flashTimer: 0
+        });
+        addMessage(e.name + ' summons a skeleton!', 'boss');
+        spawnParticles(sx, sy, '#aa44ff', 8, 2, 20);
+      }
+    }
+    // Ghost passes through walls
+    let targetX = e.lastSawPlayer ? e.lastSawPlayer.x : player.x;
+    let targetY = e.lastSawPlayer ? e.lastSawPlayer.y : player.y;
+    let dx = targetX > e.x ? 1 : targetX < e.x ? -1 : 0;
+    let dy = targetY > e.y ? 1 : targetY < e.y ? -1 : 0;
+    if (Math.random() < 0.5) {
+      // Try horizontal first
+      const nx = e.x + dx, ny = e.y;
+      if (canEnemyMove(e, nx, ny)) { e.x = nx; return; }
+      const nx2 = e.x, ny2 = e.y + dy;
+      if (canEnemyMove(e, nx2, ny2)) { e.y = ny2; return; }
+    } else {
+      const nx = e.x, ny = e.y + dy;
+      if (canEnemyMove(e, nx, ny)) { e.y = ny; return; }
+      const nx2 = e.x + dx, ny2 = e.y;
+      if (canEnemyMove(e, nx2, ny2)) { e.x = nx2; return; }
+    }
+    // Random wander
+    if (Math.random() < 0.3) {
+      const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+      const d = dirs[Math.floor(Math.random() * dirs.length)];
+      if (canEnemyMove(e, e.x + d[0], e.y + d[1])) { e.x += d[0]; e.y += d[1]; }
+    }
+  });
+}
+
+function canEnemyMove(e, nx, ny) {
+  if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return false;
+  if (e.type === 'ghost') return map[ny][nx] !== T.WALL || Math.random() < 0.3;
+  return map[ny][nx] === T.FLOOR || map[ny][nx] === T.WATER || map[ny][nx] === T.TRAP;
+}
+
+// Player turn
+function processTurn(key) {
+  let dx = 0, dy = 0;
+  let acted = false;
+  if (key === 'ArrowUp' || key === 'w' || key === 'W') { dy = -1; }
+  else if (key === 'ArrowDown' || key === 's' || key === 'S') { dy = 1; }
+  else if (key === 'ArrowLeft' || key === 'a' || key === 'A') { dx = -1; }
+  else if (key === 'ArrowRight' || key === 'd' || key === 'D') { dx = 1; }
+  else if (key === ' ') {
+    // Attack in facing direction
+    const tx = player.x + player.facing.x;
+    const ty = player.y + player.facing.y;
+    const target = enemies.find(e => e.x === tx && e.y === ty);
+    if (target) {
+      attackEnemy(target, 1);
+    } else {
+      addMessage('Swing at air...', 'info');
+      spawnParticles(tx, ty, '#666666', 3, 1, 10);
+    }
+    acted = true;
+  } else if (key === 'e' || key === 'E') {
+    useItem();
+    acted = true;
+  } else if (key === '1' || key === '2' || key === '3' || key === '4') {
+    const abilIdx = parseInt(key) - 1;
+    if (abilIdx < player.abilities.length) {
+      useAbility(player.abilities[abilIdx]);
+    }
+    acted = true;
+  }
+  if (dx !== 0 || dy !== 0) {
+    player.facing = { x: dx, y: dy };
+    const nx = player.x + dx;
+    const ny = player.y + dy;
+    if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H) {
+      const tile = map[ny][nx];
+      // Check for enemy collision (bump attack)
+      const enemy = enemies.find(e => e.x === nx && e.y === ny);
+      if (enemy) {
+        attackEnemy(enemy, 1);
+        acted = true;
+      } else if (tile === T.FLOOR || tile === T.TRAP || tile === T.WATER || tile === T.STAIRS) {
+        player.x = nx;
+        player.y = ny;
+        acted = true;
+        // Trap damage
+        if (tile === T.TRAP) {
+          playerTakeDamage(2 + level);
+          addMessage('Stepped on a trap!', 'damage');
+          map[ny][nx] = T.FLOOR;
+        }
+        // Water slows
+        if (tile === T.WATER) {
+          addMessage('Wading through water...', 'info');
+        }
+        // Stairs
+        if (tile === T.STAIRS) {
+          level++;
+          score += 100;
+          addMessage('Descending to floor ' + (level + 1) + '...', 'info');
+          playSound('descend');
+          generateMap(level);
+          computeFOV();
+          return;
+        }
+        // Pick up items
+        const item = items.find(i => i.x === nx && i.y === ny);
+        if (item) {
+          pickupItem(item);
+        }
+      } else if (tile === T.DOOR) {
+        if (player.keys > 0) {
+          player.keys--;
+          map[ny][nx] = T.FLOOR;
+          addMessage('Unlocked a door!', 'pickup');
+          playSound('door');
+        } else {
+          addMessage('Door locked. Need a key.', 'info');
+        }
+        acted = true;
+      }
+    }
+  }
+  if (acted) {
+    turnCount++;
+    if (player.invuln > 0) player.invuln--;
+    if (comboTimer > 0) { comboTimer--; if (comboTimer === 0) { combo = 0; } }
+    moveEnemies();
+    computeFOV();
+    // Ambient sound every 20 turns
+    ambienceTimer++;
+    if (ambienceTimer >= 20) { ambienceTimer = 0; playSound('ambience'); }
+  }
+}
+
+function pickupItem(item) {
+  const idx = items.indexOf(item);
+  if (idx >= 0) items.splice(idx, 1);
+  if (item.effect === 'key') {
+    player.keys++;
+    addMessage('Found a key!', 'pickup');
+    playSound('key');
+  } else {
+    player.items.push(item);
+    addMessage('Picked up ' + item.name, 'pickup');
+    playSound('pickup');
+  }
+  itemsCollected++;
+  score += 25;
+  spawnParticles(item.x, item.y, item.color, 6, 2, 20);
+}
+
+function useAbility(abilName) {
+  const abil = ABILITIES[abilName];
+  if (!abil) return;
+  if (abil.cooldown > 0) { addMessage(abil.name + ' on cooldown (' + abil.cooldown + ' turns)', 'info'); return; }
+  switch(abilName) {
+    case 'slash': {
+      const tx = player.x + player.facing.x;
+      const ty = player.y + player.facing.y;
+      const target = enemies.find(e => e.x === tx && e.y === ty);
+      if (target) attackEnemy(target, 2);
+      else { addMessage('Nothing to slash!', 'info'); return; }
+      break;
+    }
+    case 'fireball': {
+      let fx = player.x, fy = player.y;
+      for (let i = 0; i < abil.range; i++) {
+        fx += player.facing.x; fy += player.facing.y;
+        if (fx < 0 || fx >= MAP_W || fy < 0 || fy >= MAP_H) break;
+        if (map[fy][fx] === T.WALL) break;
+        spawnParticles(fx, fy, '#ff6622', 3, 1, 15);
+        const hit = enemies.find(e => e.x === fx && e.y === fy);
+        if (hit) { attackEnemy(hit, abil.damage); break; }
+      }
+      abil.cooldown = abil.maxCooldown;
+      playSound('hit');
+      addMessage('Fireball launched!', 'boss');
+      break;
+    }
+    case 'heal': {
+      const amount = 8 + player.lvl;
+      player.hp = Math.min(player.hp + amount, player.maxHp);
+      abil.cooldown = abil.maxCooldown;
+      playSound('heal');
+      spawnParticles(player.x, player.y, '#44ff44', 12, 2, 30);
+      addMessage('Healed ' + amount + ' HP!', 'pickup');
+      break;
+    }
+    case 'blink': {
+      const bx = player.x + player.facing.x * abil.range;
+      const by = player.y + player.facing.y * abil.range;
+      let fx2 = bx, fy2 = by;
+      // Find nearest valid tile
+      for (let r = 0; r < 3; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const tx = bx + dx, ty = by + dy;
+            if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H && map[ty][tx] === T.FLOOR) {
+              fx2 = tx; fy2 = ty; r = 3; dy = r+1; break;
+            }
+          }
+        }
+      }
+      spawnParticles(player.x, player.y, '#aa44ff', 8, 3, 20);
+      player.x = fx2; player.y = fy2;
+      spawnParticles(player.x, player.y, '#aa44ff', 8, 3, 20);
+      abil.cooldown = abil.maxCooldown;
+      playSound('descend');
+      addMessage('Blinked!', 'info');
+      break;
+    }
+  }
+  // Reduce all cooldowns
+  Object.values(ABILITIES).forEach(a => { if (a.cooldown > 0) a.cooldown--; });
+}
+
+// Game over
+function gameOver(won) {
+  state = STATES.GAMEOVER;
+  if (won) {
+    score += 2000;
+    playSound('pickup');
+    addMessage('THE ANCIENT EVIL IS SEALED!', 'boss');
+  } else {
+    playSound('death');
+  }
+  // Save high score
+  saveHighScore();
+  showGameover(won);
+}
+
+function saveHighScore() {
+  const scores = JSON.parse(localStorage.getItem('cryptWarden_scores') || '[]');
+  scores.push({
+    score: Math.floor(score), level: level + 1, kills: totalKills, playerLvl: player.lvl,
+    difficulty: ['Easy','Normal','Hard'][difficulty], date: new Date().toISOString().split('T')[0],
+    combo: maxCombo, bossKills: bossKills
+  });
+  scores.sort((a, b) => b.score - a.score);
+  localStorage.setItem('cryptWarden_scores', JSON.stringify(scores.slice(0, 10)));
+}
+
+function getHighScores() {
+  return JSON.parse(localStorage.getItem('cryptWarden_scores') || '[]');
+}
+
+function showGameover(won) {
+  const goScreen = document.getElementById('gameover-screen');
+  const goTitle = document.getElementById('gameover-title');
+  const goScore = document.getElementById('final-score');
+  const goStats = document.getElementById('gameover-stats');
+  const goScores = document.getElementById('gameover-scores');
+  goScreen.style.display = 'flex';
+  goTitle.textContent = won ? 'THE EVIL IS SEALED' : 'YOU HAVE FALLEN';
+  goTitle.className = won ? 'gameover-title gameover-win' : 'gameover-title';
+  goScore.textContent = 'Score: ' + Math.floor(score);
+  goStats.innerHTML = '<div style="color:#aaa;font-size:14px;margin:10px;">' +
+    'Floor: ' + (level+1) + ' | Kills: ' + totalKills + ' | Boss Kills: ' + bossKills +
+    '<br>Max Combo: ' + maxCombo + ' | Items: ' + itemsCollected +
+    '<br>Player Level: ' + player.lvl + ' | Turns: ' + turnCount +
+    '</div>';
+  const scores = getHighScores();
+  goScores.innerHTML = '<div style="color:#aa88ff;font-weight:bold;margin-bottom:5px;">HIGH SCORES</div>' +
+    scores.slice(0, 5).map((s, i) =>
+      '<div>' + (i+1) + '. ' + s.score + ' pts — Floor ' + s.level + ' (' + s.difficulty + ')</div>'
+    ).join('');
+}
+
+function showMenuScores() {
+  const scores = getHighScores();
+  document.getElementById('menu-scores').innerHTML = scores.length ?
+    '<div style="color:#aa88ff;font-weight:bold;margin-bottom:5px;">HIGH SCORES</div>' +
+    scores.slice(0, 5).map((s, i) =>
+      '<div>' + (i+1) + '. ' + s.score + ' pts — Floor ' + s.level + ' (' + s.difficulty + ')</div>'
+    ).join('') : '';
+}
+
+// Game control
+function startGame(diff) {
+  difficulty = diff;
+  audioCtx.resume();
+  playSound('menu');
+  document.getElementById('menu-screen').style.display = 'none';
+  document.getElementById('gameover-screen').style.display = 'none';
+  document.getElementById('pause-screen').style.display = 'none';
+  state = STATES.PLAYING;
+  level = 0;
+  score = 0;
+  combo = 0;
+  comboTimer = 0;
+  killStreak = 0;
+  turnCount = 0;
+  bossKills = 0;
+  totalKills = 0;
+  itemsCollected = 0;
+  maxCombo = 0;
+  messages = [];
+  particles = [];
+  Object.values(ABILITIES).forEach(a => a.cooldown = 0);
+  initPlayer();
+  generateMap(0);
+  computeFOV();
+  addMessage('You enter the crypt...', 'info');
+  addMessage('WASD to move. SPACE to attack.', 'info');
+}
+
+function restartGame() {
+  startGame(difficulty);
+}
+
+function goToMenu() {
+  state = STATES.MENU;
+  document.getElementById('menu-screen').style.display = 'flex';
+  document.getElementById('gameover-screen').style.display = 'none';
+  document.getElementById('pause-screen').style.display = 'none';
+  showMenuScores();
+}
+
+function togglePause() {
+  if (state === STATES.PLAYING) {
+    state = STATES.PAUSED;
+    document.getElementById('pause-screen').style.display = 'flex';
+    playSound('menu');
+  } else if (state === STATES.PAUSED) {
+    state = STATES.PLAYING;
+    document.getElementById('pause-screen').style.display = 'none';
+  }
+}
+
+// Color palette for dungeon themes
+const FLOOR_THEMES = [
+  { wall: '#2a2028', floor: '#1a1520', explored: '#111018', water: '#0a2040', accent: '#4a3050' }, // Purple crypt
+  { wall: '#282018', floor: '#1a1810', explored: '#101008', water: '#0a3020', accent: '#504020' }, // Brown caves
+  { wall: '#182028', floor: '#101820', explored: '#080810', water: '#082848', accent: '#204050' }, // Blue depths
+  { wall: '#281818', floor: '#1a1010', explored: '#100808', water: '#401020', accent: '#502020' }, // Red hell
+  { wall: '#202828', floor: '#102020', explored: '#081010', water: '#0a4040', accent: '#205050' }, // Green decay
+];
+
+// Rendering
+function render() {
+  const theme = FLOOR_THEMES[level % FLOOR_THEMES.length];
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Camera
+  let camX = player.x - Math.floor(VIEW_W / 2);
+  let camY = player.y - Math.floor(VIEW_H / 2);
+  camX = Math.max(0, Math.min(MAP_W - VIEW_W, camX));
+  camY = Math.max(0, Math.min(MAP_H - VIEW_H, camY));
+  // Screen shake offset
+  let sx = 0, sy = 0;
+  if (screenShake > 0) {
+    sx = (Math.random() - 0.5) * screenShake * 2;
+    sy = (Math.random() - 0.5) * screenShake * 2;
+    screenShake *= 0.8;
+    if (screenShake < 0.5) screenShake = 0;
+  }
+  ctx.save();
+  ctx.translate(sx, sy);
+  // Draw tiles
+  for (let vy = 0; vy < VIEW_H; vy++) {
+    for (let vx = 0; vx < VIEW_W; vx++) {
+      const mx = camX + vx;
+      const my = camY + vy;
+      if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) continue;
+      const px = vx * TILE;
+      const py = vy * TILE;
+      if (visible[my][mx]) {
+        switch(map[my][mx]) {
+          case T.WALL:
+            ctx.fillStyle = theme.wall;
+            ctx.fillRect(px, py, TILE, TILE);
+            // Wall edge highlight
+            ctx.fillStyle = theme.accent;
+            if (my + 1 < MAP_H && map[my+1][mx] !== T.WALL) ctx.fillRect(px, py + TILE - 2, TILE, 2);
+            break;
+          case T.FLOOR:
+            ctx.fillStyle = theme.floor;
+            ctx.fillRect(px, py, TILE, TILE);
+            // Subtle floor pattern
+            if ((mx + my) % 3 === 0) { ctx.fillStyle = 'rgba(255,255,255,0.02)'; ctx.fillRect(px, py, TILE, TILE); }
+            break;
+          case T.STAIRS:
+            ctx.fillStyle = theme.floor;
+            ctx.fillRect(px, py, TILE, TILE);
+            ctx.fillStyle = '#ffcc44';
+            ctx.font = TILE + 'px monospace';
+            ctx.fillText('>', px + 2, py + TILE - 2);
+            break;
+          case T.DOOR:
+            ctx.fillStyle = '#443322';
+            ctx.fillRect(px, py, TILE, TILE);
+            ctx.fillStyle = '#886644';
+            ctx.fillRect(px + 3, py + 1, TILE - 6, TILE - 2);
+            break;
+          case T.TRAP:
+            ctx.fillStyle = theme.floor;
+            ctx.fillRect(px, py, TILE, TILE);
+            ctx.fillStyle = 'rgba(255,68,68,0.3)';
+            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+            break;
+          case T.PILLAR:
+            ctx.fillStyle = theme.floor;
+            ctx.fillRect(px, py, TILE, TILE);
+            ctx.fillStyle = theme.accent;
+            ctx.fillRect(px + 4, py + 2, TILE - 8, TILE - 4);
+            break;
+          case T.WATER:
+            ctx.fillStyle = theme.water;
+            ctx.fillRect(px, py, TILE, TILE);
+            // Water shimmer
+            const shimmer = Math.sin(Date.now() * 0.003 + mx * 0.5 + my * 0.7) * 0.1 + 0.1;
+            ctx.fillStyle = 'rgba(100,180,255,' + shimmer + ')';
+            ctx.fillRect(px, py, TILE, TILE);
+            break;
+        }
+      } else if (explored[my][mx]) {
+        ctx.fillStyle = theme.explored;
+        ctx.fillRect(px, py, TILE, TILE);
+        if (map[my][mx] === T.WALL) {
+          ctx.fillStyle = 'rgba(40,30,50,0.5)';
+          ctx.fillRect(px, py, TILE, TILE);
+        }
+      }
+    }
+  }
+  // Draw items
+  items.forEach(item => {
+    if (!visible[item.y] || !visible[item.y][item.x]) return;
+    const px = (item.x - camX) * TILE;
+    const py = (item.y - camY) * TILE;
+    if (px < -TILE || px > canvas.width || py < -TILE || py > canvas.height) return;
+    ctx.fillStyle = item.color;
+    ctx.font = (TILE - 2) + 'px monospace';
+    ctx.fillText(item.char, px + 3, py + TILE - 3);
+    // Glow effect
+    const glow = 0.2 + Math.sin(Date.now() * 0.005) * 0.1;
+    ctx.fillStyle = item.color.replace(')', ',' + glow + ')').replace('rgb', 'rgba');
+    ctx.fillRect(px, py, TILE, TILE);
+  });
+  // Draw enemies
+  enemies.forEach(e => {
+    if (!visible[e.y] || !visible[e.y][e.x]) return;
+    const px = (e.x - camX) * TILE;
+    const py = (e.y - camY) * TILE;
+    if (px < -TILE || px > canvas.width || py < -TILE || py > canvas.height) return;
+    // Flash on hit
+    if (e.flashTimer > 0) {
+      ctx.fillStyle = '#ffffff';
+      e.flashTimer--;
+    } else {
+      ctx.fillStyle = e.color;
+    }
+    ctx.font = (e.boss ? TILE : TILE - 2) + 'px monospace';
+    ctx.fillText(e.char, px + (e.boss ? 0 : 3), py + TILE - (e.boss ? 0 : 3));
+    // HP bar for alerted enemies
+    if (e.alert && e.hp < e.maxHp) {
+      const barW = TILE - 2;
+      const hpRatio = e.hp / e.maxHp;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(px + 1, py - 3, barW, 2);
+      ctx.fillStyle = hpRatio > 0.5 ? '#44ff44' : hpRatio > 0.25 ? '#ffcc44' : '#ff4444';
+      ctx.fillRect(px + 1, py - 3, barW * hpRatio, 2);
+    }
+    // Stun indicator
+    if (e.stunned > 0) {
+      ctx.fillStyle = '#88ccff';
+      ctx.font = '8px monospace';
+      ctx.fillText('*', px + TILE - 6, py + 6);
+    }
+    // Boss aura
+    if (e.boss) {
+      const aura = 0.1 + Math.sin(Date.now() * 0.004) * 0.05;
+      ctx.fillStyle = e.color.replace(')', ',' + aura + ')').replace('#', '');
+      // Convert hex to rgba for aura
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = aura;
+      ctx.strokeRect(px - 2, py - 2, TILE + 4, TILE + 4);
+      ctx.globalAlpha = 1;
+    }
+  });
+  // Draw player
+  const ppx = (player.x - camX) * TILE;
+  const ppy = (player.y - camY) * TILE;
+  if (player.invuln > 0 && Math.floor(Date.now() / 100) % 2 === 0) {
+    ctx.fillStyle = '#ffffff';
+  } else {
+    ctx.fillStyle = '#44ddff';
+  }
+  ctx.font = TILE + 'px monospace';
+  ctx.fillText('@', ppx, ppy + TILE - 1);
+  // Facing indicator
+  const fx = ppx + TILE/2 + player.facing.x * 6;
+  const fy = ppy + TILE/2 + player.facing.y * 6;
+  ctx.fillStyle = 'rgba(68,221,255,0.4)';
+  ctx.beginPath();
+  ctx.arc(fx, fy, 2, 0, Math.PI * 2);
+  ctx.fill();
+  // Draw particles
+  particles.forEach((p, i) => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.95;
+    p.vy *= 0.95;
+    p.life--;
+    if (p.life <= 0) { particles.splice(i, 1); return; }
+    const alpha = p.life / p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    // Offset particles by camera
+    const partX = p.x - camX * TILE;
+    const partY = p.y - camY * TILE;
+    ctx.fillRect(partX - p.size/2, partY - p.size/2, p.size, p.size);
+  });
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  // Minimap
+  const mmScale = 2;
+  const mmX = canvas.width - MAP_W * mmScale - 5;
+  const mmY = 5;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(mmX - 1, mmY - 1, MAP_W * mmScale + 2, MAP_H * mmScale + 2);
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (!explored[y][x]) continue;
+      if (visible[y][x]) {
+        ctx.fillStyle = map[y][x] === T.WALL ? '#333' : map[y][x] === T.STAIRS ? '#ff0' : '#555';
+      } else {
+        ctx.fillStyle = '#222';
+      }
+      ctx.fillRect(mmX + x * mmScale, mmY + y * mmScale, mmScale, mmScale);
+    }
+  }
+  // Player on minimap
+  ctx.fillStyle = '#44ddff';
+  ctx.fillRect(mmX + player.x * mmScale, mmY + player.y * mmScale, mmScale, mmScale);
+  // Enemies on minimap
+  enemies.forEach(e => {
+    if (visible[e.y] && visible[e.y][e.x]) {
+      ctx.fillStyle = e.boss ? '#ff00ff' : '#ff4444';
+      ctx.fillRect(mmX + e.x * mmScale, mmY + e.y * mmScale, mmScale, mmScale);
+    }
+  });
+  // HUD
+  const hud = document.getElementById('hud');
+  let hudHTML = '';
+  hudHTML += '<div class="hud-hp">HP: ' + player.hp + '/' + player.maxHp + ' ' + makeBar(player.hp, player.maxHp, 10) + '</div>';
+  hudHTML += '<div class="hud-level">Lv ' + player.lvl + ' | XP: ' + player.xp + '/' + player.xpNeeded + '</div>';
+  hudHTML += '<div class="hud-score">Score: ' + Math.floor(score) + '</div>';
+  hudHTML += '<div class="hud-level">Floor ' + (level + 1) + ' | Turn ' + turnCount + '</div>';
+  if (player.keys > 0) hudHTML += '<div class="hud-keys">Keys: ' + player.keys + '</div>';
+  if (player.items.length > 0) hudHTML += '<div style="color:#aaa;">Item: ' + player.items[0].name + ' (E to use)</div>';
+  if (combo > 1) hudHTML += '<div class="hud-combo">COMBO x' + combo + '!</div>';
+  // Abilities
+  hudHTML += '<div style="color:#666;margin-top:5px;font-size:11px;">';
+  player.abilities.forEach((a, i) => {
+    const ab = ABILITIES[a];
+    const ready = ab.cooldown === 0;
+    hudHTML += '<span style="color:' + (ready ? '#aaf' : '#555') + ';">[' + (i+1) + ']' + ab.name + (ab.cooldown > 0 ? '(' + ab.cooldown + ')' : '') + ' </span>';
+  });
+  hudHTML += '</div>';
+  hud.innerHTML = hudHTML;
+  // Message log
+  const msgLog = document.getElementById('msg-log');
+  msgLog.innerHTML = messages.map(m => {
+    m.timer--;
+    const opacity = m.timer > 30 ? 1 : m.timer / 30;
+    return '<div class="msg-' + m.type + '" style="opacity:' + opacity + ';">' + m.text + '</div>';
+  }).join('');
+  messages = messages.filter(m => m.timer > 0);
+  // Check win condition (defeat boss on floor 15+)
+  if (level >= 14 && enemies.filter(e => e.boss).length === 0 && bossKills >= 3) {
+    gameOver(true);
+  }
+}
+
+function makeBar(current, max, width) {
+  const filled = Math.round((current / max) * width);
+  let bar = '';
+  for (let i = 0; i < width; i++) {
+    bar += i < filled ? '|' : '.';
+  }
+  return '[' + bar + ']';
+}
+
+// Main loop
+let lastTime = 0;
+let turnDelay = 0;
+function gameLoop(time) {
+  const dt = time - lastTime;
+  lastTime = time;
+  if (state === STATES.PLAYING) {
+    // Process key queue (turn-based)
+    turnDelay -= dt;
+    if (turnDelay <= 0 && keyQueue.length > 0) {
+      const key = keyQueue.shift();
+      processTurn(key);
+      turnDelay = 100; // Minimum time between turns
+    }
+    render();
+  } else if (state === STATES.MENU) {
+    // Animate menu background
+    ctx.fillStyle = '#0a0a12';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(170,102,255,0.03)';
+    for (let i = 0; i < 20; i++) {
+      const x = Math.sin(time * 0.001 + i * 0.5) * canvas.width * 0.3 + canvas.width * 0.5;
+      const y = Math.cos(time * 0.0013 + i * 0.7) * canvas.height * 0.3 + canvas.height * 0.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 20 + Math.sin(time * 0.002 + i) * 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+showMenuScores();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
