@@ -758,8 +758,13 @@ def inject_lineage_tags(html: str, parents: list, genes: list, experience_id: st
 
 
 def recombine(count: int = 1, experience_id: str = None, parent_files: list = None,
-              target_category: str = None, dry_run: bool = False, verbose: bool = False) -> list:
-    """Main recombination pipeline. Breed `count` new games.
+              target_category: str = None, dry_run: bool = False, verbose: bool = False,
+              adaptive: bool = True) -> list:
+    """Main recombination pipeline. Breed `count` new apps.
+
+    Args:
+        adaptive: If True (default), use content_identity for trait discovery.
+                  If False, use classic regex-based gene detection.
 
     Returns list of result dicts.
     """
@@ -768,7 +773,7 @@ def recombine(count: int = 1, experience_id: str = None, parent_files: list = No
     for i in range(count):
         if verbose:
             print(f"\n{'='*60}")
-            print(f"RECOMBINATION {i+1}/{count}")
+            print(f"RECOMBINATION {i+1}/{count} ({'adaptive' if adaptive else 'classic'} mode)")
             print(f"{'='*60}")
 
         # Select parents
@@ -776,7 +781,6 @@ def recombine(count: int = 1, experience_id: str = None, parent_files: list = No
             parents = []
             for pf in parent_files:
                 filepath = None
-                # Search for the file
                 for html_file in APPS_DIR.rglob(pf):
                     filepath = html_file
                     break
@@ -799,42 +803,67 @@ def recombine(count: int = 1, experience_id: str = None, parent_files: list = No
             results.append({"status": "failed", "reason": "not-enough-parents"})
             continue
 
-        if verbose:
-            for p in parents:
-                gene_list = [g for g, info in p["genes"].items() if info["present"]]
-                print(f"  Parent: {p['file']} (score {p['score']}) genes: {', '.join(gene_list)}")
-
-        # Crossover
-        genome = crossover(parents)
-        if verbose:
-            print(f"  Genome: {', '.join(genome.keys())}")
-
         # Load experience
         experience = load_experience(experience_id) if experience_id else load_experience()
         if verbose and experience:
             print(f"  Experience: {experience['id']} — {experience['emotion']}")
 
-        # Synthesize
-        result = synthesize_game(genome, experience, target_category, dry_run=dry_run)
+        if adaptive:
+            # Adaptive path: discover traits via content identity
+            parents_data = []
+            for p in parents:
+                traits = discover_traits(p["path"], p["content"])
+                p["traits"] = traits
+                parents_data.append({
+                    "file": p["file"],
+                    "score": p["score"],
+                    "traits": traits,
+                    "content": p["content"],
+                })
+                if verbose:
+                    medium = traits.get("medium", "unknown")
+                    techs = ", ".join(traits.get("techniques", [])[:5])
+                    print(f"  Parent: {p['file']} (score {p['score']}) medium: {medium}")
+                    if techs:
+                        print(f"    techniques: {techs}")
+
+            result = synthesize_adaptive(parents_data, experience, target_category, dry_run=dry_run)
+        else:
+            # Classic path: regex gene detection + crossover
+            if verbose:
+                for p in parents:
+                    gene_list = [g for g, info in p["genes"].items() if info["present"]]
+                    print(f"  Parent: {p['file']} (score {p['score']}) genes: {', '.join(gene_list)}")
+
+            genome = crossover(parents)
+            if verbose:
+                print(f"  Genome: {', '.join(genome.keys())}")
+
+            result = synthesize_game(genome, experience, target_category, dry_run=dry_run)
 
         if result["status"] == "success":
             # Inject lineage tags
+            lineage_items = result.get("genes_used") or result.get("traits_used") or []
+            parent_list = result.get("parents", [])
             html = inject_lineage_tags(
                 result["html"],
-                result["parents"],
-                result["genes_used"],
+                parent_list,
+                lineage_items,
                 result.get("experience"),
             )
             result["html"] = html
 
             # Determine category
-            cat = target_category or _guess_category(genome, parents)
-            folder = VALID_CATEGORIES.get(cat, "games-puzzles")
+            cat = target_category or _guess_category(
+                result.get("genes_used") if not adaptive else None,
+                parents,
+                html=html if adaptive else None,
+            )
+            folder = VALID_CATEGORIES.get(cat, "experimental-ai")
 
             # Write file
             if not dry_run:
                 out_path = APPS_DIR / folder / result["filename"]
-                # Avoid overwrites
                 if out_path.exists():
                     stem = out_path.stem
                     suffix = random.randint(100, 999)
@@ -845,7 +874,6 @@ def recombine(count: int = 1, experience_id: str = None, parent_files: list = No
                 result["path"] = str(out_path)
                 result["category"] = cat
 
-                # Score the offspring
                 offspring_score = score_game(out_path, html)
                 result["score"] = offspring_score["score"]
                 result["grade"] = offspring_score["grade"]
@@ -859,26 +887,62 @@ def recombine(count: int = 1, experience_id: str = None, parent_files: list = No
     return results
 
 
-def _guess_category(genome: dict, parents: list) -> str:
-    """Guess the best category for a recombinant based on genome and parents."""
+def _guess_category(genome_or_traits, parents, html=None):
+    """Guess the best category for a recombinant.
+
+    Works with both classic genome dict and adaptive trait lists.
+    Uses content identity on the offspring HTML when available.
+    """
     # If parents share a category, use it
-    parent_cats = [p.get("category") for p in parents if p.get("category")]
+    parent_cats = [p.get("category") for p in parents
+                   if p.get("category") and p.get("category") != "unknown"]
     if parent_cats and len(set(parent_cats)) == 1:
         return parent_cats[0]
 
-    # Otherwise, infer from dominant genes
-    has_physics = "physics_engine" in genome and genome["physics_engine"]["strength"] >= 2
-    has_audio = "audio_engine" in genome and genome["audio_engine"]["strength"] >= 2
-    has_particles = "particle_system" in genome and genome["particle_system"]["strength"] >= 2
-    has_entities = "entity_system" in genome and genome["entity_system"]["strength"] >= 2
+    # Adaptive: analyze the offspring HTML directly
+    if html:
+        identity = _analyze_content(Path("/tmp/offspring.html"), content=html, use_cache=False)
+        if identity:
+            medium = identity.get("medium", "").lower()
+            # Map medium keywords to categories
+            category_keywords = {
+                "audio_music": ["synth", "music", "audio", "sound", "daw", "drum", "beat", "tone"],
+                "visual_art": ["drawing", "paint", "sketch", "design", "color", "art tool"],
+                "generative_art": ["fractal", "generative", "procedural", "algorithmic", "mandelbrot"],
+                "3d_immersive": ["3d", "webgl", "three.js", "voxel", "immersive"],
+                "particle_physics": ["particle", "physics sim", "gravity sim", "n-body"],
+                "games_puzzles": ["game", "puzzle", "platformer", "shooter", "rpg", "arcade"],
+                "creative_tools": ["editor", "converter", "calculator", "tool", "utility", "planner"],
+                "educational_tools": ["tutorial", "learn", "educational", "quiz", "flashcard"],
+            }
+            for cat, keywords in category_keywords.items():
+                if any(kw in medium for kw in keywords):
+                    return cat
+            # Check parent mediums for hints
+            for p in parents:
+                traits = p.get("traits", {})
+                if traits.get("medium"):
+                    p_medium = traits["medium"].lower()
+                    for cat, keywords in category_keywords.items():
+                        if any(kw in p_medium for kw in keywords):
+                            return cat
 
-    if has_physics and has_entities:
-        return "games_puzzles"
-    if has_audio:
-        return "audio_music"
-    if has_particles:
-        return "particle_physics"
-    return "games_puzzles"  # Default
+    # Classic: infer from genome dict
+    if genome_or_traits and isinstance(genome_or_traits, dict):
+        genome = genome_or_traits
+        has_physics = "physics_engine" in genome and genome["physics_engine"]["strength"] >= 2
+        has_audio = "audio_engine" in genome and genome["audio_engine"]["strength"] >= 2
+        has_particles = "particle_system" in genome and genome["particle_system"]["strength"] >= 2
+        has_entities = "entity_system" in genome and genome["entity_system"]["strength"] >= 2
+
+        if has_physics and has_entities:
+            return "games_puzzles"
+        if has_audio:
+            return "audio_music"
+        if has_particles:
+            return "particle_physics"
+
+    return "experimental_ai"  # Catch-all (not games_puzzles)
 
 
 def print_gene_catalog(catalog: dict):
@@ -902,6 +966,8 @@ def main():
     dry_run = "--dry-run" in args
     verbose = "--verbose" in args or "-v" in args
     list_genes = "--list-genes" in args
+    classic = "--classic" in args
+    adaptive = not classic
 
     if list_genes:
         catalog = catalog_genes()
@@ -939,6 +1005,9 @@ def main():
         if idx + 1 < len(args):
             target_category = args[idx + 1]
 
+    if verbose:
+        print(f"Mode: {'adaptive' if adaptive else 'classic'}")
+
     results = recombine(
         count=count,
         experience_id=experience_id,
@@ -946,6 +1015,7 @@ def main():
         target_category=target_category,
         dry_run=dry_run,
         verbose=verbose,
+        adaptive=adaptive,
     )
 
     # Summary
@@ -956,7 +1026,9 @@ def main():
     for r in successes:
         print(f"  + {r.get('filename', '?')} (score {r.get('score', '?')}, grade {r.get('grade', '?')})")
         print(f"    Parents: {', '.join(r.get('parents', []))}")
-        print(f"    Genes: {', '.join(r.get('genes_used', []))}")
+        lineage = r.get("genes_used") or r.get("traits_used") or []
+        if lineage:
+            print(f"    {'Genes' if not adaptive else 'Traits'}: {', '.join(lineage)}")
         if r.get("experience"):
             print(f"    Experience: {r['experience']}")
     for r in failures:

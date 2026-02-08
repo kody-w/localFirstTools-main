@@ -1,6 +1,6 @@
 ---
 name: data-slosh
-description: Use proactively when the user wants to analyze HTML quality across gallery apps, scan for quality issues, rewrite low-scoring files, reclassify apps into correct categories, run runtime verification, breed new games via genetic recombination, or evolve apps with experience-first prompting. Specialist for bulk HTML quality auditing, AI-powered classification, manifest synchronization, runtime health verification, genetic recombination, and experience-driven evolution.
+description: Use proactively when the user wants to analyze HTML quality across gallery apps, scan for quality issues, rewrite low-scoring files, reclassify apps into correct categories, run runtime verification, breed new apps via genetic recombination, or evolve any content type with experience-first prompting. Specialist for bulk HTML quality auditing, AI-powered classification, manifest synchronization, runtime health verification, genetic recombination, and experience-driven evolution.
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: opus
 color: cyan
@@ -38,11 +38,15 @@ Run the runtime verification engine (`scripts/runtime_verify.py`) across all app
 
 ### Mode 6: Genetic Recombination
 
-Breed new games by extracting proven code patterns ("genes") from top-scoring apps and recombining them. Uses `scripts/recombine.py` with optional experience targeting. Produces offspring with genetic lineage tracked via `rappterzoo:parent` meta tags.
+Breed new apps by extracting proven patterns from top-scoring apps and recombining them. Uses `scripts/recombine.py` with optional experience targeting. Produces offspring with genetic lineage tracked via `rappterzoo:parent` meta tags. (Default: adaptive mode uses content_identity for dynamic trait discovery. Use --classic for regex gene detection.)
 
 ### Mode 7: Experience-Driven Evolution
 
-Select underperforming apps and molt them using experience-first prompting from the experience palette (`scripts/experience_palette.json`). Instead of generic "improve structure" molting, targets specific emotional experiences (discovery, dread, flow, mastery, etc.) to produce games with soul, not just features.
+Select underperforming apps and molt them using experience-first prompting from the experience palette (`scripts/experience_palette.json`). Instead of generic "improve structure" molting, targets specific emotional experiences (discovery, dread, flow, mastery, etc.) to produce apps with soul, not just features.
+
+### Mode 8: Universal Data Molt
+
+Molt non-HTML content files (JSON data, configs, etc.) using `scripts/data_molt.py`. Auto-discovers stale data files, analyzes freshness via LLM, and either routes to existing generation scripts or rewrites inline. Keeps the entire ecosystem fresh, not just the HTML apps.
 
 ## Instructions
 
@@ -232,7 +236,7 @@ python3 scripts/rank_games.py --push
 ```
 
 This does three things automatically:
-1. Scans all HTML apps and scores them on 6 quality dimensions + runtime health (structural, scale, systems, completeness, playability, polish + health modifier)
+1. Scans all HTML apps and scores them on adaptive dimensions + runtime health (structural, scale, craft, completeness, engagement, polish + health modifier). Use --legacy for old game-biased scoring (systems, playability instead of craft, engagement).
 2. Writes `apps/rankings.json` with full rankings data including runtime health verdicts
 3. Commits and pushes to make rankings live on GitHub Pages
 
@@ -331,7 +335,7 @@ Append runtime health data to `data-slosh-report.md`:
 
 ## Mode 6: Genetic Recombination — Detailed Instructions
 
-Mode 6 breeds new games from the DNA of top performers. This is evolutionary creation, not prompt engineering.
+Mode 6 breeds new apps from the DNA of top performers. Works with ANY content type, not just games. This is evolutionary creation, not prompt engineering.
 
 ### Step 6.1: Catalog Genes from Top Apps
 
@@ -343,10 +347,16 @@ python3 scripts/recombine.py --list-genes
 
 This shows which top-scoring apps contribute which genes (render_pipeline, physics_engine, particle_system, audio_engine, input_handler, state_machine, entity_system, hud_renderer, progression, juice).
 
+```bash
+# Or use adaptive mode (default) for content-agnostic trait discovery:
+python3 scripts/recombine.py --count 1 --verbose  # Uses content_identity
+python3 scripts/recombine.py --count 1 --classic --verbose  # Uses regex genes
+```
+
 ### Step 6.2: Select Breeding Strategy
 
 The user may specify:
-- **Count**: How many offspring to breed (default: 1)
+- **Count**: How many offspring to breed (works with any content type)
 - **Parents**: Specific parent files to breed from
 - **Experience**: An emotional target from the experience palette
 - **Category**: Target category for offspring
@@ -356,8 +366,11 @@ If the user doesn't specify parents, the engine selects complementary donors —
 ### Step 6.3: Run Recombination
 
 ```bash
-# Breed 3 games targeting the "discovery" experience
+# Adaptive mode (default) — uses content identity for trait discovery
 python3 scripts/recombine.py --count 3 --experience discovery --verbose
+
+# Classic mode — uses regex gene patterns (game-biased)
+python3 scripts/recombine.py --count 3 --classic --verbose
 
 # Breed from specific parents
 python3 scripts/recombine.py --parents space-shooter.html particle-garden.html --verbose
@@ -397,7 +410,7 @@ Report the offspring scores and how they compare to their parents.
 
 ## Mode 7: Experience-Driven Evolution — Detailed Instructions
 
-Mode 7 molts underperforming apps with SOUL instead of just features. Instead of "improve structure", it targets emotional experiences.
+Mode 7 molts underperforming apps with SOUL instead of just features. Works with ANY content type — a synth can be evolved toward 'hypnosis', a drawing tool toward 'flow', a visualizer toward 'wonder'. The medium IS the message.
 
 ### Step 7.1: Load the Experience Palette
 
@@ -429,16 +442,20 @@ Find apps that are technically competent (score 50-70) but lack soul — they ha
 python3 scripts/rank_games.py --verbose 2>&1 | grep "\[C\]"
 ```
 
-Look for C-grade apps with decent structural/systems scores but low playability. These are the best candidates — they have a skeleton to work with.
+Look for C-grade apps with decent structural/scale scores but low engagement. These are the best candidates — they have a skeleton to work with.
 
 ### Step 7.3: Match Experience to App
 
 For each candidate, choose an experience that fits its existing mechanics:
-- Canvas games with physics → `flow`, `tension`, `vertigo`
+- Games with physics/action → `flow`, `tension`, `vertigo`
+- Music/audio tools → `hypnosis`, `flow`, `wonder`
 - Particle/generative apps → `wonder`, `hypnosis`, `emergence`
+- Drawing/creative tools → `flow`, `mastery`, `mischief`
+- Data visualizers → `emergence`, `wonder`, `discovery`
 - Exploration/RPG games → `discovery`, `dread`, `companionship`
-- Sandbox/sim games → `mischief`, `emergence`, `mastery`
+- Sandbox/sim apps → `mischief`, `emergence`, `mastery`
 - Ambient/visual apps → `melancholy`, `wonder`, `hypnosis`
+- Educational tools → `discovery`, `mastery`, `emergence`
 
 ### Step 7.4: Build Experience-First Molt Prompt
 
@@ -449,7 +466,7 @@ For each candidate, build a molt prompt that leads with the emotional target:
 3. Build a prompt like:
 
 ```
-You are evolving this game to evoke a specific emotional experience.
+You are evolving this app to evoke a specific emotional experience.
 
 TARGET EXPERIENCE: [experience.emotion]
 [experience.description]
@@ -471,7 +488,7 @@ RULES:
 - Zero external dependencies
 - Preserve working mechanics, enhance them to serve the emotional target
 - Don't just add features — make every element serve the feeling
-- The player should FEEL [experience.emotion] without being told to
+- The user should FEEL [experience.emotion] without being told to
 
 Output the complete evolved HTML file:
 ```
@@ -497,6 +514,46 @@ After evolving:
 
 ```bash
 python3 scripts/rank_games.py --push
+```
+
+---
+
+## Mode 8: Universal Data Molt — Detailed Instructions
+
+Mode 8 keeps the entire data ecosystem fresh. It discovers and refreshes non-HTML content files that have gone stale.
+
+### Step 8.1: Discover Stale Data
+
+```bash
+# Dry run — see what's stale without changing anything
+python3 scripts/data_molt.py --verbose
+```
+
+This discovers all non-HTML content files under `apps/` (JSON configs, data files, etc.), analyzes their freshness via LLM, and reports what needs refreshing.
+
+### Step 8.2: Molt Stale Files
+
+```bash
+# Molt all stale files
+python3 scripts/data_molt.py --molt --verbose
+
+# Molt a specific file
+python3 scripts/data_molt.py --file community.json --molt --verbose
+```
+
+Known files (community.json, feed.json, rankings.json) route to their dedicated generation scripts. Unknown files get LLM inline rewrite with schema preservation.
+
+### Step 8.3: Validate and Publish
+
+The data molt engine automatically:
+- Archives old versions to `apps/archive/data/<stem>-v<N>.json`
+- Validates output (schema preserved, no drastic size changes)
+- Tracks generations in `apps/data-molt-state.json`
+
+After molting, publish:
+
+```bash
+python3 scripts/data_molt.py --molt --push
 ```
 
 ## Manifest Editing Rules

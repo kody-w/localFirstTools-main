@@ -10,9 +10,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from recombine import (
     GENE_PATTERNS,
+    build_adaptive_synthesis_prompt,
     build_synthesis_prompt,
     crossover,
     detect_genes,
+    discover_traits,
     extract_gene_samples,
     inject_lineage_tags,
     load_experience,
@@ -433,3 +435,85 @@ class TestBuildSynthesisPrompt:
         assert "<!DOCTYPE html>" in prompt
         assert "ZERO external dependencies" in prompt
         assert "single self-contained html" in prompt.lower()
+
+    def test_prompt_is_content_agnostic(self):
+        """Classic prompt should not assume games."""
+        genome = {"physics_engine": {"source_file": "a.html", "source_score": 70, "strength": 2, "sample": None}}
+        prompt = build_synthesis_prompt(genome)
+        assert "content genome synthesizer" in prompt.lower()
+        assert "Do NOT assume this must be a game" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Tests: Adaptive Trait Discovery
+# ---------------------------------------------------------------------------
+class TestDiscoverTraits:
+    @patch("recombine._analyze_content")
+    def test_adaptive_when_llm_available(self, mock_analyze):
+        mock_analyze.return_value = {
+            "medium": "ambient synth",
+            "techniques": ["Web Audio API", "LFO modulation"],
+            "strengths": ["rich timbres"],
+            "weaknesses": ["no presets"],
+            "improvement_vectors": ["add presets"],
+            "craft_score": 15,
+            "completeness_score": 10,
+            "engagement_score": 18,
+        }
+        traits = discover_traits(Path("/fake/synth.html"), content="<html>...")
+        assert traits["mode"] == "adaptive"
+        assert traits["medium"] == "ambient synth"
+        assert "Web Audio API" in traits["techniques"]
+
+    @patch("recombine._analyze_content")
+    def test_fallback_to_regex_when_no_llm(self, mock_analyze):
+        mock_analyze.return_value = None
+        traits = discover_traits(
+            Path("/fake/game.html"),
+            content=PHYSICS_GAME,
+        )
+        assert traits["mode"] == "regex"
+        assert "genes" in traits
+        assert traits["genes"]["physics_engine"]["present"] is True
+
+
+class TestAdaptiveSynthesisPrompt:
+    def test_prompt_is_content_agnostic(self):
+        parents_data = [
+            {
+                "file": "synth.html",
+                "score": 80,
+                "traits": {
+                    "medium": "FM synthesizer",
+                    "techniques": ["Web Audio API", "FM synthesis"],
+                    "strengths": ["rich sound design"],
+                    "weaknesses": ["no keyboard map"],
+                },
+                "content": "<html>synth code...</html>",
+            },
+            {
+                "file": "viz.html",
+                "score": 75,
+                "traits": {
+                    "medium": "audio visualizer",
+                    "techniques": ["Canvas 2D", "FFT analysis"],
+                    "strengths": ["beautiful rendering"],
+                    "weaknesses": ["limited input"],
+                },
+                "content": "<html>viz code...</html>",
+            },
+        ]
+        prompt = build_adaptive_synthesis_prompt(parents_data)
+        assert "Do NOT assume this must be a game" in prompt
+        assert "FM synthesizer" in prompt
+        assert "audio visualizer" in prompt
+        assert "ZERO external dependencies" in prompt
+
+    def test_prompt_includes_experience(self):
+        parents_data = [
+            {"file": "a.html", "score": 70, "traits": {"medium": "tool"}, "content": "<html>..."},
+            {"file": "b.html", "score": 65, "traits": {"medium": "sim"}, "content": "<html>..."},
+        ]
+        prompt = build_adaptive_synthesis_prompt(parents_data, SAMPLE_EXPERIENCE)
+        assert "EXPERIENCE TARGET" in prompt
+        assert "thrill of finding something hidden" in prompt
