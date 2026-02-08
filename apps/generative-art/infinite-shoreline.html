@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infinite Shoreline</title>
+<style>
+  /* ====== Global Reset & Canvas Styles ====== */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  body:active { cursor: grabbing; }
+  canvas#main {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    image-rendering: auto;
+  }
+  /* ====== Clock overlay ====== */
+  #clock {
+    position: fixed;
+    bottom: 16px;
+    right: 20px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 1px;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  /* ====== Audio toggle ====== */
+  #audioBtn {
+    position: fixed;
+    bottom: 14px;
+    left: 18px;
+    font-size: 20px;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.45);
+    cursor: pointer;
+    z-index: 10;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: color 0.3s;
+  }
+  #audioBtn:hover { color: rgba(255,255,255,0.8); }
+</style>
+</head>
+<body>
+<canvas id="main"></canvas>
+<div id="clock">00:00</div>
+<button id="audioBtn" title="Toggle sound">🔇</button>
+
+<script>
+// ============================================================
+//  INFINITE SHORELINE — Procedural Meditative Coastline
+//  All code inline. No external dependencies. Pure synthesis.
+// ============================================================
+
+(function() {
+  'use strict';
+
+  // ---- Canvas Setup ----
+  const canvas = document.getElementById('main');
+  const ctx = canvas.getContext('2d');
+  let W, H;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---- Simplex Noise Implementation ----
+  // Based on Stefan Gustavson's simplex noise (public domain)
+  const SimplexNoise = (function() {
+    const grad3 = [
+      [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+      [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+      [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
+    ];
+    const F2 = 0.5 * (Math.sqrt(3) - 1);
+    const G2 = (3 - Math.sqrt(3)) / 6;
+
+    function Simplex(seed) {
+      this.p = new Uint8Array(256);
+      this.perm = new Uint8Array(512);
+      this.permMod12 = new Uint8Array(512);
+      const rng = seedRNG(seed || 42);
+      for (let i = 0; i < 256; i++) this.p[i] = i;
+      for (let i = 255; i > 0; i--) {
+        const j = (rng() * (i + 1)) | 0;
+        const tmp = this.p[i]; this.p[i] = this.p[j]; this.p[j] = tmp;
+      }
+      for (let i = 0; i < 512; i++) {
+        this.perm[i] = this.p[i & 255];
+        this.permMod12[i] = this.perm[i] % 12;
+      }
+    }
+
+    function seedRNG(s) {
+      return function() {
+        s = (s * 16807 + 0) % 2147483647;
+        return (s - 1) / 2147483646;
+      };
+    }
+
+    function dot2(g, x, y) { return g[0]*x + g[1]*y; }
+
+    Simplex.prototype.noise2D = function(xin, yin) {
+      const s = (xin + yin) * F2;
+      const i = Math.floor(xin + s);
+      const j = Math.floor(yin + s);
+      const t = (i + j) * G2;
+      const X0 = i - t, Y0 = j - t;
+      const x0 = xin - X0, y0 = yin - Y0;
+      let i1, j1;
+      if (x0 > y0) { i1 = 1; j1 = 0; }
+      else { i1 = 0; j1 = 1; }
+      const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
+      const x2 = x0 - 1 + 2*G2, y2 = y0 - 1 + 2*G2;
+      const ii = i & 255, jj = j & 255;
+      const gi0 = this.permMod12[ii + this.perm[jj]];
+      const gi1 = this.permMod12[ii + i1 + this.perm[jj + j1]];
+      const gi2 = this.permMod12[ii + 1 + this.perm[jj + 1]];
+      let n0 = 0, n1 = 0, n2 = 0;
+      let t0 = 0.5 - x0*x0 - y0*y0;
+      if (t0 >= 0) { t0 *= t0; n0 = t0*t0 * dot2(grad3[gi0], x0, y0); }
+      let t1 = 0.5 - x1*x1 - y1*y1;
+      if (t1 >= 0) { t1 *= t1; n1 = t1*t1 * dot2(grad3[gi1], x1, y1); }
+      let t2 = 0.5 - x2*x2 - y2*y2;
+      if (t2 >= 0) { t2 *= t2; n2 = t2*t2 * dot2(grad3[gi2], x2, y2); }
+      return 70 * (n0 + n1 + n2);
+    };
+
+    Simplex.prototype.fbm = function(x, y, octaves, lacunarity, gain) {
+      let sum = 0, amp = 1, freq = 1, max = 0;
+      for (let i = 0; i < octaves; i++) {
+        sum += amp * this.noise2D(x * freq, y * freq);
+        max += amp;
+        amp *= gain;
+        freq *= lacunarity;
+      }
+      return sum / max;
+    };
+
+    return Simplex;
+  })();
+
+  const noise = new SimplexNoise(12345);
+  const noise2 = new SimplexNoise(67890);
+  const noise3 = new SimplexNoise(11111);
+  const noise4 = new SimplexNoise(22222);
+
+  // ---- Time System ----
+  // Full day cycle = 5 minutes real time = 300 seconds
+  const DAY_CYCLE = 300;
+  let gameTime = 0; // 0..1 representing 0:00..24:00
+
+  function getTimeOfDay(t) {
+    // Returns phase and blend for sky colors
+    // 0.0 = midnight, 0.25 = dawn, 0.5 = noon, 0.75 = dusk
+    return t;
+  }
+
+  function formatClock(t) {
+    const hours = Math.floor(t * 24);
+    const mins = Math.floor((t * 24 - hours) * 60);
+    return String(hours).padStart(2,'0') + ':' + String(mins).padStart(2,'0');
+  }
+
+  // ---- Color Utilities ----
+  function lerpColor(a, b, t) {
+    t = Math.max(0, Math.min(1, t));
+    return [
+      a[0] + (b[0]-a[0])*t,
+      a[1] + (b[1]-a[1])*t,
+      a[2] + (b[2]-a[2])*t
+    ];
+  }
+
+  function rgb(c) {
+    return 'rgb(' + (c[0]|0) + ',' + (c[1]|0) + ',' + (c[2]|0) + ')';
+  }
+
+  function rgba(c, a) {
+    return 'rgba(' + (c[0]|0) + ',' + (c[1]|0) + ',' + (c[2]|0) + ',' + a + ')';
+  }
+
+  // ---- Sky System ----
+  // Sky color stops for different times of day
+  const skyColors = {
+    night:     { top: [8, 12, 35],    bottom: [18, 25, 55] },
+    predawn:   { top: [25, 30, 65],   bottom: [80, 50, 70] },
+    dawn:      { top: [80, 100, 160], bottom: [240, 150, 100] },
+    morning:   { top: [100, 160, 220],bottom: [180, 210, 240] },
+    noon:      { top: [70, 140, 220], bottom: [150, 200, 240] },
+    afternoon: { top: [85, 150, 215], bottom: [170, 200, 230] },
+    dusk:      { top: [60, 50, 100],  bottom: [220, 100, 60] },
+    twilight:  { top: [30, 25, 70],   bottom: [100, 50, 70] },
+  };
+
+  function getSkyColors(t) {
+    // t from 0..1, maps to time of day
+    const phases = [
+      { time: 0.00, key: 'night' },
+      { time: 0.18, key: 'predawn' },
+      { time: 0.23, key: 'dawn' },
+      { time: 0.28, key: 'morning' },
+      { time: 0.40, key: 'noon' },
+      { time: 0.55, key: 'afternoon' },
+      { time: 0.72, key: 'dusk' },
+      { time: 0.82, key: 'twilight' },
+      { time: 1.00, key: 'night' },
+    ];
+    let from = phases[0], to = phases[1];
+    for (let i = 0; i < phases.length - 1; i++) {
+      if (t >= phases[i].time && t < phases[i+1].time) {
+        from = phases[i]; to = phases[i+1]; break;
+      }
+    }
+    const blend = (t - from.time) / (to.time - from.time);
+    const sc1 = skyColors[from.key];
+    const sc2 = skyColors[to.key];
+    return {
+      top: lerpColor(sc1.top, sc2.top, blend),
+      bottom: lerpColor(sc1.bottom, sc2.bottom, blend)
+    };
+  }
+
+  function getSunMoonBrightness(t) {
+    // How bright is the scene? 0=dark night, 1=full day
+    if (t < 0.2) return 0.05;
+    if (t < 0.3) return (t - 0.2) / 0.1;
+    if (t < 0.7) return 1;
+    if (t < 0.85) return 1 - (t - 0.7) / 0.15;
+    return 0.05;
+  }
+
+  function isNight(t) { return t < 0.2 || t > 0.82; }
+
+  // ---- Scroll / Camera ----
+  let cameraX = 0;
+  let scrollVelocity = 0;
+  let isDragging = false;
+  let dragStartX = 0;
+  let lastDragX = 0;
+  let lastDragTime = 0;
+
+  // Mouse scroll handling
+  canvas.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    dragStartX = e.clientX;
+    lastDragX = e.clientX;
+    lastDragTime = performance.now();
+    scrollVelocity = 0;
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - lastDragX;
+    const dt = performance.now() - lastDragTime;
+    cameraX -= dx;
+    scrollVelocity = -dx / Math.max(dt, 1) * 16;
+    lastDragX = e.clientX;
+    lastDragTime = performance.now();
+  });
+
+  window.addEventListener('mouseup', () => { isDragging = false; });
+
+  // Touch support for mobile scrolling
+  let touchId = null;
+  canvas.addEventListener('touchstart', (e) => {
+    if (touchId !== null) return;
+    const touch = e.touches[0];
+    touchId = touch.identifier;
+    isDragging = true;
+    dragStartX = touch.clientX;
+    lastDragX = touch.clientX;
+    lastDragTime = performance.now();
+    scrollVelocity = 0;
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === touchId) {
+        const touch = e.changedTouches[i];
+        const dx = touch.clientX - lastDragX;
+        const dt = performance.now() - lastDragTime;
+        cameraX -= dx;
+        scrollVelocity = -dx / Math.max(dt, 1) * 16;
+        lastDragX = touch.clientX;
+        lastDragTime = performance.now();
+      }
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === touchId) {
+        isDragging = false;
+        touchId = null;
+      }
+    }
+  });
+
+  // Keyboard arrow keys for scroll navigation
+  const keysDown = {};
+  window.addEventListener('keydown', (e) => {
+    keysDown[e.key] = true;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => { keysDown[e.key] = false; });
+
+  // ---- Footprints System ----
+  const footprints = [];
+
+  canvas.addEventListener('click', (e) => {
+    const wx = e.clientX + cameraX;
+    const wy = e.clientY;
+    // Only place on the beach area (roughly middle portion of screen)
+    const beachTop = H * 0.42;
+    const beachBottom = H * 0.88;
+    if (wy > beachTop && wy < beachBottom) {
+      // Place a pair of footprints
+      footprints.push({
+        wx: wx, wy: wy,
+        opacity: 1.0,
+        angle: Math.random() * 0.4 - 0.2,
+        size: 4 + Math.random() * 3,
+        born: performance.now()
+      });
+      footprints.push({
+        wx: wx + 12 + Math.random() * 6, wy: wy + 14 + Math.random() * 6,
+        opacity: 1.0,
+        angle: Math.random() * 0.4 - 0.2,
+        size: 4 + Math.random() * 3,
+        born: performance.now()
+      });
+    }
+  });
+
+  // ---- Tide System ----
+  // 5-minute tide cycle
+  const TIDE_PERIOD = 300;
+  function getTideLevel(time) {
+    return Math.sin(time * Math.PI * 2 / TIDE_PERIOD) * 0.5 + 0.5;
+  }
+
+  // ---- Stars ----
+  const stars = [];
+  for (let i = 0; i < 400; i++) {
+    stars.push({
+      x: Math.random(),
+      y: Math.random() * 0.45,
+      size: Math.random() * 1.8 + 0.3,
+      twinkleSpeed: Math.random() * 3 + 1,
+      twinkleOffset: Math.random() * Math.PI * 2,
+      brightness: Math.random() * 0.5 + 0.5
+    });
+  }
+
+  // ---- Seabirds ----
+  const birds = [];
+  for (let i = 0; i < 4; i++) {
+    birds.push({
+      x: Math.random() * W * 3 - W,
+      y: H * 0.08 + Math.random() * H * 0.18,
+      speed: 20 + Math.random() * 40,
+      wingPhase: Math.random() * Math.PI * 2,
+      wingSpeed: 3 + Math.random() * 2,
+      size: 12 + Math.random() * 10,
+      vertOsc: Math.random() * Math.PI * 2,
+      vertAmp: 3 + Math.random() * 8,
+      vertSpeed: 0.3 + Math.random() * 0.5,
+      direction: Math.random() > 0.5 ? 1 : -1
+    });
+  }
+
+  // ---- Foam Particles ----
+  const foamParticles = [];
+  const MAX_FOAM = 500;
+
+  function spawnFoam(wx, wy, count) {
+    for (let i = 0; i < count && foamParticles.length < MAX_FOAM; i++) {
+      foamParticles.push({
+        wx: wx + (Math.random() - 0.5) * 30,
+        wy: wy + (Math.random() - 0.5) * 8,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.3,
+        life: 1.0,
+        decay: 0.003 + Math.random() * 0.008,
+        size: 1 + Math.random() * 3
+      });
+    }
+  }
+
+  // ---- Sand Particles (drifting) ----
+  const sandParticles = [];
+  const MAX_SAND = 200;
+
+  function spawnSandParticles(wx, wy) {
+    if (sandParticles.length < MAX_SAND) {
+      sandParticles.push({
+        wx: wx, wy: wy,
+        vx: 0.3 + Math.random() * 0.8,
+        vy: -0.5 - Math.random() * 1.5,
+        life: 1.0,
+        decay: 0.01 + Math.random() * 0.02,
+        size: 1 + Math.random() * 2
+      });
+    }
+  }
+
+  // ---- Vegetation / Grass Patches ----
+  // Generated procedurally per-column based on noise
+
+  // ---- Terrain Generation ----
+  function getCoastlineY(wx) {
+    // Multi-layered noise for interesting coastline shape
+    const base = noise.fbm(wx * 0.0004, 0.5, 5, 2.0, 0.5);
+    const detail = noise2.fbm(wx * 0.002, 1.0, 3, 2.0, 0.5);
+    const micro = noise3.noise2D(wx * 0.008, 0.3);
+    return H * 0.52 + base * H * 0.12 + detail * H * 0.04 + micro * H * 0.015;
+  }
+
+  function getDuneHeight(wx) {
+    const d = noise2.fbm(wx * 0.0008, 3.0, 4, 2.0, 0.55);
+    return Math.max(0, d) * H * 0.08;
+  }
+
+  function getRockiness(wx) {
+    return Math.max(0, noise3.fbm(wx * 0.001, 5.0, 3, 2.0, 0.5));
+  }
+
+  function getVegetationDensity(wx) {
+    return Math.max(0, noise4.fbm(wx * 0.0006, 7.0, 3, 2.0, 0.5));
+  }
+
+  // ---- Wave Height at Position ----
+  function getWaveHeight(wx, time) {
+    const w1 = Math.sin(wx * 0.015 + time * 1.8) * 4;
+    const w2 = Math.sin(wx * 0.007 - time * 0.9) * 6;
+    const w3 = Math.sin(wx * 0.032 + time * 2.5) * 2;
+    const w4 = noise.noise2D(wx * 0.005, time * 0.3) * 8;
+    return w1 + w2 + w3 + w4;
+  }
+
+  // ---- Rendering ----
+  let realTime = 0;
+  let lastFrame = performance.now();
+  let frameCount = 0;
+
+  function drawSky(t) {
+    const colors = getSkyColors(t);
+    const grad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+    grad.addColorStop(0, rgb(colors.top));
+    grad.addColorStop(1, rgb(colors.bottom));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H * 0.55);
+  }
+
+  function drawSun(t) {
+    if (t < 0.22 || t > 0.78) return;
+    const sunProgress = (t - 0.22) / 0.56;
+    const sunAngle = sunProgress * Math.PI;
+    const sunX = W * 0.5 + Math.cos(sunAngle + Math.PI) * W * 0.4;
+    const sunY = H * 0.5 - Math.sin(sunAngle) * H * 0.42;
+    if (sunY > H * 0.5) return;
+
+    const brightness = getSunMoonBrightness(t);
+    // Sun glow
+    const glowGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 120);
+    glowGrad.addColorStop(0, rgba([255, 240, 200], 0.4 * brightness));
+    glowGrad.addColorStop(0.3, rgba([255, 200, 100], 0.15 * brightness));
+    glowGrad.addColorStop(1, rgba([255, 200, 100], 0));
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(sunX - 120, sunY - 120, 240, 240);
+
+    // Sun disc
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 18, 0, Math.PI * 2);
+    const sunColor = t < 0.3 || t > 0.7
+      ? [255, 160, 60]
+      : [255, 240, 200];
+    ctx.fillStyle = rgba(sunColor, brightness);
+    ctx.fill();
+  }
+
+  function drawMoon(t) {
+    if (t > 0.25 && t < 0.75) return;
+    let moonProgress;
+    if (t >= 0.75) moonProgress = (t - 0.75) / 0.5;
+    else moonProgress = (t + 0.25) / 0.5;
+    moonProgress = Math.min(1, moonProgress);
+    const moonAngle = moonProgress * Math.PI;
+    const moonX = W * 0.6 + Math.cos(moonAngle + Math.PI) * W * 0.35;
+    const moonY = H * 0.45 - Math.sin(moonAngle) * H * 0.38;
+    if (moonY > H * 0.5) return;
+    const nightStrength = isNight(t) ? 1 : 0.3;
+
+    // Moon glow
+    const glowGrad = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, 60);
+    glowGrad.addColorStop(0, rgba([200, 210, 255], 0.25 * nightStrength));
+    glowGrad.addColorStop(1, rgba([200, 210, 255], 0));
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(moonX - 60, moonY - 60, 120, 120);
+
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, 12, 0, Math.PI * 2);
+    ctx.fillStyle = rgba([230, 235, 255], 0.8 * nightStrength);
+    ctx.fill();
+  }
+
+  function drawStars(t, time) {
+    if (!isNight(t)) return;
+    const nightStrength = t < 0.2 ? 1 - t / 0.2 : (t - 0.82) / 0.18;
+    const alpha = Math.min(1, nightStrength) * 0.9;
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const twinkle = 0.5 + 0.5 * Math.sin(time * s.twinkleSpeed + s.twinkleOffset);
+      const a = alpha * s.brightness * twinkle;
+      if (a < 0.05) continue;
+      ctx.beginPath();
+      ctx.arc(s.x * W, s.y * H, s.size, 0, Math.PI * 2);
+      ctx.fillStyle = rgba([240, 245, 255], a);
+      ctx.fill();
+    }
+  }
+
+  function drawClouds(t, time) {
+    const brightness = getSunMoonBrightness(t);
+    const baseAlpha = 0.08 + brightness * 0.12;
+    for (let i = 0; i < 5; i++) {
+      const cx = ((i * 347 + cameraX * 0.05 * (0.5 + i * 0.1)) % (W + 400)) - 200;
+      const cy = H * 0.08 + i * H * 0.06 + Math.sin(time * 0.1 + i) * 5;
+      const cw = 120 + i * 40;
+      const ch = 25 + i * 8;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, cw, ch, 0, 0, Math.PI * 2);
+      const cloudColor = isNight(t) ? [40, 45, 70] : [255, 255, 255];
+      ctx.fillStyle = rgba(cloudColor, baseAlpha);
+      ctx.fill();
+    }
+  }
+
+  function drawWater(t, time, tideLevel) {
+    const brightness = getSunMoonBrightness(t);
+    const waterBaseY = H * 0.45;
+
+    // Deep water gradient
+    const deepTop = isNight(t)
+      ? lerpColor([10, 20, 50], [20, 40, 80], brightness)
+      : lerpColor([20, 60, 120], [40, 120, 180], brightness);
+    const deepBot = isNight(t)
+      ? lerpColor([5, 10, 30], [10, 20, 50], brightness)
+      : lerpColor([15, 50, 100], [30, 90, 150], brightness);
+
+    const waterGrad = ctx.createLinearGradient(0, 0, 0, waterBaseY);
+    waterGrad.addColorStop(0, rgb(deepTop));
+    waterGrad.addColorStop(1, rgb(deepBot));
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(0, 0, W, waterBaseY + 20);
+
+    // Wave surface lines
+    for (let layer = 0; layer < 6; layer++) {
+      const layerY = waterBaseY - 30 + layer * 8;
+      const alpha = 0.03 + layer * 0.015;
+      ctx.beginPath();
+      ctx.moveTo(0, layerY);
+      for (let x = 0; x <= W; x += 4) {
+        const wx = x + cameraX;
+        const wh = getWaveHeight(wx, time + layer * 0.3);
+        ctx.lineTo(x, layerY + wh);
+      }
+      ctx.lineTo(W, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      const waveColor = isNight(t) ? [30, 50, 90] : [80, 160, 220];
+      ctx.fillStyle = rgba(waveColor, alpha);
+      ctx.fill();
+    }
+
+    // Water sparkles in sunlight
+    if (brightness > 0.5) {
+      const sparkleCount = Math.floor((brightness - 0.5) * 60);
+      for (let i = 0; i < sparkleCount; i++) {
+        const sx = ((i * 173.7 + time * 50 + cameraX * 0.2) % W);
+        const sy = Math.random() * waterBaseY * 0.8;
+        const sparkleAlpha = Math.random() * 0.6 * (brightness - 0.5) * 2;
+        if (Math.sin(time * 5 + i * 7) > 0.7) {
+          ctx.beginPath();
+          ctx.arc(sx, sy, 1 + Math.random(), 0, Math.PI * 2);
+          ctx.fillStyle = rgba([255, 255, 240], sparkleAlpha);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  function drawShoreline(t, time, tideLevel) {
+    const brightness = getSunMoonBrightness(t);
+    const tideOffset = tideLevel * H * 0.06;
+
+    // Draw beach and terrain column by column (optimized with wider strips)
+    const step = 2;
+    for (let x = -step; x <= W + step; x += step) {
+      const wx = x + cameraX;
+      const coastY = getCoastlineY(wx) + tideOffset;
+      const duneH = getDuneHeight(wx);
+      const rockiness = getRockiness(wx);
+      const vegDensity = getVegetationDensity(wx);
+
+      // Wet sand (near water)
+      const wetSandY = coastY - 15;
+      const wetColor = isNight(t)
+        ? lerpColor([30, 28, 22], [60, 55, 45], brightness)
+        : lerpColor([140, 130, 100], [170, 155, 120], brightness);
+      ctx.fillStyle = rgb(wetColor);
+      ctx.fillRect(x, wetSandY, step + 1, coastY - wetSandY + 2);
+
+      // Dry sand
+      const drySandColor = isNight(t)
+        ? lerpColor([40, 38, 30], [80, 75, 60], brightness)
+        : lerpColor([200, 185, 150], [220, 205, 170], brightness);
+      const noiseVal = noise.noise2D(wx * 0.01, 3.0);
+      const sandVariant = [
+        drySandColor[0] + noiseVal * 15,
+        drySandColor[1] + noiseVal * 12,
+        drySandColor[2] + noiseVal * 8
+      ];
+      ctx.fillStyle = rgb(sandVariant);
+      ctx.fillRect(x, coastY, step + 1, H * 0.15 + duneH);
+
+      // Dune crest
+      if (duneH > 5) {
+        const duneTop = coastY + H * 0.13;
+        const duneColor = [
+          sandVariant[0] - 10,
+          sandVariant[1] - 8,
+          sandVariant[2] - 5
+        ];
+        ctx.fillStyle = rgb(duneColor);
+        ctx.fillRect(x, duneTop, step + 1, duneH + 5);
+      }
+
+      // Rocks
+      if (rockiness > 0.3) {
+        const rockY = coastY + 5 + noise.noise2D(wx * 0.02, 10) * 8;
+        const rockSize = 3 + rockiness * 12;
+        const rockColor = isNight(t)
+          ? [35, 33, 30]
+          : [100, 95, 85];
+        ctx.fillStyle = rgb(rockColor);
+        ctx.beginPath();
+        ctx.ellipse(x, rockY, rockSize, rockSize * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Vegetation - grass tufts
+      if (vegDensity > 0.2 && x % 8 === 0) {
+        const vegBaseY = coastY + H * 0.12 + duneH;
+        const grassCount = Math.floor(vegDensity * 6);
+        for (let g = 0; g < grassCount; g++) {
+          const gx = x + noise.noise2D(wx * 0.1 + g, 20) * 10;
+          const gh = 8 + vegDensity * 18 + noise2.noise2D(wx * 0.05 + g, 25) * 6;
+          // Sway with time
+          const sway = Math.sin(time * 1.5 + wx * 0.01 + g * 0.5) * 3 * vegDensity;
+          const grassColor = isNight(t)
+            ? [20, 40 + vegDensity * 20, 15]
+            : [50 + vegDensity * 30, 100 + vegDensity * 60, 30 + vegDensity * 20];
+          ctx.strokeStyle = rgba(grassColor, 0.7);
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(gx, vegBaseY);
+          ctx.quadraticCurveTo(gx + sway, vegBaseY - gh * 0.6, gx + sway * 1.5, vegBaseY - gh);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Below-beach ground fill
+    const groundY = H * 0.85;
+    const groundColor = isNight(t) ? [25, 22, 18] : [160, 145, 110];
+    ctx.fillStyle = rgb(groundColor);
+    ctx.fillRect(0, groundY, W, H - groundY);
+  }
+
+  function drawWaveEdge(t, time, tideLevel) {
+    const brightness = getSunMoonBrightness(t);
+    const tideOffset = tideLevel * H * 0.06;
+
+    // Animated wave edge lapping the shore
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 3) {
+      const wx = x + cameraX;
+      const coastY = getCoastlineY(wx) + tideOffset;
+      const waveReach = 12 + Math.sin(time * 2.0 + wx * 0.01) * 8
+                       + Math.sin(time * 0.7 + wx * 0.005) * 15;
+      const waveY = coastY - waveReach;
+      ctx.lineTo(x, waveY);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+
+    // Semi-transparent water over sand
+    const waterOverlay = isNight(t)
+      ? rgba([15, 35, 70], 0.55)
+      : rgba([50, 130, 190], 0.35);
+    ctx.fillStyle = waterOverlay;
+    ctx.fill();
+
+    // White foam line at wave edge
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 2) {
+      const wx = x + cameraX;
+      const coastY = getCoastlineY(wx) + tideOffset;
+      const waveReach = 12 + Math.sin(time * 2.0 + wx * 0.01) * 8
+                       + Math.sin(time * 0.7 + wx * 0.005) * 15;
+      const foamY = coastY - waveReach;
+      if (x === 0) ctx.moveTo(x, foamY);
+      else ctx.lineTo(x, foamY);
+
+      // Spawn foam particles at wave crest
+      if (Math.random() < 0.005) {
+        spawnFoam(wx, foamY, 2);
+      }
+    }
+    const foamColor = isNight(t) ? rgba([120,140,170], 0.4) : rgba([255,255,255], 0.6);
+    ctx.strokeStyle = foamColor;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Second foam line (thinner)
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 3) {
+      const wx = x + cameraX;
+      const coastY = getCoastlineY(wx) + tideOffset;
+      const waveReach = 5 + Math.sin(time * 2.5 + wx * 0.013 + 1.5) * 6
+                       + Math.sin(time * 0.9 + wx * 0.007) * 10;
+      const foamY = coastY - waveReach - 3;
+      if (x === 0) ctx.moveTo(x, foamY);
+      else ctx.lineTo(x, foamY);
+    }
+    ctx.strokeStyle = rgba([255,255,255], isNight(t) ? 0.15 : 0.3);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function drawFoamParticles(t) {
+    const brightness = getSunMoonBrightness(t);
+    for (let i = foamParticles.length - 1; i >= 0; i--) {
+      const p = foamParticles[i];
+      p.wx += p.vx;
+      p.wy += p.vy;
+      p.life -= p.decay;
+      if (p.life <= 0) { foamParticles.splice(i, 1); continue; }
+      const sx = p.wx - cameraX;
+      if (sx < -20 || sx > W + 20) continue;
+      ctx.beginPath();
+      ctx.arc(sx, p.wy, p.size * p.life, 0, Math.PI * 2);
+      ctx.fillStyle = rgba([255,255,255], p.life * 0.5 * Math.max(0.2, brightness));
+      ctx.fill();
+    }
+  }
+
+  function drawSandParticles(t) {
+    const brightness = getSunMoonBrightness(t);
+    for (let i = sandParticles.length - 1; i >= 0; i--) {
+      const p = sandParticles[i];
+      p.wx += p.vx;
+      p.wy += p.vy;
+      p.vy += 0.05; // gravity
+      p.life -= p.decay;
+      if (p.life <= 0) { sandParticles.splice(i, 1); continue; }
+      const sx = p.wx - cameraX;
+      if (sx < -10 || sx > W + 10) continue;
+      ctx.beginPath();
+      ctx.arc(sx, p.wy, p.size, 0, Math.PI * 2);
+      const sandColor = isNight(t) ? [60,55,45] : [200,185,150];
+      ctx.fillStyle = rgba(sandColor, p.life * 0.6);
+      ctx.fill();
+    }
+  }
+
+  function drawFootprints(t, time, tideLevel) {
+    const brightness = getSunMoonBrightness(t);
+    const tideOffset = tideLevel * H * 0.06;
+    for (let i = footprints.length - 1; i >= 0; i--) {
+      const fp = footprints[i];
+      // Check if wave is reaching this footprint
+      const coastY = getCoastlineY(fp.wx) + tideOffset;
+      const waveReach = 12 + Math.sin(time * 2.0 + fp.wx * 0.01) * 8
+                       + Math.sin(time * 0.7 + fp.wx * 0.005) * 15;
+      const waveY = coastY - waveReach;
+
+      if (fp.wy < waveY + 5) {
+        fp.opacity -= 0.008; // Wash away gradually
+      }
+      // Natural fade over time (slower)
+      fp.opacity -= 0.0002;
+
+      if (fp.opacity <= 0) { footprints.splice(i, 1); continue; }
+
+      const sx = fp.wx - cameraX;
+      if (sx < -20 || sx > W + 20) continue;
+
+      ctx.save();
+      ctx.translate(sx, fp.wy);
+      ctx.rotate(fp.angle);
+      // Footprint shape: oval + toe marks
+      const fpColor = isNight(t) ? [50, 45, 38] : [160, 145, 115];
+      ctx.fillStyle = rgba(fpColor, fp.opacity * 0.6);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, fp.size * 0.7, fp.size * 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Toes
+      for (let toe = -2; toe <= 2; toe++) {
+        ctx.beginPath();
+        ctx.arc(toe * fp.size * 0.25, -fp.size * 1.4, fp.size * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawBirds(t, time) {
+    const brightness = getSunMoonBrightness(t);
+    if (brightness < 0.1) return; // Birds sleep at night
+
+    for (let i = 0; i < birds.length; i++) {
+      const b = birds[i];
+      // Update bird position
+      b.x += b.speed * b.direction * 0.016;
+      b.vertOsc += b.vertSpeed * 0.016;
+      const by = b.y + Math.sin(b.vertOsc) * b.vertAmp;
+
+      // Wrap birds around screen
+      const sx = ((b.x - cameraX * 0.3) % (W + 400));
+      const birdX = sx < -200 ? sx + W + 400 : sx;
+
+      if (birdX < -50 || birdX > W + 50) continue;
+
+      // Wing animation
+      b.wingPhase += b.wingSpeed * 0.016;
+      const wingAngle = Math.sin(b.wingPhase) * 0.5;
+
+      // Bird shadow on beach
+      const shadowY = by + H * 0.35;
+      ctx.fillStyle = rgba([0,0,0], 0.04 * brightness);
+      ctx.beginPath();
+      ctx.ellipse(birdX + 3, shadowY, b.size * 1.2, b.size * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bird body
+      const birdColor = isNight(t) ? [40, 40, 50] : [30, 30, 35];
+      ctx.strokeStyle = rgba(birdColor, 0.7 * brightness);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      // Left wing
+      ctx.moveTo(birdX - b.size, by + wingAngle * b.size);
+      ctx.quadraticCurveTo(birdX - b.size * 0.4, by - wingAngle * b.size * 0.5, birdX, by);
+      // Right wing
+      ctx.quadraticCurveTo(birdX + b.size * 0.4, by - wingAngle * b.size * 0.5, birdX + b.size, by + wingAngle * b.size);
+      ctx.stroke();
+    }
+  }
+
+  function drawReflections(t, time) {
+    // Faint reflections on water surface
+    const brightness = getSunMoonBrightness(t);
+    if (brightness < 0.3) return;
+    const reflectionAlpha = (brightness - 0.3) * 0.15;
+    const waterY = H * 0.42;
+    ctx.fillStyle = rgba([255, 230, 180], reflectionAlpha);
+    for (let x = 0; x < W; x += 20) {
+      const wx = x + cameraX;
+      const shimmer = Math.sin(time * 3 + wx * 0.02) * 0.5 + 0.5;
+      if (shimmer > 0.6) {
+        const rx = x + Math.sin(time + wx * 0.01) * 3;
+        const ry = waterY - 30 + noise.noise2D(wx * 0.01, time * 0.5) * 15;
+        ctx.fillRect(rx, ry, 3 + shimmer * 4, 1);
+      }
+    }
+  }
+
+  // Spawn sand particles periodically in windy areas
+  function updateWindParticles(time) {
+    if (Math.random() < 0.1) {
+      const wx = cameraX + Math.random() * W;
+      const coastY = getCoastlineY(wx);
+      spawnSandParticles(wx, coastY + 10 + Math.random() * 30);
+    }
+  }
+
+  // ---- Web Audio API — Ambient Ocean Sounds ----
+  let audioCtx = null;
+  let audioStarted = false;
+  let audioMuted = true;
+  let masterGain = null;
+
+  // Noise generator buffer
+  function createNoiseBuffer(ctx, duration) {
+    const sampleRate = ctx.sampleRate;
+    const length = sampleRate * duration;
+    const buffer = ctx.createBuffer(1, length, sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    return buffer;
+  }
+
+  function initAudio() {
+    if (audioStarted) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.connect(audioCtx.destination);
+    audioStarted = true;
+
+    // === Brown noise / ocean rumble ===
+    const noiseBuffer = createNoiseBuffer(audioCtx, 4);
+
+    // Layer 1: Deep ocean rumble (brown noise — heavily low-passed)
+    const rumbleSource = audioCtx.createBufferSource();
+    rumbleSource.buffer = noiseBuffer;
+    rumbleSource.loop = true;
+    const rumbleFilter = audioCtx.createBiquadFilter();
+    rumbleFilter.type = 'lowpass';
+    rumbleFilter.frequency.value = 150;
+    rumbleFilter.Q.value = 0.5;
+    const rumbleGain = audioCtx.createGain();
+    rumbleGain.gain.value = 0.25;
+    rumbleSource.connect(rumbleFilter);
+    rumbleFilter.connect(rumbleGain);
+    rumbleGain.connect(masterGain);
+    rumbleSource.start();
+
+    // Layer 2: Mid-frequency wash
+    const washSource = audioCtx.createBufferSource();
+    washSource.buffer = noiseBuffer;
+    washSource.loop = true;
+    const washFilter = audioCtx.createBiquadFilter();
+    washFilter.type = 'bandpass';
+    washFilter.frequency.value = 400;
+    washFilter.Q.value = 0.8;
+    const washGain = audioCtx.createGain();
+    washGain.gain.value = 0.08;
+    washSource.connect(washFilter);
+    washFilter.connect(washGain);
+    washGain.connect(masterGain);
+    washSource.start();
+
+    // Layer 3: High hiss (surf foam)
+    const hissSource = audioCtx.createBufferSource();
+    hissSource.buffer = noiseBuffer;
+    hissSource.loop = true;
+    const hissFilter = audioCtx.createBiquadFilter();
+    hissFilter.type = 'highpass';
+    hissFilter.frequency.value = 3000;
+    const hissGain = audioCtx.createGain();
+    hissGain.gain.value = 0.03;
+    hissSource.connect(hissFilter);
+    hissFilter.connect(hissGain);
+    hissGain.connect(masterGain);
+    hissSource.start();
+
+    // === Periodic wave crash sounds ===
+    function scheduleCrash() {
+      const interval = 4 + Math.random() * 8;
+      setTimeout(() => {
+        if (!audioCtx || audioMuted) { scheduleCrash(); return; }
+        const crashNoise = audioCtx.createBufferSource();
+        crashNoise.buffer = noiseBuffer;
+        const crashFilter = audioCtx.createBiquadFilter();
+        crashFilter.type = 'bandpass';
+        crashFilter.frequency.value = 600 + Math.random() * 400;
+        crashFilter.Q.value = 1.2;
+        const crashGain = audioCtx.createGain();
+        const now = audioCtx.currentTime;
+        crashGain.gain.setValueAtTime(0, now);
+        crashGain.gain.linearRampToValueAtTime(0.15 + Math.random() * 0.1, now + 0.3);
+        crashGain.gain.exponentialRampToValueAtTime(0.001, now + 2 + Math.random());
+        crashNoise.connect(crashFilter);
+        crashFilter.connect(crashGain);
+        crashGain.connect(masterGain);
+        crashNoise.start(now);
+        crashNoise.stop(now + 3);
+        scheduleCrash();
+      }, interval * 1000);
+    }
+    scheduleCrash();
+
+    // === Seagull calls (oscillator chirps) ===
+    function scheduleGull() {
+      const interval = 8 + Math.random() * 20;
+      setTimeout(() => {
+        if (!audioCtx || audioMuted) { scheduleGull(); return; }
+        const now = audioCtx.currentTime;
+        const baseFreq = 1800 + Math.random() * 800;
+
+        // Two-tone call
+        for (let c = 0; c < 2; c++) {
+          const osc = audioCtx.createOscillator();
+          osc.type = 'sine';
+          const callStart = now + c * 0.25;
+          osc.frequency.setValueAtTime(baseFreq, callStart);
+          osc.frequency.linearRampToValueAtTime(baseFreq * (0.7 + Math.random() * 0.3), callStart + 0.15);
+          osc.frequency.linearRampToValueAtTime(baseFreq * 0.5, callStart + 0.2);
+
+          const gullGain = audioCtx.createGain();
+          gullGain.gain.setValueAtTime(0, callStart);
+          gullGain.gain.linearRampToValueAtTime(0.04, callStart + 0.03);
+          gullGain.gain.linearRampToValueAtTime(0.025, callStart + 0.1);
+          gullGain.gain.exponentialRampToValueAtTime(0.001, callStart + 0.22);
+
+          const gullFilter = audioCtx.createBiquadFilter();
+          gullFilter.type = 'bandpass';
+          gullFilter.frequency.value = baseFreq;
+          gullFilter.Q.value = 5;
+
+          osc.connect(gullFilter);
+          gullFilter.connect(gullGain);
+          gullGain.connect(masterGain);
+          osc.start(callStart);
+          osc.stop(callStart + 0.25);
+        }
+        scheduleGull();
+      }, interval * 1000);
+    }
+    scheduleGull();
+  }
+
+  // Audio toggle button
+  const audioBtn = document.getElementById('audioBtn');
+  audioBtn.addEventListener('click', () => {
+    if (!audioStarted) initAudio();
+    audioMuted = !audioMuted;
+    if (audioCtx && masterGain) {
+      masterGain.gain.linearRampToValueAtTime(
+        audioMuted ? 0 : 0.7,
+        audioCtx.currentTime + 0.5
+      );
+    }
+    audioBtn.textContent = audioMuted ? '🔇' : '🔊';
+  });
+
+  // ---- Main Render Loop ----
+  function frame(now) {
+    const dt = Math.min((now - lastFrame) / 1000, 0.05);
+    lastFrame = now;
+    realTime += dt;
+    frameCount++;
+
+    // Update game time (0..1 over DAY_CYCLE seconds)
+    gameTime = (realTime % DAY_CYCLE) / DAY_CYCLE;
+
+    // Apply scroll inertia
+    if (!isDragging) {
+      cameraX += scrollVelocity * dt * 3;
+      scrollVelocity *= 0.95;
+      if (Math.abs(scrollVelocity) < 0.1) scrollVelocity = 0;
+    }
+
+    // Keyboard scroll
+    const keySpeed = 300;
+    if (keysDown['ArrowLeft']) cameraX -= keySpeed * dt;
+    if (keysDown['ArrowRight']) cameraX += keySpeed * dt;
+
+    const tideLevel = getTideLevel(realTime);
+
+    // Clear canvas
+    ctx.clearRect(0, 0, W, H);
+
+    // ---- Draw layers back to front ----
+
+    // 1. Sky background
+    drawSky(gameTime);
+
+    // 2. Celestial bodies
+    drawSun(gameTime);
+    drawMoon(gameTime);
+    drawStars(gameTime, realTime);
+
+    // 3. Clouds (parallax)
+    drawClouds(gameTime, realTime);
+
+    // 4. Deep water
+    drawWater(gameTime, realTime, tideLevel);
+
+    // 5. Water reflections
+    drawReflections(gameTime, realTime);
+
+    // 6. Shore terrain (sand, dunes, rocks, vegetation)
+    drawShoreline(gameTime, realTime, tideLevel);
+
+    // 7. Wave edge with foam
+    drawWaveEdge(gameTime, realTime, tideLevel);
+
+    // 8. Foam particles
+    drawFoamParticles(gameTime);
+
+    // 9. Sand wind particles
+    updateWindParticles(realTime);
+    drawSandParticles(gameTime);
+
+    // 10. Footprints on the beach
+    drawFootprints(gameTime, realTime, tideLevel);
+
+    // 11. Seabirds
+    drawBirds(gameTime, realTime);
+
+    // Update clock display
+    document.getElementById('clock').textContent = formatClock(gameTime);
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synesthesia Machine</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            color: #e0e0ff;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        canvas#mainCanvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 0;
+        }
+
+        #ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        #ui-layer > * {
+            pointer-events: auto;
+        }
+
+        #waveform-box {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            width: 220px;
+            height: 100px;
+            background: rgba(10, 10, 20, 0.75);
+            border: 1px solid rgba(100, 100, 255, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            z-index: 20;
+        }
+
+        #waveformCanvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        #waveform-label {
+            position: absolute;
+            top: 4px;
+            left: 8px;
+            font-size: 9px;
+            color: rgba(150, 150, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        #controls-panel {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 20;
+        }
+
+        .control-group {
+            background: rgba(10, 10, 20, 0.75);
+            border: 1px solid rgba(100, 100, 255, 0.3);
+            border-radius: 8px;
+            padding: 10px 14px;
+        }
+
+        .control-group label {
+            display: block;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: rgba(150, 150, 255, 0.6);
+            margin-bottom: 6px;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 140px;
+            height: 4px;
+            background: rgba(100, 100, 255, 0.2);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #7070ff;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(112, 112, 255, 0.6);
+        }
+
+        .btn {
+            background: rgba(100, 100, 255, 0.15);
+            border: 1px solid rgba(100, 100, 255, 0.4);
+            color: #b0b0ff;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: rgba(100, 100, 255, 0.3);
+            box-shadow: 0 0 12px rgba(100, 100, 255, 0.3);
+        }
+
+        .btn.active {
+            background: rgba(255, 80, 80, 0.3);
+            border-color: rgba(255, 80, 80, 0.6);
+            color: #ff8080;
+            box-shadow: 0 0 12px rgba(255, 80, 80, 0.3);
+        }
+
+        #piano-roll {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background: rgba(10, 10, 20, 0.7);
+            border-top: 1px solid rgba(100, 100, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            z-index: 20;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .key-cell {
+            width: 34px;
+            height: 40px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            transition: all 0.1s;
+            background: rgba(40, 40, 60, 0.5);
+            border: 1px solid rgba(80, 80, 120, 0.3);
+        }
+
+        .key-cell.pressed {
+            transform: scale(1.15);
+            box-shadow: 0 0 16px var(--glow-color, rgba(100, 100, 255, 0.6));
+            border-color: var(--glow-color, rgba(100, 100, 255, 0.8));
+            background: var(--glow-color, rgba(100, 100, 255, 0.3));
+        }
+
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 5, 15, 0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        #overlay.hidden {
+            display: none;
+        }
+
+        #overlay-content {
+            text-align: center;
+            max-width: 600px;
+            padding: 40px;
+        }
+
+        #overlay-content h1 {
+            font-size: 42px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ff6080, #60a0ff, #80ff60, #ffa060);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: shimmer 3s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0%, 100% { filter: hue-rotate(0deg); }
+            50% { filter: hue-rotate(60deg); }
+        }
+
+        #overlay-content .subtitle {
+            font-size: 14px;
+            color: rgba(180, 180, 255, 0.6);
+            margin-bottom: 30px;
+        }
+
+        #overlay-content .key-map {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+            margin: 20px 0;
+            font-size: 12px;
+            text-align: left;
+        }
+
+        #overlay-content .key-map div {
+            padding: 4px 8px;
+            background: rgba(50, 50, 80, 0.4);
+            border-radius: 4px;
+        }
+
+        #overlay-content .start-hint {
+            margin-top: 30px;
+            font-size: 16px;
+            color: rgba(150, 150, 255, 0.8);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        #rec-indicator {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 40, 40, 0.2);
+            border: 1px solid rgba(255, 40, 40, 0.5);
+            color: #ff6060;
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            z-index: 30;
+            display: none;
+            animation: recBlink 1s ease-in-out infinite;
+        }
+
+        @keyframes recBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        #rec-indicator.visible {
+            display: block;
+        }
+
+        #playback-indicator {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(40, 200, 40, 0.2);
+            border: 1px solid rgba(40, 200, 40, 0.5);
+            color: #60ff60;
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            z-index: 30;
+            display: none;
+        }
+
+        #playback-indicator.visible {
+            display: block;
+        }
+
+        .chaos-value {
+            font-size: 11px;
+            color: #9090ff;
+            margin-top: 4px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="mainCanvas"></canvas>
+
+    <div id="waveform-box">
+        <span id="waveform-label">Oscilloscope</span>
+        <canvas id="waveformCanvas"></canvas>
+    </div>
+
+    <div id="controls-panel">
+        <div class="control-group">
+            <label>Chaos Knob</label>
+            <input type="range" id="chaosSlider" min="0" max="100" value="0">
+            <div class="chaos-value" id="chaosDisplay">0%</div>
+        </div>
+        <div class="control-group">
+            <label>Volume</label>
+            <input type="range" id="volumeSlider" min="0" max="100" value="70">
+        </div>
+        <div class="control-group" style="display:flex;gap:6px;flex-direction:column;">
+            <button class="btn" id="recBtn">⏺ Record</button>
+            <button class="btn" id="playBtn" disabled>▶ Playback</button>
+        </div>
+    </div>
+
+    <div id="rec-indicator">⏺ Recording</div>
+    <div id="playback-indicator">▶ Playing Back</div>
+
+    <div id="piano-roll"></div>
+
+    <div id="overlay">
+        <div id="overlay-content">
+            <h1>Synesthesia Machine</h1>
+            <p class="subtitle">A real-time audio-visual instrument</p>
+            <div class="key-map">
+                <div>🎹 <strong>A–Z</strong> — Musical tones</div>
+                <div>🔢 <strong>0–9</strong> — Percussive hits</div>
+                <div>🌀 <strong>Chaos knob</strong> — Detune &amp; randomize</div>
+                <div>⏺ <strong>Record</strong> — Capture 30s loop</div>
+                <div>🎨 <strong>Multiple keys</strong> — Chord visuals</div>
+                <div>🎵 <strong>Hold keys</strong> — Particle interactions</div>
+            </div>
+            <p>Each keyboard key triggers a unique sound and particle effect.<br>
+            Hold multiple keys to create chords with interacting particles.</p>
+            <p class="start-hint">Press any key to begin...</p>
+        </div>
+    </div>
+
+    <script>
+        // ========================
+        // SYNESTHESIA MACHINE
+        // A real-time audio-visual keyboard instrument
+        // ========================
+
+        (function () {
+            'use strict';
+
+            // --- Canvas Setup ---
+            const canvas = document.getElementById('mainCanvas');
+            const ctx = canvas.getContext('2d');
+            const wfCanvas = document.getElementById('waveformCanvas');
+            const wfCtx = wfCanvas.getContext('2d');
+
+            let W, H;
+            function resize() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+                wfCanvas.width = 220;
+                wfCanvas.height = 100;
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            // --- AudioContext Setup ---
+            let audioCtx = null;
+            let masterGain = null;
+            let analyser = null;
+            let delayNode = null;
+            let feedbackGain = null;
+            let reverbConvolver = null;
+            let compressor = null;
+
+            function initAudio() {
+                if (audioCtx) return;
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+                compressor = audioCtx.createDynamicsCompressor();
+                compressor.threshold.value = -24;
+                compressor.knee.value = 12;
+                compressor.ratio.value = 8;
+                compressor.attack.value = 0.003;
+                compressor.release.value = 0.15;
+
+                masterGain = audioCtx.createGain();
+                masterGain.gain.value = 0.7;
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.8;
+
+                // Delay effect
+                delayNode = audioCtx.createDelay(1.0);
+                delayNode.delayTime.value = 0.3;
+                feedbackGain = audioCtx.createGain();
+                feedbackGain.gain.value = 0.3;
+                delayNode.connect(feedbackGain);
+                feedbackGain.connect(delayNode);
+
+                // Reverb via convolver with generated impulse
+                reverbConvolver = audioCtx.createConvolver();
+                const irLength = audioCtx.sampleRate * 2;
+                const irBuffer = audioCtx.createBuffer(2, irLength, audioCtx.sampleRate);
+                for (let ch = 0; ch < 2; ch++) {
+                    const data = irBuffer.getChannelData(ch);
+                    for (let i = 0; i < irLength; i++) {
+                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLength, 2.5);
+                    }
+                }
+                reverbConvolver.buffer = irBuffer;
+
+                const reverbGain = audioCtx.createGain();
+                reverbGain.gain.value = 0.2;
+
+                const delayMix = audioCtx.createGain();
+                delayMix.gain.value = 0.25;
+
+                // Routing
+                masterGain.connect(compressor);
+                masterGain.connect(delayNode);
+                masterGain.connect(reverbConvolver);
+                delayNode.connect(delayMix);
+                delayMix.connect(compressor);
+                reverbConvolver.connect(reverbGain);
+                reverbGain.connect(compressor);
+                compressor.connect(analyser);
+                analyser.connect(audioCtx.destination);
+            }
+
+            // --- Musical Scale & Key Mapping ---
+            const KEY_CHARS = 'QWERTYUIOPASDFGHJKLZXCVBNM1234567890';
+            const BASE_FREQ = 130.81; // C3
+
+            // Chromatic scale intervals (semitones)
+            const scaleIntervals = [0, 2, 3, 5, 7, 8, 10, 12, 14, 15, 17, 19, 20, 22, 24, 26, 27, 29, 31, 32, 34, 36, 38, 39, 41, 43, 0, 5, 7, 12, 17, 19, 24, 29, 31, 36];
+
+            const waveforms = ['sine', 'triangle', 'sawtooth', 'square'];
+
+            // Pattern types for particles
+            const PATTERN_TYPES = [
+                'explosion', 'spiral', 'rain', 'wave', 'fountain',
+                'vortex', 'starburst', 'cascade', 'bloom', 'scatter'
+            ];
+
+            function getKeyConfig(keyChar) {
+                const idx = KEY_CHARS.indexOf(keyChar.toUpperCase());
+                if (idx < 0) return null;
+
+                const semitone = scaleIntervals[idx % scaleIntervals.length];
+                const octaveShift = Math.floor(idx / 12);
+                const freq = BASE_FREQ * Math.pow(2, (semitone + octaveShift * 2) / 12);
+
+                const hue = (idx / KEY_CHARS.length) * 360;
+                const waveform = waveforms[idx % waveforms.length];
+                const pattern = PATTERN_TYPES[idx % PATTERN_TYPES.length];
+
+                return { idx, freq, hue, waveform, pattern, keyChar: keyChar.toUpperCase() };
+            }
+
+            // --- Active Voices ---
+            const activeVoices = {};
+            const pressedKeys = new Set();
+
+            function noteOn(keyChar) {
+                const config = getKeyConfig(keyChar);
+                if (!config || activeVoices[config.keyChar]) return;
+
+                initAudio();
+
+                const chaos = chaosLevel / 100;
+                const detuneAmount = chaos * 80;
+
+                // Primary oscillator
+                const osc1 = audioCtx.createOscillator();
+                osc1.type = config.waveform;
+                osc1.frequency.value = config.freq + (Math.random() - 0.5) * detuneAmount;
+                osc1.detune.value = (Math.random() - 0.5) * detuneAmount * 10;
+
+                // Secondary oscillator (detuned for richness)
+                const osc2 = audioCtx.createOscillator();
+                osc2.type = config.waveform === 'sine' ? 'triangle' : 'sine';
+                osc2.frequency.value = config.freq * 1.002 + (Math.random() - 0.5) * detuneAmount;
+                osc2.detune.value = 7 + (Math.random() - 0.5) * detuneAmount * 10;
+
+                // Sub oscillator (one octave below)
+                const osc3 = audioCtx.createOscillator();
+                osc3.type = 'sine';
+                osc3.frequency.value = config.freq * 0.5;
+
+                // Filter
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 2000 + config.freq * 2 + chaos * 4000;
+                filter.Q.value = 2 + chaos * 15;
+
+                // Envelope gain
+                const envGain = audioCtx.createGain();
+                envGain.gain.setValueAtTime(0, audioCtx.currentTime);
+                envGain.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + 0.02);
+                envGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 0.15);
+
+                // Oscillator gains
+                const gain1 = audioCtx.createGain();
+                gain1.gain.value = 0.5;
+                const gain2 = audioCtx.createGain();
+                gain2.gain.value = 0.3;
+                const gain3 = audioCtx.createGain();
+                gain3.gain.value = 0.15;
+
+                osc1.connect(gain1);
+                osc2.connect(gain2);
+                osc3.connect(gain3);
+                gain1.connect(filter);
+                gain2.connect(filter);
+                gain3.connect(filter);
+                filter.connect(envGain);
+                envGain.connect(masterGain);
+
+                osc1.start();
+                osc2.start();
+                osc3.start();
+
+                activeVoices[config.keyChar] = {
+                    config,
+                    osc1, osc2, osc3,
+                    gain1, gain2, gain3,
+                    filter, envGain,
+                    startTime: performance.now()
+                };
+                pressedKeys.add(config.keyChar);
+
+                spawnParticles(config);
+
+                if (isRecording) {
+                    recordBuffer.push({
+                        type: 'noteOn',
+                        time: performance.now() - recordStartTime,
+                        key: config.keyChar
+                    });
+                }
+            }
+
+            function noteOff(keyChar) {
+                const key = keyChar.toUpperCase();
+                const voice = activeVoices[key];
+                if (!voice) return;
+
+                const now = audioCtx.currentTime;
+                voice.envGain.gain.cancelScheduledValues(now);
+                voice.envGain.gain.setValueAtTime(voice.envGain.gain.value, now);
+                voice.envGain.gain.linearRampToValueAtTime(0, now + 0.3);
+
+                setTimeout(() => {
+                    try {
+                        voice.osc1.stop();
+                        voice.osc2.stop();
+                        voice.osc3.stop();
+                    } catch (e) { /* already stopped */ }
+                }, 350);
+
+                delete activeVoices[key];
+                pressedKeys.delete(key);
+
+                if (isRecording) {
+                    recordBuffer.push({
+                        type: 'noteOff',
+                        time: performance.now() - recordStartTime,
+                        key: key
+                    });
+                }
+            }
+
+            // --- Particle System ---
+            const particles = [];
+            const MAX_PARTICLES = 3000;
+
+            class Particle {
+                constructor(x, y, config, patternData) {
+                    this.x = x;
+                    this.y = y;
+                    this.hue = config.hue;
+                    this.saturation = 80 + Math.random() * 20;
+                    this.lightness = 50 + Math.random() * 30;
+                    this.alpha = 1;
+                    this.size = 2 + Math.random() * 4;
+                    this.life = 1;
+                    this.decay = 0.003 + Math.random() * 0.012;
+                    this.sourceKey = config.keyChar;
+                    this.gravity = 0;
+                    this.friction = 0.99;
+                    this.bounce = 0.6;
+
+                    // Apply pattern-specific initial velocities
+                    this.applyPattern(config.pattern, patternData);
+                }
+
+                applyPattern(pattern, data) {
+                    const chaos = chaosLevel / 100;
+                    const speed = 2 + chaos * 6;
+
+                    switch (pattern) {
+                        case 'explosion': {
+                            const angle = Math.random() * Math.PI * 2;
+                            const vel = (2 + Math.random() * 5) * (1 + chaos);
+                            this.vx = Math.cos(angle) * vel;
+                            this.vy = Math.sin(angle) * vel;
+                            this.gravity = 0.02;
+                            this.size = 2 + Math.random() * 5;
+                            break;
+                        }
+                        case 'spiral': {
+                            const a = data.angle + Math.random() * 0.3;
+                            const r = 1 + Math.random() * 3;
+                            this.vx = Math.cos(a) * r;
+                            this.vy = Math.sin(a) * r;
+                            this.angularVel = 0.05 + Math.random() * 0.05;
+                            this.spiralRadius = r;
+                            this.spiralAngle = a;
+                            this.gravity = 0;
+                            this.friction = 0.995;
+                            this.size = 1.5 + Math.random() * 3;
+                            break;
+                        }
+                        case 'rain': {
+                            this.x = data.x + (Math.random() - 0.5) * 200;
+                            this.y = Math.random() * -50;
+                            this.vx = (Math.random() - 0.5) * 0.5;
+                            this.vy = 2 + Math.random() * 4;
+                            this.gravity = 0.05;
+                            this.size = 1 + Math.random() * 2;
+                            this.decay = 0.004;
+                            break;
+                        }
+                        case 'wave': {
+                            const waveX = data.angle * 30;
+                            this.vx = 1.5 + Math.random();
+                            this.vy = Math.sin(data.angle + Math.random()) * 3;
+                            this.gravity = 0;
+                            this.friction = 0.998;
+                            this.size = 2 + Math.random() * 2;
+                            break;
+                        }
+                        case 'fountain': {
+                            const spread = 0.5 + chaos;
+                            this.vx = (Math.random() - 0.5) * spread * 4;
+                            this.vy = -(4 + Math.random() * 6);
+                            this.gravity = 0.08;
+                            this.size = 2 + Math.random() * 3;
+                            break;
+                        }
+                        case 'vortex': {
+                            const va = Math.random() * Math.PI * 2;
+                            const vr = 3 + Math.random() * 3;
+                            this.vx = Math.cos(va) * vr;
+                            this.vy = Math.sin(va) * vr;
+                            this.vortexStrength = 0.1 + chaos * 0.2;
+                            this.gravity = 0;
+                            this.friction = 0.99;
+                            this.size = 1.5 + Math.random() * 3;
+                            break;
+                        }
+                        case 'starburst': {
+                            const sa = (data.index / data.total) * Math.PI * 2;
+                            const sv = 3 + Math.random() * 4;
+                            this.vx = Math.cos(sa) * sv;
+                            this.vy = Math.sin(sa) * sv;
+                            this.gravity = 0;
+                            this.friction = 0.97;
+                            this.size = 3 + Math.random() * 3;
+                            this.decay = 0.008;
+                            break;
+                        }
+                        case 'cascade': {
+                            this.vx = (Math.random() - 0.5) * 2;
+                            this.vy = 1 + Math.random() * 2;
+                            this.gravity = 0.03;
+                            this.friction = 0.995;
+                            this.size = 1.5 + Math.random() * 2.5;
+                            this.decay = 0.005;
+                            break;
+                        }
+                        case 'bloom': {
+                            const ba = Math.random() * Math.PI * 2;
+                            const br = 0.3 + Math.random() * 1.5;
+                            this.vx = Math.cos(ba) * br;
+                            this.vy = Math.sin(ba) * br;
+                            this.gravity = -0.01;
+                            this.friction = 0.998;
+                            this.size = 3 + Math.random() * 5;
+                            this.decay = 0.004;
+                            break;
+                        }
+                        case 'scatter': {
+                            const sc = Math.random() * Math.PI * 2;
+                            const ss = 1 + Math.random() * 7 * (1 + chaos);
+                            this.vx = Math.cos(sc) * ss;
+                            this.vy = Math.sin(sc) * ss;
+                            this.gravity = 0.01;
+                            this.friction = 0.985;
+                            this.size = 1 + Math.random() * 4;
+                            break;
+                        }
+                    }
+
+                    // Chaos adds randomness
+                    this.vx += (Math.random() - 0.5) * chaos * 4;
+                    this.vy += (Math.random() - 0.5) * chaos * 4;
+                }
+
+                update(dt) {
+                    const chaos = chaosLevel / 100;
+
+                    // Spiral special update
+                    if (this.spiralAngle !== undefined) {
+                        this.spiralAngle += this.angularVel;
+                        this.vx += Math.cos(this.spiralAngle) * 0.15;
+                        this.vy += Math.sin(this.spiralAngle) * 0.15;
+                    }
+
+                    // Vortex special update
+                    if (this.vortexStrength) {
+                        const cx = W / 2, cy = H / 2;
+                        const dx = cx - this.x, dy = cy - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+                        this.vx += (dy / dist) * this.vortexStrength;
+                        this.vy += (-dx / dist) * this.vortexStrength;
+                    }
+
+                    // Chord interference: particles from different keys attract/repel
+                    if (pressedKeys.size > 1) {
+                        for (const key of pressedKeys) {
+                            if (key === this.sourceKey) continue;
+                            const voice = activeVoices[key];
+                            if (!voice) continue;
+                            const config = voice.config;
+                            const targetX = W / 2 + Math.cos(config.hue * 0.0174) * 150;
+                            const targetY = H / 2 + Math.sin(config.hue * 0.0174) * 150;
+                            const ddx = targetX - this.x;
+                            const ddy = targetY - this.y;
+                            const dd = Math.sqrt(ddx * ddx + ddy * ddy) + 1;
+                            const force = (dd < 200) ? 0.08 / (dd * 0.05 + 1) : -0.02;
+                            this.vx += (ddx / dd) * force;
+                            this.vy += (ddy / dd) * force;
+                        }
+                    }
+
+                    this.vy += this.gravity;
+                    this.vx *= this.friction;
+                    this.vy *= this.friction;
+                    this.x += this.vx * dt;
+                    this.y += this.vy * dt;
+
+                    // Bounce off edges
+                    if (this.x < 0) { this.x = 0; this.vx *= -this.bounce; }
+                    if (this.x > W) { this.x = W; this.vx *= -this.bounce; }
+                    if (this.y < 0) { this.y = 0; this.vy *= -this.bounce; }
+                    if (this.y > H - 60) { this.y = H - 60; this.vy *= -this.bounce; }
+
+                    this.life -= this.decay * dt;
+                    this.alpha = Math.max(0, this.life);
+
+                    // Hue shift with chaos
+                    this.hue += chaos * (Math.random() - 0.5) * 3;
+                }
+
+                draw(ctx) {
+                    if (this.alpha <= 0) return;
+                    const glow = this.alpha * 0.6;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * this.alpha, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, ${this.alpha * 0.9})`;
+                    ctx.fill();
+
+                    if (this.size > 2.5) {
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, this.size * this.alpha * 2.2, 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, ${glow * 0.15})`;
+                        ctx.fill();
+                    }
+                }
+            }
+
+            let spawnAngle = 0;
+            function spawnParticles(config) {
+                const cx = W / 2 + (Math.cos(config.hue * 0.0174) * W * 0.25);
+                const cy = H / 2 + (Math.sin(config.hue * 0.0174) * H * 0.2);
+                const chaos = chaosLevel / 100;
+                const count = 15 + Math.floor(chaos * 25);
+                spawnAngle += 0.5;
+
+                for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+                    const patternData = {
+                        angle: spawnAngle + i * 0.2,
+                        x: cx,
+                        y: cy,
+                        index: i,
+                        total: count
+                    };
+                    particles.push(new Particle(cx, cy, config, patternData));
+                }
+            }
+
+            // Continuous particle spawning while key is held
+            let continuousSpawnTimer = 0;
+            function continuousSpawn(dt) {
+                continuousSpawnTimer += dt;
+                if (continuousSpawnTimer > 4) {
+                    continuousSpawnTimer = 0;
+                    for (const key of pressedKeys) {
+                        const voice = activeVoices[key];
+                        if (!voice) continue;
+                        const config = voice.config;
+                        const cx = W / 2 + (Math.cos(config.hue * 0.0174) * W * 0.25);
+                        const cy = H / 2 + (Math.sin(config.hue * 0.0174) * H * 0.2);
+                        const chaos = chaosLevel / 100;
+                        const count = 3 + Math.floor(chaos * 8);
+                        spawnAngle += 0.3;
+                        for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
+                            const patternData = {
+                                angle: spawnAngle + i * 0.4,
+                                x: cx,
+                                y: cy,
+                                index: i,
+                                total: count
+                            };
+                            particles.push(new Particle(cx, cy, config, patternData));
+                        }
+                    }
+                }
+            }
+
+            // --- Chaos Control ---
+            let chaosLevel = 0;
+            const chaosSlider = document.getElementById('chaosSlider');
+            const chaosDisplay = document.getElementById('chaosDisplay');
+            chaosSlider.addEventListener('input', function () {
+                chaosLevel = parseInt(this.value);
+                chaosDisplay.textContent = chaosLevel + '%';
+
+                // Live detune active voices
+                for (const key in activeVoices) {
+                    const v = activeVoices[key];
+                    const d = chaosLevel * 0.8;
+                    v.osc1.detune.value = (Math.random() - 0.5) * d * 10;
+                    v.osc2.detune.value = 7 + (Math.random() - 0.5) * d * 10;
+                    v.filter.frequency.value = 2000 + v.config.freq * 2 + (chaosLevel / 100) * 4000;
+                    v.filter.Q.value = 2 + (chaosLevel / 100) * 15;
+                }
+            });
+
+            // --- Volume Control ---
+            const volumeSlider = document.getElementById('volumeSlider');
+            volumeSlider.addEventListener('input', function () {
+                if (masterGain) {
+                    masterGain.gain.value = parseInt(this.value) / 100;
+                }
+            });
+
+            // --- Recording System ---
+            let isRecording = false;
+            let isPlaying = false;
+            let recordBuffer = [];
+            let recordStartTime = 0;
+            const RECORD_DURATION = 30000;
+            let recordTimeout = null;
+            let playbackTimeouts = [];
+
+            const recBtn = document.getElementById('recBtn');
+            const playBtn = document.getElementById('playBtn');
+            const recIndicator = document.getElementById('rec-indicator');
+            const playbackIndicator = document.getElementById('playback-indicator');
+
+            recBtn.addEventListener('click', function () {
+                if (isRecording) {
+                    stopRecording();
+                } else {
+                    startRecording();
+                }
+            });
+
+            playBtn.addEventListener('click', function () {
+                if (isPlaying) {
+                    stopPlayback();
+                } else {
+                    startPlayback();
+                }
+            });
+
+            function startRecording() {
+                if (isPlaying) stopPlayback();
+                isRecording = true;
+                recordBuffer = [];
+                recordStartTime = performance.now();
+                recBtn.classList.add('active');
+                recBtn.textContent = '⏹ Stop';
+                recIndicator.classList.add('visible');
+
+                recordTimeout = setTimeout(stopRecording, RECORD_DURATION);
+            }
+
+            function stopRecording() {
+                isRecording = false;
+                clearTimeout(recordTimeout);
+                recBtn.classList.remove('active');
+                recBtn.textContent = '⏺ Record';
+                recIndicator.classList.remove('visible');
+
+                if (recordBuffer.length > 0) {
+                    playBtn.disabled = false;
+                }
+            }
+
+            function startPlayback() {
+                if (isRecording) stopRecording();
+                if (recordBuffer.length === 0) return;
+                isPlaying = true;
+                playBtn.classList.add('active');
+                playBtn.textContent = '⏹ Stop';
+                playbackIndicator.classList.add('visible');
+
+                playLoop();
+            }
+
+            function playLoop() {
+                if (!isPlaying) return;
+                const loopDuration = recordBuffer[recordBuffer.length - 1].time + 500;
+
+                for (const event of recordBuffer) {
+                    const t = setTimeout(() => {
+                        if (!isPlaying) return;
+                        if (event.type === 'noteOn') noteOn(event.key);
+                        else noteOff(event.key);
+                    }, event.time);
+                    playbackTimeouts.push(t);
+                }
+
+                const loopT = setTimeout(() => {
+                    if (!isPlaying) return;
+                    // Release all before loop restart
+                    for (const key of Object.keys(activeVoices)) {
+                        noteOff(key);
+                    }
+                    playLoop();
+                }, loopDuration);
+                playbackTimeouts.push(loopT);
+            }
+
+            function stopPlayback() {
+                isPlaying = false;
+                playbackTimeouts.forEach(t => clearTimeout(t));
+                playbackTimeouts = [];
+                playBtn.classList.remove('active');
+                playBtn.textContent = '▶ Playback';
+                playbackIndicator.classList.remove('visible');
+
+                for (const key of Object.keys(activeVoices)) {
+                    noteOff(key);
+                }
+            }
+
+            // --- Piano Roll UI ---
+            const pianoRoll = document.getElementById('piano-roll');
+            const keyCells = {};
+            const displayKeys = 'QWERTYUIOPASDFGHJKLZXCVBNM1234567890';
+
+            for (const ch of displayKeys) {
+                const cell = document.createElement('div');
+                cell.classList.add('key-cell');
+                cell.textContent = ch;
+                const config = getKeyConfig(ch);
+                if (config) {
+                    const color = `hsl(${config.hue}, 80%, 60%)`;
+                    cell.style.setProperty('--glow-color', color);
+                }
+                pianoRoll.appendChild(cell);
+                keyCells[ch] = cell;
+            }
+
+            function updatePianoRoll() {
+                for (const ch in keyCells) {
+                    if (pressedKeys.has(ch)) {
+                        keyCells[ch].classList.add('pressed');
+                    } else {
+                        keyCells[ch].classList.remove('pressed');
+                    }
+                }
+            }
+
+            // --- Keyboard Event Handling ---
+            const overlay = document.getElementById('overlay');
+            let overlayVisible = true;
+
+            function dismissOverlay() {
+                if (!overlayVisible) return;
+                overlayVisible = false;
+                overlay.classList.add('hidden');
+                initAudio();
+            }
+
+            document.addEventListener('keydown', function (e) {
+                if (e.repeat) return;
+                if (overlayVisible) {
+                    dismissOverlay();
+                    return;
+                }
+                const key = e.key.toUpperCase();
+                if (KEY_CHARS.includes(key)) {
+                    e.preventDefault();
+                    noteOn(key);
+                    updatePianoRoll();
+                }
+            });
+
+            document.addEventListener('keyup', function (e) {
+                const key = e.key.toUpperCase();
+                if (KEY_CHARS.includes(key)) {
+                    noteOff(key);
+                    updatePianoRoll();
+                }
+            });
+
+            // Touch/click on piano roll keys
+            pianoRoll.addEventListener('pointerdown', function (e) {
+                const cell = e.target.closest('.key-cell');
+                if (!cell) return;
+                dismissOverlay();
+                const key = cell.textContent;
+                noteOn(key);
+                updatePianoRoll();
+
+                function onUp() {
+                    noteOff(key);
+                    updatePianoRoll();
+                    document.removeEventListener('pointerup', onUp);
+                }
+                document.addEventListener('pointerup', onUp);
+            });
+
+            // --- Waveform Visualizer ---
+            function drawWaveform() {
+                if (!analyser) return;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                analyser.getByteTimeDomainData(dataArray);
+
+                wfCtx.fillStyle = 'rgba(10, 10, 20, 0.3)';
+                wfCtx.fillRect(0, 0, 220, 100);
+
+                wfCtx.lineWidth = 1.5;
+                wfCtx.strokeStyle = 'rgba(120, 120, 255, 0.8)';
+                wfCtx.beginPath();
+
+                const sliceWidth = 220 / bufferLength;
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = (v * 50);
+                    if (i === 0) wfCtx.moveTo(x, y);
+                    else wfCtx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                wfCtx.lineTo(220, 50);
+                wfCtx.stroke();
+
+                // Glow line
+                wfCtx.lineWidth = 3;
+                wfCtx.strokeStyle = 'rgba(120, 120, 255, 0.15)';
+                wfCtx.beginPath();
+                x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = (v * 50);
+                    if (i === 0) wfCtx.moveTo(x, y);
+                    else wfCtx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                wfCtx.lineTo(220, 50);
+                wfCtx.stroke();
+            }
+
+            // --- Connection Lines Between Active Keys ---
+            function drawConnections() {
+                if (pressedKeys.size < 2) return;
+                const positions = [];
+                for (const key of pressedKeys) {
+                    const config = getKeyConfig(key);
+                    if (!config) continue;
+                    const cx = W / 2 + (Math.cos(config.hue * 0.0174) * W * 0.25);
+                    const cy = H / 2 + (Math.sin(config.hue * 0.0174) * H * 0.2);
+                    positions.push({ x: cx, y: cy, hue: config.hue });
+                }
+
+                ctx.lineWidth = 1;
+                for (let i = 0; i < positions.length; i++) {
+                    for (let j = i + 1; j < positions.length; j++) {
+                        const a = positions[i], b = positions[j];
+                        const midHue = (a.hue + b.hue) / 2;
+                        const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+                        grad.addColorStop(0, `hsla(${a.hue}, 80%, 60%, 0.15)`);
+                        grad.addColorStop(0.5, `hsla(${midHue}, 90%, 70%, 0.25)`);
+                        grad.addColorStop(1, `hsla(${b.hue}, 80%, 60%, 0.15)`);
+                        ctx.strokeStyle = grad;
+                        ctx.beginPath();
+                        ctx.moveTo(a.x, a.y);
+                        // Curved connection
+                        const cpx = (a.x + b.x) / 2 + Math.sin(performance.now() * 0.002) * 40;
+                        const cpy = (a.y + b.y) / 2 + Math.cos(performance.now() * 0.003) * 40;
+                        ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            // --- Active Key Glow Nodes ---
+            function drawKeyNodes() {
+                for (const key of pressedKeys) {
+                    const config = getKeyConfig(key);
+                    if (!config) continue;
+                    const cx = W / 2 + (Math.cos(config.hue * 0.0174) * W * 0.25);
+                    const cy = H / 2 + (Math.sin(config.hue * 0.0174) * H * 0.2);
+                    const pulse = 0.5 + Math.sin(performance.now() * 0.005 + config.idx) * 0.5;
+
+                    // Outer glow
+                    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 50 + pulse * 30);
+                    grad.addColorStop(0, `hsla(${config.hue}, 90%, 70%, ${0.3 + pulse * 0.15})`);
+                    grad.addColorStop(0.5, `hsla(${config.hue}, 80%, 60%, 0.08)`);
+                    grad.addColorStop(1, `hsla(${config.hue}, 80%, 60%, 0)`);
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 50 + pulse * 30, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Core
+                    ctx.fillStyle = `hsla(${config.hue}, 90%, 80%, ${0.7 + pulse * 0.3})`;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 4 + pulse * 3, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Key label
+                    ctx.fillStyle = `hsla(${config.hue}, 80%, 85%, ${0.5 + pulse * 0.3})`;
+                    ctx.font = '10px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(key, cx, cy - 14);
+                }
+            }
+
+            // --- Background Ambient Particles ---
+            const ambientParticles = [];
+            function initAmbient() {
+                for (let i = 0; i < 60; i++) {
+                    ambientParticles.push({
+                        x: Math.random() * W,
+                        y: Math.random() * H,
+                        size: 0.5 + Math.random() * 1.5,
+                        speed: 0.1 + Math.random() * 0.3,
+                        hue: Math.random() * 360,
+                        alpha: 0.1 + Math.random() * 0.2,
+                        drift: (Math.random() - 0.5) * 0.5
+                    });
+                }
+            }
+            initAmbient();
+
+            function updateAmbient(dt) {
+                for (const p of ambientParticles) {
+                    p.y -= p.speed * dt;
+                    p.x += p.drift * dt;
+                    p.hue += 0.1;
+                    if (p.y < -10) { p.y = H + 10; p.x = Math.random() * W; }
+                    if (p.x < -10) p.x = W + 10;
+                    if (p.x > W + 10) p.x = -10;
+                }
+            }
+
+            function drawAmbient() {
+                for (const p of ambientParticles) {
+                    ctx.fillStyle = `hsla(${p.hue}, 50%, 60%, ${p.alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // --- Center Logo / Idle Animation ---
+            function drawCenterDecor() {
+                if (pressedKeys.size > 0) return;
+                const t = performance.now() * 0.001;
+                const cx = W / 2, cy = H / 2;
+
+                ctx.save();
+                ctx.globalAlpha = 0.12 + Math.sin(t) * 0.04;
+                ctx.strokeStyle = 'rgba(100, 100, 255, 0.3)';
+                ctx.lineWidth = 1;
+
+                for (let i = 0; i < 3; i++) {
+                    const r = 60 + i * 30 + Math.sin(t + i) * 10;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = `rgba(150, 150, 255, ${0.3 + Math.sin(t * 2) * 0.1})`;
+                ctx.textAlign = 'center';
+                ctx.fillText('Press keys to play', cx, cy + 4);
+                ctx.restore();
+            }
+
+            // --- Frequency Grid Background ---
+            function drawFreqGrid() {
+                const chaos = chaosLevel / 100;
+                if (chaos < 0.05 && pressedKeys.size === 0) return;
+                const t = performance.now() * 0.0005;
+                ctx.save();
+                ctx.globalAlpha = 0.03 + chaos * 0.04;
+                ctx.strokeStyle = `hsla(${(t * 100) % 360}, 60%, 50%, 0.3)`;
+                ctx.lineWidth = 0.5;
+
+                const spacing = 60;
+                const offsetX = Math.sin(t * 2) * chaos * 20;
+                const offsetY = Math.cos(t * 3) * chaos * 20;
+
+                for (let x = offsetX % spacing; x < W; x += spacing) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x + Math.sin(t + x * 0.01) * chaos * 30, H);
+                    ctx.stroke();
+                }
+                for (let y = offsetY % spacing; y < H; y += spacing) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(W, y + Math.cos(t + y * 0.01) * chaos * 30);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // --- Main Animation Loop ---
+            let lastTime = performance.now();
+            let frameCount = 0;
+
+            function animate(now) {
+                requestAnimationFrame(animate);
+
+                const rawDt = now - lastTime;
+                lastTime = now;
+                const dt = Math.min(rawDt / 16.67, 3); // Normalize to ~60fps, cap at 3x
+                frameCount++;
+
+                // Trail effect: semi-transparent fill instead of full clear
+                ctx.fillStyle = 'rgba(10, 10, 15, 0.12)';
+                ctx.fillRect(0, 0, W, H);
+
+                // Every 120 frames, do a slightly stronger clear to prevent permanent smearing
+                if (frameCount % 120 === 0) {
+                    ctx.fillStyle = 'rgba(10, 10, 15, 0.05)';
+                    ctx.fillRect(0, 0, W, H);
+                }
+
+                // Background elements
+                drawFreqGrid();
+                drawAmbient();
+                updateAmbient(dt);
+
+                // Connection lines between active keys
+                drawConnections();
+
+                // Update and draw particles
+                continuousSpawn(dt);
+
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.update(dt);
+                    if (p.life <= 0) {
+                        particles.splice(i, 1);
+                    } else {
+                        p.draw(ctx);
+                    }
+                }
+
+                // Key glow nodes
+                drawKeyNodes();
+
+                // Center decoration when idle
+                drawCenterDecor();
+
+                // Waveform oscilloscope
+                drawWaveform();
+
+                // Piano roll update (throttled)
+                if (frameCount % 3 === 0) {
+                    updatePianoRoll();
+                }
+            }
+
+            requestAnimationFrame(animate);
+
+            // --- Utility: Prevent default for game keys ---
+            window.addEventListener('keydown', function (e) {
+                if (KEY_CHARS.includes(e.key.toUpperCase())) {
+                    e.preventDefault();
+                }
+            });
+
+            // --- Touch support for overlay ---
+            overlay.addEventListener('click', dismissOverlay);
+            overlay.addEventListener('touchstart', dismissOverlay);
+
+            // --- Visibility change: release all notes ---
+            document.addEventListener('visibilitychange', function () {
+                if (document.hidden) {
+                    for (const key of Object.keys(activeVoices)) {
+                        noteOff(key);
+                    }
+                    pressedKeys.clear();
+                    updatePianoRoll();
+                }
+            });
+
+            // --- Window blur: release all notes ---
+            window.addEventListener('blur', function () {
+                for (const key of Object.keys(activeVoices)) {
+                    noteOff(key);
+                }
+                pressedKeys.clear();
+                updatePianoRoll();
+            });
+
+            // --- Contextual help tooltip ---
+            const tooltips = [
+                'Hold multiple keys for chord interactions',
+                'Increase chaos for wilder effects',
+                'Record a performance and loop it',
+                'Each key has a unique color and pattern',
+                'Try rapid key presses for bursts'
+            ];
+
+            let tooltipIdx = 0;
+            function showTooltip() {
+                if (overlayVisible) return;
+                const tip = document.createElement('div');
+                tip.style.cssText = `
+                    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+                    background: rgba(10,10,20,0.8); border: 1px solid rgba(100,100,255,0.2);
+                    padding: 8px 16px; border-radius: 20px; font-size: 11px;
+                    color: rgba(160,160,255,0.7); z-index: 25;
+                    transition: opacity 1s; pointer-events: none;
+                `;
+                tip.textContent = tooltips[tooltipIdx % tooltips.length];
+                document.body.appendChild(tip);
+                tooltipIdx++;
+
+                setTimeout(() => { tip.style.opacity = '0'; }, 4000);
+                setTimeout(() => { tip.remove(); }, 5000);
+            }
+
+            // Show tooltips periodically
+            setTimeout(() => { showTooltip(); setInterval(showTooltip, 25000); }, 8000);
+
+            // --- Expose for debugging ---
+            window.__synesthesia = {
+                particles,
+                activeVoices,
+                pressedKeys,
+                get audioCtx() { return audioCtx; }
+            };
+
+        })();
+    </script>
+</body>
+</html>

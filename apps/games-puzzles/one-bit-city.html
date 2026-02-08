@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One-Bit City</title>
+<style>
+  /* ============================================================
+     ONE-BIT CITY — Isometric City Builder in 1-Bit Graphics
+     Pure black and white. No grays. No color. Like a 1984 Mac.
+     ============================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Chicago', 'Monaco', 'Courier New', monospace;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+
+  #toolbar {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 2px;
+    z-index: 100;
+    border: 2px solid #fff;
+    background: #000;
+    padding: 3px;
+  }
+  .tool-btn {
+    width: 48px;
+    height: 48px;
+    background: #000;
+    border: 1px solid #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .tool-btn.active {
+    background: #fff;
+  }
+  .tool-btn.active canvas {
+    filter: invert(1);
+  }
+  .tool-btn:hover {
+    outline: 1px solid #fff;
+    outline-offset: 1px;
+  }
+  .tool-label {
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #fff;
+    font-size: 7px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  #hud {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    color: #fff;
+    font-size: 11px;
+    z-index: 100;
+    border: 2px solid #fff;
+    background: #000;
+    padding: 6px 10px;
+    line-height: 1.6;
+    min-width: 140px;
+  }
+  #hud .label { color: #888; font-size: 9px; }
+
+  #controls {
+    position: fixed;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    z-index: 100;
+  }
+  .ctrl-btn {
+    background: #000;
+    color: #fff;
+    border: 2px solid #fff;
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .ctrl-btn:hover { background: #fff; color: #000; }
+  .ctrl-btn:active { background: #888; }
+
+  #time-bar {
+    position: fixed;
+    bottom: 44px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 6px;
+    border: 1px solid #fff;
+    background: #000;
+    z-index: 100;
+  }
+  #time-fill {
+    height: 100%;
+    background: #fff;
+    width: 50%;
+    transition: width 0.5s;
+  }
+  #time-label {
+    position: fixed;
+    bottom: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #fff;
+    font-size: 9px;
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar"></div>
+
+<div id="hud">
+  <div>☻ POP: <span id="pop">0</span></div>
+  <div>♥ HAPPY: <span id="happy">100</span>%</div>
+  <div>🏠 BUILDINGS: <span id="bcount">0</span></div>
+  <div id="weather-display">☀ CLEAR</div>
+  <div id="cycle-display">☼ DAY</div>
+</div>
+
+<div id="time-label">DAY ☼</div>
+<div id="time-bar"><div id="time-fill"></div></div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="btn-undo">↩ UNDO</button>
+  <button class="ctrl-btn" id="btn-clear">✕ CLEAR</button>
+  <button class="ctrl-btn" id="btn-weather">☂ RAIN</button>
+  <button class="ctrl-btn" id="btn-speed">▶ 1x</button>
+</div>
+
+<canvas id="city"></canvas>
+
+<script>
+// ============================================================
+// ONE-BIT CITY — Isometric City Builder
+// An isometric building game rendered in pure 1-bit graphics
+// ============================================================
+
+(function() {
+  'use strict';
+
+  // --- Constants ---
+  const GRID_SIZE = 32;
+  const TILE_W = 32;
+  const TILE_H = 16;
+  const CANVAS = document.getElementById('city');
+  const CTX = CANVAS.getContext('2d', { alpha: false });
+
+  // Disable anti-aliasing for crisp 1-bit look
+  CTX.imageSmoothingEnabled = false;
+
+  // --- State ---
+  let camera = { x: 0, y: 0 };
+  let zoom = 1;
+  let grid = [];
+  let buildings = [];
+  let citizens = [];
+  let undoStack = [];
+  let selectedTool = 0;
+  let isNight = false;
+  let dayNightT = 0;
+  let dayNightSpeed = 1;
+  let isRaining = false;
+  let raindrops = [];
+  let stars = [];
+  let population = 0;
+  let happiness = 100;
+  let frameCount = 0;
+  let isPanning = false;
+  let panStart = { x: 0, y: 0 };
+  let camStart = { x: 0, y: 0 };
+  let speedMultiplier = 1;
+
+  // --- Audio Context (1-bit square wave blips) ---
+  let audioCtx = null;
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+  function playBlip(freq, duration) {
+    if (!audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq || 440;
+      gain.gain.value = 0.08;
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + (duration || 0.06));
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + (duration || 0.06));
+    } catch(e) {}
+  }
+  function playPlaceSound() { playBlip(660, 0.05); setTimeout(() => playBlip(880, 0.04), 50); }
+  function playUndoSound() { playBlip(330, 0.06); }
+  function playClearSound() { playBlip(220, 0.1); setTimeout(() => playBlip(165, 0.15), 100); }
+
+  // --- Seeded RNG for procedural building variation ---
+  function mulberry32(seed) {
+    return function() {
+      seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+      let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // --- Building Types ---
+  const BUILDING_TYPES = [
+    { name: 'House',    key: 'house',    pop: 4,  icon: '⌂', color: 1 },
+    { name: 'Apartment',key: 'apartment',pop: 12, icon: '▥', color: 1 },
+    { name: 'Factory',  key: 'factory',  pop: 0,  icon: '♨', color: 1 },
+    { name: 'Park',     key: 'park',     pop: 0,  icon: '♣', color: 1 },
+    { name: 'Road',     key: 'road',     pop: 0,  icon: '═', color: 1 },
+    { name: 'Office',   key: 'office',   pop: 8,  icon: '▓', color: 1 },
+    { name: 'Church',   key: 'church',   pop: 0,  icon: '†', color: 1 },
+    { name: 'Bridge',   key: 'bridge',   pop: 0,  icon: '⌒', color: 1 },
+    { name: 'Hospital', key: 'hospital', pop: 0,  icon: '+', color: 1 },
+    { name: 'School',   key: 'school',   pop: 0,  icon: '✎', color: 1 },
+  ];
+
+  // --- Initialize Grid ---
+  function initGrid() {
+    grid = [];
+    for (let y = 0; y < GRID_SIZE; y++) {
+      grid[y] = [];
+      for (let x = 0; x < GRID_SIZE; x++) {
+        grid[y][x] = { type: null, building: null, elevation: 0 };
+      }
+    }
+    // Add some water tiles for the bridge
+    for (let x = 10; x < 22; x++) {
+      for (let y = 14; y < 18; y++) {
+        grid[y][x].type = 'water';
+      }
+    }
+  }
+
+  // --- Isometric Conversion ---
+  function toIso(gx, gy) {
+    const ix = (gx - gy) * (TILE_W / 2);
+    const iy = (gx + gy) * (TILE_H / 2);
+    return { x: ix, y: iy };
+  }
+
+  function fromIso(sx, sy) {
+    const cx = sx - camera.x - CANVAS.width / 2;
+    const cy = sy - camera.y - CANVAS.height / 2;
+    const gx = (cx / (TILE_W / 2) + cy / (TILE_H / 2)) / 2;
+    const gy = (cy / (TILE_H / 2) - cx / (TILE_W / 2)) / 2;
+    return { x: Math.floor(gx), y: Math.floor(gy) };
+  }
+
+  function worldToScreen(gx, gy) {
+    const iso = toIso(gx, gy);
+    return {
+      x: iso.x + camera.x + CANVAS.width / 2,
+      y: iso.y + camera.y + CANVAS.height / 2
+    };
+  }
+
+  // --- Resize ---
+  function resize() {
+    CANVAS.width = window.innerWidth;
+    CANVAS.height = window.innerHeight;
+    CTX.imageSmoothingEnabled = false;
+  }
+
+  // --- Drawing Primitives (1-bit only) ---
+  function setFG() {
+    CTX.fillStyle = isNight ? '#ffffff' : '#000000';
+    CTX.strokeStyle = isNight ? '#ffffff' : '#000000';
+  }
+  function setBG() {
+    CTX.fillStyle = isNight ? '#000000' : '#ffffff';
+    CTX.strokeStyle = isNight ? '#000000' : '#ffffff';
+  }
+  function setWater() {
+    // Water is a dithered pattern
+    CTX.fillStyle = isNight ? '#111111' : '#eeeeee';
+  }
+
+  // Draw a single pixel
+  function drawPixel(x, y) {
+    CTX.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+  }
+
+  // Draw isometric tile outline
+  function drawTileOutline(sx, sy) {
+    CTX.beginPath();
+    CTX.moveTo(sx, sy);
+    CTX.lineTo(sx + TILE_W / 2, sy + TILE_H / 2);
+    CTX.lineTo(sx, sy + TILE_H);
+    CTX.lineTo(sx - TILE_W / 2, sy + TILE_H / 2);
+    CTX.closePath();
+    CTX.stroke();
+  }
+
+  // Fill isometric tile
+  function fillTile(sx, sy) {
+    CTX.beginPath();
+    CTX.moveTo(sx, sy);
+    CTX.lineTo(sx + TILE_W / 2, sy + TILE_H / 2);
+    CTX.lineTo(sx, sy + TILE_H);
+    CTX.lineTo(sx - TILE_W / 2, sy + TILE_H / 2);
+    CTX.closePath();
+    CTX.fill();
+  }
+
+  // Dither pattern for water tiles
+  function drawDitherTile(sx, sy) {
+    setFG();
+    for (let py = 0; py < TILE_H; py++) {
+      for (let px = -TILE_W / 2; px < TILE_W / 2; px++) {
+        // Check if point is inside the diamond
+        const relY = py - TILE_H / 2;
+        const maxX = (TILE_W / 2) * (1 - Math.abs(relY) / (TILE_H / 2));
+        if (Math.abs(px) < maxX) {
+          if ((px + py) % 3 === 0) {
+            drawPixel(sx + px, sy + py);
+          }
+        }
+      }
+    }
+  }
+
+  // --- Procedural Building Renderers ---
+  // Each building is drawn as a procedural isometric silhouette
+  // The seed ensures same position = same variation, but each placement is unique
+
+  function drawBuildingHouse(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const h = 12 + Math.floor(rng() * 6);
+    const roofH = 6 + Math.floor(rng() * 4);
+    const hasChimney = rng() > 0.5;
+
+    setFG();
+    // Front wall
+    CTX.fillRect(sx - 7, sy - h, 14, h);
+    // Roof (triangle)
+    CTX.beginPath();
+    CTX.moveTo(sx - 9, sy - h);
+    CTX.lineTo(sx, sy - h - roofH);
+    CTX.lineTo(sx + 9, sy - h);
+    CTX.closePath();
+    CTX.fill();
+    // Door
+    setBG();
+    CTX.fillRect(sx - 2, sy - 6, 4, 6);
+    // Window
+    CTX.fillRect(sx - 6, sy - h + 3, 3, 3);
+    CTX.fillRect(sx + 3, sy - h + 3, 3, 3);
+    // Chimney
+    if (hasChimney) {
+      setFG();
+      CTX.fillRect(sx + 3, sy - h - roofH + 2, 3, roofH - 2);
+    }
+  }
+
+  function drawBuildingApartment(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const floors = 3 + Math.floor(rng() * 4);
+    const w = 12 + Math.floor(rng() * 4);
+    const floorH = 8;
+    const totalH = floors * floorH;
+
+    setFG();
+    // Main building block
+    CTX.fillRect(sx - w / 2, sy - totalH, w, totalH);
+    // Roof line
+    CTX.fillRect(sx - w / 2 - 1, sy - totalH - 2, w + 2, 2);
+
+    // Windows (grid pattern)
+    setBG();
+    for (let f = 0; f < floors; f++) {
+      const wy = sy - totalH + f * floorH + 3;
+      const windowCount = Math.floor(w / 4);
+      for (let wi = 0; wi < windowCount; wi++) {
+        const wx = sx - w / 2 + 2 + wi * 4;
+        CTX.fillRect(wx, wy, 2, 3);
+      }
+    }
+    // Door
+    CTX.fillRect(sx - 2, sy - 7, 4, 7);
+
+    // Isometric right face shadow
+    setFG();
+    const pts = [
+      [sx + w / 2, sy - totalH],
+      [sx + w / 2 + 5, sy - totalH + 3],
+      [sx + w / 2 + 5, sy + 3],
+      [sx + w / 2, sy]
+    ];
+    CTX.beginPath();
+    CTX.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) CTX.lineTo(pts[i][0], pts[i][1]);
+    CTX.closePath();
+    CTX.fill();
+    // Dither the side face
+    setBG();
+    for (let py = 0; py < totalH; py++) {
+      for (let px = 0; px < 5; px++) {
+        if ((px + py) % 2 === 0) {
+          drawPixel(sx + w / 2 + px, sy - totalH + 3 + py - (py * 3 / totalH | 0));
+        }
+      }
+    }
+  }
+
+  function drawBuildingFactory(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const w = 18 + Math.floor(rng() * 4);
+    const h = 14 + Math.floor(rng() * 4);
+    const stacks = 1 + Math.floor(rng() * 3);
+
+    setFG();
+    // Main body
+    CTX.fillRect(sx - w / 2, sy - h, w, h);
+
+    // Smokestacks
+    for (let s = 0; s < stacks; s++) {
+      const stackX = sx - w / 2 + 4 + s * 6;
+      const stackH = 10 + Math.floor(rng() * 8);
+      CTX.fillRect(stackX, sy - h - stackH, 3, stackH);
+      // Smoke particles
+      for (let p = 0; p < 4; p++) {
+        const smokeX = stackX + Math.floor(rng() * 6) - 2;
+        const smokeY = sy - h - stackH - 3 - Math.floor(rng() * 8);
+        drawPixel(smokeX, smokeY);
+        drawPixel(smokeX + 1, smokeY);
+      }
+    }
+    // Sawtooth roof
+    for (let i = 0; i < 3; i++) {
+      const rx = sx - w / 2 + i * (w / 3);
+      CTX.beginPath();
+      CTX.moveTo(rx, sy - h);
+      CTX.lineTo(rx + w / 6, sy - h - 4);
+      CTX.lineTo(rx + w / 3, sy - h);
+      CTX.closePath();
+      CTX.fill();
+    }
+    // Windows
+    setBG();
+    CTX.fillRect(sx - w / 2 + 2, sy - 8, w - 4, 3);
+    // Door
+    CTX.fillRect(sx - 3, sy - 6, 6, 6);
+  }
+
+  function drawBuildingPark(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const treeCount = 2 + Math.floor(rng() * 3);
+
+    // Ground (lighter dither)
+    setFG();
+    for (let py = -2; py < 6; py++) {
+      for (let px = -10; px < 10; px++) {
+        if ((px + py) % 4 === 0) {
+          drawPixel(sx + px, sy + py - 2);
+        }
+      }
+    }
+
+    // Trees
+    for (let t = 0; t < treeCount; t++) {
+      const tx = sx - 8 + Math.floor(rng() * 16);
+      const ty = sy - 4;
+      const treeH = 6 + Math.floor(rng() * 6);
+      setFG();
+      // Trunk
+      CTX.fillRect(tx, ty - treeH, 2, treeH);
+      // Canopy (circle of pixels)
+      const canopyR = 3 + Math.floor(rng() * 3);
+      for (let cy = -canopyR; cy <= canopyR; cy++) {
+        for (let cx = -canopyR; cx <= canopyR; cx++) {
+          if (cx * cx + cy * cy <= canopyR * canopyR) {
+            drawPixel(tx + 1 + cx, ty - treeH - 1 + cy);
+          }
+        }
+      }
+    }
+
+    // Bench
+    if (rng() > 0.4) {
+      setFG();
+      CTX.fillRect(sx + 4, sy - 4, 6, 1);
+      CTX.fillRect(sx + 4, sy - 4, 1, 3);
+      CTX.fillRect(sx + 9, sy - 4, 1, 3);
+    }
+  }
+
+  function drawBuildingRoad(sx, sy, seed, gx, gy) {
+    setFG();
+    // Road surface (dithered)
+    for (let py = -1; py < TILE_H - 1; py++) {
+      for (let px = -TILE_W / 2 + 2; px < TILE_W / 2 - 2; px++) {
+        const relY = py - TILE_H / 2 + 1;
+        const maxX = (TILE_W / 2 - 2) * (1 - Math.abs(relY) / (TILE_H / 2));
+        if (Math.abs(px) < maxX) {
+          if ((px + py) % 2 === 0) {
+            drawPixel(sx + px, sy + py);
+          }
+        }
+      }
+    }
+    // Road center line
+    setBG();
+    drawPixel(sx - 1, sy + TILE_H / 2 - 1);
+    drawPixel(sx, sy + TILE_H / 2 - 1);
+    drawPixel(sx + 1, sy + TILE_H / 2 - 1);
+  }
+
+  function drawBuildingOffice(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const floors = 6 + Math.floor(rng() * 5);
+    const w = 10 + Math.floor(rng() * 4);
+    const floorH = 6;
+    const totalH = floors * floorH;
+
+    setFG();
+    // Main tower
+    CTX.fillRect(sx - w / 2, sy - totalH, w, totalH);
+    // Antenna/spire
+    CTX.fillRect(sx - 1, sy - totalH - 8, 2, 8);
+    drawPixel(sx, sy - totalH - 10);
+
+    // Glass pattern (alternating window strips)
+    setBG();
+    for (let f = 0; f < floors; f++) {
+      const wy = sy - totalH + f * floorH + 2;
+      for (let wx = sx - w / 2 + 1; wx < sx + w / 2 - 1; wx++) {
+        if ((wx + f) % 2 === 0) {
+          CTX.fillRect(wx, wy, 1, floorH - 3);
+        }
+      }
+    }
+
+    // Right face
+    setFG();
+    CTX.beginPath();
+    CTX.moveTo(sx + w / 2, sy - totalH);
+    CTX.lineTo(sx + w / 2 + 4, sy - totalH + 2);
+    CTX.lineTo(sx + w / 2 + 4, sy + 2);
+    CTX.lineTo(sx + w / 2, sy);
+    CTX.closePath();
+    CTX.fill();
+  }
+
+  function drawBuildingChurch(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const bodyH = 16 + Math.floor(rng() * 4);
+    const steepleH = 14 + Math.floor(rng() * 6);
+    const w = 14;
+
+    setFG();
+    // Main body
+    CTX.fillRect(sx - w / 2, sy - bodyH, w, bodyH);
+    // Steeple
+    CTX.fillRect(sx - 2, sy - bodyH - steepleH, 4, steepleH);
+    // Cross on top
+    CTX.fillRect(sx - 3, sy - bodyH - steepleH - 4, 6, 2);
+    CTX.fillRect(sx - 1, sy - bodyH - steepleH - 6, 2, 8);
+
+    // Arched door
+    setBG();
+    CTX.fillRect(sx - 3, sy - 8, 6, 8);
+    // Arch top
+    for (let a = -3; a <= 3; a++) {
+      const ay = Math.floor(Math.sqrt(9 - a * a));
+      CTX.fillRect(sx + a, sy - 8 - ay, 1, ay);
+    }
+
+    // Rose window
+    setFG();
+    const wcx = sx, wcy = sy - bodyH + 6;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 6) {
+      drawPixel(wcx + Math.round(Math.cos(a) * 3), wcy + Math.round(Math.sin(a) * 3));
+    }
+    drawPixel(wcx, wcy);
+  }
+
+  function drawBuildingBridge(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    setFG();
+
+    // Bridge deck
+    CTX.fillRect(sx - 12, sy - 4, 24, 3);
+
+    // Bridge supports (pillars)
+    CTX.fillRect(sx - 10, sy - 4, 2, 8);
+    CTX.fillRect(sx + 8, sy - 4, 2, 8);
+
+    // Railing
+    CTX.fillRect(sx - 12, sy - 7, 24, 1);
+    for (let i = 0; i < 8; i++) {
+      CTX.fillRect(sx - 11 + i * 3, sy - 7, 1, 3);
+    }
+
+    // Cable/arch pattern
+    for (let i = -10; i <= 10; i++) {
+      const archY = Math.floor(Math.abs(i) * 0.4);
+      drawPixel(sx + i, sy - 7 - 3 + archY);
+    }
+  }
+
+  function drawBuildingHospital(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const w = 16;
+    const h = 20 + Math.floor(rng() * 4);
+
+    setFG();
+    CTX.fillRect(sx - w / 2, sy - h, w, h);
+    // Cross symbol on building
+    setBG();
+    CTX.fillRect(sx - 3, sy - h + 3, 6, 2);
+    CTX.fillRect(sx - 1, sy - h + 1, 2, 6);
+    // Windows
+    for (let f = 0; f < 3; f++) {
+      for (let wi = 0; wi < 3; wi++) {
+        CTX.fillRect(sx - 6 + wi * 5, sy - h + 10 + f * 5, 3, 3);
+      }
+    }
+    // Door
+    CTX.fillRect(sx - 2, sy - 6, 4, 6);
+  }
+
+  function drawBuildingSchool(sx, sy, seed) {
+    const rng = mulberry32(seed);
+    const w = 20;
+    const h = 14;
+
+    setFG();
+    // Main building (wide and low)
+    CTX.fillRect(sx - w / 2, sy - h, w, h);
+    // Peaked entrance
+    CTX.beginPath();
+    CTX.moveTo(sx - 4, sy - h);
+    CTX.lineTo(sx, sy - h - 6);
+    CTX.lineTo(sx + 4, sy - h);
+    CTX.closePath();
+    CTX.fill();
+    // Flag pole
+    CTX.fillRect(sx + w / 2 - 2, sy - h - 10, 1, 10);
+    setFG();
+    CTX.fillRect(sx + w / 2 - 1, sy - h - 10, 4, 3);
+    // Windows
+    setBG();
+    for (let wi = 0; wi < 5; wi++) {
+      CTX.fillRect(sx - w / 2 + 2 + wi * 4, sy - h + 4, 3, 4);
+    }
+    // Door
+    CTX.fillRect(sx - 2, sy - 6, 4, 6);
+  }
+
+  const buildingRenderers = [
+    drawBuildingHouse,
+    drawBuildingApartment,
+    drawBuildingFactory,
+    drawBuildingPark,
+    drawBuildingRoad,
+    drawBuildingOffice,
+    drawBuildingChurch,
+    drawBuildingBridge,
+    drawBuildingHospital,
+    drawBuildingSchool,
+  ];
+
+  // --- A* Pathfinding on Road Network ---
+  function heuristic(a, b) {
+    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  }
+
+  function isWalkable(gx, gy) {
+    if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) return false;
+    const cell = grid[gy][gx];
+    return cell.building !== null || cell.type === 'water';
+  }
+
+  function isRoad(gx, gy) {
+    if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) return false;
+    const cell = grid[gy][gx];
+    return cell.building && cell.building.type === 'road';
+  }
+
+  function findPath(startX, startY, endX, endY) {
+    // A* pathfinding algorithm on the road network
+    if (!isWalkable(endX, endY)) return null;
+
+    const open = [];
+    const closed = new Set();
+    const start = { x: startX, y: startY, g: 0, h: heuristic({x: startX, y: startY}, {x: endX, y: endY}), parent: null };
+    start.f = start.g + start.h;
+    open.push(start);
+
+    const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
+    let iterations = 0;
+    const maxIterations = 500;
+
+    while (open.length > 0 && iterations < maxIterations) {
+      iterations++;
+      open.sort((a, b) => a.f - b.f);
+      const current = open.shift();
+
+      if (current.x === endX && current.y === endY) {
+        const path = [];
+        let node = current;
+        while (node) {
+          path.unshift({ x: node.x, y: node.y });
+          node = node.parent;
+        }
+        return path;
+      }
+
+      closed.add(current.x + ',' + current.y);
+
+      for (const [dx, dy] of dirs) {
+        const nx = current.x + dx;
+        const ny = current.y + dy;
+        if (closed.has(nx + ',' + ny)) continue;
+        if (!isWalkable(nx, ny)) continue;
+
+        const g = current.g + 1;
+        const h = heuristic({x: nx, y: ny}, {x: endX, y: endY});
+        const existing = open.find(n => n.x === nx && n.y === ny);
+        if (existing) {
+          if (g < existing.g) {
+            existing.g = g;
+            existing.f = g + existing.h;
+            existing.parent = current;
+          }
+        } else {
+          open.push({ x: nx, y: ny, g, h, f: g + h, parent: current });
+        }
+      }
+    }
+    return null;
+  }
+
+  // --- Citizens ---
+  function spawnCitizen(gx, gy) {
+    const homes = buildings.filter(b => b.type === 'house' || b.type === 'apartment');
+    const workplaces = buildings.filter(b => b.type === 'factory' || b.type === 'office');
+
+    if (homes.length === 0) return;
+
+    const home = homes[Math.floor(Math.random() * homes.length)];
+    let target = home;
+    if (workplaces.length > 0 && Math.random() > 0.3) {
+      target = workplaces[Math.floor(Math.random() * workplaces.length)];
+    } else if (buildings.length > 1) {
+      target = buildings[Math.floor(Math.random() * buildings.length)];
+    }
+
+    const path = findPath(home.gx, home.gy, target.gx, target.gy);
+
+    citizens.push({
+      x: home.gx,
+      y: home.gy,
+      targetX: target.gx,
+      targetY: target.gy,
+      path: path,
+      pathIndex: 0,
+      moveTimer: 0,
+      speed: 0.02 + Math.random() * 0.03,
+      home: home,
+      lerpX: home.gx,
+      lerpY: home.gy,
+    });
+  }
+
+  function updateCitizens() {
+    for (let i = citizens.length - 1; i >= 0; i--) {
+      const c = citizens[i];
+      if (!c.path || c.path.length === 0) {
+        citizens.splice(i, 1);
+        continue;
+      }
+
+      c.moveTimer += c.speed * speedMultiplier;
+
+      if (c.moveTimer >= 1) {
+        c.moveTimer = 0;
+        c.pathIndex++;
+        if (c.pathIndex >= c.path.length) {
+          // Arrived — give them a new destination or remove
+          if (Math.random() > 0.5 && buildings.length > 1) {
+            const newTarget = buildings[Math.floor(Math.random() * buildings.length)];
+            c.path = findPath(c.x, c.y, newTarget.gx, newTarget.gy);
+            c.pathIndex = 0;
+          } else {
+            citizens.splice(i, 1);
+          }
+          continue;
+        }
+        c.x = c.path[c.pathIndex].x;
+        c.y = c.path[c.pathIndex].y;
+      }
+
+      // Interpolate position
+      if (c.path && c.pathIndex < c.path.length) {
+        const target = c.path[c.pathIndex];
+        c.lerpX += (target.x - c.lerpX) * 0.15;
+        c.lerpY += (target.y - c.lerpY) * 0.15;
+      }
+    }
+
+    // Spawn new citizens periodically
+    if (frameCount % (120 / speedMultiplier | 0 || 1) === 0 && citizens.length < population / 2 && buildings.length > 0) {
+      spawnCitizen();
+    }
+  }
+
+  function drawCitizens() {
+    setFG();
+    for (const c of citizens) {
+      const pos = worldToScreen(c.lerpX, c.lerpY);
+      // Each citizen is a single-pixel dot — pure 1-bit
+      drawPixel(pos.x, pos.y - 4);
+      drawPixel(pos.x, pos.y - 3);
+    }
+  }
+
+  // --- Day/Night Cycle ---
+  function updateDayNight(dt) {
+    dayNightT += dt * 0.033 * speedMultiplier;
+    if (dayNightT > 1) dayNightT -= 1;
+    // Day from 0-0.45, night from 0.55-0.95, transitions between
+    const prev = isNight;
+    isNight = dayNightT > 0.5;
+
+    // Update displays
+    const cycleEl = document.getElementById('cycle-display');
+    const timeLabel = document.getElementById('time-label');
+    const timeFill = document.getElementById('time-fill');
+    if (isNight) {
+      cycleEl.textContent = '☾ NIGHT';
+      timeLabel.textContent = '☾ NIGHT';
+    } else {
+      cycleEl.textContent = '☼ DAY';
+      timeLabel.textContent = '☼ DAY';
+    }
+    timeFill.style.width = (dayNightT * 100) + '%';
+
+    // Update HUD colors based on day/night
+    const hud = document.getElementById('hud');
+    const toolbar = document.getElementById('toolbar');
+    if (isNight) {
+      hud.style.background = '#000';
+      hud.style.color = '#fff';
+      hud.style.borderColor = '#fff';
+      document.body.style.background = '#000';
+    } else {
+      hud.style.background = '#fff';
+      hud.style.color = '#000';
+      hud.style.borderColor = '#000';
+      document.body.style.background = '#fff';
+    }
+  }
+
+  // --- Stars (appear at night) ---
+  function initStars() {
+    stars = [];
+    for (let i = 0; i < 200; i++) {
+      stars.push({
+        x: Math.random() * 2000 - 500,
+        y: Math.random() * 600 - 200,
+        twinkle: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  function drawStars() {
+    if (!isNight) return;
+    CTX.fillStyle = '#ffffff';
+    for (const star of stars) {
+      star.twinkle += 0.02;
+      if (Math.sin(star.twinkle) > 0.3) {
+        drawPixel(star.x + camera.x + CANVAS.width / 2, star.y + camera.y);
+      }
+    }
+  }
+
+  // --- Weather: Rain ---
+  function initRain() {
+    raindrops = [];
+    for (let i = 0; i < 300; i++) {
+      raindrops.push({
+        x: Math.random() * CANVAS.width * 2 - CANVAS.width / 2,
+        y: Math.random() * CANVAS.height,
+        speed: 2 + Math.random() * 4,
+        length: 2 + Math.floor(Math.random() * 3),
+      });
+    }
+  }
+
+  function updateRain() {
+    if (!isRaining) return;
+    for (const drop of raindrops) {
+      drop.y += drop.speed * speedMultiplier;
+      drop.x += 0.5 * speedMultiplier;
+      if (drop.y > CANVAS.height + 20) {
+        drop.y = -10;
+        drop.x = Math.random() * CANVAS.width * 2 - CANVAS.width / 2;
+      }
+    }
+  }
+
+  function drawRain() {
+    if (!isRaining) return;
+    setFG();
+    for (const drop of raindrops) {
+      for (let i = 0; i < drop.length; i++) {
+        drawPixel(drop.x, drop.y - i);
+      }
+    }
+  }
+
+  // --- Population & Happiness ---
+  function recalcStats() {
+    population = 0;
+    for (const b of buildings) {
+      const bt = BUILDING_TYPES.find(t => t.key === b.type);
+      if (bt) population += bt.pop;
+    }
+
+    // Happiness calculation
+    let happy = 100;
+    const parks = buildings.filter(b => b.type === 'park');
+    const residential = buildings.filter(b => b.type === 'house' || b.type === 'apartment');
+    const factories = buildings.filter(b => b.type === 'factory');
+    const hospitals = buildings.filter(b => b.type === 'hospital');
+    const churches = buildings.filter(b => b.type === 'church');
+    const schools = buildings.filter(b => b.type === 'school');
+
+    // Parks boost happiness
+    if (parks.length > 0 && residential.length > 0) {
+      let parkBonus = 0;
+      for (const r of residential) {
+        let nearestPark = Infinity;
+        for (const p of parks) {
+          const dist = Math.abs(r.gx - p.gx) + Math.abs(r.gy - p.gy);
+          nearestPark = Math.min(nearestPark, dist);
+        }
+        if (nearestPark < 5) parkBonus += 3;
+        else if (nearestPark < 10) parkBonus += 1;
+      }
+      happy += Math.min(parkBonus, 15);
+    }
+
+    // Factories decrease happiness if near homes
+    for (const f of factories) {
+      for (const r of residential) {
+        const dist = Math.abs(r.gx - f.gx) + Math.abs(r.gy - f.gy);
+        if (dist < 4) happy -= 5;
+        else if (dist < 7) happy -= 2;
+      }
+    }
+
+    // Crowding penalty
+    if (residential.length > 0) {
+      const density = population / residential.length;
+      if (density > 10) happy -= (density - 10) * 2;
+    }
+
+    // Hospital bonus
+    if (hospitals.length > 0) happy += Math.min(hospitals.length * 5, 10);
+    // Church bonus
+    if (churches.length > 0) happy += Math.min(churches.length * 3, 8);
+    // School bonus
+    if (schools.length > 0) happy += Math.min(schools.length * 4, 10);
+
+    // No roads penalty
+    const roads = buildings.filter(b => b.type === 'road');
+    if (residential.length > 3 && roads.length === 0) happy -= 10;
+
+    happiness = Math.max(0, Math.min(100, Math.round(happy)));
+
+    document.getElementById('pop').textContent = population;
+    document.getElementById('happy').textContent = happiness;
+    document.getElementById('bcount').textContent = buildings.length;
+  }
+
+  // --- Place Building ---
+  function placeBuilding(gx, gy) {
+    if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) return;
+    if (grid[gy][gx].building) return;
+
+    const bt = BUILDING_TYPES[selectedTool];
+    if (!bt) return;
+
+    // Bridge can only go on water
+    if (bt.key === 'bridge' && grid[gy][gx].type !== 'water') return;
+    // Non-bridge can't go on water
+    if (bt.key !== 'bridge' && grid[gy][gx].type === 'water') return;
+
+    initAudio();
+
+    const seed = gx * 1000 + gy * 37 + buildings.length * 7 + Date.now() % 1000;
+    const building = {
+      type: bt.key,
+      gx: gx,
+      gy: gy,
+      seed: seed,
+    };
+
+    grid[gy][gx].building = building;
+    buildings.push(building);
+    undoStack.push(building);
+
+    playPlaceSound();
+    recalcStats();
+  }
+
+  // --- Undo ---
+  function undoLast() {
+    if (undoStack.length === 0) return;
+    initAudio();
+    const last = undoStack.pop();
+    grid[last.gy][last.gx].building = null;
+    buildings = buildings.filter(b => b !== last);
+    // Remove citizens with invalid paths
+    citizens = citizens.filter(c => c.home !== last);
+    playUndoSound();
+    recalcStats();
+  }
+
+  // --- Clear ---
+  function clearAll() {
+    initAudio();
+    buildings = [];
+    undoStack = [];
+    citizens = [];
+    initGrid();
+    playClearSound();
+    recalcStats();
+  }
+
+  // --- Toolbar Creation ---
+  function createToolbar() {
+    const toolbar = document.getElementById('toolbar');
+    toolbar.innerHTML = '';
+    BUILDING_TYPES.forEach((bt, i) => {
+      const btn = document.createElement('div');
+      btn.className = 'tool-btn' + (i === selectedTool ? ' active' : '');
+      btn.title = bt.name;
+
+      // Draw tiny icon on mini canvas
+      const miniCanvas = document.createElement('canvas');
+      miniCanvas.width = 32;
+      miniCanvas.height = 32;
+      const mctx = miniCanvas.getContext('2d');
+      mctx.imageSmoothingEnabled = false;
+      mctx.fillStyle = '#000';
+      mctx.font = '18px monospace';
+      mctx.textAlign = 'center';
+      mctx.textBaseline = 'middle';
+      mctx.fillText(bt.icon, 16, 16);
+      btn.appendChild(miniCanvas);
+
+      const label = document.createElement('div');
+      label.className = 'tool-label';
+      label.textContent = bt.name;
+      btn.appendChild(label);
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedTool = i;
+        updateToolbar();
+      });
+      toolbar.appendChild(btn);
+    });
+  }
+
+  function updateToolbar() {
+    const btns = document.querySelectorAll('.tool-btn');
+    btns.forEach((btn, i) => {
+      btn.className = 'tool-btn' + (i === selectedTool ? ' active' : '');
+    });
+  }
+
+  // --- Grid Hover/Highlight ---
+  let hoverTile = { x: -1, y: -1 };
+
+  // --- Main Render ---
+  function drawGrid() {
+    // Clear
+    setBG();
+    CTX.fillRect(0, 0, CANVAS.width, CANVAS.height);
+
+    // Stars at night
+    drawStars();
+
+    // Draw tiles from back to front for proper isometric overlap
+    for (let gy = 0; gy < GRID_SIZE; gy++) {
+      for (let gx = 0; gx < GRID_SIZE; gx++) {
+        const pos = worldToScreen(gx, gy);
+        const cell = grid[gy][gx];
+
+        // Skip if off screen
+        if (pos.x < -50 || pos.x > CANVAS.width + 50 || pos.y < -100 || pos.y > CANVAS.height + 100) continue;
+
+        if (cell.type === 'water' && !cell.building) {
+          drawDitherTile(pos.x, pos.y);
+        } else {
+          // Draw tile outline
+          setFG();
+          CTX.lineWidth = 1;
+          drawTileOutline(pos.x, pos.y);
+        }
+
+        // Highlight hovered tile
+        if (gx === hoverTile.x && gy === hoverTile.y) {
+          setFG();
+          CTX.globalAlpha = 0.3;
+          fillTile(pos.x, pos.y);
+          CTX.globalAlpha = 1.0;
+        }
+
+        // Draw building
+        if (cell.building) {
+          const b = cell.building;
+          const typeIndex = BUILDING_TYPES.findIndex(t => t.key === b.type);
+          if (typeIndex >= 0 && buildingRenderers[typeIndex]) {
+            buildingRenderers[typeIndex](pos.x, pos.y, b.seed, gx, gy);
+          }
+        }
+      }
+    }
+  }
+
+  // --- Render Loop ---
+  let lastTime = 0;
+
+  function render(timestamp) {
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+    frameCount++;
+
+    updateDayNight(dt);
+    updateCitizens();
+    updateRain();
+
+    drawGrid();
+    drawCitizens();
+    drawRain();
+
+    // Draw hover preview
+    if (hoverTile.x >= 0 && hoverTile.y >= 0 &&
+        hoverTile.x < GRID_SIZE && hoverTile.y < GRID_SIZE &&
+        !grid[hoverTile.y][hoverTile.x].building) {
+      const pos = worldToScreen(hoverTile.x, hoverTile.y);
+      setFG();
+      CTX.globalAlpha = 0.4;
+      const bt = BUILDING_TYPES[selectedTool];
+      const typeIndex = selectedTool;
+      if (buildingRenderers[typeIndex]) {
+        buildingRenderers[typeIndex](pos.x, pos.y, hoverTile.x * 1000 + hoverTile.y * 37, hoverTile.x, hoverTile.y);
+      }
+      CTX.globalAlpha = 1.0;
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  // --- Mouse/Touch Events ---
+  CANVAS.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+      isPanning = false;
+      panStart.x = e.clientX;
+      panStart.y = e.clientY;
+      camStart.x = camera.x;
+      camStart.y = camera.y;
+    }
+  });
+
+  CANVAS.addEventListener('mousemove', (e) => {
+    // Update hover tile
+    const tile = fromIso(e.clientX, e.clientY);
+    hoverTile.x = tile.x;
+    hoverTile.y = tile.y;
+
+    // Panning with mouse drag
+    if (e.buttons === 1) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        isPanning = true;
+      }
+      if (isPanning) {
+        camera.x = camStart.x + dx;
+        camera.y = camStart.y + dy;
+      }
+    }
+  });
+
+  CANVAS.addEventListener('mouseup', (e) => {
+    if (!isPanning && e.button === 0) {
+      const tile = fromIso(e.clientX, e.clientY);
+      placeBuilding(tile.x, tile.y);
+    }
+    isPanning = false;
+  });
+
+  CANVAS.addEventListener('mouseleave', () => {
+    hoverTile.x = -1;
+    hoverTile.y = -1;
+    isPanning = false;
+  });
+
+  // Touch support for mobile
+  let touchStart = null;
+  CANVAS.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    touchStart = { x: t.clientX, y: t.clientY, cx: camera.x, cy: camera.y, moved: false };
+  });
+
+  CANVAS.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!touchStart) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchStart.moved = true;
+    camera.x = touchStart.cx + dx;
+    camera.y = touchStart.cy + dy;
+  });
+
+  CANVAS.addEventListener('touchend', (e) => {
+    if (touchStart && !touchStart.moved) {
+      const tile = fromIso(touchStart.x, touchStart.y);
+      placeBuilding(tile.x, tile.y);
+    }
+    touchStart = null;
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= BUILDING_TYPES.length) {
+      selectedTool = num - 1;
+      updateToolbar();
+    }
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      undoLast();
+    }
+    if (e.key === 'r') {
+      isRaining = !isRaining;
+      if (isRaining && raindrops.length === 0) initRain();
+      updateWeatherDisplay();
+    }
+    // Arrow keys for panning
+    const panSpeed = 20;
+    if (e.key === 'ArrowLeft') camera.x += panSpeed;
+    if (e.key === 'ArrowRight') camera.x -= panSpeed;
+    if (e.key === 'ArrowUp') camera.y += panSpeed;
+    if (e.key === 'ArrowDown') camera.y -= panSpeed;
+  });
+
+  function updateWeatherDisplay() {
+    const wd = document.getElementById('weather-display');
+    const wb = document.getElementById('btn-weather');
+    if (isRaining) {
+      wd.textContent = '☂ RAIN';
+      wb.textContent = '☀ CLEAR';
+    } else {
+      wd.textContent = '☀ CLEAR';
+      wb.textContent = '☂ RAIN';
+    }
+  }
+
+  // --- Control Buttons ---
+  document.getElementById('btn-undo').addEventListener('click', undoLast);
+  document.getElementById('btn-clear').addEventListener('click', clearAll);
+  document.getElementById('btn-weather').addEventListener('click', () => {
+    isRaining = !isRaining;
+    if (isRaining && raindrops.length === 0) initRain();
+    updateWeatherDisplay();
+  });
+
+  let speedIndex = 0;
+  const speeds = [1, 2, 4];
+  const speedLabels = ['▶ 1x', '▶▶ 2x', '▶▶▶ 4x'];
+  document.getElementById('btn-speed').addEventListener('click', () => {
+    speedIndex = (speedIndex + 1) % speeds.length;
+    speedMultiplier = speeds[speedIndex];
+    document.getElementById('btn-speed').textContent = speedLabels[speedIndex];
+  });
+
+  // --- Save/Load to localStorage ---
+  function saveCity() {
+    const data = {
+      buildings: buildings.map(b => ({ type: b.type, gx: b.gx, gy: b.gy, seed: b.seed })),
+      camera: { x: camera.x, y: camera.y },
+    };
+    localStorage.setItem('oneBitCity', JSON.stringify(data));
+  }
+
+  function loadCity() {
+    try {
+      const raw = localStorage.getItem('oneBitCity');
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (data.buildings) {
+        for (const b of data.buildings) {
+          if (b.gx >= 0 && b.gx < GRID_SIZE && b.gy >= 0 && b.gy < GRID_SIZE) {
+            const building = { type: b.type, gx: b.gx, gy: b.gy, seed: b.seed };
+            grid[b.gy][b.gx].building = building;
+            buildings.push(building);
+          }
+        }
+      }
+      if (data.camera) {
+        camera.x = data.camera.x;
+        camera.y = data.camera.y;
+      }
+      recalcStats();
+      return true;
+    } catch(e) {
+      return false;
+    }
+  }
+
+  // Auto-save every 10 seconds
+  setInterval(saveCity, 10000);
+
+  // --- Initialize Everything ---
+  function init() {
+    resize();
+    initGrid();
+    initStars();
+    initRain();
+    createToolbar();
+
+    // Center camera on grid
+    const centerIso = toIso(GRID_SIZE / 2, GRID_SIZE / 2);
+    camera.x = -centerIso.x;
+    camera.y = -centerIso.y + CANVAS.height / 4;
+
+    loadCity();
+    requestAnimationFrame(render);
+  }
+
+  window.addEventListener('resize', resize);
+  init();
+
+  // --- Bonus: Procedural City Generation for Demo ---
+  // If city is empty, drop a few starter buildings so it's not blank
+  if (buildings.length === 0) {
+    const starterBuildings = [
+      { type: 'road', gx: 15, gy: 15 },
+      { type: 'road', gx: 16, gy: 15 },
+      { type: 'road', gx: 17, gy: 15 },
+      { type: 'road', gx: 18, gy: 15 },
+      { type: 'road', gx: 15, gy: 16 },
+      { type: 'road', gx: 15, gy: 17 },
+      { type: 'road', gx: 15, gy: 18 },
+      { type: 'house', gx: 14, gy: 14 },
+      { type: 'house', gx: 16, gy: 14 },
+      { type: 'apartment', gx: 18, gy: 14 },
+      { type: 'factory', gx: 19, gy: 16 },
+      { type: 'park', gx: 14, gy: 16 },
+      { type: 'office', gx: 17, gy: 17 },
+      { type: 'church', gx: 13, gy: 18 },
+    ];
+    for (const sb of starterBuildings) {
+      if (sb.gx >= 0 && sb.gx < GRID_SIZE && sb.gy >= 0 && sb.gy < GRID_SIZE) {
+        const seed = sb.gx * 1000 + sb.gy * 37 + 42;
+        const building = { type: sb.type, gx: sb.gx, gy: sb.gy, seed: seed };
+        grid[sb.gy][sb.gx].building = building;
+        buildings.push(building);
+      }
+    }
+    recalcStats();
+  }
+
+  // Expose for debugging
+  window.oneBitCity = { grid, buildings, citizens, camera };
+
+})();
+</script>
+</body>
+</html>

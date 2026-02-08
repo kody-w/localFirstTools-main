@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emotion Engine</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    transition: background 0.6s;
+  }
+  #wrap {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    height: 100%; width: 100%;
+    position: relative;
+  }
+  #emotionLabel {
+    font-size: 28px; font-weight: 700;
+    margin-bottom: 8px; min-height: 40px;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    letter-spacing: 1px;
+    z-index: 2;
+  }
+  canvas {
+    display: block;
+    z-index: 1;
+  }
+  #inputArea {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 20px;
+    background: rgba(10,10,30,0.85);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    z-index: 10;
+  }
+  #textInput {
+    flex: 1; padding: 12px 18px;
+    font-size: 17px; border: none;
+    border-radius: 28px;
+    background: rgba(255,255,255,0.1);
+    color: #fff; outline: none;
+    transition: box-shadow 0.3s;
+  }
+  #textInput::placeholder { color: rgba(255,255,255,0.35); }
+  #textInput:focus { box-shadow: 0 0 0 2px rgba(120,180,255,0.5); }
+  #clearBtn {
+    padding: 10px 22px; font-size: 15px;
+    border: none; border-radius: 28px;
+    background: rgba(255,80,80,0.25); color: #ff9999;
+    cursor: pointer; font-weight: 600;
+    transition: background 0.2s;
+  }
+  #clearBtn:hover { background: rgba(255,80,80,0.45); }
+  #historyCanvas {
+    position: fixed; bottom: 65px; left: 20px; right: 20px;
+    height: 60px; z-index: 5;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.3);
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="emotionLabel">Neutral 😐</div>
+  <canvas id="faceCanvas"></canvas>
+  <canvas id="historyCanvas"></canvas>
+  <div id="inputArea">
+    <input id="textInput" type="text" placeholder="Type something and watch the face react..." autocomplete="off" />
+    <button id="clearBtn">Clear</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// EMOTION ENGINE — Real-time sentiment-driven face with spring physics
+// A canvas-based interactive emotion visualization system
+// ============================================================
+
+(function() {
+  'use strict';
+
+  // --- Canvas Setup ---
+  const faceCanvas = document.getElementById('faceCanvas');
+  const ctx = faceCanvas.getContext('2d');
+  const histCanvas = document.getElementById('historyCanvas');
+  const hctx = histCanvas.getContext('2d');
+  const emotionLabel = document.getElementById('emotionLabel');
+  const textInput = document.getElementById('textInput');
+  const clearBtn = document.getElementById('clearBtn');
+
+  let W, H, cx, cy, faceR;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = window.innerWidth;
+    H = window.innerHeight - 140;
+    faceCanvas.width = W * dpr;
+    faceCanvas.height = H * dpr;
+    faceCanvas.style.width = W + 'px';
+    faceCanvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = W / 2;
+    cy = H / 2 - 10;
+    faceR = Math.min(W, H) * 0.28;
+    // History canvas
+    const hW = W - 40;
+    histCanvas.width = hW * dpr;
+    histCanvas.height = 60 * dpr;
+    histCanvas.style.width = hW + 'px';
+    hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ============================================================
+  // SPRING PHYSICS SYSTEM
+  // Each spring has: value, velocity, target, stiffness, damping
+  // ============================================================
+
+  class Spring {
+    constructor(val, stiffness, damping) {
+      this.value = val;
+      this.target = val;
+      this.velocity = 0;
+      this.stiffness = stiffness || 0.08;
+      this.damping = damping || 0.75;
+    }
+    update() {
+      const force = (this.target - this.value) * this.stiffness;
+      this.velocity += force;
+      this.velocity *= this.damping;
+      this.value += this.velocity;
+    }
+    set(t) { this.target = t; }
+    snap(v) { this.value = v; this.target = v; this.velocity = 0; }
+  }
+
+  // --- Face feature springs ---
+  const springs = {
+    mouthCurve:       new Spring(0, 0.06, 0.72),
+    mouthOpen:        new Spring(0, 0.07, 0.74),
+    mouthWidth:       new Spring(0.5, 0.05, 0.72),
+    leftBrowAngle:    new Spring(0, 0.05, 0.70),
+    rightBrowAngle:   new Spring(0, 0.05, 0.70),
+    leftBrowHeight:   new Spring(0, 0.06, 0.72),
+    rightBrowHeight:  new Spring(0, 0.06, 0.72),
+    leftEyeOpen:      new Spring(1, 0.07, 0.73),
+    rightEyeOpen:     new Spring(1, 0.07, 0.73),
+    pupilSize:        new Spring(0.35, 0.06, 0.70),
+    leftPupilX:       new Spring(0, 0.08, 0.75),
+    rightPupilX:      new Spring(0, 0.08, 0.75),
+    leftPupilY:       new Spring(0, 0.08, 0.75),
+    rightPupilY:      new Spring(0, 0.08, 0.75),
+    cheekBlush:       new Spring(0, 0.04, 0.78),
+    faceRed:          new Spring(0, 0.04, 0.78),
+    faceTilt:         new Spring(0, 0.03, 0.68),
+    glowIntensity:    new Spring(0, 0.04, 0.76),
+    glowR:            new Spring(30, 0.03, 0.8),
+    glowG:            new Spring(30, 0.03, 0.8),
+    glowB:            new Spring(60, 0.03, 0.8),
+    tearDrop:         new Spring(0, 0.03, 0.82),
+    bgR:              new Spring(26, 0.02, 0.85),
+    bgG:              new Spring(26, 0.02, 0.85),
+    bgB:              new Spring(46, 0.02, 0.85),
+    mouthWiggle:      new Spring(0, 0.09, 0.65),
+    surpriseScale:    new Spring(1, 0.06, 0.70),
+    irisColorR:       new Spring(80, 0.03, 0.80),
+    irisColorG:       new Spring(140, 0.03, 0.80),
+    irisColorB:       new Spring(200, 0.03, 0.80),
+    noseScale:        new Spring(1, 0.04, 0.76),
+    skinHue:          new Spring(35, 0.02, 0.85),
+  };
+
+  function updateSprings() {
+    for (const k in springs) springs[k].update();
+  }
+
+  // ============================================================
+  // SENTIMENT ANALYSIS ENGINE — Keyword-based scoring
+  // ============================================================
+
+  const positiveWords = [
+    'love','happy','great','beautiful','amazing','joy','wonderful','awesome',
+    'fantastic','brilliant','excellent','superb','delight','cheerful','bliss',
+    'ecstatic','glad','pleased','thrilled','grateful','thankful','kind',
+    'sweet','lovely','nice','good','perfect','best','sunshine','smile',
+    'laugh','fun','enjoy','hope','bright','warm','gentle','caring',
+    'peace','calm','content','radiant','magnificent','glorious','splendid',
+    'marvelous','terrific','outstanding','incredible','fabulous','divine',
+    'paradise','blessing','harmony','serene','graceful','tender','adore',
+    'cherish','treasure','celebrate','triumph','victory','succeed','flourish',
+    'prosper','thrive','inspire','magical','enchanting','dazzling','gorgeous',
+    'stunning','elegant','charming','delicious','heavenly','euphoria','elated',
+    'jubilant','optimistic','passionate','vibrant','lively','exuberant','merry'
+  ];
+
+  const negativeWords = [
+    'hate','angry','terrible','awful','ugly','sad','kill','destroy',
+    'horrible','disgusting','pathetic','miserable','depressed','furious',
+    'rage','despair','grief','pain','suffer','worst','stupid','idiot',
+    'dumb','loser','failure','worthless','useless','trash','garbage',
+    'evil','cruel','vicious','nasty','rotten','wretched','abysmal',
+    'atrocious','dreadful','ghastly','horrid','repulsive','revolting',
+    'sickening','vile','abhor','detest','loathe','despise','scorn',
+    'agony','anguish','torment','doom','curse','plague','nightmare',
+    'horror','terror','fear','panic','dread','anxiety','stress',
+    'broken','ruined','shattered','crushed','devastated','hopeless',
+    'helpless','lonely','empty','bitter','resentful','jealous','envious',
+    'hostile','aggressive','violent','brutal','savage','merciless','heartless'
+  ];
+
+  const confusedWords = [
+    'what','how','why','huh','weird','strange','nonsense','confuse',
+    'confused','confusing','puzzle','puzzled','baffled','bewildered',
+    'perplexed','mystified','lost','unclear','uncertain','ambiguous',
+    'paradox','enigma','riddle','contradiction','irrational','absurd',
+    'bizarre','peculiar','odd','random','chaos','cryptic','obscure',
+    'incomprehensible','unfathomable','illogical','inexplicable'
+  ];
+
+  const surpriseWords = [
+    'wow','omg','whoa','unbelievable','shocking','unexpected','suddenly',
+    'impossible','incredible','astonishing','astounding','remarkable',
+    'extraordinary','phenomenal','miraculous','startling','breathtaking',
+    'mindblowing','speechless','flabbergasted','gobsmacked','stupefied'
+  ];
+
+  // Sentiment scoring function with emotion classification
+  function analyzeSentiment(text) {
+    const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(Boolean);
+    if (words.length === 0) return { score: 0, emotion: 'neutral', confidence: 0 };
+
+    let posCount = 0, negCount = 0, confCount = 0, surpriseCount = 0;
+    let posScore = 0, negScore = 0;
+
+    for (const word of words) {
+      if (positiveWords.includes(word)) { posCount++; posScore += 1; }
+      if (negativeWords.includes(word)) { negCount++; negScore += 1; }
+      if (confusedWords.includes(word)) { confCount++; }
+      if (surpriseWords.includes(word)) { surpriseCount++; }
+    }
+
+    // Boost for repeated emotion words
+    posScore += Math.max(0, posCount - 1) * 0.5;
+    negScore += Math.max(0, negCount - 1) * 0.5;
+
+    const total = posScore + negScore + confCount + surpriseCount;
+    const rawScore = total > 0 ? (posScore - negScore) / Math.max(posScore + negScore, 1) : 0;
+    const score = Math.max(-1, Math.min(1, rawScore));
+    const confidence = Math.min(1, total / Math.max(words.length * 0.5, 1));
+
+    // Determine dominant emotion
+    let emotion = 'neutral';
+    if (surpriseCount > 0 && surpriseCount >= confCount && surpriseCount >= posCount && surpriseCount >= negCount) {
+      emotion = 'surprised';
+    } else if (confCount > 0 && confCount >= posCount && confCount >= negCount) {
+      emotion = 'confused';
+    } else if (score > 0.15) {
+      emotion = 'happy';
+    } else if (score < -0.15 && negCount > 0) {
+      // Distinguish sad vs angry
+      const angrySubset = ['hate','angry','furious','rage','kill','destroy','hostile','aggressive','violent','brutal','savage','vicious','cruel'];
+      const sadSubset = ['sad','depressed','grief','pain','suffer','miserable','lonely','empty','hopeless','helpless','broken','crushed','devastated'];
+      let angryHits = 0, sadHits = 0;
+      for (const word of words) {
+        if (angrySubset.includes(word)) angryHits++;
+        if (sadSubset.includes(word)) sadHits++;
+      }
+      emotion = sadHits > angryHits ? 'sad' : 'angry';
+    }
+
+    return { score, emotion, confidence, posCount, negCount, confCount, surpriseCount };
+  }
+
+  // ============================================================
+  // EMOTION STATE & HISTORY
+  // ============================================================
+
+  let currentEmotion = 'neutral';
+  let currentScore = 0;
+  let sentimentHistory = [];
+  const MAX_HISTORY = 50;
+  let lastInputTime = 0;
+
+  // Floating particles (hearts, clouds, question marks, stars)
+  let particles = [];
+
+  class Particle {
+    constructor(x, y, symbol, color, vx, vy, life) {
+      this.x = x; this.y = y;
+      this.symbol = symbol;
+      this.color = color;
+      this.vx = vx || (Math.random() - 0.5) * 2;
+      this.vy = vy || -(Math.random() * 2 + 1);
+      this.life = life || 120;
+      this.maxLife = this.life;
+      this.size = 16 + Math.random() * 14;
+      this.rotation = Math.random() * Math.PI * 2;
+      this.rotSpeed = (Math.random() - 0.5) * 0.06;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy *= 0.995;
+      this.vx *= 0.99;
+      this.rotation += this.rotSpeed;
+      this.life--;
+    }
+    draw(c) {
+      const alpha = Math.min(1, this.life / (this.maxLife * 0.3));
+      c.save();
+      c.globalAlpha = alpha * 0.85;
+      c.translate(this.x, this.y);
+      c.rotate(this.rotation);
+      c.font = this.size + 'px sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(this.symbol, 0, 0);
+      c.restore();
+    }
+    alive() { return this.life > 0; }
+  }
+
+  function spawnParticles(emotion) {
+    const count = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      let symbol, color;
+      const px = cx + (Math.random() - 0.5) * faceR * 2;
+      const py = cy - faceR * 0.5 + Math.random() * faceR;
+      switch(emotion) {
+        case 'happy':
+          symbol = ['❤️','💛','✨','🌟','💖','😊','🌈'][Math.floor(Math.random()*7)];
+          color = '#ffcc00';
+          break;
+        case 'angry':
+          symbol = ['⚡','🔥','💢','☁️','💀','👊','😤'][Math.floor(Math.random()*7)];
+          color = '#ff3333';
+          break;
+        case 'sad':
+          symbol = ['💧','🌧️','😢','💔','🥀','☔'][Math.floor(Math.random()*6)];
+          color = '#6688cc';
+          break;
+        case 'confused':
+          symbol = ['❓','❔','🤔','💫','🌀','🔮'][Math.floor(Math.random()*6)];
+          color = '#aa88ff';
+          break;
+        case 'surprised':
+          symbol = ['❗','⭐','💥','🎆','😲','🤯'][Math.floor(Math.random()*6)];
+          color = '#ffaa00';
+          break;
+        default:
+          return;
+      }
+      particles.push(new Particle(px, py, symbol, color, (Math.random()-0.5)*1.5, -(Math.random()*1.5+0.5), 90+Math.random()*60));
+    }
+  }
+
+  let particleTimer = 0;
+
+  // ============================================================
+  // APPLY EMOTION TO SPRINGS
+  // ============================================================
+
+  function applyEmotion(result) {
+    const { score, emotion, confidence } = result;
+    currentEmotion = emotion;
+    currentScore = score;
+
+    const intensity = Math.min(1, confidence * 1.5 + Math.abs(score) * 0.5);
+
+    switch(emotion) {
+      case 'happy':
+        springs.mouthCurve.set(0.4 + intensity * 0.5);
+        springs.mouthOpen.set(0.1 + intensity * 0.3);
+        springs.mouthWidth.set(0.6 + intensity * 0.25);
+        springs.leftBrowAngle.set(-0.1);
+        springs.rightBrowAngle.set(0.1);
+        springs.leftBrowHeight.set(0.1 + intensity * 0.15);
+        springs.rightBrowHeight.set(0.1 + intensity * 0.15);
+        springs.leftEyeOpen.set(0.7 - intensity * 0.2);
+        springs.rightEyeOpen.set(0.7 - intensity * 0.2);
+        springs.pupilSize.set(0.35 + intensity * 0.1);
+        springs.cheekBlush.set(0.3 + intensity * 0.6);
+        springs.faceRed.set(0);
+        springs.glowIntensity.set(0.3 + intensity * 0.5);
+        springs.glowR.set(255); springs.glowG.set(220); springs.glowB.set(80);
+        springs.tearDrop.set(0);
+        springs.bgR.set(40 + intensity * 30);
+        springs.bgG.set(35 + intensity * 25);
+        springs.bgB.set(30);
+        springs.faceTilt.set(intensity * 0.05);
+        springs.mouthWiggle.set(0);
+        springs.surpriseScale.set(1);
+        springs.leftPupilX.set(0); springs.rightPupilX.set(0);
+        springs.leftPupilY.set(0); springs.rightPupilY.set(0);
+        springs.irisColorR.set(80); springs.irisColorG.set(160); springs.irisColorB.set(220);
+        break;
+
+      case 'angry':
+        springs.mouthCurve.set(-0.3 - intensity * 0.4);
+        springs.mouthOpen.set(0.2 + intensity * 0.4);
+        springs.mouthWidth.set(0.55 + intensity * 0.15);
+        springs.leftBrowAngle.set(0.35 + intensity * 0.3);
+        springs.rightBrowAngle.set(-0.35 - intensity * 0.3);
+        springs.leftBrowHeight.set(-0.15 - intensity * 0.2);
+        springs.rightBrowHeight.set(-0.15 - intensity * 0.2);
+        springs.leftEyeOpen.set(0.8);
+        springs.rightEyeOpen.set(0.8);
+        springs.pupilSize.set(0.25);
+        springs.cheekBlush.set(0);
+        springs.faceRed.set(0.3 + intensity * 0.5);
+        springs.glowIntensity.set(0.2 + intensity * 0.4);
+        springs.glowR.set(255); springs.glowG.set(50); springs.glowB.set(30);
+        springs.tearDrop.set(0);
+        springs.bgR.set(50 + intensity * 40);
+        springs.bgG.set(15);
+        springs.bgB.set(20);
+        springs.faceTilt.set(-intensity * 0.04);
+        springs.mouthWiggle.set(0);
+        springs.surpriseScale.set(1 + intensity * 0.05);
+        springs.leftPupilX.set(0); springs.rightPupilX.set(0);
+        springs.leftPupilY.set(0.05); springs.rightPupilY.set(0.05);
+        springs.irisColorR.set(180); springs.irisColorG.set(80); springs.irisColorB.set(60);
+        break;
+
+      case 'sad':
+        springs.mouthCurve.set(-0.3 - intensity * 0.35);
+        springs.mouthOpen.set(0.05);
+        springs.mouthWidth.set(0.4);
+        springs.leftBrowAngle.set(-0.2 - intensity * 0.15);
+        springs.rightBrowAngle.set(0.2 + intensity * 0.15);
+        springs.leftBrowHeight.set(0.15 + intensity * 0.2);
+        springs.rightBrowHeight.set(0.15 + intensity * 0.2);
+        springs.leftEyeOpen.set(0.6 - intensity * 0.15);
+        springs.rightEyeOpen.set(0.6 - intensity * 0.15);
+        springs.pupilSize.set(0.4);
+        springs.cheekBlush.set(0);
+        springs.faceRed.set(0);
+        springs.glowIntensity.set(0.1);
+        springs.glowR.set(60); springs.glowG.set(80); springs.glowB.set(180);
+        springs.tearDrop.set(0.5 + intensity * 0.5);
+        springs.bgR.set(18);
+        springs.bgG.set(20 + intensity * 10);
+        springs.bgB.set(45 + intensity * 30);
+        springs.faceTilt.set(-intensity * 0.06);
+        springs.mouthWiggle.set(0);
+        springs.surpriseScale.set(1);
+        springs.leftPupilX.set(-0.1); springs.rightPupilX.set(0.1);
+        springs.leftPupilY.set(0.15); springs.rightPupilY.set(0.15);
+        springs.irisColorR.set(80); springs.irisColorG.set(100); springs.irisColorB.set(160);
+        break;
+
+      case 'confused':
+        springs.mouthCurve.set(-0.05);
+        springs.mouthOpen.set(0.15);
+        springs.mouthWidth.set(0.35);
+        springs.leftBrowAngle.set(-0.3 - intensity * 0.2);
+        springs.rightBrowAngle.set(-0.2 + intensity * 0.4);
+        springs.leftBrowHeight.set(0.3 + intensity * 0.2);
+        springs.rightBrowHeight.set(-0.1 - intensity * 0.1);
+        springs.leftEyeOpen.set(1.0);
+        springs.rightEyeOpen.set(0.7);
+        springs.pupilSize.set(0.32);
+        springs.cheekBlush.set(0);
+        springs.faceRed.set(0);
+        springs.glowIntensity.set(0.15);
+        springs.glowR.set(140); springs.glowG.set(100); springs.glowB.set(220);
+        springs.tearDrop.set(0);
+        springs.bgR.set(30);
+        springs.bgG.set(28);
+        springs.bgB.set(42 + intensity * 15);
+        springs.faceTilt.set(intensity * 0.08);
+        springs.mouthWiggle.set(0.3 + intensity * 0.5);
+        springs.surpriseScale.set(1);
+        springs.leftPupilX.set(-0.2); springs.rightPupilX.set(0.2);
+        springs.leftPupilY.set(-0.1); springs.rightPupilY.set(0.1);
+        springs.irisColorR.set(130); springs.irisColorG.set(100); springs.irisColorB.set(200);
+        break;
+
+      case 'surprised':
+        springs.mouthCurve.set(0);
+        springs.mouthOpen.set(0.5 + intensity * 0.4);
+        springs.mouthWidth.set(0.35);
+        springs.leftBrowAngle.set(-0.1);
+        springs.rightBrowAngle.set(0.1);
+        springs.leftBrowHeight.set(0.35 + intensity * 0.3);
+        springs.rightBrowHeight.set(0.35 + intensity * 0.3);
+        springs.leftEyeOpen.set(1.2 + intensity * 0.3);
+        springs.rightEyeOpen.set(1.2 + intensity * 0.3);
+        springs.pupilSize.set(0.2);
+        springs.cheekBlush.set(0.1);
+        springs.faceRed.set(0);
+        springs.glowIntensity.set(0.4 + intensity * 0.3);
+        springs.glowR.set(255); springs.glowG.set(200); springs.glowB.set(50);
+        springs.tearDrop.set(0);
+        springs.bgR.set(45 + intensity * 15);
+        springs.bgG.set(35 + intensity * 15);
+        springs.bgB.set(30);
+        springs.faceTilt.set(0);
+        springs.mouthWiggle.set(0);
+        springs.surpriseScale.set(1.05 + intensity * 0.1);
+        springs.leftPupilX.set(0); springs.rightPupilX.set(0);
+        springs.leftPupilY.set(-0.1); springs.rightPupilY.set(-0.1);
+        springs.irisColorR.set(100); springs.irisColorG.set(180); springs.irisColorB.set(240);
+        break;
+
+      default: // neutral
+        springs.mouthCurve.set(0.08);
+        springs.mouthOpen.set(0);
+        springs.mouthWidth.set(0.5);
+        springs.leftBrowAngle.set(0);
+        springs.rightBrowAngle.set(0);
+        springs.leftBrowHeight.set(0);
+        springs.rightBrowHeight.set(0);
+        springs.leftEyeOpen.set(1);
+        springs.rightEyeOpen.set(1);
+        springs.pupilSize.set(0.35);
+        springs.cheekBlush.set(0);
+        springs.faceRed.set(0);
+        springs.glowIntensity.set(0);
+        springs.glowR.set(30); springs.glowG.set(30); springs.glowB.set(60);
+        springs.tearDrop.set(0);
+        springs.bgR.set(26);
+        springs.bgG.set(26);
+        springs.bgB.set(46);
+        springs.faceTilt.set(0);
+        springs.mouthWiggle.set(0);
+        springs.surpriseScale.set(1);
+        springs.leftPupilX.set(0); springs.rightPupilX.set(0);
+        springs.leftPupilY.set(0); springs.rightPupilY.set(0);
+        springs.irisColorR.set(80); springs.irisColorG.set(140); springs.irisColorB.set(200);
+        break;
+    }
+
+    // Update emotion label
+    const labels = {
+      happy: 'Happy 😊', angry: 'Angry 😠', sad: 'Sad 😢',
+      confused: 'Confused 🤔', surprised: 'Surprised 😲', neutral: 'Neutral 😐'
+    };
+    emotionLabel.textContent = labels[emotion] || 'Neutral 😐';
+  }
+
+  // ============================================================
+  // INPUT HANDLING
+  // ============================================================
+
+  textInput.addEventListener('input', function() {
+    const text = this.value;
+    const result = analyzeSentiment(text);
+    applyEmotion(result);
+
+    // Record history
+    const now = Date.now();
+    if (now - lastInputTime > 200 || sentimentHistory.length === 0) {
+      sentimentHistory.push({ score: result.score, emotion: result.emotion, time: now });
+      if (sentimentHistory.length > MAX_HISTORY) sentimentHistory.shift();
+    } else if (sentimentHistory.length > 0) {
+      sentimentHistory[sentimentHistory.length - 1] = { score: result.score, emotion: result.emotion, time: now };
+    }
+    lastInputTime = now;
+  });
+
+  clearBtn.addEventListener('click', function() {
+    textInput.value = '';
+    sentimentHistory = [];
+    currentEmotion = 'neutral';
+    currentScore = 0;
+    applyEmotion({ score: 0, emotion: 'neutral', confidence: 0 });
+    particles = [];
+    textInput.focus();
+  });
+
+  // ============================================================
+  // DRAWING FUNCTIONS
+  // ============================================================
+
+  let frameCount = 0;
+  let tearY = 0;
+  let tearActive = false;
+
+  function drawBackground() {
+    const r = Math.round(springs.bgR.value);
+    const g = Math.round(springs.bgG.value);
+    const b = Math.round(springs.bgB.value);
+    document.body.style.background = `rgb(${r},${g},${b})`;
+
+    // Angry edge pulse
+    if (currentEmotion === 'angry' && springs.faceRed.value > 0.2) {
+      const pulse = Math.sin(frameCount * 0.08) * 0.5 + 0.5;
+      const alpha = springs.faceRed.value * pulse * 0.15;
+      const edgeGrad = ctx.createRadialGradient(cx, cy, faceR * 2, cx, cy, Math.max(W, H));
+      edgeGrad.addColorStop(0, 'rgba(255,0,0,0)');
+      edgeGrad.addColorStop(1, `rgba(255,20,0,${alpha})`);
+      ctx.fillStyle = edgeGrad;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  function drawGlow() {
+    const intensity = springs.glowIntensity.value;
+    if (intensity < 0.01) return;
+    const r = Math.round(springs.glowR.value);
+    const g = Math.round(springs.glowG.value);
+    const b = Math.round(springs.glowB.value);
+    const grad = ctx.createRadialGradient(cx, cy, faceR * 0.5, cx, cy, faceR * 2.5);
+    grad.addColorStop(0, `rgba(${r},${g},${b},${intensity * 0.35})`);
+    grad.addColorStop(0.5, `rgba(${r},${g},${b},${intensity * 0.1})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, faceR * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawFaceShape() {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(springs.faceTilt.value);
+    const scale = springs.surpriseScale.value;
+    ctx.scale(scale, scale);
+
+    // Face base with skin gradient
+    const skinGrad = ctx.createRadialGradient(-faceR*0.15, -faceR*0.2, faceR*0.1, 0, 0, faceR);
+    const redTint = springs.faceRed.value;
+    const baseR = Math.round(255 - redTint * 0 + redTint * 40);
+    const baseG = Math.round(218 - redTint * 60);
+    const baseB = Math.round(185 - redTint * 80);
+    skinGrad.addColorStop(0, `rgb(${Math.min(255, baseR+15)},${Math.min(255, baseG+10)},${Math.min(255, baseB+5)})`);
+    skinGrad.addColorStop(0.7, `rgb(${baseR},${baseG},${baseB})`);
+    skinGrad.addColorStop(1, `rgb(${Math.max(0, baseR-30)},${Math.max(0, baseG-25)},${Math.max(0, baseB-20)})`);
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, faceR, faceR * 1.15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = skinGrad;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(180,140,100,0.3)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Cheeks (blush)
+    const blush = springs.cheekBlush.value;
+    if (blush > 0.01) {
+      for (let side = -1; side <= 1; side += 2) {
+        const cheekX = side * faceR * 0.52;
+        const cheekY = faceR * 0.25;
+        const cheekGrad = ctx.createRadialGradient(cheekX, cheekY, 0, cheekX, cheekY, faceR * 0.22);
+        cheekGrad.addColorStop(0, `rgba(255,100,120,${blush * 0.6})`);
+        cheekGrad.addColorStop(1, 'rgba(255,100,120,0)');
+        ctx.fillStyle = cheekGrad;
+        ctx.beginPath();
+        ctx.arc(cheekX, cheekY, faceR * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // --- Eyes ---
+    const eyeSpacing = faceR * 0.35;
+    const eyeY = -faceR * 0.15;
+    const eyeW = faceR * 0.22;
+    const eyeH = faceR * 0.17;
+
+    for (let side = -1; side <= 1; side += 2) {
+      const ex = side * eyeSpacing;
+      const openL = side === -1 ? springs.leftEyeOpen.value : springs.rightEyeOpen.value;
+      const actualH = eyeH * Math.max(0.08, openL);
+
+      // Eye white (sclera)
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, eyeW, actualH, 0, 0, Math.PI * 2);
+      ctx.clip();
+
+      // Sclera fill
+      const scleraGrad = ctx.createRadialGradient(ex, eyeY, 0, ex, eyeY, eyeW);
+      scleraGrad.addColorStop(0, '#ffffff');
+      scleraGrad.addColorStop(1, '#e8e4e0');
+      ctx.fillStyle = scleraGrad;
+      ctx.fill();
+
+      // Iris
+      const irisR = eyeW * 0.55;
+      const pupilOff = side === -1 ?
+        { x: springs.leftPupilX.value * eyeW * 0.4, y: springs.leftPupilY.value * eyeH * 0.4 } :
+        { x: springs.rightPupilX.value * eyeW * 0.4, y: springs.rightPupilY.value * eyeH * 0.4 };
+      const irisX = ex + pupilOff.x;
+      const irisY = eyeY + pupilOff.y;
+      const ir = Math.round(springs.irisColorR.value);
+      const ig = Math.round(springs.irisColorG.value);
+      const ib = Math.round(springs.irisColorB.value);
+
+      const irisGrad = ctx.createRadialGradient(irisX - irisR*0.2, irisY - irisR*0.2, irisR*0.1, irisX, irisY, irisR);
+      irisGrad.addColorStop(0, `rgb(${Math.min(255,ir+40)},${Math.min(255,ig+40)},${Math.min(255,ib+40)})`);
+      irisGrad.addColorStop(0.5, `rgb(${ir},${ig},${ib})`);
+      irisGrad.addColorStop(1, `rgb(${Math.max(0,ir-40)},${Math.max(0,ig-40)},${Math.max(0,ib-40)})`);
+      ctx.beginPath();
+      ctx.arc(irisX, irisY, irisR, 0, Math.PI * 2);
+      ctx.fillStyle = irisGrad;
+      ctx.fill();
+
+      // Pupil
+      const pupilR = irisR * springs.pupilSize.value;
+      ctx.beginPath();
+      ctx.arc(irisX, irisY, pupilR, 0, Math.PI * 2);
+      ctx.fillStyle = '#111';
+      ctx.fill();
+
+      // Pupil highlight
+      ctx.beginPath();
+      ctx.arc(irisX - pupilR * 0.3, irisY - pupilR * 0.35, pupilR * 0.28, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(irisX + pupilR * 0.2, irisY + pupilR * 0.2, pupilR * 0.12, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fill();
+
+      ctx.restore();
+
+      // Eye outline
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, eyeW, actualH, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(80,60,40,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Eyelid (closes from top when eye is less open)
+      if (openL < 0.95) {
+        const lidClose = 1 - openL;
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(ex, eyeY, eyeW + 2, eyeH + 2, 0, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.fillStyle = `rgb(${baseR},${baseG},${baseB})`;
+        ctx.fillRect(ex - eyeW - 3, eyeY - eyeH - 3, (eyeW + 3) * 2, (eyeH * 2 + 6) * lidClose * 0.6);
+        ctx.restore();
+      }
+
+      // Eyebrows
+      const browH = side === -1 ? springs.leftBrowHeight.value : springs.rightBrowHeight.value;
+      const browA = side === -1 ? springs.leftBrowAngle.value : springs.rightBrowAngle.value;
+      const browY = eyeY - eyeH - faceR * 0.08 - browH * faceR * 0.2;
+      const browLen = eyeW * 1.4;
+
+      ctx.save();
+      ctx.translate(ex, browY);
+      ctx.rotate(browA);
+      ctx.beginPath();
+      ctx.moveTo(-browLen, 0);
+      ctx.quadraticCurveTo(0, -faceR * 0.06, browLen, 0);
+      ctx.strokeStyle = 'rgba(60,40,20,0.85)';
+      ctx.lineWidth = faceR * 0.04;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Nose ---
+    const noseScale = springs.noseScale.value;
+    const noseX = 0;
+    const noseY = faceR * 0.12;
+    ctx.save();
+    ctx.translate(noseX, noseY);
+    ctx.scale(noseScale, noseScale);
+    ctx.beginPath();
+    ctx.moveTo(0, -faceR * 0.1);
+    ctx.quadraticCurveTo(faceR * 0.06, faceR * 0.05, faceR * 0.04, faceR * 0.08);
+    ctx.quadraticCurveTo(0, faceR * 0.12, -faceR * 0.04, faceR * 0.08);
+    ctx.quadraticCurveTo(-faceR * 0.06, faceR * 0.05, 0, -faceR * 0.1);
+    ctx.fillStyle = `rgba(${Math.max(0,baseR-25)},${Math.max(0,baseG-20)},${Math.max(0,baseB-15)},0.35)`;
+    ctx.fill();
+    // Nostrils
+    ctx.beginPath();
+    ctx.ellipse(-faceR*0.025, faceR*0.07, faceR*0.018, faceR*0.012, 0.2, 0, Math.PI*2);
+    ctx.ellipse(faceR*0.025, faceR*0.07, faceR*0.018, faceR*0.012, -0.2, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(${Math.max(0,baseR-50)},${Math.max(0,baseG-45)},${Math.max(0,baseB-40)},0.3)`;
+    ctx.fill();
+    ctx.restore();
+
+    // --- Mouth ---
+    const mouthY = faceR * 0.45;
+    const mouthW = faceR * springs.mouthWidth.value;
+    const curve = springs.mouthCurve.value;
+    const openAmt = springs.mouthOpen.value;
+    const wiggle = springs.mouthWiggle.value * Math.sin(frameCount * 0.12);
+
+    ctx.save();
+    ctx.translate(wiggle * faceR * 0.04, 0);
+
+    if (openAmt > 0.05) {
+      // Open mouth — draw as filled shape
+      const mouthOpenH = faceR * openAmt * 0.4;
+
+      // Mouth cavity (dark inside)
+      ctx.beginPath();
+      ctx.moveTo(-mouthW, mouthY);
+      ctx.quadraticCurveTo(0, mouthY - curve * faceR * 0.5 - mouthOpenH * 0.3, mouthW, mouthY);
+      ctx.quadraticCurveTo(0, mouthY + curve * faceR * 0.15 + mouthOpenH, -mouthW, mouthY);
+      ctx.closePath();
+      const mouthGrad = ctx.createLinearGradient(0, mouthY - mouthOpenH, 0, mouthY + mouthOpenH);
+      mouthGrad.addColorStop(0, '#3a0a0a');
+      mouthGrad.addColorStop(0.4, '#2a0505');
+      mouthGrad.addColorStop(1, '#1a0303');
+      ctx.fillStyle = mouthGrad;
+      ctx.fill();
+
+      // Tongue hint
+      if (openAmt > 0.2) {
+        ctx.beginPath();
+        ctx.ellipse(0, mouthY + mouthOpenH * 0.35, mouthW * 0.4, mouthOpenH * 0.35, 0, 0, Math.PI);
+        ctx.fillStyle = '#cc5555';
+        ctx.fill();
+      }
+
+      // Teeth (if surprised or very open)
+      if (openAmt > 0.3) {
+        const teethY = mouthY - mouthOpenH * 0.15;
+        ctx.fillStyle = '#f0ebe6';
+        const tw = mouthW * 0.12;
+        for (let t = -3; t <= 3; t++) {
+          ctx.fillRect(t * tw * 1.1 - tw/2, teethY, tw * 0.9, mouthOpenH * 0.2);
+        }
+      }
+
+      // Upper lip
+      ctx.beginPath();
+      ctx.moveTo(-mouthW - 2, mouthY);
+      ctx.quadraticCurveTo(-mouthW * 0.5, mouthY - curve * faceR * 0.5 - 3, 0, mouthY - curve * faceR * 0.3 - mouthOpenH * 0.15);
+      ctx.quadraticCurveTo(mouthW * 0.5, mouthY - curve * faceR * 0.5 - 3, mouthW + 2, mouthY);
+      ctx.strokeStyle = '#b85050';
+      ctx.lineWidth = faceR * 0.03;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Lower lip
+      ctx.beginPath();
+      ctx.moveTo(-mouthW - 2, mouthY);
+      ctx.quadraticCurveTo(0, mouthY + mouthOpenH + curve * faceR * 0.1, mouthW + 2, mouthY);
+      ctx.strokeStyle = '#c06060';
+      ctx.lineWidth = faceR * 0.035;
+      ctx.stroke();
+    } else {
+      // Closed mouth — simple curved line with lip coloring
+      ctx.beginPath();
+      ctx.moveTo(-mouthW, mouthY);
+      ctx.quadraticCurveTo(0, mouthY - curve * faceR * 0.6, mouthW, mouthY);
+      ctx.strokeStyle = '#b06060';
+      ctx.lineWidth = faceR * 0.035;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Lip tint below
+      ctx.beginPath();
+      ctx.moveTo(-mouthW * 0.8, mouthY + 1);
+      ctx.quadraticCurveTo(0, mouthY - curve * faceR * 0.3 + faceR * 0.04, mouthW * 0.8, mouthY + 1);
+      ctx.strokeStyle = 'rgba(200,100,100,0.2)';
+      ctx.lineWidth = faceR * 0.05;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // --- Tear Drop ---
+    const tearAmt = springs.tearDrop.value;
+    if (tearAmt > 0.05) {
+      tearY += 1.2;
+      if (tearY > faceR * 0.8) tearY = 0;
+      const tearX = -eyeSpacing - eyeW * 0.3;
+      const tearStartY = eyeY + eyeH * 0.5;
+      const tY = tearStartY + tearY;
+      const tAlpha = tearAmt * (1 - tearY / (faceR * 0.8));
+
+      ctx.beginPath();
+      ctx.moveTo(tearX, tY - faceR * 0.03);
+      ctx.quadraticCurveTo(tearX + faceR * 0.025, tY, tearX, tY + faceR * 0.04);
+      ctx.quadraticCurveTo(tearX - faceR * 0.025, tY, tearX, tY - faceR * 0.03);
+      ctx.fillStyle = `rgba(100,160,240,${tAlpha * 0.7})`;
+      ctx.fill();
+
+      // Second tear (slight delay)
+      if (tearAmt > 0.6) {
+        const tearX2 = eyeSpacing + eyeW * 0.2;
+        const tearY2 = (tearY + faceR * 0.3) % (faceR * 0.8);
+        const tY2 = tearStartY + tearY2;
+        const tAlpha2 = tearAmt * (1 - tearY2 / (faceR * 0.8));
+        ctx.beginPath();
+        ctx.moveTo(tearX2, tY2 - faceR * 0.025);
+        ctx.quadraticCurveTo(tearX2 + faceR * 0.02, tY2, tearX2, tY2 + faceR * 0.035);
+        ctx.quadraticCurveTo(tearX2 - faceR * 0.02, tY2, tearX2, tY2 - faceR * 0.025);
+        ctx.fillStyle = `rgba(100,160,240,${tAlpha2 * 0.5})`;
+        ctx.fill();
+      }
+    } else {
+      tearY = 0;
+    }
+
+    ctx.restore(); // restore main face transform
+  }
+
+  // ============================================================
+  // SENTIMENT HISTORY GRAPH
+  // ============================================================
+
+  function drawHistoryGraph() {
+    const w = histCanvas.width / (window.devicePixelRatio || 1);
+    const h = 60;
+    hctx.clearRect(0, 0, w, h);
+
+    if (sentimentHistory.length < 2) {
+      hctx.fillStyle = 'rgba(255,255,255,0.2)';
+      hctx.font = '12px sans-serif';
+      hctx.textAlign = 'center';
+      hctx.fillText('Sentiment history will appear here as you type...', w/2, h/2 + 4);
+      return;
+    }
+
+    // Grid lines
+    hctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    hctx.lineWidth = 1;
+    hctx.beginPath();
+    hctx.moveTo(0, h/2); hctx.lineTo(w, h/2);
+    hctx.stroke();
+
+    // Emotion color mapping for line
+    const emotionColors = {
+      happy: '#ffcc44', angry: '#ff4444', sad: '#6688dd',
+      confused: '#aa88ff', surprised: '#ffaa22', neutral: '#888888'
+    };
+
+    // Draw filled area
+    const n = sentimentHistory.length;
+    const step = w / (MAX_HISTORY - 1);
+
+    hctx.beginPath();
+    hctx.moveTo(0, h/2);
+    for (let i = 0; i < n; i++) {
+      const x = (i + (MAX_HISTORY - n)) * step;
+      const y = h/2 - sentimentHistory[i].score * (h * 0.4);
+      if (i === 0) hctx.lineTo(x, y);
+      else hctx.lineTo(x, y);
+    }
+    hctx.lineTo((n - 1 + (MAX_HISTORY - n)) * step, h/2);
+    hctx.closePath();
+    const fillGrad = hctx.createLinearGradient(0, 0, 0, h);
+    fillGrad.addColorStop(0, 'rgba(100,255,100,0.15)');
+    fillGrad.addColorStop(0.5, 'rgba(100,100,100,0.02)');
+    fillGrad.addColorStop(1, 'rgba(255,100,100,0.15)');
+    hctx.fillStyle = fillGrad;
+    hctx.fill();
+
+    // Draw line segments colored by emotion
+    for (let i = 1; i < n; i++) {
+      const x0 = (i - 1 + (MAX_HISTORY - n)) * step;
+      const y0 = h/2 - sentimentHistory[i-1].score * (h * 0.4);
+      const x1 = (i + (MAX_HISTORY - n)) * step;
+      const y1 = h/2 - sentimentHistory[i].score * (h * 0.4);
+      hctx.beginPath();
+      hctx.moveTo(x0, y0);
+      hctx.lineTo(x1, y1);
+      hctx.strokeStyle = emotionColors[sentimentHistory[i].emotion] || '#888';
+      hctx.lineWidth = 2;
+      hctx.stroke();
+    }
+
+    // Dots
+    for (let i = 0; i < n; i++) {
+      const x = (i + (MAX_HISTORY - n)) * step;
+      const y = h/2 - sentimentHistory[i].score * (h * 0.4);
+      hctx.beginPath();
+      hctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      hctx.fillStyle = emotionColors[sentimentHistory[i].emotion] || '#888';
+      hctx.fill();
+    }
+
+    // Labels
+    hctx.fillStyle = 'rgba(255,255,255,0.3)';
+    hctx.font = '9px sans-serif';
+    hctx.textAlign = 'left';
+    hctx.fillText('+1.0', 4, 12);
+    hctx.fillText('-1.0', 4, h - 4);
+    hctx.textAlign = 'right';
+    hctx.fillText('sentiment history', w - 4, 12);
+  }
+
+  // ============================================================
+  // MAIN ANIMATION LOOP
+  // ============================================================
+
+  function animate() {
+    requestAnimationFrame(animate);
+    frameCount++;
+
+    ctx.clearRect(0, 0, W, H);
+
+    updateSprings();
+    drawBackground();
+    drawGlow();
+
+    // Particles update and draw
+    particles = particles.filter(p => p.alive());
+    for (const p of particles) {
+      p.update();
+      p.draw(ctx);
+    }
+
+    // Spawn particles periodically based on emotion
+    particleTimer++;
+    if (currentEmotion !== 'neutral' && particleTimer % 18 === 0) {
+      spawnParticles(currentEmotion);
+    }
+
+    drawFaceShape();
+    drawHistoryGraph();
+
+    // Subtle idle animation: breathing and micro pupil movement
+    if (currentEmotion === 'neutral') {
+      const breathe = Math.sin(frameCount * 0.03) * 0.01;
+      springs.surpriseScale.set(1 + breathe);
+      const microX = Math.sin(frameCount * 0.02) * 0.05;
+      const microY = Math.cos(frameCount * 0.017) * 0.03;
+      springs.leftPupilX.set(microX);
+      springs.rightPupilX.set(microX);
+      springs.leftPupilY.set(microY);
+      springs.rightPupilY.set(microY);
+    }
+
+    // Confused mouth wiggle needs continuous updating
+    if (currentEmotion === 'confused') {
+      springs.mouthWiggle.target = 0.5 + Math.sin(frameCount * 0.05) * 0.3;
+    }
+
+    // Blink occasionally
+    if (frameCount % 240 > 235) {
+      springs.leftEyeOpen.set(0.05);
+      springs.rightEyeOpen.set(0.05);
+    } else if (frameCount % 240 === 235) {
+      // Restore to emotion target
+      const text = textInput.value;
+      if (text) {
+        const r = analyzeSentiment(text);
+        // Re-apply just eye open values
+        switch(r.emotion) {
+          case 'happy': springs.leftEyeOpen.set(0.7); springs.rightEyeOpen.set(0.7); break;
+          case 'angry': springs.leftEyeOpen.set(0.8); springs.rightEyeOpen.set(0.8); break;
+          case 'sad': springs.leftEyeOpen.set(0.55); springs.rightEyeOpen.set(0.55); break;
+          case 'confused': springs.leftEyeOpen.set(1.0); springs.rightEyeOpen.set(0.7); break;
+          case 'surprised': springs.leftEyeOpen.set(1.3); springs.rightEyeOpen.set(1.3); break;
+          default: springs.leftEyeOpen.set(1); springs.rightEyeOpen.set(1);
+        }
+      } else {
+        springs.leftEyeOpen.set(1);
+        springs.rightEyeOpen.set(1);
+      }
+    }
+  }
+
+  // Initialize and start
+  applyEmotion({ score: 0, emotion: 'neutral', confidence: 0 });
+  animate();
+  textInput.focus();
+
+  // ============================================================
+  // KEYBOARD SHORTCUT — press / to focus input from anywhere
+  // ============================================================
+  document.addEventListener('keydown', function(e) {
+    if (e.key === '/' && document.activeElement !== textInput) {
+      e.preventDefault();
+      textInput.focus();
+    }
+    if (e.key === 'Escape') {
+      textInput.blur();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

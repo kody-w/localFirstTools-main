@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="copilot">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental-ai">
+<meta name="rappterzoo:tags" content="interactive,interface,creative">
+<meta name="rappterzoo:type" content="interface">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2025-07-25">
+<meta name="rappterzoo:generation" content="1">
+<title>RappterZoo Desktop</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --taskbar-h:40px;
+  --bg:#0d1117;--bg2:#161b22;--bg3:#1a1d21;
+  --fg:#c9d1d9;--fg2:#8b949e;
+  --border:#30363d;--accent:#58a6ff;
+  --shadow:0 4px 24px rgba(0,0,0,.5);
+}
+html,body{height:100%;overflow:hidden;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
+  background:var(--bg);color:var(--fg);user-select:none}
+
+/* Desktop background pattern */
+#desktop{
+  position:fixed;inset:0;bottom:var(--taskbar-h);overflow:hidden;
+  background:
+    radial-gradient(ellipse at 20% 50%,rgba(88,166,255,.03) 0%,transparent 50%),
+    radial-gradient(ellipse at 80% 20%,rgba(136,100,255,.03) 0%,transparent 50%),
+    repeating-linear-gradient(0deg,transparent,transparent 49px,rgba(48,54,61,.15) 50px),
+    repeating-linear-gradient(90deg,transparent,transparent 49px,rgba(48,54,61,.15) 50px),
+    var(--bg);
+}
+
+/* Desktop icons */
+.desktop-icon{
+  position:absolute;width:80px;display:flex;flex-direction:column;align-items:center;
+  cursor:pointer;padding:6px 4px;border-radius:6px;transition:background .15s;
+}
+.desktop-icon:hover{background:rgba(88,166,255,.12)}
+.desktop-icon.selected{background:rgba(88,166,255,.2);outline:1px solid rgba(88,166,255,.4)}
+.desktop-icon .icon-emoji{font-size:36px;line-height:1.1;margin-bottom:3px;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.4))}
+.desktop-icon .icon-label{font-size:11px;text-align:center;color:#e6edf3;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);line-height:1.25;word-break:break-word;max-width:78px}
+
+/* Window frame */
+.window{
+  position:absolute;min-width:400px;min-height:300px;
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px 8px 4px 4px;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:var(--shadow);transition:box-shadow .15s;
+}
+.window.active{box-shadow:0 8px 32px rgba(0,0,0,.65);border-color:#444c56}
+.window.maximized{border-radius:0;border:none}
+.window.minimized{display:none!important}
+.window .title-bar{
+  height:34px;display:flex;align-items:center;padding:0 8px;cursor:default;
+  background:linear-gradient(180deg,#21262d 0%,#1a1d21 100%);flex-shrink:0;
+  border-bottom:1px solid var(--border);position:relative;
+}
+.window .title-bar .accent-line{
+  position:absolute;top:0;left:0;right:0;height:2px;border-radius:8px 8px 0 0;
+}
+.window .title-bar .win-title{
+  flex:1;font-size:12px;color:var(--fg);padding:0 8px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;
+}
+.window .title-bar .win-icon{font-size:14px;margin-right:2px}
+.window .title-bar .win-controls{display:flex;gap:2px}
+.window .title-bar .win-btn{
+  width:28px;height:22px;border:none;background:transparent;color:var(--fg2);
+  font-size:14px;cursor:pointer;border-radius:3px;display:flex;align-items:center;
+  justify-content:center;line-height:1;
+}
+.window .title-bar .win-btn:hover{background:rgba(255,255,255,.1);color:var(--fg)}
+.window .title-bar .win-btn.close:hover{background:#da3633;color:#fff}
+.window .body{flex:1;overflow:hidden;position:relative}
+.window .body iframe{width:100%;height:100%;border:none;background:#fff}
+
+/* Resize handles */
+.window .resize{position:absolute;z-index:2}
+.window .resize-n{top:-3px;left:8px;right:8px;height:6px;cursor:n-resize}
+.window .resize-s{bottom:-3px;left:8px;right:8px;height:6px;cursor:s-resize}
+.window .resize-e{right:-3px;top:8px;bottom:8px;width:6px;cursor:e-resize}
+.window .resize-w{left:-3px;top:8px;bottom:8px;width:6px;cursor:w-resize}
+.window .resize-ne{top:-3px;right:-3px;width:12px;height:12px;cursor:ne-resize}
+.window .resize-nw{top:-3px;left:-3px;width:12px;height:12px;cursor:nw-resize}
+.window .resize-se{bottom:-3px;right:-3px;width:12px;height:12px;cursor:se-resize}
+.window .resize-sw{bottom:-3px;left:-3px;width:12px;height:12px;cursor:sw-resize}
+
+/* Snap preview */
+#snap-preview{
+  position:fixed;z-index:9998;background:rgba(88,166,255,.12);
+  border:2px solid rgba(88,166,255,.4);border-radius:6px;
+  pointer-events:none;display:none;transition:all .15s ease;
+}
+
+/* Taskbar */
+#taskbar{
+  position:fixed;bottom:0;left:0;right:0;height:var(--taskbar-h);
+  background:var(--bg3);border-top:1px solid var(--border);
+  display:flex;align-items:center;padding:0 4px;z-index:10000;gap:2px;
+}
+#start-btn{
+  height:32px;padding:0 14px;background:linear-gradient(180deg,#2d333b,#22272e);
+  border:1px solid var(--border);border-radius:4px;color:var(--fg);
+  font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;
+  white-space:nowrap;flex-shrink:0;
+}
+#start-btn:hover,#start-btn.active{background:linear-gradient(180deg,#363d45,#2d333b)}
+#start-btn .start-logo{font-size:16px}
+#task-buttons{display:flex;flex:1;gap:2px;overflow-x:auto;padding:0 4px;min-width:0}
+#task-buttons::-webkit-scrollbar{height:0}
+.task-btn{
+  height:30px;padding:0 10px;background:rgba(255,255,255,.04);border:1px solid transparent;
+  border-radius:3px;color:var(--fg2);font-size:11px;cursor:pointer;display:flex;
+  align-items:center;gap:5px;white-space:nowrap;max-width:180px;overflow:hidden;
+  text-overflow:ellipsis;flex-shrink:0;
+}
+.task-btn:hover{background:rgba(255,255,255,.08)}
+.task-btn.active{background:rgba(88,166,255,.15);border-color:rgba(88,166,255,.3);color:var(--fg)}
+.task-btn.minimized{opacity:.6}
+.task-btn .tb-color{width:3px;height:14px;border-radius:2px;flex-shrink:0}
+.task-btn .tb-label{overflow:hidden;text-overflow:ellipsis}
+#clock{
+  font-size:11px;color:var(--fg2);padding:0 12px;white-space:nowrap;flex-shrink:0;
+  cursor:default;
+}
+
+/* Start menu */
+#start-menu{
+  position:fixed;bottom:var(--taskbar-h);left:4px;width:280px;
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px 8px 0 0;
+  box-shadow:0 -8px 32px rgba(0,0,0,.5);z-index:10001;display:none;
+  max-height:calc(100vh - 60px);overflow:hidden;flex-direction:column;
+}
+#start-menu.visible{display:flex}
+#start-menu .sm-header{
+  padding:12px 16px;border-bottom:1px solid var(--border);
+  font-size:14px;font-weight:600;color:var(--accent);
+}
+#start-menu .sm-list{overflow-y:auto;flex:1}
+.sm-cat{
+  display:flex;align-items:center;padding:8px 16px;cursor:pointer;gap:10px;
+  position:relative;
+}
+.sm-cat:hover{background:rgba(88,166,255,.1)}
+.sm-cat .sm-emoji{font-size:20px;width:28px;text-align:center}
+.sm-cat .sm-info{flex:1;min-width:0}
+.sm-cat .sm-name{font-size:12px;color:var(--fg)}
+.sm-cat .sm-count{font-size:10px;color:var(--fg2)}
+.sm-cat .sm-arrow{color:var(--fg2);font-size:10px}
+
+/* Start submenu */
+#start-submenu{
+  position:fixed;bottom:0;left:288px;width:300px;
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+  box-shadow:0 -4px 24px rgba(0,0,0,.4);z-index:10002;display:none;
+  max-height:calc(100vh - 60px);overflow-y:auto;
+}
+#start-submenu.visible{display:block}
+.sm-app{
+  display:flex;align-items:center;padding:7px 14px;cursor:pointer;gap:8px;
+}
+.sm-app:hover{background:rgba(88,166,255,.1)}
+.sm-app .sma-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sm-app .sma-info{flex:1;min-width:0}
+.sm-app .sma-title{font-size:11px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-app .sma-desc{font-size:9px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Context menu */
+#ctx-menu{
+  position:fixed;background:var(--bg2);border:1px solid var(--border);
+  border-radius:6px;box-shadow:var(--shadow);z-index:10003;display:none;
+  min-width:180px;padding:4px 0;
+}
+#ctx-menu.visible{display:block}
+.ctx-item{
+  padding:7px 16px;font-size:12px;cursor:pointer;color:var(--fg);
+}
+.ctx-item:hover{background:rgba(88,166,255,.12)}
+.ctx-sep{height:1px;background:var(--border);margin:4px 8px}
+
+/* File browser */
+.file-browser{padding:0;overflow-y:auto;height:100%}
+.fb-item{
+  display:flex;align-items:center;padding:8px 14px;cursor:pointer;gap:10px;
+  border-bottom:1px solid rgba(48,54,61,.4);
+}
+.fb-item:hover{background:rgba(88,166,255,.08)}
+.fb-item .fb-icon{font-size:20px;flex-shrink:0}
+.fb-item .fb-info{flex:1;min-width:0}
+.fb-item .fb-title{font-size:12px;color:var(--fg);margin-bottom:2px}
+.fb-item .fb-desc{font-size:10px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fb-item .fb-tags{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap}
+.fb-item .fb-tag{
+  font-size:9px;padding:1px 6px;background:rgba(255,255,255,.06);
+  border-radius:3px;color:var(--fg2);
+}
+.fb-item .fb-complexity{
+  font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;flex-shrink:0;
+}
+.fb-complexity.simple{background:rgba(63,185,80,.15);color:#3fb950}
+.fb-complexity.intermediate{background:rgba(210,153,34,.15);color:#d29922}
+.fb-complexity.advanced{background:rgba(218,54,51,.15);color:#da3633}
+
+/* Alt+Tab overlay */
+#alt-tab-overlay{
+  position:fixed;inset:0;z-index:10005;background:rgba(0,0,0,.6);
+  display:none;align-items:center;justify-content:center;
+}
+#alt-tab-overlay.visible{display:flex}
+#alt-tab-list{
+  display:flex;gap:8px;padding:16px;background:var(--bg2);border:1px solid var(--border);
+  border-radius:10px;box-shadow:var(--shadow);max-width:90vw;overflow-x:auto;
+}
+.at-item{
+  width:120px;padding:10px 8px;border-radius:6px;text-align:center;
+  border:2px solid transparent;cursor:pointer;flex-shrink:0;
+}
+.at-item.selected{border-color:var(--accent);background:rgba(88,166,255,.12)}
+.at-item .at-emoji{font-size:28px;display:block;margin-bottom:4px}
+.at-item .at-label{font-size:10px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* About dialog */
+.about-content{padding:24px;text-align:center}
+.about-content h2{font-size:20px;margin-bottom:8px;color:var(--accent)}
+.about-content p{font-size:12px;color:var(--fg2);line-height:1.6;margin-bottom:6px}
+
+/* Mobile */
+@media(max-width:768px){
+  .window{min-width:100vw!important;min-height:auto!important;
+    left:0!important;top:0!important;width:100vw!important;
+    height:calc(100vh - var(--taskbar-h))!important;border-radius:0!important}
+  .window .resize{display:none}
+  .desktop-icon{transform:scale(.85)}
+  #start-submenu{left:4px!important;bottom:calc(var(--taskbar-h) + 4px)!important}
+}
+</style>
+</head>
+<body>
+<div id="desktop"></div>
+<div id="snap-preview"></div>
+<div id="taskbar">
+  <button id="start-btn"><span class="start-logo">🦖</span> Start</button>
+  <div id="task-buttons"></div>
+  <div id="clock"></div>
+</div>
+<div id="start-menu">
+  <div class="sm-header">🦖 RappterZoo</div>
+  <div class="sm-list" id="sm-list"></div>
+</div>
+<div id="start-submenu"></div>
+<div id="ctx-menu"></div>
+<div id="alt-tab-overlay"><div id="alt-tab-list"></div></div>
+
+<script>
+(function(){
+'use strict';
+
+const CATEGORY_ICONS = {
+  visual_art:'🎨', '3d_immersive':'🌐', audio_music:'🎵',
+  generative_art:'🌀', games_puzzles:'🎮', particle_physics:'⚛️',
+  creative_tools:'🛠️', experimental_ai:'🧪', educational_tools:'📚'
+};
+
+let manifest = null;
+let windows = [];
+let nextWinId = 1;
+let topZ = 100;
+let activeWinId = null;
+let dragState = null;
+let resizeState = null;
+
+// DOM refs
+const $desktop = document.getElementById('desktop');
+const $taskbar = document.getElementById('task-buttons');
+const $startBtn = document.getElementById('start-btn');
+const $startMenu = document.getElementById('start-menu');
+const $smList = document.getElementById('sm-list');
+const $startSub = document.getElementById('start-submenu');
+const $ctxMenu = document.getElementById('ctx-menu');
+const $snapPreview = document.getElementById('snap-preview');
+const $clock = document.getElementById('clock');
+const $altTab = document.getElementById('alt-tab-overlay');
+const $altTabList = document.getElementById('alt-tab-list');
+
+// Load manifest
+async function loadManifest() {
+  try {
+    const r = await fetch('../manifest.json');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    manifest = await r.json();
+    init();
+  } catch(e) {
+    document.body.innerHTML = '<div style="padding:40px;color:#f85;font-size:16px">Failed to load manifest.json: ' + e.message + '</div>';
+  }
+}
+
+function init() {
+  createDesktopIcons();
+  buildStartMenu();
+  updateClock();
+  setInterval(updateClock, 15000);
+  restoreState();
+}
+
+// Desktop icons
+function createDesktopIcons() {
+  const cats = Object.keys(manifest.categories);
+  const cols = 1;
+  cats.forEach((key, i) => {
+    const cat = manifest.categories[key];
+    const el = document.createElement('div');
+    el.className = 'desktop-icon';
+    el.style.left = (16 + Math.floor(i / 7) * 96) + 'px';
+    el.style.top = (16 + (i % 7) * 90) + 'px';
+    el.innerHTML = `<div class="icon-emoji">${CATEGORY_ICONS[key]||'📁'}</div><div class="icon-label">${cat.title}</div>`;
+    el.addEventListener('dblclick', () => openFileBrowser(key));
+    let clickT = 0;
+    el.addEventListener('click', (e) => {
+      document.querySelectorAll('.desktop-icon.selected').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+    });
+    $desktop.appendChild(el);
+  });
+  $desktop.addEventListener('click', (e) => {
+    if (e.target === $desktop) {
+      document.querySelectorAll('.desktop-icon.selected').forEach(x => x.classList.remove('selected'));
+    }
+  });
+}
+
+// File browser window
+function openFileBrowser(catKey) {
+  const cat = manifest.categories[catKey];
+  if (!cat) return;
+  const existing = windows.find(w => w.type === 'browser' && w.catKey === catKey && !w.closed);
+  if (existing) { focusWindow(existing.id); return; }
+
+  const html = document.createElement('div');
+  html.className = 'file-browser';
+  cat.apps.forEach(app => {
+    const item = document.createElement('div');
+    item.className = 'fb-item';
+    item.innerHTML = `
+      <div class="fb-icon">📄</div>
+      <div class="fb-info">
+        <div class="fb-title">${esc(app.title)}</div>
+        <div class="fb-desc">${esc(app.description||'')}</div>
+        <div class="fb-tags">${(app.tags||[]).slice(0,4).map(t=>'<span class="fb-tag">'+esc(t)+'</span>').join('')}</div>
+      </div>
+      <div class="fb-complexity ${app.complexity||''}">${app.complexity||''}</div>`;
+    item.addEventListener('dblclick', () => openApp(catKey, app));
+    html.appendChild(item);
+  });
+
+  createWindow({
+    title: cat.title,
+    icon: CATEGORY_ICONS[catKey] || '📁',
+    color: cat.color,
+    type: 'browser',
+    catKey: catKey,
+    contentEl: html,
+    width: 520, height: 480,
+  });
+}
+
+// Open app in iframe
+function openApp(catKey, app) {
+  const cat = manifest.categories[catKey];
+  const url = '../' + cat.folder + '/' + app.file;
+  createWindow({
+    title: app.title,
+    icon: CATEGORY_ICONS[catKey] || '📄',
+    color: cat.color,
+    type: 'app',
+    catKey: catKey,
+    appFile: app.file,
+    url: url,
+    width: 900, height: 620,
+  });
+}
+
+// Window creation
+function createWindow(opts) {
+  const id = nextWinId++;
+  const dw = desktopW(), dh = desktopH();
+  const w = Math.min(opts.width || 800, dw - 20);
+  const h = Math.min(opts.height || 500, dh - 20);
+  const offsetCount = windows.filter(x => !x.closed).length;
+  const cascade = (offsetCount % 12) * 28;
+  let x = Math.min(60 + cascade, dw - w - 10);
+  let y = Math.min(40 + cascade, dh - h - 10);
+  if (x < 0) x = 10;
+  if (y < 0) y = 10;
+
+  const el = document.createElement('div');
+  el.className = 'window active';
+  el.id = 'win-' + id;
+  el.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;z-index:${++topZ}`;
+
+  const accentColor = opts.color || '#58a6ff';
+
+  // Build HTML
+  el.innerHTML = `
+    <div class="title-bar" data-wid="${id}">
+      <div class="accent-line" style="background:${accentColor}"></div>
+      <span class="win-icon">${opts.icon||'📄'}</span>
+      <span class="win-title">${esc(opts.title)}</span>
+      <div class="win-controls">
+        <button class="win-btn minimize" data-action="min" title="Minimize">−</button>
+        <button class="win-btn maximize" data-action="max" title="Maximize">□</button>
+        <button class="win-btn close" data-action="close" title="Close">×</button>
+      </div>
+    </div>
+    <div class="body"></div>
+    <div class="resize resize-n"></div><div class="resize resize-s"></div>
+    <div class="resize resize-e"></div><div class="resize resize-w"></div>
+    <div class="resize resize-ne"></div><div class="resize resize-nw"></div>
+    <div class="resize resize-se"></div><div class="resize resize-sw"></div>`;
+
+  const body = el.querySelector('.body');
+  if (opts.contentEl) {
+    body.appendChild(opts.contentEl);
+  } else if (opts.url) {
+    const iframe = document.createElement('iframe');
+    iframe.sandbox = 'allow-scripts allow-same-origin';
+    iframe.src = opts.url;
+    iframe.loading = 'lazy';
+    body.appendChild(iframe);
+  } else if (opts.html) {
+    body.innerHTML = opts.html;
+  }
+
+  $desktop.appendChild(el);
+
+  const win = {
+    id, el, title: opts.title, icon: opts.icon, color: accentColor,
+    type: opts.type || 'app', catKey: opts.catKey, appFile: opts.appFile,
+    x, y, w, h, minimized: false, maximized: false, closed: false,
+    prevRect: null,
+  };
+  windows.push(win);
+
+  // Event: title bar buttons
+  el.querySelectorAll('.win-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.stopPropagation());
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      if (action === 'close') closeWindow(id);
+      else if (action === 'min') minimizeWindow(id);
+      else if (action === 'max') toggleMaximize(id);
+    });
+  });
+
+  // Event: bring to front
+  el.addEventListener('mousedown', () => focusWindow(id));
+
+  // Event: drag title bar
+  const titleBar = el.querySelector('.title-bar');
+  titleBar.addEventListener('mousedown', e => {
+    if (e.target.closest('.win-btn')) return;
+    e.preventDefault();
+    if (win.maximized) {
+      const ratio = e.clientX / desktopW();
+      toggleMaximize(id);
+      win.x = e.clientX - win.w * ratio;
+      win.y = 0;
+      applyPos(win);
+    }
+    dragState = { winId: id, startX: e.clientX, startY: e.clientY, origX: win.x, origY: win.y };
+  });
+
+  // Double-click title bar to maximize
+  titleBar.addEventListener('dblclick', e => {
+    if (e.target.closest('.win-btn')) return;
+    toggleMaximize(id);
+  });
+
+  // Resize handles
+  el.querySelectorAll('.resize').forEach(handle => {
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = handle.className.replace('resize ', '').replace('resize-', '');
+      resizeState = {
+        winId: id, dir, startX: e.clientX, startY: e.clientY,
+        origX: win.x, origY: win.y, origW: win.w, origH: win.h
+      };
+      focusWindow(id);
+    });
+  });
+
+  focusWindow(id);
+  updateTaskbar();
+  return win;
+}
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function desktopW() { return window.innerWidth; }
+function desktopH() { return window.innerHeight - 40; }
+
+function getWin(id) { return windows.find(w => w.id === id); }
+
+function focusWindow(id) {
+  const win = getWin(id);
+  if (!win || win.closed) return;
+  if (win.minimized) {
+    win.minimized = false;
+    win.el.classList.remove('minimized');
+  }
+  windows.forEach(w => w.el.classList.remove('active'));
+  win.el.classList.add('active');
+  win.el.style.zIndex = ++topZ;
+  activeWinId = id;
+  updateTaskbar();
+}
+
+function closeWindow(id) {
+  const win = getWin(id);
+  if (!win) return;
+  win.closed = true;
+  win.el.remove();
+  if (activeWinId === id) {
+    const open = windows.filter(w => !w.closed && !w.minimized);
+    if (open.length) focusWindow(open[open.length-1].id);
+    else activeWinId = null;
+  }
+  updateTaskbar();
+  saveState();
+}
+
+function minimizeWindow(id) {
+  const win = getWin(id);
+  if (!win) return;
+  win.minimized = true;
+  win.el.classList.add('minimized');
+  if (activeWinId === id) {
+    const open = windows.filter(w => !w.closed && !w.minimized);
+    if (open.length) focusWindow(open[open.length-1].id);
+    else activeWinId = null;
+  }
+  updateTaskbar();
+}
+
+function toggleMaximize(id) {
+  const win = getWin(id);
+  if (!win) return;
+  if (win.maximized) {
+    win.maximized = false;
+    win.el.classList.remove('maximized');
+    if (win.prevRect) {
+      win.x = win.prevRect.x; win.y = win.prevRect.y;
+      win.w = win.prevRect.w; win.h = win.prevRect.h;
+    }
+    applyPos(win);
+  } else {
+    win.prevRect = { x: win.x, y: win.y, w: win.w, h: win.h };
+    win.maximized = true;
+    win.el.classList.add('maximized');
+    win.el.style.left = '0'; win.el.style.top = '0';
+    win.el.style.width = desktopW() + 'px';
+    win.el.style.height = desktopH() + 'px';
+  }
+}
+
+function applyPos(win) {
+  win.el.style.left = win.x + 'px';
+  win.el.style.top = win.y + 'px';
+  win.el.style.width = win.w + 'px';
+  win.el.style.height = win.h + 'px';
+}
+
+function snapWindow(id, region) {
+  const win = getWin(id);
+  if (!win) return;
+  const dw = desktopW(), dh = desktopH();
+  if (!win.prevRect) win.prevRect = { x: win.x, y: win.y, w: win.w, h: win.h };
+  win.maximized = false;
+  win.el.classList.remove('maximized');
+  if (region === 'left') { win.x=0; win.y=0; win.w=dw/2; win.h=dh; }
+  else if (region === 'right') { win.x=dw/2; win.y=0; win.w=dw/2; win.h=dh; }
+  else if (region === 'tl') { win.x=0; win.y=0; win.w=dw/2; win.h=dh/2; }
+  else if (region === 'tr') { win.x=dw/2; win.y=0; win.w=dw/2; win.h=dh/2; }
+  else if (region === 'bl') { win.x=0; win.y=dh/2; win.w=dw/2; win.h=dh/2; }
+  else if (region === 'br') { win.x=dw/2; win.y=dh/2; win.w=dw/2; win.h=dh/2; }
+  applyPos(win);
+}
+
+function getSnapRegion(cx, cy) {
+  const margin = 8, dw = desktopW(), dh = desktopH();
+  const onLeft = cx <= margin, onRight = cx >= dw - margin;
+  const onTop = cy <= margin, onBottom = cy >= dh - margin;
+  if (onLeft && onTop) return 'tl';
+  if (onRight && onTop) return 'tr';
+  if (onLeft && onBottom) return 'bl';
+  if (onRight && onBottom) return 'br';
+  if (onLeft) return 'left';
+  if (onRight) return 'right';
+  return null;
+}
+
+function showSnapPreview(region) {
+  if (!region) { $snapPreview.style.display='none'; return; }
+  const dw = desktopW(), dh = desktopH();
+  let r;
+  if (region==='left') r={x:0,y:0,w:dw/2,h:dh};
+  else if (region==='right') r={x:dw/2,y:0,w:dw/2,h:dh};
+  else if (region==='tl') r={x:0,y:0,w:dw/2,h:dh/2};
+  else if (region==='tr') r={x:dw/2,y:0,w:dw/2,h:dh/2};
+  else if (region==='bl') r={x:0,y:dh/2,w:dw/2,h:dh/2};
+  else if (region==='br') r={x:dw/2,y:dh/2,w:dw/2,h:dh/2};
+  else { $snapPreview.style.display='none'; return; }
+  $snapPreview.style.cssText = `display:block;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
+}
+
+// Global mouse move/up for drag & resize
+document.addEventListener('mousemove', e => {
+  if (dragState) {
+    const win = getWin(dragState.winId);
+    if (!win) return;
+    win.x = dragState.origX + (e.clientX - dragState.startX);
+    win.y = dragState.origY + (e.clientY - dragState.startY);
+    win.y = Math.max(0, win.y);
+    applyPos(win);
+    const snap = getSnapRegion(e.clientX, e.clientY);
+    showSnapPreview(snap);
+  }
+  if (resizeState) {
+    const win = getWin(resizeState.winId);
+    if (!win) return;
+    const dx = e.clientX - resizeState.startX;
+    const dy = e.clientY - resizeState.startY;
+    const dir = resizeState.dir;
+    let nx = resizeState.origX, ny = resizeState.origY;
+    let nw = resizeState.origW, nh = resizeState.origH;
+    if (dir.includes('e')) nw = Math.max(400, resizeState.origW + dx);
+    if (dir.includes('w')) { nw = Math.max(400, resizeState.origW - dx); nx = resizeState.origX + resizeState.origW - nw; }
+    if (dir.includes('s')) nh = Math.max(300, resizeState.origH + dy);
+    if (dir.includes('n')) { nh = Math.max(300, resizeState.origH - dy); ny = resizeState.origY + resizeState.origH - nh; }
+    win.x=nx; win.y=ny; win.w=nw; win.h=nh;
+    applyPos(win);
+  }
+});
+
+document.addEventListener('mouseup', e => {
+  if (dragState) {
+    const win = getWin(dragState.winId);
+    const snap = getSnapRegion(e.clientX, e.clientY);
+    if (snap && win) snapWindow(dragState.winId, snap);
+    $snapPreview.style.display = 'none';
+    if (win) saveState();
+    dragState = null;
+  }
+  if (resizeState) {
+    saveState();
+    resizeState = null;
+  }
+});
+
+// Disable iframe pointer events during drag/resize
+document.addEventListener('mousedown', () => {
+  document.querySelectorAll('.window .body iframe').forEach(f => f.style.pointerEvents='none');
+});
+document.addEventListener('mouseup', () => {
+  document.querySelectorAll('.window .body iframe').forEach(f => f.style.pointerEvents='');
+});
+
+// Taskbar
+function updateTaskbar() {
+  $taskbar.innerHTML = '';
+  windows.filter(w => !w.closed).forEach(win => {
+    const btn = document.createElement('button');
+    btn.className = 'task-btn' + (win.id===activeWinId?' active':'') + (win.minimized?' minimized':'');
+    btn.innerHTML = `<span class="tb-color" style="background:${win.color}"></span><span class="tb-label">${esc(win.title)}</span>`;
+    btn.addEventListener('click', () => {
+      if (win.minimized) focusWindow(win.id);
+      else if (win.id === activeWinId) minimizeWindow(win.id);
+      else focusWindow(win.id);
+    });
+    $taskbar.appendChild(btn);
+  });
+}
+
+// Clock
+function updateClock() {
+  const d = new Date();
+  $clock.textContent = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
+
+// Start menu
+$startBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  const vis = $startMenu.classList.toggle('visible');
+  $startBtn.classList.toggle('active', vis);
+  if (!vis) closeStartMenu();
+});
+
+function closeStartMenu() {
+  $startMenu.classList.remove('visible');
+  $startSub.classList.remove('visible');
+  $startBtn.classList.remove('active');
+}
+
+function buildStartMenu() {
+  $smList.innerHTML = '';
+  Object.keys(manifest.categories).forEach(key => {
+    const cat = manifest.categories[key];
+    const el = document.createElement('div');
+    el.className = 'sm-cat';
+    el.innerHTML = `
+      <span class="sm-emoji">${CATEGORY_ICONS[key]||'📁'}</span>
+      <div class="sm-info"><div class="sm-name">${esc(cat.title)}</div>
+      <div class="sm-count">${cat.apps.length} apps</div></div>
+      <span class="sm-arrow">▶</span>`;
+    el.addEventListener('mouseenter', () => showSubmenu(key, el));
+    el.addEventListener('click', () => { openFileBrowser(key); closeStartMenu(); });
+    $smList.appendChild(el);
+  });
+}
+
+function showSubmenu(catKey, refEl) {
+  const cat = manifest.categories[catKey];
+  $startSub.innerHTML = '';
+  cat.apps.slice(0, 50).forEach(app => {
+    const el = document.createElement('div');
+    el.className = 'sm-app';
+    el.innerHTML = `<span class="sma-dot" style="background:${cat.color}"></span>
+      <div class="sma-info"><div class="sma-title">${esc(app.title)}</div>
+      <div class="sma-desc">${esc(app.description||'')}</div></div>`;
+    el.addEventListener('click', () => { openApp(catKey, app); closeStartMenu(); });
+    $startSub.appendChild(el);
+  });
+  if (cat.apps.length > 50) {
+    const more = document.createElement('div');
+    more.className = 'sm-app';
+    more.innerHTML = '<div class="sma-info"><div class="sma-title" style="color:var(--fg2)">... and ' + (cat.apps.length-50) + ' more — open folder to see all</div></div>';
+    more.addEventListener('click', () => { openFileBrowser(catKey); closeStartMenu(); });
+    $startSub.appendChild(more);
+  }
+  const rect = refEl.getBoundingClientRect();
+  $startSub.style.bottom = (window.innerHeight - rect.bottom) + 'px';
+  $startSub.classList.add('visible');
+}
+
+// Close menus on outside click
+document.addEventListener('click', e => {
+  if (!$startMenu.contains(e.target) && !$startBtn.contains(e.target) && !$startSub.contains(e.target)) {
+    closeStartMenu();
+  }
+  if (!$ctxMenu.contains(e.target)) $ctxMenu.classList.remove('visible');
+});
+
+// Context menu
+$desktop.addEventListener('contextmenu', e => {
+  if (e.target.closest('.window')) return;
+  e.preventDefault();
+  $ctxMenu.innerHTML = '';
+  const items = [
+    { label: 'Refresh Desktop', action: () => location.reload() },
+    { sep: true },
+    { label: 'Tile Windows', action: tileWindows },
+    { label: 'Cascade Windows', action: cascadeWindows },
+    { sep: true },
+    { label: 'About RappterZoo', action: showAbout },
+  ];
+  items.forEach(it => {
+    if (it.sep) { const s=document.createElement('div'); s.className='ctx-sep'; $ctxMenu.appendChild(s); return; }
+    const el = document.createElement('div');
+    el.className = 'ctx-item';
+    el.textContent = it.label;
+    el.addEventListener('click', () => { it.action(); $ctxMenu.classList.remove('visible'); });
+    $ctxMenu.appendChild(el);
+  });
+  $ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+  $ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+  $ctxMenu.classList.add('visible');
+});
+
+// Tile & Cascade
+function tileWindows() {
+  const open = windows.filter(w => !w.closed && !w.minimized);
+  if (!open.length) return;
+  const cols = Math.ceil(Math.sqrt(open.length));
+  const rows = Math.ceil(open.length / cols);
+  const dw = desktopW(), dh = desktopH();
+  const cw = dw / cols, ch = dh / rows;
+  open.forEach((win, i) => {
+    win.maximized = false; win.el.classList.remove('maximized');
+    win.x = (i % cols) * cw; win.y = Math.floor(i / cols) * ch;
+    win.w = cw; win.h = ch;
+    applyPos(win);
+  });
+}
+
+function cascadeWindows() {
+  const open = windows.filter(w => !w.closed && !w.minimized);
+  const dw = desktopW(), dh = desktopH();
+  const w = Math.min(700, dw * .6), h = Math.min(500, dh * .6);
+  open.forEach((win, i) => {
+    win.maximized = false; win.el.classList.remove('maximized');
+    win.x = 30 + i * 28; win.y = 30 + i * 28;
+    if (win.x + w > dw) win.x = 30;
+    if (win.y + h > dh) win.y = 30;
+    win.w = w; win.h = h;
+    applyPos(win);
+    win.el.style.zIndex = ++topZ;
+  });
+  if (open.length) focusWindow(open[open.length-1].id);
+}
+
+function showAbout() {
+  const existing = windows.find(w => w.type === 'about' && !w.closed);
+  if (existing) { focusWindow(existing.id); return; }
+  const total = Object.values(manifest.categories).reduce((s,c) => s+c.apps.length, 0);
+  const content = document.createElement('div');
+  content.className = 'about-content';
+  content.innerHTML = `
+    <h2>🦖 RappterZoo Desktop</h2>
+    <p>A windowed desktop environment for exploring<br>${total} self-contained HTML apps.</p>
+    <p>Double-click category icons to browse apps.<br>
+    Drag title bars to move windows. Drag edges to resize.<br>
+    Snap windows by dragging to screen edges.</p>
+    <p style="margin-top:12px;color:var(--accent)">Built for RappterZoo Gallery</p>`;
+  createWindow({
+    title: 'About RappterZoo', icon: '🦖', color: '#58a6ff',
+    type: 'about', contentEl: content, width: 400, height: 300,
+  });
+}
+
+// Keyboard shortcuts
+let altTabActive = false, altTabIdx = 0;
+document.addEventListener('keydown', e => {
+  // Alt+F4
+  if (e.altKey && e.key === 'F4') {
+    e.preventDefault();
+    if (activeWinId) closeWindow(activeWinId);
+  }
+  // Alt+Tab
+  if (e.altKey && e.key === 'Tab') {
+    e.preventDefault();
+    const open = windows.filter(w => !w.closed);
+    if (!open.length) return;
+    if (!altTabActive) {
+      altTabActive = true;
+      altTabIdx = open.findIndex(w => w.id === activeWinId);
+      if (altTabIdx < 0) altTabIdx = 0;
+    }
+    altTabIdx = (altTabIdx + (e.shiftKey ? -1 : 1) + open.length) % open.length;
+    showAltTab(open, altTabIdx);
+  }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.key === 'Alt' && altTabActive) {
+    altTabActive = false;
+    $altTab.classList.remove('visible');
+    const open = windows.filter(w => !w.closed);
+    if (open[altTabIdx]) focusWindow(open[altTabIdx].id);
+  }
+});
+
+function showAltTab(open, idx) {
+  $altTabList.innerHTML = '';
+  open.forEach((win, i) => {
+    const el = document.createElement('div');
+    el.className = 'at-item' + (i===idx?' selected':'');
+    el.innerHTML = `<span class="at-emoji">${win.icon||'📄'}</span><span class="at-label">${esc(win.title)}</span>`;
+    $altTabList.appendChild(el);
+  });
+  $altTab.classList.add('visible');
+}
+
+// Persist state
+function saveState() {
+  try {
+    const state = windows.filter(w => !w.closed && w.type === 'app').map(w => ({
+      catKey: w.catKey, appFile: w.appFile, x: w.x, y: w.y, w: w.w, h: w.h,
+      minimized: w.minimized, maximized: w.maximized,
+    }));
+    localStorage.setItem('rzDesktop', JSON.stringify(state));
+  } catch(e) {}
+}
+
+function restoreState() {
+  try {
+    const raw = localStorage.getItem('rzDesktop');
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    state.forEach(s => {
+      const cat = manifest.categories[s.catKey];
+      if (!cat) return;
+      const app = cat.apps.find(a => a.file === s.appFile);
+      if (!app) return;
+      const win = createWindow({
+        title: app.title, icon: CATEGORY_ICONS[s.catKey]||'📄',
+        color: cat.color, type: 'app', catKey: s.catKey, appFile: app.file,
+        url: '../' + cat.folder + '/' + app.file,
+        width: s.w, height: s.h,
+      });
+      win.x = s.x; win.y = s.y; win.w = s.w; win.h = s.h;
+      applyPos(win);
+      if (s.minimized) minimizeWindow(win.id);
+      else if (s.maximized) toggleMaximize(win.id);
+    });
+  } catch(e) {}
+}
+
+// Touch support for mobile drag
+let touchDragState = null;
+document.addEventListener('touchstart', e => {
+  const tb = e.target.closest('.title-bar');
+  if (!tb || e.target.closest('.win-btn')) return;
+  const wid = parseInt(tb.dataset.wid);
+  const win = getWin(wid);
+  if (!win) return;
+  const t = e.touches[0];
+  touchDragState = { winId: wid, startX: t.clientX, startY: t.clientY, origX: win.x, origY: win.y };
+  focusWindow(wid);
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (!touchDragState) return;
+  const win = getWin(touchDragState.winId);
+  if (!win) return;
+  const t = e.touches[0];
+  win.x = touchDragState.origX + (t.clientX - touchDragState.startX);
+  win.y = Math.max(0, touchDragState.origY + (t.clientY - touchDragState.startY));
+  applyPos(win);
+}, { passive: true });
+
+document.addEventListener('touchend', () => {
+  if (touchDragState) { saveState(); touchDragState = null; }
+});
+
+// Go!
+loadManifest();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Git Circus</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: sans-serif; }
+#app { display: flex; flex-direction: column; height: 100vh; }
+#top-bar { display: flex; align-items: center; gap: 12px; padding: 6px 14px; background: #1a0a2e; border-bottom: 2px solid #ff6b35; z-index: 10; }
+#top-bar h1 { font-size: 18px; color: #ffd700; text-shadow: 0 0 8px #ff6b35; white-space: nowrap; }
+#top-bar select { background: #2a1a3e; color: #ffd700; border: 1px solid #ff6b35; padding: 4px 8px; border-radius: 4px; font-size: 13px; cursor: pointer; }
+#top-bar .info { color: #ccc; font-size: 12px; margin-left: auto; }
+#stage-wrap { flex: 0 0 65%; position: relative; background: #0d0d2b; overflow: hidden; }
+#circus-canvas { width: 100%; height: 100%; display: block; }
+#terminal-wrap { flex: 0 0 35%; display: flex; flex-direction: column; background: #0c0c0c; border-top: 3px solid #33ff33; }
+#lesson-bar { padding: 6px 12px; background: #111; color: #aaa; font-size: 12px; border-bottom: 1px solid #222; display: flex; gap: 10px; }
+#lesson-bar .goal { color: #ffd700; }
+#lesson-bar .hint { color: #66bbff; cursor: pointer; }
+#terminal-output { flex: 1; overflow-y: auto; padding: 8px 12px; font-family: 'Courier New', monospace; font-size: 13px; color: #33ff33; line-height: 1.5; }
+#terminal-output .error { color: #ff4444; }
+#terminal-output .info { color: #66bbff; }
+#terminal-output .success { color: #ffd700; }
+#terminal-output .system { color: #888; }
+#input-line { display: flex; align-items: center; padding: 4px 12px 8px; background: #0c0c0c; font-family: 'Courier New', monospace; }
+#input-line .prompt { color: #33ff33; margin-right: 6px; font-size: 13px; white-space: nowrap; }
+#cmd-input { flex: 1; background: transparent; border: none; color: #33ff33; font-family: 'Courier New', monospace; font-size: 13px; outline: none; caret-color: #33ff33; }
+#autocomplete { position: absolute; bottom: 30px; left: 12px; background: #1a1a2e; border: 1px solid #33ff33; border-radius: 4px; display: none; z-index: 20; max-height: 150px; overflow-y: auto; }
+#autocomplete div { padding: 3px 10px; color: #33ff33; font-family: 'Courier New', monospace; font-size: 12px; cursor: pointer; }
+#autocomplete div:hover, #autocomplete div.sel { background: #33ff33; color: #0c0c0c; }
+.confetti-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 999; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top-bar">
+    <h1>🎪 The Git Circus</h1>
+    <select id="lesson-select">
+      <option value="0">Lesson 1: Your First Commit</option>
+      <option value="1">Lesson 2: Branching Out</option>
+      <option value="2">Lesson 3: Merging Branches</option>
+      <option value="3">Lesson 4: The Rebase Trapeze</option>
+      <option value="4">Lesson 5: Cherry Picking</option>
+      <option value="5">Lesson 6: Stashing Secrets</option>
+      <option value="6">Lesson 7: Conflict Resolution</option>
+      <option value="7">Lesson 8: Time Travel</option>
+      <option value="8">Lesson 9: The Full Show</option>
+      <option value="9">Lesson 10: Free Play</option>
+    </select>
+    <span class="info" id="branch-indicator">🎯 HEAD: (no repo)</span>
+  </div>
+  <div id="stage-wrap">
+    <canvas id="circus-canvas"></canvas>
+  </div>
+  <div id="terminal-wrap">
+    <div id="lesson-bar">
+      <span id="lesson-goal" class="goal"></span>
+      <span id="lesson-hint" class="hint" title="Click for hint">💡 Hint</span>
+    </div>
+    <div id="terminal-output"></div>
+    <div style="position:relative;">
+      <div id="autocomplete"></div>
+      <div id="input-line">
+        <span class="prompt">$</span>
+        <input id="cmd-input" type="text" autofocus autocomplete="off" spellcheck="false" placeholder="Type a git command...">
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== AUDIO ENGINE ====================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); return audioCtx; }
+
+function playNote(freq, dur, type='triangle', vol=0.15) {
+  try {
+    const ctx = ensureAudio();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxFanfare() {
+  [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => playNote(f, 0.3, 'square', 0.1), i * 120));
+}
+function sfxCommit() { playNote(880, 0.15, 'sine', 0.12); setTimeout(() => playNote(1100, 0.2, 'sine', 0.1), 100); }
+function sfxBranch() { playNote(440, 0.2, 'triangle'); setTimeout(() => playNote(660, 0.25, 'triangle'), 150); }
+function sfxCheckout() { playNote(330, 0.3, 'sawtooth', 0.06); }
+function sfxMerge() { [400,500,600,800].forEach((f,i) => setTimeout(() => playNote(f,0.15,'square',0.08), i*80)); }
+function sfxError() { playNote(200, 0.4, 'sawtooth', 0.1); }
+function sfxPop() { playNote(1200, 0.08, 'sine', 0.15); setTimeout(() => playNote(900, 0.1, 'sine', 0.1), 60); }
+function sfxDrop() { playNote(600, 0.1, 'sine', 0.1); setTimeout(() => playNote(300, 0.3, 'sine', 0.12), 80); }
+function sfxConfetti() { for(let i=0;i<8;i++) setTimeout(()=>playNote(600+Math.random()*800,0.15,'sine',0.06),i*60); }
+
+// ==================== GIT STATE ENGINE ====================
+let gitState = null;
+let commitCounter = 0;
+
+function newGitState() {
+  return { initialized: false, commits: [], branches: {}, HEAD: null, currentBranch: null, stash: [], log: [] };
+}
+
+function resetGit() {
+  gitState = newGitState();
+  commitCounter = 0;
+  animations = [];
+  acrobats = [];
+  platforms = [];
+  trapezes = [];
+  spotlightX = null;
+  tentRise = 0;
+  updateBranchIndicator();
+}
+
+function makeCommitId() {
+  commitCounter++;
+  const hex = commitCounter.toString(16).padStart(4, '0');
+  return hex + Math.random().toString(16).slice(2, 6);
+}
+
+function gitInit() {
+  if (gitState.initialized) return { ok: false, msg: 'Reinitialized existing Git repository.' };
+  gitState.initialized = true;
+  gitState.branches['main'] = null;
+  gitState.currentBranch = 'main';
+  gitState.HEAD = null;
+  sfxFanfare();
+  animateTentRise();
+  updateBranchIndicator();
+  return { ok: true, msg: 'Initialized empty Git repository. The Big Top rises! 🎪' };
+}
+
+function gitCommit(message) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository. Run git init first.' };
+  const id = makeCommitId();
+  const parent = gitState.HEAD;
+  const commit = { id, message, parent, branch: gitState.currentBranch, timestamp: Date.now() };
+  gitState.commits.push(commit);
+  gitState.HEAD = id;
+  gitState.branches[gitState.currentBranch] = id;
+  gitState.log.unshift(commit);
+  sfxCommit();
+  spawnAcrobat(commit);
+  updateBranchIndicator();
+  return { ok: true, msg: `[${gitState.currentBranch} ${id.slice(0,7)}] ${message}` };
+}
+
+function gitBranch(name) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (!name) {
+    const lines = Object.keys(gitState.branches).map(b => (b === gitState.currentBranch ? '* ' : '  ') + b);
+    return { ok: true, msg: lines.join('\n') };
+  }
+  if (gitState.branches[name] !== undefined) return { ok: false, msg: `fatal: branch '${name}' already exists.` };
+  gitState.branches[name] = gitState.HEAD;
+  sfxBranch();
+  addTrapeze(name);
+  return { ok: true, msg: `Created branch '${name}' 🎪 A new trapeze extends!` };
+}
+
+function gitCheckout(target) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (target === '-b') return { ok: false, msg: 'usage: git checkout -b <branch-name>' };
+  if (gitState.branches[target] !== undefined) {
+    gitState.currentBranch = target;
+    gitState.HEAD = gitState.branches[target];
+    sfxCheckout();
+    moveSpotlight(target);
+    updateBranchIndicator();
+    return { ok: true, msg: `Switched to branch '${target}' 🔦 Spotlight moves!` };
+  }
+  return { ok: false, msg: `error: pathspec '${target}' did not match any branch.` };
+}
+
+function gitCheckoutNewBranch(name) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  const br = gitBranch(name);
+  if (!br.ok) return br;
+  return gitCheckout(name);
+}
+
+function gitMerge(branch) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (gitState.branches[branch] === undefined) return { ok: false, msg: `merge: '${branch}' - not something we can merge.` };
+  if (branch === gitState.currentBranch) return { ok: false, msg: 'Already up to date.' };
+  const theirHead = gitState.branches[branch];
+  if (!theirHead) return { ok: false, msg: `merge: branch '${branch}' has no commits.` };
+  const id = makeCommitId();
+  const commit = { id, message: `Merge branch '${branch}' into ${gitState.currentBranch}`, parent: gitState.HEAD, mergeParent: theirHead, branch: gitState.currentBranch, timestamp: Date.now() };
+  gitState.commits.push(commit);
+  gitState.HEAD = id;
+  gitState.branches[gitState.currentBranch] = id;
+  gitState.log.unshift(commit);
+  sfxMerge();
+  animateMerge(branch, gitState.currentBranch);
+  updateBranchIndicator();
+  return { ok: true, msg: `Merge made by the 'recursive' strategy.\n🤸 Two acrobats catch each other mid-air!` };
+}
+
+function gitRebase(branch) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (gitState.branches[branch] === undefined) return { ok: false, msg: `fatal: invalid upstream '${branch}'.` };
+  if (branch === gitState.currentBranch) return { ok: false, msg: 'Current branch is up to date.' };
+  const theirHead = gitState.branches[branch];
+  const myCommits = getCommitsOnBranch(gitState.currentBranch);
+  if (myCommits.length === 0) return { ok: false, msg: 'Current branch is up to date.' };
+  myCommits.forEach(c => { c.parent = theirHead || c.parent; c.rebased = true; });
+  gitState.HEAD = myCommits[myCommits.length - 1].id;
+  gitState.branches[gitState.currentBranch] = gitState.HEAD;
+  sfxMerge();
+  animateRebase();
+  updateBranchIndicator();
+  return { ok: true, msg: `Successfully rebased ${gitState.currentBranch} onto ${branch}.\n🪜 Acrobat climbs the ladder to a higher platform!` };
+}
+
+function gitCherryPick(commitId) {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  const src = gitState.commits.find(c => c.id.startsWith(commitId));
+  if (!src) return { ok: false, msg: `fatal: bad object ${commitId}` };
+  const id = makeCommitId();
+  const commit = { id, message: src.message, parent: gitState.HEAD, branch: gitState.currentBranch, cherryPicked: true, timestamp: Date.now() };
+  gitState.commits.push(commit);
+  gitState.HEAD = id;
+  gitState.branches[gitState.currentBranch] = id;
+  gitState.log.unshift(commit);
+  sfxPop();
+  animateCherryPick();
+  updateBranchIndicator();
+  return { ok: true, msg: `[${gitState.currentBranch} ${id.slice(0,7)}] ${src.message}\n🤡 The clown plucks a flower and tosses it!` };
+}
+
+function gitResetHard() {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (!gitState.HEAD) return { ok: false, msg: 'fatal: nothing to reset.' };
+  const cur = gitState.commits.find(c => c.id === gitState.HEAD);
+  if (cur && cur.parent) {
+    gitState.HEAD = cur.parent;
+    gitState.branches[gitState.currentBranch] = cur.parent;
+  } else {
+    gitState.HEAD = null;
+    gitState.branches[gitState.currentBranch] = null;
+  }
+  sfxDrop();
+  animateFallToNet();
+  updateBranchIndicator();
+  return { ok: true, msg: `HEAD is now at ${gitState.HEAD ? gitState.HEAD.slice(0,7) : '(none)'}\n🥅 Acrobat falls into the safety net!` };
+}
+
+function gitStash() {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (!gitState.HEAD) return { ok: false, msg: 'No changes to stash.' };
+  gitState.stash.push({ head: gitState.HEAD, branch: gitState.currentBranch });
+  sfxCheckout();
+  animateHideBehindCurtain();
+  return { ok: true, msg: `Saved working directory.\n🎭 Acrobat hides behind the curtain!` };
+}
+
+function gitStashPop() {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (gitState.stash.length === 0) return { ok: false, msg: 'error: no stash entries found.' };
+  const entry = gitState.stash.pop();
+  sfxPop();
+  animateJumpFromCurtain();
+  return { ok: true, msg: `Applied stash and dropped stash@{0}.\n🎭 Acrobat jumps back from behind the curtain!` };
+}
+
+function gitLog() {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  if (gitState.log.length === 0) return { ok: true, msg: '(no commits yet)' };
+  const lines = gitState.log.slice(0, 10).map(c =>
+    `commit ${c.id}\n    ${c.message}`
+  );
+  animateMarquee();
+  return { ok: true, msg: lines.join('\n\n') };
+}
+
+function gitDiff() {
+  if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+  animateSplitSpotlight();
+  return { ok: true, msg: '🔦 Split spotlight showing the stage! (No working tree changes in circus mode)' };
+}
+
+function getCommitsOnBranch(branchName) {
+  return gitState.commits.filter(c => c.branch === branchName);
+}
+
+function updateBranchIndicator() {
+  const el = document.getElementById('branch-indicator');
+  if (!gitState || !gitState.initialized) { el.textContent = '🎯 HEAD: (no repo)'; return; }
+  el.textContent = `🎯 ${gitState.currentBranch} | HEAD: ${gitState.HEAD ? gitState.HEAD.slice(0,7) : '(empty)'}`;
+}
+
+// ==================== COMMAND PARSER ====================
+const COMMANDS = [
+  'git init', 'git commit -m', 'git branch', 'git checkout', 'git checkout -b',
+  'git merge', 'git rebase', 'git cherry-pick', 'git reset --hard',
+  'git stash', 'git stash pop', 'git log', 'git diff', 'git status', 'git help', 'clear'
+];
+
+function parseAndExecute(input) {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (trimmed === 'clear') { document.getElementById('terminal-output').innerHTML = ''; return null; }
+  if (trimmed === 'git help' || trimmed === 'help') {
+    return { ok: true, msg: 'Available commands:\n  git init\n  git commit -m "message"\n  git branch [name]\n  git checkout <branch>\n  git checkout -b <branch>\n  git merge <branch>\n  git rebase <branch>\n  git cherry-pick <id>\n  git reset --hard\n  git stash / git stash pop\n  git log / git diff / git status' };
+  }
+  if (trimmed === 'git status') {
+    if (!gitState.initialized) return { ok: false, msg: 'fatal: not a git repository.' };
+    return { ok: true, msg: `On branch ${gitState.currentBranch}\nCommits: ${gitState.commits.length}\nBranches: ${Object.keys(gitState.branches).join(', ')}` };
+  }
+  if (trimmed === 'git init') return gitInit();
+  if (trimmed.startsWith('git commit')) {
+    const mm = trimmed.match(/git commit\s+-m\s+["'](.+?)["']/);
+    if (!mm) return { ok: false, msg: 'usage: git commit -m "message"' };
+    return gitCommit(mm[1]);
+  }
+  if (trimmed.startsWith('git checkout -b ')) {
+    const name = trimmed.replace('git checkout -b ', '').trim();
+    return gitCheckoutNewBranch(name);
+  }
+  if (trimmed.startsWith('git checkout ')) {
+    const target = trimmed.replace('git checkout ', '').trim();
+    return gitCheckout(target);
+  }
+  if (trimmed.startsWith('git branch')) {
+    const name = trimmed.replace('git branch', '').trim();
+    return gitBranch(name || null);
+  }
+  if (trimmed.startsWith('git merge ')) {
+    const branch = trimmed.replace('git merge ', '').trim();
+    return gitMerge(branch);
+  }
+  if (trimmed.startsWith('git rebase ')) {
+    const branch = trimmed.replace('git rebase ', '').trim();
+    return gitRebase(branch);
+  }
+  if (trimmed.startsWith('git cherry-pick ')) {
+    const id = trimmed.replace('git cherry-pick ', '').trim();
+    return gitCherryPick(id);
+  }
+  if (trimmed === 'git reset --hard') return gitResetHard();
+  if (trimmed === 'git stash pop') return gitStashPop();
+  if (trimmed === 'git stash') return gitStash();
+  if (trimmed === 'git log') return gitLog();
+  if (trimmed === 'git diff') return gitDiff();
+  return { ok: false, msg: `git: '${trimmed.replace('git ','')}' is not a git command. Type 'help' for commands.` };
+}
+
+// ==================== TERMINAL UI ====================
+const cmdInput = document.getElementById('cmd-input');
+const termOutput = document.getElementById('terminal-output');
+const autocompleteEl = document.getElementById('autocomplete');
+let cmdHistory = [];
+let historyIdx = -1;
+let acIdx = -1;
+let acItems = [];
+
+function appendOutput(text, cls='') {
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = text;
+  termOutput.appendChild(div);
+  termOutput.scrollTop = termOutput.scrollHeight;
+}
+
+function appendPromptLine(cmd) {
+  appendOutput(`$ ${cmd}`, 'system');
+}
+
+cmdInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const val = cmdInput.value;
+    cmdInput.value = '';
+    hideAutocomplete();
+    if (val.trim()) {
+      cmdHistory.push(val);
+      historyIdx = cmdHistory.length;
+    }
+    appendPromptLine(val);
+    const result = parseAndExecute(val);
+    if (result) {
+      appendOutput(result.msg, result.ok ? (result.msg.includes('🎪') || result.msg.includes('🤸') || result.msg.includes('🤡') || result.msg.includes('🪜') || result.msg.includes('🥅') || result.msg.includes('🎭') || result.msg.includes('🔦') ? 'success' : '') : 'error');
+    }
+    checkLessonCompletion();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (autocompleteEl.style.display === 'block') {
+      acIdx = Math.max(0, acIdx - 1); highlightAc();
+    } else if (historyIdx > 0) {
+      historyIdx--;
+      cmdInput.value = cmdHistory[historyIdx];
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (autocompleteEl.style.display === 'block') {
+      acIdx = Math.min(acItems.length - 1, acIdx + 1); highlightAc();
+    } else if (historyIdx < cmdHistory.length - 1) {
+      historyIdx++;
+      cmdInput.value = cmdHistory[historyIdx];
+    } else { cmdInput.value = ''; historyIdx = cmdHistory.length; }
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    if (acItems.length > 0 && acIdx >= 0) {
+      cmdInput.value = acItems[acIdx];
+      hideAutocomplete();
+    } else if (acItems.length > 0) {
+      cmdInput.value = acItems[0];
+      hideAutocomplete();
+    }
+  } else if (e.key === 'Escape') {
+    hideAutocomplete();
+  }
+});
+
+cmdInput.addEventListener('input', () => {
+  const val = cmdInput.value.trim();
+  if (val.length < 2) { hideAutocomplete(); return; }
+  acItems = COMMANDS.filter(c => c.startsWith(val) && c !== val);
+  if (gitState && gitState.initialized) {
+    const bNames = Object.keys(gitState.branches);
+    if (val.startsWith('git checkout ') || val.startsWith('git merge ') || val.startsWith('git rebase ')) {
+      const prefix = val.split(' ').pop();
+      const matched = bNames.filter(b => b.startsWith(prefix));
+      const base = val.substring(0, val.lastIndexOf(' ') + 1);
+      acItems = acItems.concat(matched.map(b => base + b));
+    }
+  }
+  if (acItems.length === 0) { hideAutocomplete(); return; }
+  acIdx = 0;
+  showAutocomplete();
+});
+
+function showAutocomplete() {
+  autocompleteEl.innerHTML = '';
+  acItems.slice(0, 8).forEach((item, i) => {
+    const d = document.createElement('div');
+    d.textContent = item;
+    d.addEventListener('click', () => { cmdInput.value = item; hideAutocomplete(); cmdInput.focus(); });
+    autocompleteEl.appendChild(d);
+  });
+  autocompleteEl.style.display = 'block';
+  highlightAc();
+}
+function hideAutocomplete() { autocompleteEl.style.display = 'none'; acItems = []; acIdx = -1; }
+function highlightAc() {
+  Array.from(autocompleteEl.children).forEach((c, i) => c.classList.toggle('sel', i === acIdx));
+}
+
+// ==================== LESSONS ====================
+const lessons = [
+  {
+    title: 'Your First Commit',
+    goal: 'Initialize a repo and make your first commit.',
+    hint: 'Try: git init, then git commit -m "hello world"',
+    check: () => gitState.initialized && gitState.commits.length >= 1,
+    intro: 'Welcome to the circus! Every show starts with setting up the tent. Initialize your git repo and make a commit to begin the performance!'
+  },
+  {
+    title: 'Branching Out',
+    goal: 'Create a new branch and switch to it.',
+    hint: 'Try: git branch feature, then git checkout feature',
+    check: () => Object.keys(gitState.branches).length >= 2 && gitState.currentBranch !== 'main',
+    intro: 'A circus needs more than one act! Create a new branch — a new trapeze bar — and swing over to it.'
+  },
+  {
+    title: 'Merging Branches',
+    goal: 'Make commits on two branches and merge them.',
+    hint: 'Commit on feature, checkout main, merge feature.',
+    check: () => gitState.commits.some(c => c.mergeParent),
+    intro: 'The grand finale! Two acrobats from different trapezes will catch each other mid-air. Merge your branches!'
+  },
+  {
+    title: 'The Rebase Trapeze',
+    goal: 'Rebase a feature branch onto main.',
+    hint: 'Create commits on both branches. Checkout feature, then git rebase main.',
+    check: () => gitState.commits.some(c => c.rebased),
+    intro: 'Rebasing is like climbing a ladder to a higher platform and replaying your moves. Elegant and linear!'
+  },
+  {
+    title: 'Cherry Picking',
+    goal: 'Cherry-pick a commit from another branch.',
+    hint: 'Use git log to find a commit ID, then git cherry-pick <id>.',
+    check: () => gitState.commits.some(c => c.cherryPicked),
+    intro: 'Sometimes you want just ONE trick from another act. Cherry-pick lets you pluck a single commit like a clown picking a flower!'
+  },
+  {
+    title: 'Stashing Secrets',
+    goal: 'Stash your work and pop it back.',
+    hint: 'git stash, then git stash pop.',
+    check: () => gitState.stash.length === 0 && termOutput.textContent.includes('Applied stash'),
+    intro: 'The acrobat needs to hide behind the curtain for a moment. Stash your work, do something else, then bring it back!'
+  },
+  {
+    title: 'Conflict Resolution',
+    goal: 'Attempt a merge that creates a dramatic collision!',
+    hint: 'Make commits on two branches with the same message, then merge.',
+    check: () => gitState.commits.filter(c => c.mergeParent).length >= 1,
+    intro: 'When two acrobats try the same trick, they collide in a puff of smoke! Resolve the conflict by completing the merge.'
+  },
+  {
+    title: 'Time Travel',
+    goal: 'Use reset --hard to undo a commit.',
+    hint: 'Make a commit, then git reset --hard to go back.',
+    check: () => termOutput.textContent.includes('safety net'),
+    intro: 'Sometimes an act goes wrong. Reset lets the acrobat fall into the safety net and try again!'
+  },
+  {
+    title: 'The Full Show',
+    goal: 'Init, branch, commit on both, merge, cherry-pick, and log.',
+    hint: 'Combine everything you learned. The full circus performance!',
+    check: () => gitState.commits.length >= 5 && Object.keys(gitState.branches).length >= 2 && gitState.commits.some(c => c.mergeParent || c.cherryPicked),
+    intro: 'Put on the full show! Use everything you have learned: branching, merging, cherry-picking. This is your grand performance! 🎪'
+  },
+  {
+    title: 'Free Play',
+    goal: 'Experiment freely! Try anything.',
+    hint: 'Type "help" for available commands.',
+    check: () => false,
+    intro: 'The stage is yours! No goals, no rules. Experiment with any git command and watch the circus respond. 🎪'
+  }
+];
+
+let currentLesson = 0;
+
+function loadLesson(idx) {
+  currentLesson = idx;
+  resetGit();
+  const lesson = lessons[idx];
+  document.getElementById('lesson-goal').textContent = `🎯 ${lesson.goal}`;
+  termOutput.innerHTML = '';
+  appendOutput(`══════════════════════════════════════`, 'info');
+  appendOutput(`  🎪 Lesson ${idx + 1}: ${lesson.title}`, 'success');
+  appendOutput(`══════════════════════════════════════`, 'info');
+  appendOutput(lesson.intro, 'info');
+  appendOutput('');
+}
+
+document.getElementById('lesson-select').addEventListener('change', (e) => {
+  loadLesson(parseInt(e.target.value));
+});
+
+document.getElementById('lesson-hint').addEventListener('click', () => {
+  appendOutput(`💡 ${lessons[currentLesson].hint}`, 'info');
+});
+
+function checkLessonCompletion() {
+  if (lessons[currentLesson].check && lessons[currentLesson].check()) {
+    appendOutput('🎉 LESSON COMPLETE! Bravo! 🎉', 'success');
+    sfxConfetti();
+    launchConfetti();
+  }
+}
+
+// ==================== CONFETTI ====================
+function launchConfetti() {
+  const c = document.createElement('canvas');
+  c.className = 'confetti-canvas';
+  c.width = window.innerWidth; c.height = window.innerHeight;
+  document.body.appendChild(c);
+  const ctx = c.getContext('2d');
+  const pieces = [];
+  const colors = ['#ff6b35','#ffd700','#ff1493','#00ff88','#4488ff','#ff4444','#ffaa00','#aa44ff'];
+  for (let i = 0; i < 150; i++) {
+    pieces.push({
+      x: Math.random() * c.width, y: -20 - Math.random() * 200,
+      vx: (Math.random() - 0.5) * 8, vy: Math.random() * 4 + 2,
+      r: Math.random() * 8 + 3, color: colors[Math.floor(Math.random() * colors.length)],
+      spin: Math.random() * 0.3, angle: Math.random() * Math.PI * 2,
+      life: 1
+    });
+  }
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0, 0, c.width, c.height);
+    let alive = false;
+    pieces.forEach(p => {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.angle += p.spin;
+      p.life -= 0.005;
+      if (p.life <= 0) return;
+      alive = true;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.r / 2, -p.r, p.r, p.r * 2);
+      ctx.restore();
+    });
+    frame++;
+    if (alive && frame < 300) requestAnimationFrame(draw);
+    else document.body.removeChild(c);
+  }
+  draw();
+}
+
+// ==================== CANVAS CIRCUS STAGE ====================
+const canvas = document.getElementById('circus-canvas');
+const cx = canvas.getContext('2d');
+let W, H;
+let tentRise = 0;
+let spotlightX = null;
+let spotlightTarget = null;
+let animations = [];
+let acrobats = [];
+let platforms = [];
+let trapezes = [];
+let curtainAlpha = 0;
+let curtainTarget = 0;
+let marqueeText = '';
+let marqueeX = 0;
+let splitSpotlight = false;
+let splitSpotlightTimer = 0;
+let safetyNetBounce = 0;
+let cherryPickAnim = 0;
+let rebaseAnim = 0;
+
+function resizeCanvas() {
+  const wrap = document.getElementById('stage-wrap');
+  W = canvas.width = wrap.clientWidth;
+  H = canvas.height = wrap.clientHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// Color palette for branches
+const branchColors = ['#ff6b35','#4488ff','#ff1493','#00ff88','#ffd700','#aa44ff','#ff4444','#00dddd'];
+function getBranchColor(name) {
+  const branches = Object.keys(gitState ? gitState.branches : {});
+  const idx = branches.indexOf(name);
+  return branchColors[idx % branchColors.length];
+}
+
+function getBranchX(name) {
+  const branches = Object.keys(gitState ? gitState.branches : {});
+  const idx = branches.indexOf(name);
+  const total = branches.length || 1;
+  const spacing = W / (total + 1);
+  return spacing * (idx + 1);
+}
+
+// ==================== DRAWING FUNCTIONS ====================
+function drawTent() {
+  const rise = tentRise;
+  if (rise <= 0) {
+    cx.fillStyle = '#0d0d2b';
+    cx.fillRect(0, 0, W, H);
+    cx.fillStyle = '#333';
+    cx.font = '20px sans-serif';
+    cx.textAlign = 'center';
+    cx.fillText('🎪 Run "git init" to raise the Big Top!', W / 2, H / 2);
+    return;
+  }
+  // Sky gradient
+  const skyGrad = cx.createLinearGradient(0, 0, 0, H);
+  skyGrad.addColorStop(0, '#1a0a3e');
+  skyGrad.addColorStop(1, '#0d0d2b');
+  cx.fillStyle = skyGrad;
+  cx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (let i = 0; i < 30; i++) {
+    const sx = ((i * 137.5) % W);
+    const sy = ((i * 97.3) % (H * 0.4));
+    cx.fillStyle = `rgba(255,255,255,${0.3 + Math.sin(Date.now() / 1000 + i) * 0.2})`;
+    cx.beginPath(); cx.arc(sx, sy, 1.5, 0, Math.PI * 2); cx.fill();
+  }
+
+  // Tent stripes
+  const tentTop = H * 0.05 * rise;
+  const tentPeakX = W / 2;
+  const tentPeakY = tentTop;
+  const tentBaseY = H * 0.85;
+  const tentLeft = W * 0.05;
+  const tentRight = W * 0.95;
+  const stripeColors = ['#cc2200', '#eedd00'];
+  const stripes = 12;
+  for (let i = 0; i < stripes; i++) {
+    const t1 = i / stripes;
+    const t2 = (i + 1) / stripes;
+    const lx1 = tentLeft + (tentRight - tentLeft) * t1;
+    const lx2 = tentLeft + (tentRight - tentLeft) * t2;
+    cx.beginPath();
+    cx.moveTo(tentPeakX, tentPeakY);
+    cx.lineTo(lx1, tentBaseY);
+    cx.lineTo(lx2, tentBaseY);
+    cx.closePath();
+    cx.fillStyle = stripeColors[i % 2];
+    cx.globalAlpha = 0.25 * rise;
+    cx.fill();
+  }
+  cx.globalAlpha = 1;
+
+  // Tent outline
+  cx.beginPath();
+  cx.moveTo(tentLeft, tentBaseY);
+  cx.lineTo(tentPeakX, tentPeakY);
+  cx.lineTo(tentRight, tentBaseY);
+  cx.strokeStyle = '#ffd700';
+  cx.lineWidth = 3;
+  cx.stroke();
+
+  // Tent flag
+  cx.fillStyle = '#ffd700';
+  cx.beginPath();
+  cx.moveTo(tentPeakX, tentPeakY - 15 * rise);
+  cx.lineTo(tentPeakX + 20, tentPeakY - 5 * rise);
+  cx.lineTo(tentPeakX, tentPeakY + 5 * rise);
+  cx.fill();
+
+  // Ground / ring
+  cx.fillStyle = '#3a2a1a';
+  cx.fillRect(0, tentBaseY, W, H - tentBaseY);
+  cx.beginPath();
+  cx.ellipse(W / 2, tentBaseY, W * 0.4, 20, 0, 0, Math.PI * 2);
+  cx.fillStyle = '#5a3a1a';
+  cx.fill();
+  cx.strokeStyle = '#ffd700';
+  cx.lineWidth = 2;
+  cx.stroke();
+
+  // Safety net
+  if (safetyNetBounce > 0) {
+    cx.strokeStyle = '#888';
+    cx.lineWidth = 1;
+    const netY = tentBaseY - 30 + Math.sin(Date.now() / 100) * safetyNetBounce * 5;
+    for (let x = W * 0.2; x < W * 0.8; x += 15) {
+      cx.beginPath(); cx.moveTo(x, netY - 10); cx.lineTo(x, netY + 10); cx.stroke();
+    }
+    for (let y = netY - 10; y <= netY + 10; y += 10) {
+      cx.beginPath(); cx.moveTo(W * 0.2, y); cx.lineTo(W * 0.8, y); cx.stroke();
+    }
+  }
+}
+
+function drawTrapezes() {
+  if (!gitState || !gitState.initialized) return;
+  const branches = Object.keys(gitState.branches);
+  branches.forEach((bName) => {
+    const bx = getBranchX(bName);
+    const col = getBranchColor(bName);
+    const ropeTop = H * 0.08;
+    const barY = H * 0.22;
+
+    // Ropes
+    cx.strokeStyle = '#aaa';
+    cx.lineWidth = 2;
+    cx.beginPath(); cx.moveTo(bx - 25, ropeTop); cx.lineTo(bx - 25, barY); cx.stroke();
+    cx.beginPath(); cx.moveTo(bx + 25, ropeTop); cx.lineTo(bx + 25, barY); cx.stroke();
+
+    // Bar
+    cx.strokeStyle = col;
+    cx.lineWidth = 5;
+    cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(bx - 25, barY); cx.lineTo(bx + 25, barY); cx.stroke();
+
+    // Label
+    cx.fillStyle = col;
+    cx.font = 'bold 11px sans-serif';
+    cx.textAlign = 'center';
+    cx.fillText(bName, bx, barY + 18);
+
+    // Platform
+    const platY = H * 0.7;
+    cx.fillStyle = '#5a3a1a';
+    cx.fillRect(bx - 30, platY, 60, 10);
+    cx.fillStyle = col;
+    cx.fillRect(bx - 30, platY, 60, 3);
+
+    // Branch head indicator
+    if (bName === (gitState && gitState.currentBranch)) {
+      cx.fillStyle = '#ffd700';
+      cx.font = '16px sans-serif';
+      cx.fillText('▼', bx, platY - 5);
+    }
+  });
+}
+
+function drawSpotlight() {
+  if (spotlightX == null) return;
+  const gradient = cx.createRadialGradient(spotlightX, H * 0.1, 0, spotlightX, H * 0.1, H * 0.9);
+  gradient.addColorStop(0, 'rgba(255,255,200,0.12)');
+  gradient.addColorStop(0.5, 'rgba(255,255,200,0.04)');
+  gradient.addColorStop(1, 'rgba(255,255,200,0)');
+  cx.fillStyle = gradient;
+  cx.fillRect(0, 0, W, H);
+}
+
+function drawSplitSpotlight() {
+  if (!splitSpotlight) return;
+  const alpha = Math.min(1, splitSpotlightTimer / 30) * 0.1;
+  [W * 0.3, W * 0.7].forEach(sx => {
+    const gradient = cx.createRadialGradient(sx, H * 0.1, 0, sx, H * 0.1, H * 0.7);
+    gradient.addColorStop(0, `rgba(255,255,200,${alpha})`);
+    gradient.addColorStop(1, 'rgba(255,255,200,0)');
+    cx.fillStyle = gradient;
+    cx.fillRect(0, 0, W, H);
+  });
+}
+
+function drawAcrobats() {
+  acrobats.forEach(a => {
+    const progress = Math.min(1, (Date.now() - a.born) / 800);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const bx = getBranchX(a.branch);
+    const startY = H * 0.08;
+    const endY = H * 0.35 + a.slot * 40;
+    const x = bx + Math.sin(progress * Math.PI * 2) * (1 - eased) * 30;
+    const y = startY + (endY - startY) * eased;
+    const size = 14;
+    const flipAngle = a.flip ? Math.sin(progress * Math.PI * 3) * Math.PI * 2 : 0;
+
+    cx.save();
+    cx.translate(x, y);
+    cx.rotate(flipAngle * (1 - eased));
+
+    // Body
+    cx.beginPath();
+    cx.arc(0, 0, size, 0, Math.PI * 2);
+    cx.fillStyle = a.color;
+    cx.fill();
+    cx.strokeStyle = '#fff';
+    cx.lineWidth = 2;
+    cx.stroke();
+
+    // Face
+    cx.fillStyle = '#000';
+    cx.beginPath(); cx.arc(-4, -3, 2.5, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(4, -3, 2.5, 0, Math.PI * 2); cx.fill();
+    // Smile
+    cx.beginPath(); cx.arc(0, 2, 5, 0.1 * Math.PI, 0.9 * Math.PI); cx.strokeStyle = '#000'; cx.lineWidth = 1.5; cx.stroke();
+
+    // Commit ID label
+    cx.fillStyle = '#fff';
+    cx.font = '9px monospace';
+    cx.textAlign = 'center';
+    cx.fillText(a.id.slice(0, 5), 0, size + 12);
+
+    cx.restore();
+
+    // Rope to trapeze
+    if (eased > 0.5) {
+      cx.strokeStyle = a.color;
+      cx.lineWidth = 1;
+      cx.setLineDash([3, 3]);
+      cx.beginPath();
+      cx.moveTo(x, y - size);
+      cx.lineTo(bx, H * 0.22);
+      cx.stroke();
+      cx.setLineDash([]);
+    }
+  });
+}
+
+function drawCurtain() {
+  if (curtainAlpha <= 0.01) return;
+  const curtX = W * 0.85;
+  const curtY = H * 0.15;
+  const curtW = 60;
+  const curtH = H * 0.55;
+  cx.globalAlpha = curtainAlpha;
+  cx.fillStyle = '#880044';
+  cx.fillRect(curtX, curtY, curtW, curtH);
+  // Folds
+  for (let i = 0; i < 5; i++) {
+    cx.fillStyle = i % 2 ? '#990055' : '#770033';
+    cx.fillRect(curtX + i * 12, curtY, 12, curtH);
+  }
+  // Rod
+  cx.fillStyle = '#ffd700';
+  cx.fillRect(curtX - 5, curtY - 5, curtW + 10, 5);
+  cx.globalAlpha = 1;
+  if (curtainAlpha > 0 && curtainTarget === 0) {
+    cx.fillStyle = '#ffd700';
+    cx.font = '20px sans-serif';
+    cx.textAlign = 'center';
+    cx.fillText('🎭', curtX + curtW / 2, curtY + curtH / 2);
+  }
+}
+
+function drawMarquee() {
+  if (!marqueeText) return;
+  cx.fillStyle = '#ffd700';
+  cx.font = 'bold 14px monospace';
+  cx.textAlign = 'left';
+  const textW = cx.measureText(marqueeText).width;
+  cx.fillText(marqueeText, marqueeX, H * 0.88);
+  marqueeX -= 1.5;
+  if (marqueeX < -textW) marqueeText = '';
+}
+
+function drawCherryPick() {
+  if (cherryPickAnim <= 0) return;
+  const progress = 1 - cherryPickAnim / 60;
+  const x = W * 0.3 + (W * 0.4) * progress;
+  const y = H * 0.5 - Math.sin(progress * Math.PI) * 100;
+  cx.font = `${20 + Math.sin(progress * Math.PI) * 10}px sans-serif`;
+  cx.textAlign = 'center';
+  cx.fillText('🌸', x, y);
+  // Clown
+  cx.font = '24px sans-serif';
+  cx.fillText('🤡', W * 0.25, H * 0.55);
+}
+
+function drawRebaseAnim() {
+  if (rebaseAnim <= 0) return;
+  const progress = 1 - rebaseAnim / 60;
+  const ladderX = W * 0.5;
+  const ladderTop = H * 0.2;
+  const ladderBot = H * 0.65;
+  // Ladder
+  cx.strokeStyle = '#aa8833';
+  cx.lineWidth = 3;
+  cx.beginPath(); cx.moveTo(ladderX - 12, ladderTop); cx.lineTo(ladderX - 12, ladderBot); cx.stroke();
+  cx.beginPath(); cx.moveTo(ladderX + 12, ladderTop); cx.lineTo(ladderX + 12, ladderBot); cx.stroke();
+  for (let r = 0; r < 8; r++) {
+    const ry = ladderTop + (ladderBot - ladderTop) * (r / 8);
+    cx.beginPath(); cx.moveTo(ladderX - 12, ry); cx.lineTo(ladderX + 12, ry); cx.stroke();
+  }
+  // Climbing acrobat
+  const climberY = ladderBot - (ladderBot - ladderTop) * progress;
+  cx.beginPath();
+  cx.arc(ladderX, climberY, 10, 0, Math.PI * 2);
+  cx.fillStyle = '#ff6b35';
+  cx.fill();
+  cx.strokeStyle = '#fff';
+  cx.lineWidth = 2;
+  cx.stroke();
+}
+
+// ==================== ANIMATION TRIGGERS ====================
+function animateTentRise() {
+  const start = Date.now();
+  function step() {
+    const t = Math.min(1, (Date.now() - start) / 1500);
+    tentRise = easeOutBack(t);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+function spawnAcrobat(commit) {
+  const branchCommits = acrobats.filter(a => a.branch === commit.branch);
+  acrobats.push({
+    id: commit.id,
+    branch: commit.branch,
+    color: getBranchColor(commit.branch),
+    born: Date.now(),
+    slot: branchCommits.length,
+    flip: true
+  });
+}
+
+function addTrapeze(name) {
+  // Trapeze is drawn dynamically from gitState.branches
+}
+
+function moveSpotlight(branch) {
+  spotlightTarget = getBranchX(branch);
+}
+
+function animateMerge(fromBranch, toBranch) {
+  // The merge acrobat spawn handles the visual
+  const mergeCommit = gitState.commits[gitState.commits.length - 1];
+  spawnAcrobat(mergeCommit);
+}
+
+function animateRebase() {
+  rebaseAnim = 60;
+}
+
+function animateCherryPick() {
+  cherryPickAnim = 60;
+}
+
+function animateFallToNet() {
+  safetyNetBounce = 30;
+  if (acrobats.length > 0) acrobats.pop();
+}
+
+function animateHideBehindCurtain() {
+  curtainTarget = 1;
+}
+
+function animateJumpFromCurtain() {
+  curtainTarget = 0;
+}
+
+function animateMarquee() {
+  if (!gitState || gitState.log.length === 0) return;
+  marqueeText = gitState.log.map(c => `[${c.id.slice(0,7)}] ${c.message}`).join('  ·  ');
+  marqueeX = W;
+}
+
+function animateSplitSpotlight() {
+  splitSpotlight = true;
+  splitSpotlightTimer = 0;
+  setTimeout(() => { splitSpotlight = false; }, 2000);
+}
+
+// Easing functions
+function easeOutBack(t) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+function easeOutElastic(t) {
+  if (t === 0 || t === 1) return t;
+  return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
+}
+
+// ==================== MAIN RENDER LOOP ====================
+function render() {
+  resizeCanvas();
+  cx.clearRect(0, 0, W, H);
+
+  drawTent();
+
+  if (gitState && gitState.initialized && tentRise > 0.5) {
+    drawTrapezes();
+    drawSpotlight();
+    drawSplitSpotlight();
+    drawAcrobats();
+    drawCurtain();
+    drawMarquee();
+    drawCherryPick();
+    drawRebaseAnim();
+  }
+
+  // Animate spotlight
+  if (spotlightTarget != null) {
+    if (spotlightX == null) spotlightX = spotlightTarget;
+    spotlightX += (spotlightTarget - spotlightX) * 0.08;
+  }
+
+  // Animate curtain
+  curtainAlpha += (curtainTarget - curtainAlpha) * 0.05;
+
+  // Decay timers
+  if (safetyNetBounce > 0) safetyNetBounce -= 0.3;
+  if (cherryPickAnim > 0) cherryPickAnim -= 1;
+  if (rebaseAnim > 0) rebaseAnim -= 1;
+  if (splitSpotlight) splitSpotlightTimer++;
+
+  requestAnimationFrame(render);
+}
+
+// ==================== PARTICLE DUST (ambient) ====================
+const dustParticles = [];
+for (let i = 0; i < 25; i++) {
+  dustParticles.push({
+    x: Math.random(), y: Math.random(),
+    vx: (Math.random() - 0.5) * 0.0005,
+    vy: -Math.random() * 0.0003,
+    size: Math.random() * 2 + 0.5,
+    alpha: Math.random() * 0.3
+  });
+}
+
+// Override render to include dust
+const _origRender = render;
+
+function renderWithDust() {
+  _origRender();
+}
+
+// ==================== INITIALIZATION ====================
+resetGit();
+loadLesson(0);
+render();
+
+// Focus input on click anywhere in terminal
+document.getElementById('terminal-wrap').addEventListener('click', () => cmdInput.focus());
+
+// Keyboard shortcut: / to focus
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== cmdInput) {
+    e.preventDefault();
+    cmdInput.focus();
+  }
+});
+
+// Welcome message
+appendOutput('Type "help" for a list of commands. Select a lesson from the dropdown above.', 'system');
+appendOutput('');
+</script>
+</body>
+</html>

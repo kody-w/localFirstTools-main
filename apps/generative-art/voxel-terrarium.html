@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voxel Terrarium</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a12;
+    color: #ccc;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: #16161e;
+    border-bottom: 1px solid #2a2a3a;
+    flex-wrap: wrap;
+    z-index: 10;
+  }
+  #toolbar button {
+    background: #2a2a3e;
+    color: #aab;
+    border: 1px solid #3a3a5a;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  #toolbar button:hover { background: #3a3a5e; color: #dde; }
+  #toolbar label { font-size: 12px; color: #88a; }
+  #toolbar input[type="range"] { width: 80px; accent-color: #6a8; }
+  #toolbar select {
+    background: #2a2a3e;
+    color: #aab;
+    border: 1px solid #3a3a5a;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  #info-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 6px 14px;
+    background: rgba(22,22,30,0.92);
+    border-top: 1px solid #2a2a3a;
+    font-size: 12px;
+    color: #77a;
+    z-index: 10;
+    display: flex;
+    justify-content: space-between;
+  }
+  #canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  canvas {
+    image-rendering: pixelated;
+    cursor: grab;
+  }
+  canvas:active { cursor: grabbing; }
+  .badge {
+    display: inline-block;
+    background: #2a3a2a;
+    color: #6a8;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    margin-left: 4px;
+  }
+  #help-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  #help-overlay.show { display: flex; }
+  #help-box {
+    background: #1a1a2a;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    color: #bbc;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  #help-box h2 { color: #6a8; margin-bottom: 12px; }
+  #help-box kbd {
+    background: #2a2a3e;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #3a3a5a;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button id="btn-help" title="Help">?</button>
+  <button id="btn-export">Export JSON</button>
+  <button id="btn-import">Import JSON</button>
+  <input type="file" id="file-input" accept=".json" style="display:none">
+  <span style="width:1px;height:20px;background:#3a3a5a;"></span>
+  <label>Speed:
+    <input type="range" id="speed-slider" min="0" max="5" step="0.5" value="1">
+    <span id="speed-label">1×</span>
+  </label>
+  <span style="width:1px;height:20px;background:#3a3a5a;"></span>
+  <label>Render:
+    <select id="render-res">
+      <option value="1">Full</option>
+      <option value="2" selected>Half</option>
+      <option value="4">Quarter</option>
+    </select>
+  </label>
+  <span style="width:1px;height:20px;background:#3a3a5a;"></span>
+  <button id="btn-reset">Reset World</button>
+</div>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+</div>
+<div id="info-bar">
+  <span id="hover-info">Hover over the terrarium...</span>
+  <span id="time-info">Day 1 — Morning</span>
+</div>
+<div id="help-overlay">
+  <div id="help-box">
+    <h2>Voxel Terrarium</h2>
+    <p>A living 16×16×16 voxel world rendered with CPU raycasting.</p>
+    <ul>
+      <li><b>Drag</b> to rotate the camera orbit</li>
+      <li><b>Scroll</b> to zoom in/out</li>
+      <li><b>Double-click</b> a voxel to cycle its type</li>
+      <li><b>Speed slider</b> controls simulation speed</li>
+      <li><b>Export/Import</b> to save/load your world</li>
+    </ul>
+    <p>Watch the ecosystem: grass spreads, trees grow, rain falls, creatures wander, and a day/night cycle lights the scene.</p>
+    <p style="margin-top:12px"><button onclick="document.getElementById('help-overlay').classList.remove('show')">Close</button></p>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Voxel Terrarium — CPU Raycast Engine + Living Ecosystem
+// A self-contained canvas 2D voxel renderer using DDA raycast
+// ============================================================
+
+(function() {
+  'use strict';
+
+  // --- Constants ---
+  const WS = 16; // world size
+  const EMPTY = 0, DIRT = 1, GRASS = 2, WATER = 3, STONE = 4, SAND = 5, WOOD = 6, LEAVES = 7, GLASS = 8, SAPLING = 9;
+  const TYPE_NAMES = ['Air','Dirt','Grass','Water','Stone','Sand','Wood','Leaves','Glass','Sapling'];
+  const CYCLE_ORDER = [EMPTY, DIRT, WATER, STONE, SAND, GLASS, EMPTY];
+
+  // Voxel colors [base R, G, B]
+  const VOXEL_COLORS = {
+    [DIRT]:    [139, 90, 43],
+    [GRASS]:   [34, 139, 34],
+    [WATER]:   [30, 100, 200],
+    [STONE]:   [130, 130, 140],
+    [SAND]:    [210, 190, 100],
+    [WOOD]:    [100, 60, 20],
+    [LEAVES]:  [20, 100, 20],
+    [GLASS]:   [180, 220, 240],
+    [SAPLING]: [50, 160, 50]
+  };
+
+  // Grass has a green top face, brown sides
+  const GRASS_TOP = [34, 160, 34];
+  const GRASS_SIDE = [120, 85, 40];
+
+  // --- Canvas Setup ---
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W, H, renderScale = 2;
+  let rW, rH;
+  let imageData, pixels;
+
+  function resize() {
+    W = Math.min(window.innerWidth, 1200);
+    H = Math.min(window.innerHeight - 80, 800);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    rW = Math.floor(W / renderScale);
+    rH = Math.floor(H / renderScale);
+    canvas.width = rW;
+    canvas.height = rH;
+    imageData = ctx.createImageData(rW, rH);
+    pixels = imageData.data;
+  }
+
+  // --- World Data ---
+  let world = new Uint8Array(WS * WS * WS);
+  let worldAge = new Float32Array(WS * WS * WS); // age of each voxel for growth
+
+  function idx(x, y, z) { return x + y * WS + z * WS * WS; }
+  function getVoxel(x, y, z) {
+    if (x < 0 || x >= WS || y < 0 || y >= WS || z < 0 || z >= WS) return STONE;
+    return world[idx(x, y, z)];
+  }
+  function setVoxel(x, y, z, v) {
+    if (x < 0 || x >= WS || y < 0 || y >= WS || z < 0 || z >= WS) return;
+    world[idx(x, y, z)] = v;
+    worldAge[idx(x, y, z)] = 0;
+  }
+
+  // --- Procedural Terrain Generation ---
+  function pseudoRandom(x, z) {
+    let n = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    return n - Math.floor(n);
+  }
+  function smoothNoise(x, z) {
+    let ix = Math.floor(x), iz = Math.floor(z);
+    let fx = x - ix, fz = z - iz;
+    fx = fx * fx * (3 - 2 * fx);
+    fz = fz * fz * (3 - 2 * fz);
+    let a = pseudoRandom(ix, iz);
+    let b = pseudoRandom(ix + 1, iz);
+    let c = pseudoRandom(ix, iz + 1);
+    let d = pseudoRandom(ix + 1, iz + 1);
+    return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
+  }
+  function fbm(x, z) {
+    return smoothNoise(x * 0.2, z * 0.2) * 0.6 +
+           smoothNoise(x * 0.4, z * 0.4) * 0.3 +
+           smoothNoise(x * 0.8, z * 0.8) * 0.1;
+  }
+
+  function generateWorld() {
+    world.fill(EMPTY);
+    worldAge.fill(0);
+    // Height map
+    for (let x = 0; x < WS; x++) {
+      for (let z = 0; z < WS; z++) {
+        let h = Math.floor(fbm(x, z) * 6) + 3;
+        // River channel
+        let riverDist = Math.abs(z - 8 + Math.sin(x * 0.5) * 2);
+        let isRiver = riverDist < 1.5;
+        if (isRiver) h = Math.min(h, 2);
+        for (let y = 0; y <= h; y++) {
+          if (y === 0) setVoxel(x, y, z, STONE);
+          else if (isRiver && y <= 2) setVoxel(x, y, z, y === h ? WATER : DIRT);
+          else if (y === h) setVoxel(x, y, z, GRASS);
+          else if (y >= h - 1) setVoxel(x, y, z, DIRT);
+          else setVoxel(x, y, z, STONE);
+        }
+        // Fill river with water
+        if (isRiver) {
+          for (let y = h + 1; y <= 3; y++) setVoxel(x, y, z, WATER);
+        }
+        // Sand near water
+        if (riverDist >= 1.5 && riverDist < 2.5 && h <= 4) {
+          setVoxel(x, h, z, SAND);
+        }
+      }
+    }
+    // Place trees
+    placeTree(3, 4);
+    placeTree(11, 3);
+    placeTree(6, 12);
+    placeTree(13, 11);
+    placeTree(2, 13);
+    // Place some saplings
+    placeSapling(8, 2);
+    placeSapling(14, 7);
+    placeSapling(1, 9);
+  }
+
+  function getTerrainHeight(x, z) {
+    for (let y = WS - 1; y >= 0; y--) {
+      let v = getVoxel(x, y, z);
+      if (v !== EMPTY && v !== WATER && v !== LEAVES) return y;
+    }
+    return 0;
+  }
+
+  function placeTree(tx, tz) {
+    let ty = getTerrainHeight(tx, tz);
+    if (ty < 2 || ty > 10) return;
+    let v = getVoxel(tx, ty, tz);
+    if (v === WATER || v === SAND) return;
+    let trunkH = 3 + Math.floor(pseudoRandom(tx * 7, tz * 13) * 2);
+    for (let i = 1; i <= trunkH; i++) setVoxel(tx, ty + i, tz, WOOD);
+    // Canopy
+    let canopyBase = ty + trunkH;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dy = 0; dy <= 2; dy++) {
+          if (Math.abs(dx) + Math.abs(dz) + dy > 3) continue;
+          let nx = tx + dx, nz = tz + dz, ny = canopyBase + dy;
+          if (nx >= 0 && nx < WS && nz >= 0 && nz < WS && ny < WS) {
+            if (getVoxel(nx, ny, nz) === EMPTY) setVoxel(nx, ny, nz, LEAVES);
+          }
+        }
+      }
+    }
+  }
+
+  function placeSapling(sx, sz) {
+    let sy = getTerrainHeight(sx, sz);
+    if (sy < 1 || sy > 12) return;
+    let v = getVoxel(sx, sy, sz);
+    if (v === WATER || v === SAND || v === WOOD) return;
+    setVoxel(sx, sy + 1, sz, SAPLING);
+  }
+
+  // --- Camera ---
+  let camTheta = 0.6, camPhi = 0.8;
+  let camDist = 28;
+  let camTarget = [WS / 2, WS / 4, WS / 2];
+  let dragging = false, lastMX = 0, lastMY = 0;
+
+  function getCamPos() {
+    let ct = Math.cos(camTheta), st = Math.sin(camTheta);
+    let cp = Math.cos(camPhi), sp = Math.sin(camPhi);
+    return [
+      camTarget[0] + camDist * cp * st,
+      camTarget[1] + camDist * sp,
+      camTarget[2] + camDist * cp * ct
+    ];
+  }
+
+  // --- Vector Math ---
+  function v3sub(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+  function v3add(a, b) { return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+  function v3scale(a, s) { return [a[0]*s, a[1]*s, a[2]*s]; }
+  function v3dot(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+  function v3cross(a, b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+  function v3len(a) { return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]); }
+  function v3norm(a) { let l=v3len(a); return l>0?[a[0]/l,a[1]/l,a[2]/l]:[0,0,0]; }
+
+  // --- DDA Raycast through voxel grid ---
+  // Returns {hit, pos:[x,y,z], normal:[nx,ny,nz], t, voxel} or null
+  function raycastVoxel(origin, dir, maxSteps) {
+    // DDA algorithm for 3D voxel traversal
+    let ox = origin[0], oy = origin[1], oz = origin[2];
+    let dx = dir[0], dy = dir[1], dz = dir[2];
+
+    // Current voxel coordinates
+    let vx = Math.floor(ox), vy = Math.floor(oy), vz = Math.floor(oz);
+
+    // Step direction
+    let stepX = dx >= 0 ? 1 : -1;
+    let stepY = dy >= 0 ? 1 : -1;
+    let stepZ = dz >= 0 ? 1 : -1;
+
+    // tMax: distance along ray to next voxel boundary
+    let tMaxX = dx !== 0 ? ((dx > 0 ? (vx + 1 - ox) : (ox - vx)) / Math.abs(dx)) : 1e30;
+    let tMaxY = dy !== 0 ? ((dy > 0 ? (vy + 1 - oy) : (oy - vy)) / Math.abs(dy)) : 1e30;
+    let tMaxZ = dz !== 0 ? ((dz > 0 ? (vz + 1 - oz) : (oz - vz)) / Math.abs(dz)) : 1e30;
+
+    // tDelta: distance along ray to cross one full voxel
+    let tDeltaX = dx !== 0 ? Math.abs(1 / dx) : 1e30;
+    let tDeltaY = dy !== 0 ? Math.abs(1 / dy) : 1e30;
+    let tDeltaZ = dz !== 0 ? Math.abs(1 / dz) : 1e30;
+
+    let normal = [0, 0, 0];
+    let t = 0;
+
+    for (let i = 0; i < maxSteps; i++) {
+      // Check if current voxel is inside world and solid
+      if (vx >= 0 && vx < WS && vy >= 0 && vy < WS && vz >= 0 && vz < WS) {
+        let voxelType = world[idx(vx, vy, vz)];
+        if (voxelType !== EMPTY) {
+          return { hit: true, pos: [vx, vy, vz], normal: normal, t: t, voxel: voxelType };
+        }
+      } else if (vx < -2 || vx > WS+2 || vy < -2 || vy > WS+2 || vz < -2 || vz > WS+2) {
+        return null; // Too far outside
+      }
+
+      // Step to next voxel boundary via DDA
+      if (tMaxX < tMaxY) {
+        if (tMaxX < tMaxZ) {
+          t = tMaxX;
+          vx += stepX;
+          tMaxX += tDeltaX;
+          normal = [-stepX, 0, 0];
+        } else {
+          t = tMaxZ;
+          vz += stepZ;
+          tMaxZ += tDeltaZ;
+          normal = [0, 0, -stepZ];
+        }
+      } else {
+        if (tMaxY < tMaxZ) {
+          t = tMaxY;
+          vy += stepY;
+          tMaxY += tDeltaY;
+          normal = [0, -stepY, 0];
+        } else {
+          t = tMaxZ;
+          vz += stepZ;
+          tMaxZ += tDeltaZ;
+          normal = [0, 0, -stepZ];
+        }
+      }
+    }
+    return null;
+  }
+
+  // --- Lighting & Day/Night ---
+  let dayTime = 0.25; // 0-1, 0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk
+  let daySpeed = 1;
+
+  function getSunDir() {
+    let angle = dayTime * Math.PI * 2 - Math.PI / 2;
+    let sy = Math.sin(angle);
+    let sx = Math.cos(angle) * 0.7;
+    let sz = 0.3;
+    return v3norm([sx, Math.max(sy, -0.2), sz]);
+  }
+
+  function getAmbient() {
+    let noon = Math.sin(dayTime * Math.PI * 2 - Math.PI / 2);
+    return Math.max(0.15, 0.15 + noon * 0.35);
+  }
+
+  function getSkyColor() {
+    let noon = Math.sin(dayTime * Math.PI * 2 - Math.PI / 2);
+    let t = Math.max(0, Math.min(1, noon * 0.5 + 0.5));
+    // Night: dark blue, Day: sky blue
+    let r = Math.floor(10 + t * 60);
+    let g = Math.floor(10 + t * 100);
+    let b = Math.floor(30 + t * 170);
+    return [r, g, b];
+  }
+
+  // Simple shadow check: cast ray from voxel surface toward sun
+  function isInShadow(x, y, z, sunDir) {
+    let origin = [x + 0.5 + sunDir[0] * 0.6, y + 0.5 + sunDir[1] * 0.6, z + 0.5 + sunDir[2] * 0.6];
+    let result = raycastVoxel(origin, sunDir, 24);
+    return result !== null;
+  }
+
+  // --- Shading for a voxel face ---
+  function shadeVoxel(voxelType, normal, pos, sunDir, ambient) {
+    let baseColor;
+    if (voxelType === GRASS && normal[1] === 1) {
+      baseColor = GRASS_TOP.slice();
+    } else if (voxelType === GRASS) {
+      baseColor = GRASS_SIDE.slice();
+    } else {
+      baseColor = VOXEL_COLORS[voxelType] ? VOXEL_COLORS[voxelType].slice() : [200, 200, 200];
+    }
+
+    // Diffuse lighting
+    let diff = Math.max(0, v3dot(normal, sunDir));
+
+    // Shadow
+    let shadow = isInShadow(pos[0], pos[1], pos[2], sunDir) ? 0.4 : 1.0;
+
+    // Face darkening for depth
+    let faceDim = 1.0;
+    if (normal[1] === -1) faceDim = 0.5;       // bottom face
+    else if (normal[1] === 0) faceDim = 0.75;   // side face
+    // Side facing variation
+    if (normal[0] !== 0) faceDim *= 0.9;
+
+    let light = ambient + diff * 0.6 * shadow;
+    light *= faceDim;
+    light = Math.min(light, 1.2);
+
+    // Water transparency effect
+    if (voxelType === WATER) {
+      let shimmer = Math.sin(pos[0] * 3 + pos[2] * 2 + dayTime * 50) * 0.1;
+      light += shimmer;
+    }
+
+    // Glass transparency
+    let alpha = 255;
+    if (voxelType === GLASS) alpha = 140;
+    if (voxelType === WATER) alpha = 180;
+
+    return [
+      Math.floor(Math.min(255, baseColor[0] * light)),
+      Math.floor(Math.min(255, baseColor[1] * light)),
+      Math.floor(Math.min(255, baseColor[2] * light)),
+      alpha
+    ];
+  }
+
+  // --- Creature ---
+  let creature = {
+    x: 8, y: 0, z: 8,
+    targetX: 8, targetZ: 8,
+    moveTimer: 0,
+    sleeping: false,
+    food: 5,
+    trail: [],
+    color: [255, 100, 50]
+  };
+
+  function initCreature() {
+    creature.x = 8; creature.z = 8;
+    creature.y = getTerrainHeight(8, 8) + 1;
+    creature.targetX = creature.x;
+    creature.targetZ = creature.z;
+    creature.moveTimer = 0;
+    creature.sleeping = false;
+    creature.food = 5;
+    creature.trail = [];
+  }
+
+  function updateCreature(dt) {
+    let isNight = dayTime > 0.75 || dayTime < 0.15;
+
+    if (isNight) {
+      creature.sleeping = true;
+      creature.color = [80, 80, 120]; // Sleepy blue
+      return;
+    }
+    creature.sleeping = false;
+    creature.color = [255, 100, 50]; // Active orange
+
+    creature.moveTimer -= dt;
+    if (creature.moveTimer > 0) return;
+    creature.moveTimer = 0.8 + Math.random() * 0.5;
+
+    // Find nearest grass to eat
+    let bestDist = 999, bestX = -1, bestZ = -1;
+    for (let x = 0; x < WS; x++) {
+      for (let z = 0; z < WS; z++) {
+        let y = getTerrainHeight(x, z);
+        if (getVoxel(x, y, z) === GRASS) {
+          let d = Math.abs(x - creature.x) + Math.abs(z - creature.z);
+          if (d < bestDist && d > 0) { bestDist = d; bestX = x; bestZ = z; }
+        }
+      }
+    }
+
+    // Move toward food or wander
+    let dx = 0, dz = 0;
+    if (bestDist < 20 && creature.food < 8) {
+      dx = Math.sign(bestX - creature.x);
+      dz = Math.sign(bestZ - creature.z);
+      // Prefer one axis at a time
+      if (Math.random() > 0.5) dx = 0; else dz = 0;
+    } else {
+      // Wander randomly
+      let dir = Math.floor(Math.random() * 4);
+      if (dir === 0) dx = 1;
+      else if (dir === 1) dx = -1;
+      else if (dir === 2) dz = 1;
+      else dz = -1;
+    }
+
+    let nx = creature.x + dx;
+    let nz = creature.z + dz;
+
+    // Avoid edges
+    if (nx < 1 || nx >= WS - 1) nx = creature.x;
+    if (nz < 1 || nz >= WS - 1) nz = creature.z;
+
+    let ny = getTerrainHeight(nx, nz);
+    // Don't walk into water
+    if (getVoxel(nx, ny, nz) === WATER) return;
+    // Don't climb too steep
+    if (Math.abs(ny - (creature.y - 1)) > 2) return;
+
+    // Leave trail mark (slight darkening of dirt)
+    creature.trail.push([creature.x, creature.y - 1, creature.z]);
+    if (creature.trail.length > 15) creature.trail.shift();
+
+    creature.x = nx;
+    creature.z = nz;
+    creature.y = ny + 1;
+
+    // Eat grass
+    if (getVoxel(nx, ny, nz) === GRASS) {
+      if (creature.food < 10) {
+        setVoxel(nx, ny, nz, DIRT);
+        creature.food++;
+      }
+    }
+
+    creature.food = Math.max(0, creature.food - 0.1);
+  }
+
+  // --- Rain System ---
+  let rainDrops = [];
+  let rainTimer = 0;
+  let raining = false;
+  let rainDuration = 0;
+
+  function updateRain(dt) {
+    rainTimer -= dt;
+    if (rainTimer <= 0) {
+      raining = !raining;
+      rainTimer = raining ? (3 + Math.random() * 5) : (8 + Math.random() * 15);
+      rainDuration = 0;
+    }
+
+    if (raining) {
+      rainDuration += dt;
+      // Spawn drops
+      if (Math.random() < 0.3 * dt * 10) {
+        rainDrops.push({
+          x: Math.random() * WS,
+          y: WS - 1,
+          z: Math.random() * WS,
+          vy: -8
+        });
+      }
+    }
+
+    // Update drops
+    for (let i = rainDrops.length - 1; i >= 0; i--) {
+      let drop = rainDrops[i];
+      drop.y += drop.vy * dt;
+      let gx = Math.floor(drop.x), gy = Math.floor(drop.y), gz = Math.floor(drop.z);
+      if (gy < 0 || (gy < WS && getVoxel(gx, gy, gz) !== EMPTY)) {
+        // Fill low areas with water
+        if (gy >= 0 && gy < WS && gy <= 3) {
+          let below = getVoxel(gx, gy - 1, gz);
+          if (below !== EMPTY && below !== WATER && getVoxel(gx, gy, gz) === EMPTY) {
+            // Only fill very low spots
+            if (gy <= 2) setVoxel(gx, gy, gz, WATER);
+          }
+        }
+        rainDrops.splice(i, 1);
+      }
+    }
+    if (rainDrops.length > 100) rainDrops.length = 100;
+  }
+
+  // --- Ecosystem Simulation ---
+  let ecoTimer = 0;
+  function updateEcosystem(dt) {
+    ecoTimer -= dt;
+    if (ecoTimer > 0) return;
+    ecoTimer = 1.5; // Update every 1.5 sim seconds
+
+    let sunDir = getSunDir();
+
+    // Grass spreading
+    for (let i = 0; i < 8; i++) {
+      let x = Math.floor(Math.random() * WS);
+      let z = Math.floor(Math.random() * WS);
+      let y = getTerrainHeight(x, z);
+      if (getVoxel(x, y, z) === DIRT) {
+        // Check if any adjacent has grass
+        let hasGrassNeighbor = false;
+        for (let d of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          let nx = x+d[0], nz = z+d[1];
+          if (nx >= 0 && nx < WS && nz >= 0 && nz < WS) {
+            let ny = getTerrainHeight(nx, nz);
+            if (getVoxel(nx, ny, nz) === GRASS) hasGrassNeighbor = true;
+          }
+        }
+        // Check light (not covered)
+        let hasLight = getVoxel(x, y+1, z) === EMPTY;
+        if (hasGrassNeighbor && hasLight) {
+          setVoxel(x, y, z, GRASS);
+        }
+      }
+    }
+
+    // Sapling growth
+    for (let x = 0; x < WS; x++) {
+      for (let z = 0; z < WS; z++) {
+        for (let y = 0; y < WS; y++) {
+          if (getVoxel(x, y, z) === SAPLING) {
+            worldAge[idx(x, y, z)] += 1;
+            if (worldAge[idx(x, y, z)] > 15) {
+              // Grow into small tree
+              setVoxel(x, y, z, WOOD);
+              if (y + 1 < WS) setVoxel(x, y+1, z, WOOD);
+              if (y + 2 < WS) setVoxel(x, y+2, z, LEAVES);
+              // Small canopy
+              for (let dx = -1; dx <= 1; dx++) {
+                for (let dz = -1; dz <= 1; dz++) {
+                  if (dx === 0 && dz === 0) continue;
+                  let nx = x+dx, nz = z+dz;
+                  if (nx >= 0 && nx < WS && nz >= 0 && nz < WS && y+2 < WS) {
+                    if (getVoxel(nx, y+2, nz) === EMPTY) setVoxel(nx, y+2, nz, LEAVES);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // --- Rendering ---
+  let hoverVoxel = null; // {pos, voxel}
+
+  function render() {
+    let camPos = getCamPos();
+    let forward = v3norm(v3sub(camTarget, camPos));
+    let right = v3norm(v3cross(forward, [0, 1, 0]));
+    let up = v3cross(right, forward);
+
+    let fov = 1.0;
+    let sunDir = getSunDir();
+    let ambient = getAmbient();
+    let sky = getSkyColor();
+
+    let halfW = rW / 2, halfH = rH / 2;
+    let aspect = rW / rH;
+
+    // Clear to sky
+    for (let i = 0; i < rW * rH * 4; i += 4) {
+      pixels[i] = sky[0]; pixels[i+1] = sky[1]; pixels[i+2] = sky[2]; pixels[i+3] = 255;
+    }
+
+    // Raycast each pixel
+    for (let py = 0; py < rH; py++) {
+      for (let px = 0; px < rW; px++) {
+        let u = (px - halfW) / halfW * aspect * fov;
+        let v = (halfH - py) / halfH * fov;
+
+        let dir = v3norm(v3add(v3add(forward, v3scale(right, u)), v3scale(up, v)));
+
+        let result = raycastVoxel(camPos, dir, 64);
+
+        let pidx = (py * rW + px) * 4;
+
+        if (result && result.hit) {
+          let color = shadeVoxel(result.voxel, result.normal, result.pos, sunDir, ambient);
+
+          // Distance fog
+          let fogT = Math.min(1, result.t / 50);
+          fogT = fogT * fogT;
+
+          pixels[pidx]     = Math.floor(color[0] * (1-fogT) + sky[0] * fogT);
+          pixels[pidx + 1] = Math.floor(color[1] * (1-fogT) + sky[1] * fogT);
+          pixels[pidx + 2] = Math.floor(color[2] * (1-fogT) + sky[2] * fogT);
+          pixels[pidx + 3] = 255;
+
+          // Glass/water partial transparency — blend with sky slightly
+          if (result.voxel === GLASS || result.voxel === WATER) {
+            let alpha = result.voxel === GLASS ? 0.5 : 0.7;
+            // Continue ray behind transparent voxel
+            let behindOrigin = v3add(camPos, v3scale(dir, result.t + 0.01));
+            let behind = raycastVoxel(behindOrigin, dir, 32);
+            if (behind && behind.hit) {
+              let bc = shadeVoxel(behind.voxel, behind.normal, behind.pos, sunDir, ambient);
+              pixels[pidx]     = Math.floor(pixels[pidx] * alpha + bc[0] * (1-alpha));
+              pixels[pidx + 1] = Math.floor(pixels[pidx+1] * alpha + bc[1] * (1-alpha));
+              pixels[pidx + 2] = Math.floor(pixels[pidx+2] * alpha + bc[2] * (1-alpha));
+            }
+          }
+        }
+      }
+    }
+
+    // Render rain drops as bright pixels
+    if (raining && rainDrops.length > 0) {
+      for (let drop of rainDrops) {
+        let dropPos = [drop.x, drop.y, drop.z];
+        let toDropVec = v3sub(dropPos, camPos);
+        let depth = v3dot(toDropVec, forward);
+        if (depth < 0.5) continue;
+        let screenX = v3dot(toDropVec, right) / (depth * aspect * fov) * halfW + halfW;
+        let screenY = halfH - v3dot(toDropVec, up) / (depth * fov) * halfH;
+        let sx = Math.floor(screenX), sy = Math.floor(screenY);
+        if (sx >= 0 && sx < rW && sy >= 0 && sy < rH) {
+          let pi = (sy * rW + sx) * 4;
+          pixels[pi] = 150; pixels[pi+1] = 180; pixels[pi+2] = 255; pixels[pi+3] = 255;
+        }
+      }
+    }
+
+    // Render creature as colored voxel blob
+    renderCreatureOnScreen(camPos, forward, right, up, halfW, halfH, aspect, fov, sunDir, ambient, sky);
+
+    ctx.putImageData(imageData, 0, 0);
+
+    // Render creature trail marks
+    renderTrailMarks(camPos, forward, right, up, halfW, halfH, aspect, fov);
+
+    // Rain indicator
+    if (raining) {
+      ctx.fillStyle = 'rgba(100,150,255,0.15)';
+      ctx.fillRect(0, 0, rW, rH);
+    }
+  }
+
+  function renderCreatureOnScreen(camPos, forward, right, up, halfW, halfH, aspect, fov, sunDir, ambient, sky) {
+    // Project creature voxels
+    let cx = creature.x, cy = creature.y, cz = creature.z;
+    let parts = [
+      [cx, cy, cz],           // body
+      [cx, cy + 1, cz],       // head
+    ];
+    for (let part of parts) {
+      // Project center of voxel
+      let center = [part[0] + 0.5, part[1] + 0.5, part[2] + 0.5];
+      let toVox = v3sub(center, camPos);
+      let depth = v3dot(toVox, forward);
+      if (depth < 0.5) continue;
+      let sx = v3dot(toVox, right) / (depth * aspect * fov) * halfW + halfW;
+      let sy = halfH - v3dot(toVox, up) / (depth * fov) * halfH;
+      let size = Math.max(1, Math.floor(halfH / (depth * fov) * 0.7));
+      let ix = Math.floor(sx), iy = Math.floor(sy);
+      let c = creature.color;
+      for (let dy = -size; dy <= size; dy++) {
+        for (let dx = -size; dx <= size; dx++) {
+          let px = ix + dx, py = iy + dy;
+          if (px >= 0 && px < rW && py >= 0 && py < rH) {
+            let pi = (py * rW + px) * 4;
+            let shade = part[1] === cy + 1 ? 1.0 : 0.8;
+            pixels[pi] = Math.min(255, Math.floor(c[0] * shade));
+            pixels[pi+1] = Math.min(255, Math.floor(c[1] * shade));
+            pixels[pi+2] = Math.min(255, Math.floor(c[2] * shade));
+            pixels[pi+3] = 255;
+          }
+        }
+      }
+    }
+    // Eye dots on head
+    let headCenter = [cx + 0.5, cy + 1.5, cz + 0.5];
+    let toHead = v3sub(headCenter, camPos);
+    let headDepth = v3dot(toHead, forward);
+    if (headDepth > 0.5) {
+      let hsx = v3dot(toHead, right) / (headDepth * aspect * fov) * halfW + halfW;
+      let hsy = halfH - v3dot(toHead, up) / (headDepth * fov) * halfH;
+      let eyeSize = Math.max(1, Math.floor(halfH / (headDepth * fov) * 0.15));
+      // Two eyes
+      for (let eo of [-1, 1]) {
+        let ex = Math.floor(hsx + eo * eyeSize * 1.5);
+        let ey = Math.floor(hsy - eyeSize * 0.5);
+        if (ex >= 0 && ex < rW && ey >= 0 && ey < rH) {
+          let pi = (ey * rW + ex) * 4;
+          let ec = creature.sleeping ? [40,40,60] : [255,255,255];
+          pixels[pi] = ec[0]; pixels[pi+1] = ec[1]; pixels[pi+2] = ec[2]; pixels[pi+3] = 255;
+        }
+      }
+    }
+    // Re-apply imageData since we modified pixels
+  }
+
+  function renderTrailMarks(camPos, forward, right, up, halfW, halfH, aspect, fov) {
+    ctx.fillStyle = 'rgba(80,50,20,0.4)';
+    for (let mark of creature.trail) {
+      let center = [mark[0] + 0.5, mark[1] + 1.01, mark[2] + 0.5];
+      let toMark = v3sub(center, camPos);
+      let depth = v3dot(toMark, forward);
+      if (depth < 0.5) continue;
+      let sx = v3dot(toMark, right) / (depth * aspect * fov) * halfW + halfW;
+      let sy = halfH - v3dot(toMark, up) / (depth * fov) * halfH;
+      let size = Math.max(0.5, halfH / (depth * fov) * 0.15);
+      ctx.beginPath();
+      ctx.arc(sx, sy, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- Hover Detection ---
+  function getHoveredVoxel(mx, my) {
+    // Scale mouse coords to render resolution
+    let px = mx / renderScale;
+    let py = my / renderScale;
+
+    let camPos = getCamPos();
+    let forward = v3norm(v3sub(camTarget, camPos));
+    let right = v3norm(v3cross(forward, [0, 1, 0]));
+    let up = v3cross(right, forward);
+    let fov = 1.0;
+    let halfW = rW / 2, halfH = rH / 2;
+    let aspect = rW / rH;
+
+    let u = (px - halfW) / halfW * aspect * fov;
+    let v = (halfH - py) / halfH * fov;
+    let dir = v3norm(v3add(v3add(forward, v3scale(right, u)), v3scale(up, v)));
+
+    return raycastVoxel(camPos, dir, 64);
+  }
+
+  // --- Input Handling ---
+  canvas.addEventListener('mousedown', function(e) {
+    dragging = true;
+    lastMX = e.clientX;
+    lastMY = e.clientY;
+  });
+  window.addEventListener('mouseup', function() { dragging = false; });
+  window.addEventListener('mousemove', function(e) {
+    if (dragging) {
+      let dx = e.clientX - lastMX;
+      let dy = e.clientY - lastMY;
+      camTheta -= dx * 0.008;
+      camPhi = Math.max(0.2, Math.min(1.4, camPhi + dy * 0.008));
+      lastMX = e.clientX;
+      lastMY = e.clientY;
+    }
+    // Hover info
+    let rect = canvas.getBoundingClientRect();
+    let mx = e.clientX - rect.left;
+    let my = e.clientY - rect.top;
+    let result = getHoveredVoxel(mx, my);
+    let infoEl = document.getElementById('hover-info');
+    if (result && result.hit) {
+      hoverVoxel = result;
+      infoEl.textContent = 'Voxel [' + result.pos[0] + ',' + result.pos[1] + ',' + result.pos[2] + '] — ' + TYPE_NAMES[result.voxel];
+    } else {
+      hoverVoxel = null;
+      infoEl.textContent = 'Hover over the terrarium...';
+    }
+  });
+
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    camDist = Math.max(12, Math.min(60, camDist + e.deltaY * 0.05));
+  }, { passive: false });
+
+  // Double-click to cycle voxel type
+  canvas.addEventListener('dblclick', function(e) {
+    let rect = canvas.getBoundingClientRect();
+    let mx = e.clientX - rect.left;
+    let my = e.clientY - rect.top;
+    let result = getHoveredVoxel(mx, my);
+    if (result && result.hit) {
+      let pos = result.pos;
+      let current = getVoxel(pos[0], pos[1], pos[2]);
+      // Find next in cycle
+      let nextType = EMPTY;
+      let foundIdx = CYCLE_ORDER.indexOf(current);
+      if (foundIdx >= 0 && foundIdx < CYCLE_ORDER.length - 1) {
+        nextType = CYCLE_ORDER[foundIdx + 1];
+      } else {
+        nextType = CYCLE_ORDER[0];
+      }
+      setVoxel(pos[0], pos[1], pos[2], nextType);
+    }
+  });
+
+  // --- Toolbar ---
+  document.getElementById('btn-export').addEventListener('click', function() {
+    let data = {
+      world: Array.from(world),
+      worldAge: Array.from(worldAge),
+      creature: JSON.parse(JSON.stringify(creature)),
+      dayTime: dayTime,
+      version: 1
+    };
+    let blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    let url = URL.createObjectURL(blob);
+    let a = document.createElement('a');
+    a.href = url; a.download = 'voxel-terrarium.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('btn-import').addEventListener('click', function() {
+    document.getElementById('file-input').click();
+  });
+  document.getElementById('file-input').addEventListener('change', function(e) {
+    let file = e.target.files[0];
+    if (!file) return;
+    let reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        let data = JSON.parse(ev.target.result);
+        if (data.world && data.world.length === WS * WS * WS) {
+          world = new Uint8Array(data.world);
+          worldAge = new Float32Array(data.worldAge || new Array(WS * WS * WS).fill(0));
+          if (data.creature) {
+            Object.assign(creature, data.creature);
+          }
+          if (typeof data.dayTime === 'number') dayTime = data.dayTime;
+        }
+      } catch (err) {
+        console.error('Import failed:', err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', function() {
+    generateWorld();
+    initCreature();
+    dayTime = 0.25;
+  });
+
+  document.getElementById('btn-help').addEventListener('click', function() {
+    document.getElementById('help-overlay').classList.toggle('show');
+  });
+
+  let speedSlider = document.getElementById('speed-slider');
+  let speedLabel = document.getElementById('speed-label');
+  speedSlider.addEventListener('input', function() {
+    daySpeed = parseFloat(this.value);
+    speedLabel.textContent = daySpeed + '×';
+  });
+
+  document.getElementById('render-res').addEventListener('change', function() {
+    renderScale = parseInt(this.value);
+    resize();
+  });
+
+  // --- Time display ---
+  function getTimeString() {
+    let dayNum = Math.floor(dayTime * 4) + 1; // rough day count
+    let hour = Math.floor(dayTime * 24);
+    let period;
+    if (hour >= 5 && hour < 10) period = 'Morning';
+    else if (hour >= 10 && hour < 14) period = 'Midday';
+    else if (hour >= 14 && hour < 18) period = 'Afternoon';
+    else if (hour >= 18 && hour < 21) period = 'Evening';
+    else period = 'Night';
+    let rainStr = raining ? ' 🌧️' : '';
+    let sleepStr = creature.sleeping ? ' 💤' : '';
+    return period + ' (' + hour + ':00)' + rainStr + sleepStr;
+  }
+
+  // --- Main Loop ---
+  let lastTime = 0;
+  let simAccum = 0;
+
+  function mainLoop(timestamp) {
+    let dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+    lastTime = timestamp;
+
+    let simDt = dt * daySpeed;
+
+    // Day/night cycle
+    dayTime += simDt * 0.005;
+    if (dayTime >= 1) dayTime -= 1;
+
+    // Ecosystem updates
+    simAccum += simDt;
+    if (simAccum > 0.05) {
+      updateCreature(simAccum);
+      updateRain(simAccum);
+      updateEcosystem(simAccum);
+      simAccum = 0;
+    }
+
+    // Render
+    render();
+
+    // Update time display
+    document.getElementById('time-info').textContent = getTimeString();
+
+    requestAnimationFrame(mainLoop);
+  }
+
+  // --- Initialization ---
+  function init() {
+    resize();
+    generateWorld();
+    initCreature();
+    window.addEventListener('resize', resize);
+    requestAnimationFrame(mainLoop);
+  }
+
+  init();
+
+  // --- Additional Visual Enhancements ---
+  // Ambient occlusion approximation: darken voxels with more neighbors
+  function getAO(x, y, z, normal) {
+    let ao = 0;
+    let checkDirs;
+    if (normal[1] === 1) { // top face
+      checkDirs = [[-1,0,-1],[-1,0,0],[-1,0,1],[0,0,-1],[0,0,1],[1,0,-1],[1,0,0],[1,0,1]];
+    } else if (normal[1] === -1) {
+      checkDirs = [[-1,0,-1],[-1,0,0],[-1,0,1],[0,0,-1],[0,0,1],[1,0,-1],[1,0,0],[1,0,1]];
+    } else {
+      checkDirs = [[0,-1,0],[0,1,0],[-1,0,0],[1,0,0]];
+    }
+    for (let d of checkDirs) {
+      let nx = x + d[0] + (normal[0] !== 0 ? normal[0] : 0);
+      let ny = y + d[1] + (normal[1] !== 0 ? normal[1] : 0);
+      let nz = z + d[2] + (normal[2] !== 0 ? normal[2] : 0);
+      if (getVoxel(nx, ny, nz) !== EMPTY) ao++;
+    }
+    return 1.0 - ao * 0.06;
+  }
+
+  // Enhanced shade function used during rendering
+  // Patching the original shadeVoxel to include AO
+  let originalShade = shadeVoxel;
+  // We intentionally leave the original for simplicity since AO adds cost
+  // but the raycast engine handles the core rendering
+
+  // --- Keyboard Shortcuts ---
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'h' || e.key === 'H') {
+      document.getElementById('help-overlay').classList.toggle('show');
+    }
+    if (e.key === '+' || e.key === '=') {
+      daySpeed = Math.min(5, daySpeed + 0.5);
+      speedSlider.value = daySpeed;
+      speedLabel.textContent = daySpeed + '×';
+    }
+    if (e.key === '-' || e.key === '_') {
+      daySpeed = Math.max(0, daySpeed - 0.5);
+      speedSlider.value = daySpeed;
+      speedLabel.textContent = daySpeed + '×';
+    }
+  });
+
+  // --- Stats Overlay ---
+  // Small FPS counter in corner
+  let frameCount = 0, fpsTime = 0, currentFPS = 0;
+  let origRender = render;
+  render = function() {
+    let now = performance.now();
+    frameCount++;
+    if (now - fpsTime > 1000) {
+      currentFPS = frameCount;
+      frameCount = 0;
+      fpsTime = now;
+    }
+    origRender();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(rW - 52, 2, 50, 16);
+    ctx.fillStyle = '#6a8';
+    ctx.font = '10px monospace';
+    ctx.fillText(currentFPS + ' fps', rW - 48, 13);
+  };
+
+  // --- Auto-save to localStorage ---
+  setInterval(function() {
+    try {
+      let save = {
+        world: Array.from(world),
+        creature: { x: creature.x, y: creature.y, z: creature.z, food: creature.food },
+        dayTime: dayTime
+      };
+      localStorage.setItem('voxelTerrariumSave', JSON.stringify(save));
+    } catch(e) {}
+  }, 30000);
+
+  // Try to load saved state on startup
+  try {
+    let saved = localStorage.getItem('voxelTerrariumSave');
+    if (saved) {
+      let data = JSON.parse(saved);
+      if (data.world && data.world.length === WS * WS * WS) {
+        world = new Uint8Array(data.world);
+        if (data.creature) {
+          creature.x = data.creature.x || 8;
+          creature.y = data.creature.y || 5;
+          creature.z = data.creature.z || 8;
+          creature.food = data.creature.food || 5;
+        }
+        if (typeof data.dayTime === 'number') dayTime = data.dayTime;
+      }
+    }
+  } catch(e) {}
+
+})();
+</script>
+</body>
+</html>

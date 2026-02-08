@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Typing Speed Trainer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e1113;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{background:#161a1e;padding:12px 20px;border-bottom:1px solid #2a2f35;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:1.3rem;color:#00d2d3}
+.tabs{display:flex;gap:6px;margin-left:auto}
+.tab{background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.8rem}
+.tab.active{background:#00d2d3;color:#0e1113;border-color:#00d2d3}
+main{flex:1;display:flex;flex-direction:column;align-items:center;padding:20px;max-width:900px;width:100%;margin:0 auto}
+.text-display{background:#161a1e;border:1px solid #2a2f35;border-radius:10px;padding:20px;font-family:'Courier New',monospace;font-size:1.2rem;line-height:2;width:100%;min-height:120px;margin-bottom:16px;position:relative}
+.text-display .char{display:inline}
+.text-display .char.correct{color:#2ecc71}
+.text-display .char.wrong{color:#ff6347;background:#ff634722;border-radius:2px}
+.text-display .char.current{border-bottom:2px solid #00d2d3;color:#fff}
+.text-display .char.pending{color:#555}
+.input-area{width:100%}
+.input-area textarea{width:100%;background:#0e1113;border:2px solid #2a2f35;color:#e0e0e0;padding:14px;border-radius:10px;font-family:'Courier New',monospace;font-size:1.1rem;resize:none;min-height:60px}
+.input-area textarea:focus{outline:none;border-color:#00d2d3}
+.stats-row{display:flex;gap:20px;justify-content:center;margin:16px 0;flex-wrap:wrap}
+.stat{text-align:center}
+.stat .num{font-size:2rem;font-weight:bold;color:#00d2d3}
+.stat .label{font-size:.75rem;color:#888;text-transform:uppercase}
+.controls{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap;justify-content:center}
+.btn{background:#00d2d3;color:#0e1113;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:600;font-size:.85rem}
+.btn:hover{opacity:.9}
+.btn-outline{background:transparent;border:1px solid #2a2f35;color:#aaa}
+.btn-outline:hover{border-color:#00d2d3;color:#00d2d3}
+.btn-outline.active{background:#00d2d322;border-color:#00d2d3;color:#00d2d3}
+.keyboard{display:flex;flex-direction:column;align-items:center;gap:4px;margin:16px 0;width:100%}
+.kb-row{display:flex;gap:4px;justify-content:center}
+.key{width:38px;height:38px;background:#1e2329;border:1px solid #2a2f35;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-family:monospace;color:#888;transition:background .2s}
+.key.hot{background:#ff634744;border-color:#ff6347;color:#ff6347}
+.key.warm{background:#ffa50033;border-color:#ffa500;color:#ffa500}
+.key.cool{background:#2ecc7122;border-color:#2ecc71;color:#2ecc71}
+.key.space{width:200px}
+.chart-container{width:100%;height:200px;background:#161a1e;border:1px solid #2a2f35;border-radius:8px;padding:16px;margin:16px 0}
+canvas{width:100%;height:100%}
+.history-list{width:100%;max-height:300px;overflow-y:auto}
+.history-item{display:flex;justify-content:space-between;padding:8px 12px;background:#161a1e;border-radius:6px;margin:4px 0;font-size:.85rem}
+.history-item .wpm{color:#00d2d3;font-weight:bold}
+.history-item .acc{color:#2ecc71}
+.difficulty-pills{display:flex;gap:6px;margin:8px 0}
+</style>
+</head>
+<body>
+<header>
+<h1>⌨️ Typing Speed Trainer</h1>
+<div class="tabs">
+<div class="tab active" data-tab="test">Test</div>
+<div class="tab" data-tab="history">History</div>
+<div class="tab" data-tab="heatmap">Heatmap</div>
+</div>
+</header>
+<main id="app"></main>
+<script>
+const texts={
+easy:["The quick brown fox jumps over the lazy dog.","Pack my box with five dozen liquor jugs.","How vexingly quick daft zebras jump.","The five boxing wizards jump quickly.","Bright vixens jump; dozy fowl quack."],
+medium:["Programming is the art of telling another human being what one wants the computer to do.","The best way to predict the future is to invent it.","In the middle of difficulty lies opportunity.","Any sufficiently advanced technology is indistinguishable from magic.","The only way to do great work is to love what you do."],
+hard:["To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer the slings and arrows of outrageous fortune, or to take arms against a sea of troubles.","It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity.","We hold these truths to be self-evident, that all men are created equal, that they are endowed by their Creator with certain unalienable Rights."]
+};
+
+let st=JSON.parse(localStorage.getItem('typing_trainer')||'null')||{tab:'test',diff:'medium',history:[],keyErrors:{},started:false,startTime:0,text:'',typed:'',done:false,wpm:0,accuracy:100,elapsed:0};
+
+function save(){localStorage.setItem('typing_trainer',JSON.stringify(st))}
+
+function newText(){
+  const pool=texts[st.diff];
+  st.text=pool[Math.floor(Math.random()*pool.length)];
+  st.typed='';st.started=false;st.done=false;st.wpm=0;st.accuracy=100;st.elapsed=0;st.startTime=0;
+  save();
+}
+
+function calcStats(){
+  if(!st.started||!st.startTime)return;
+  const elapsed=(Date.now()-st.startTime)/1000/60;
+  const words=st.typed.trim().split(/\s+/).filter(Boolean).length;
+  st.wpm=elapsed>0?Math.round(words/elapsed):0;
+  let correct=0;
+  for(let i=0;i<st.typed.length;i++){if(st.typed[i]===st.text[i])correct++}
+  st.accuracy=st.typed.length?Math.round(correct/st.typed.length*100):100;
+  st.elapsed=Math.round(elapsed*60);
+}
+
+function handleInput(val){
+  if(st.done)return;
+  if(!st.started){st.started=true;st.startTime=Date.now()}
+  const prev=st.typed;
+  st.typed=val;
+  // Track errors
+  if(val.length>prev.length){
+    const i=val.length-1;
+    if(i<st.text.length&&val[i]!==st.text[i]){
+      const ch=st.text[i].toUpperCase();
+      st.keyErrors[ch]=(st.keyErrors[ch]||0)+1;
+    }
+  }
+  calcStats();
+  if(st.typed.length>=st.text.length){
+    st.done=true;
+    st.history.unshift({wpm:st.wpm,accuracy:st.accuracy,diff:st.diff,date:new Date().toISOString(),len:st.text.length,elapsed:st.elapsed});
+    if(st.history.length>50)st.history.length=50;
+  }
+  save();render();
+}
+
+let timer;
+function startTimer(){
+  clearInterval(timer);
+  timer=setInterval(()=>{if(st.started&&!st.done){calcStats();renderStats()}},500);
+}
+
+function renderStats(){
+  document.querySelectorAll('[data-stat]').forEach(el=>{
+    if(el.dataset.stat==='wpm')el.textContent=st.wpm;
+    if(el.dataset.stat==='acc')el.textContent=st.accuracy+'%';
+    if(el.dataset.stat==='time')el.textContent=st.elapsed+'s';
+    if(el.dataset.stat==='chars')el.textContent=st.typed.length+'/'+st.text.length;
+  });
+}
+
+function renderTest(){
+  const chars=st.text.split('').map((ch,i)=>{
+    let cls='pending';
+    if(i<st.typed.length){cls=st.typed[i]===ch?'correct':'wrong'}
+    else if(i===st.typed.length)cls='current';
+    return `<span class="char ${cls}">${ch==='\n'?'↵\n':ch===' '?'&nbsp;':ch.replace(/</g,'&lt;')}</span>`;
+  }).join('');
+  return `
+    <div class="difficulty-pills controls">
+      ${['easy','medium','hard'].map(d=>`<button class="btn btn-outline ${st.diff===d?'active':''}" onclick="st.diff='${d}';newText();render()">${d.charAt(0).toUpperCase()+d.slice(1)}</button>`).join('')}
+      <button class="btn" onclick="newText();render()">New Text</button>
+    </div>
+    <div class="stats-row">
+      <div class="stat"><div class="num" data-stat="wpm">${st.wpm}</div><div class="label">WPM</div></div>
+      <div class="stat"><div class="num" data-stat="acc">${st.accuracy}%</div><div class="label">Accuracy</div></div>
+      <div class="stat"><div class="num" data-stat="time">${st.elapsed}s</div><div class="label">Time</div></div>
+      <div class="stat"><div class="num" data-stat="chars">${st.typed.length}/${st.text.length}</div><div class="label">Chars</div></div>
+    </div>
+    <div class="text-display">${chars}</div>
+    <div class="input-area">
+      <textarea id="typingInput" placeholder="${st.done?'Done! Click New Text for another...':'Start typing...'}" ${st.done?'disabled':''}>${st.typed}</textarea>
+    </div>
+    ${st.done?`<div style="text-align:center;margin-top:12px;color:#2ecc71;font-size:1.1rem">✓ Complete! ${st.wpm} WPM at ${st.accuracy}% accuracy</div>`:''}`;
+}
+
+function renderHistory(){
+  if(!st.history.length)return '<p style="text-align:center;color:#888;margin-top:40px">No tests completed yet. Take a typing test first!</p>';
+  const wpms=st.history.map(h=>h.wpm).slice(0,20).reverse();
+  return `
+    <div class="chart-container"><canvas id="histChart"></canvas></div>
+    <div class="history-list">${st.history.map(h=>`
+      <div class="history-item">
+        <span>${new Date(h.date).toLocaleDateString()} ${new Date(h.date).toLocaleTimeString()}</span>
+        <span style="color:#888">${h.diff}</span>
+        <span class="wpm">${h.wpm} WPM</span>
+        <span class="acc">${h.accuracy}%</span>
+        <span style="color:#888">${h.elapsed}s</span>
+      </div>`).join('')}
+    </div>
+    <div style="text-align:center;margin-top:12px"><button class="btn btn-outline" onclick="st.history=[];save();render()">Clear History</button></div>`;
+}
+
+function drawChart(){
+  const canvas=document.getElementById('histChart');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width-32;canvas.height=rect.height-32;
+  const data=st.history.map(h=>h.wpm).slice(0,20).reverse();
+  if(data.length<2)return;
+  const max=Math.max(...data,1);const min=Math.min(...data);
+  const w=canvas.width,h=canvas.height,pad=30;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='#2a2f35';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=pad+(h-2*pad)*(i/4);
+    ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-10,y);ctx.stroke();
+    ctx.fillStyle='#666';ctx.font='10px sans-serif';ctx.textAlign='right';
+    ctx.fillText(Math.round(max-(max-min)*i/4),pad-5,y+3);
+  }
+  ctx.strokeStyle='#00d2d3';ctx.lineWidth=2;ctx.beginPath();
+  data.forEach((v,i)=>{
+    const x=pad+i*(w-pad-10)/(data.length-1);
+    const y=pad+(1-(v-min)/(max-min||1))*(h-2*pad);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  data.forEach((v,i)=>{
+    const x=pad+i*(w-pad-10)/(data.length-1);
+    const y=pad+(1-(v-min)/(max-min||1))*(h-2*pad);
+    ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fillStyle='#00d2d3';ctx.fill();
+  });
+}
+
+function renderHeatmap(){
+  const rows=[['Q','W','E','R','T','Y','U','I','O','P'],['A','S','D','F','G','H','J','K','L'],['Z','X','C','V','B','N','M']];
+  const maxErr=Math.max(...Object.values(st.keyErrors),1);
+  return `
+    <p style="text-align:center;color:#888;margin:16px 0;font-size:.85rem">Keys colored by error frequency: <span style="color:#2ecc71">green</span> = few errors, <span style="color:#ffa500">orange</span> = some, <span style="color:#ff6347">red</span> = many</p>
+    <div class="keyboard">${rows.map(row=>`<div class="kb-row">${row.map(k=>{
+      const errs=st.keyErrors[k]||0;
+      const ratio=errs/maxErr;
+      let cls='';
+      if(errs>0){if(ratio>0.6)cls='hot';else if(ratio>0.3)cls='warm';else cls='cool'}
+      return `<div class="key ${cls}" title="${k}: ${errs} errors">${k}</div>`;
+    }).join('')}</div>`).join('')}
+    <div class="kb-row"><div class="key space ${(st.keyErrors[' ']||0)>0?'warm':''}">Space</div></div>
+    </div>
+    <div style="margin-top:16px">
+      <h3 style="color:#00d2d3;font-size:.9rem;margin-bottom:8px">Weakest Keys</h3>
+      ${Object.entries(st.keyErrors).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>`
+        <div style="display:flex;align-items:center;gap:8px;margin:4px 0">
+          <span style="font-family:monospace;color:#ff6347;width:30px;font-weight:bold">${k===' '?'SPC':k}</span>
+          <div style="flex:1;height:12px;background:#1e2329;border-radius:3px;overflow:hidden">
+            <div style="width:${v/maxErr*100}%;height:100%;background:linear-gradient(90deg,#ffa500,#ff6347);border-radius:3px"></div>
+          </div>
+          <span style="font-size:.8rem;color:#888;width:40px">${v} err</span>
+        </div>`).join('')||'<p style="color:#888;font-size:.85rem">No errors recorded yet!</p>'}
+    </div>
+    <div style="text-align:center;margin-top:16px"><button class="btn btn-outline" onclick="st.keyErrors={};save();render()">Reset Heatmap</button></div>`;
+}
+
+function render(){
+  const app=document.getElementById('app');
+  if(st.tab==='test'){app.innerHTML=renderTest();startTimer()}
+  else if(st.tab==='history'){app.innerHTML=renderHistory();setTimeout(drawChart,50)}
+  else app.innerHTML=renderHeatmap();
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.classList.toggle('active',t.dataset.tab===st.tab);
+    t.onclick=()=>{st.tab=t.dataset.tab;save();render()};
+  });
+  const inp=document.getElementById('typingInput');
+  if(inp){
+    inp.oninput=()=>handleInput(inp.value);
+    inp.onpaste=e=>e.preventDefault();
+    if(!st.done)inp.focus();
+  }
+}
+if(!st.text)newText();
+render();
+</script>
+</body>
+</html>

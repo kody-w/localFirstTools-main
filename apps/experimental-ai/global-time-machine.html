@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Time Machine — RappterZoo</title>
+<meta name="rappterzoo:author" content="copilot-agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental-ai">
+<meta name="rappterzoo:tags" content="timeline,visualization,canvas,animation,data">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2025-07-16">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#0e1113;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+#app{display:flex;flex-direction:column;height:100vh;width:100vw}
+canvas{flex:1;display:block;cursor:crosshair}
+#controls{display:flex;align-items:center;gap:8px;padding:6px 12px;background:#181b1f;border-top:1px solid #2a2e33;flex-shrink:0;z-index:10}
+#controls button{background:#2a2e33;color:#ccc;border:1px solid #3a3e43;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:13px;transition:background .15s}
+#controls button:hover{background:#3a3e43}
+#controls button.active{background:#4a6fa5;border-color:#5a8fd5;color:#fff}
+#timeline-wrap{flex:1;position:relative;height:28px;background:#1a1d21;border-radius:4px;cursor:pointer;overflow:hidden}
+#timeline-track{position:absolute;top:0;left:0;height:100%;pointer-events:none}
+#timeline-fill{position:absolute;top:0;left:0;height:100%;background:linear-gradient(90deg,#2a4a7a,#4a6fa5);border-radius:4px 0 0 4px;pointer-events:none}
+#timeline-head{position:absolute;top:-2px;width:3px;height:32px;background:#7aafff;border-radius:2px;pointer-events:none;z-index:2}
+#timeline-ticks{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#date-label{font-size:13px;font-weight:600;color:#7aafff;min-width:100px;text-align:center;white-space:nowrap}
+#counter{font-size:12px;color:#888;white-space:nowrap}
+#event-feed{position:absolute;top:8px;right:8px;width:280px;max-height:calc(100vh - 120px);overflow:hidden;pointer-events:none;z-index:5}
+.feed-item{padding:5px 10px;margin-bottom:3px;background:rgba(24,27,31,.88);border-left:3px solid #4a6fa5;border-radius:0 4px 4px 0;font-size:11px;color:#bbb;animation:feedIn .3s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;backdrop-filter:blur(4px)}
+.feed-item.molt{border-left-color:#e8a838}
+.feed-item.spawn{border-left-color:#4ade80}
+@keyframes feedIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+#stats-bar{display:flex;gap:16px;padding:4px 12px;background:#14171a;font-size:11px;color:#777;flex-shrink:0;flex-wrap:wrap}
+#stats-bar span{white-space:nowrap}
+#stats-bar .val{color:#aaa;font-weight:600}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#0e1113;z-index:100;font-size:18px;color:#555}
+#error-banner{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#2a1515;border:1px solid #6a2020;padding:20px 30px;border-radius:8px;color:#e88;z-index:101;text-align:center;font-size:14px}
+@media(max-width:600px){
+  #event-feed{width:180px;font-size:10px}
+  #controls{flex-wrap:wrap;gap:4px;padding:4px 6px}
+  #controls button{font-size:11px;padding:3px 6px}
+  #date-label{font-size:11px;min-width:70px}
+  #stats-bar{font-size:10px;gap:8px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="canvas"></canvas>
+  <div id="event-feed"></div>
+  <div id="controls">
+    <button id="btn-play" title="Space">▶</button>
+    <button class="speed-btn" data-speed="1">1d/s</button>
+    <button class="speed-btn" data-speed="7">1w/s</button>
+    <button class="speed-btn" data-speed="30">1m/s</button>
+    <div id="timeline-wrap">
+      <div id="timeline-fill"></div>
+      <div id="timeline-head"></div>
+      <canvas id="timeline-ticks" height="28"></canvas>
+    </div>
+    <span id="date-label"></span>
+    <span id="counter"></span>
+  </div>
+  <div id="stats-bar"></div>
+</div>
+<div id="loading">Loading ecosystem data…</div>
+<div id="error-banner"></div>
+<script>
+(function(){
+"use strict";
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const feedEl = document.getElementById('event-feed');
+const statsBar = document.getElementById('stats-bar');
+const dateLabel = document.getElementById('date-label');
+const counterEl = document.getElementById('counter');
+const btnPlay = document.getElementById('btn-play');
+const timelineWrap = document.getElementById('timeline-wrap');
+const timelineFill = document.getElementById('timeline-fill');
+const timelineHead = document.getElementById('timeline-head');
+const tickCanvas = document.getElementById('timeline-ticks');
+const tickCtx = tickCanvas.getContext('2d');
+const loadingEl = document.getElementById('loading');
+const errorEl = document.getElementById('error-banner');
+
+let apps = [];
+let categories = {};
+let catColors = {};
+let catPositions = {};
+let rankings = {};
+let minDate, maxDate, totalDays;
+let currentDay = 0;
+let playing = false;
+let speed = parseInt(localStorage.getItem('gtm-speed') || '7', 10);
+let lastTick = 0;
+let particles = [];
+let feedItems = [];
+let visibleApps = [];
+let moltedSet = new Set();
+let pulsingApps = [];
+const MAX_FEED = 30;
+let W = 0, H = 0;
+
+function showError(msg) {
+  errorEl.textContent = msg;
+  errorEl.style.display = 'block';
+  loadingEl.style.display = 'none';
+}
+
+function dayToDate(day) {
+  const d = new Date(minDate.getTime() + day * 86400000);
+  return d;
+}
+
+function dateToDay(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  return Math.round((d - minDate) / 86400000);
+}
+
+function fmtDate(d) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+}
+
+function parseManifest(data) {
+  const result = [];
+  const cats = data.categories || {};
+  for (const [key, cat] of Object.entries(cats)) {
+    const color = cat.color || '#4a6fa5';
+    catColors[key] = color;
+    categories[key] = cat.title || key;
+    if (Array.isArray(cat.apps)) {
+      for (const app of cat.apps) {
+        result.push({
+          title: app.title || app.file,
+          file: app.file,
+          category: key,
+          folder: cat.folder,
+          color: color,
+          created: app.created || null,
+          generation: app.generation || 1,
+          lastMolted: app.lastMolted || null,
+          tags: app.tags || [],
+          complexity: app.complexity || 'simple',
+          type: app.type || 'interactive',
+          featured: !!app.featured,
+          score: 0,
+          createdDay: null,
+          moltDay: null,
+          x: 0, y: 0, r: 0, targetR: 0, alpha: 0
+        });
+      }
+    }
+  }
+  return result;
+}
+
+function parseRankings(data) {
+  const map = {};
+  if (data && data.categories && Array.isArray(data.categories)) {
+    for (const item of data.categories) {
+      if (item.file) map[item.file] = item.score || 0;
+    }
+  } else if (Array.isArray(data)) {
+    for (const item of data) {
+      if (item.file) map[item.file] = item.score || 0;
+    }
+  }
+  return map;
+}
+
+function layoutCategories() {
+  const keys = Object.keys(categories);
+  const n = keys.length;
+  if (!n) return;
+  const cx = W * 0.45;
+  const cy = H * 0.48;
+  const rx = Math.min(W * 0.32, 400);
+  const ry = Math.min(H * 0.32, 300);
+  keys.forEach((key, i) => {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    catPositions[key] = {
+      x: cx + Math.cos(angle) * rx,
+      y: cy + Math.sin(angle) * ry,
+      angle: angle
+    };
+  });
+}
+
+function assignAppPositions() {
+  const perCat = {};
+  for (const app of apps) {
+    if (!perCat[app.category]) perCat[app.category] = [];
+    perCat[app.category].push(app);
+  }
+  for (const [cat, list] of Object.entries(perCat)) {
+    const center = catPositions[cat];
+    if (!center) continue;
+    const count = list.length;
+    const spread = Math.min(80 + count * 1.2, 160);
+    list.forEach((app, i) => {
+      const angle = (i / Math.max(count, 1)) * Math.PI * 2 + (cat.charCodeAt(0) * 0.7);
+      const dist = 20 + (i % 5) * (spread / 5) + Math.random() * 15;
+      app.x = center.x + Math.cos(angle) * dist;
+      app.y = center.y + Math.sin(angle) * dist;
+    });
+  }
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: 0.015 + Math.random() * 0.02,
+      color: color,
+      size: 2 + Math.random() * 3
+    });
+  }
+}
+
+function addFeedItem(text, type) {
+  feedItems.unshift({ text, type, age: 0 });
+  if (feedItems.length > MAX_FEED) feedItems.pop();
+  renderFeed();
+}
+
+function renderFeed() {
+  feedEl.innerHTML = '';
+  const show = feedItems.slice(0, 15);
+  for (const item of show) {
+    const div = document.createElement('div');
+    div.className = 'feed-item' + (item.type === 'molt' ? ' molt' : item.type === 'spawn' ? ' spawn' : '');
+    div.textContent = item.text;
+    div.style.opacity = Math.max(0.3, 1 - item.age * 0.05);
+    feedEl.appendChild(div);
+  }
+}
+
+function updateTimeline() {
+  const pct = totalDays > 0 ? currentDay / totalDays : 0;
+  const tw = timelineWrap.clientWidth;
+  timelineFill.style.width = (pct * tw) + 'px';
+  timelineHead.style.left = (pct * tw - 1) + 'px';
+  const d = dayToDate(currentDay);
+  dateLabel.textContent = fmtDate(d);
+}
+
+function drawTimelineTicks() {
+  const tw = timelineWrap.clientWidth;
+  tickCanvas.width = tw;
+  tickCanvas.height = 28;
+  tickCtx.clearRect(0, 0, tw, 28);
+  if (totalDays <= 0) return;
+  const start = new Date(minDate);
+  const end = new Date(maxDate);
+  let d = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+  tickCtx.strokeStyle = '#333';
+  tickCtx.fillStyle = '#555';
+  tickCtx.font = '9px sans-serif';
+  tickCtx.textAlign = 'center';
+  const months = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+  while (d <= end) {
+    const day = Math.round((d - minDate) / 86400000);
+    const x = (day / totalDays) * tw;
+    const isJan = d.getMonth() === 0;
+    tickCtx.beginPath();
+    tickCtx.moveTo(x, isJan ? 0 : 10);
+    tickCtx.lineTo(x, 20);
+    tickCtx.lineWidth = isJan ? 1.5 : 0.5;
+    tickCtx.stroke();
+    if (tw / (totalDays / 30) > 15) {
+      tickCtx.fillText(months[d.getMonth()], x, 27);
+    } else if (isJan) {
+      tickCtx.fillText(d.getFullYear().toString(), x, 27);
+    }
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+}
+
+function updateStats() {
+  const visible = visibleApps.length;
+  const molts = moltedSet.size;
+  const catCounts = {};
+  let totalScore = 0;
+  let scored = 0;
+  for (const app of visibleApps) {
+    catCounts[app.category] = (catCounts[app.category] || 0) + 1;
+    if (app.score > 0) { totalScore += app.score; scored++; }
+  }
+  const avgQ = scored > 0 ? (totalScore / scored).toFixed(1) : '—';
+  let html = `<span>Apps: <span class="val">${visible}</span></span>`;
+  html += `<span>Molts: <span class="val">${molts}</span></span>`;
+  html += `<span>Avg Quality: <span class="val">${avgQ}</span></span>`;
+  for (const [cat, count] of Object.entries(catCounts)) {
+    const name = (categories[cat] || cat).replace(/ /g, '\u00a0');
+    html += `<span style="color:${catColors[cat] || '#888'}">${name}:\u00a0<span class="val">${count}</span></span>`;
+  }
+  statsBar.innerHTML = html;
+  counterEl.textContent = `Day ${currentDay} · ${visible} apps · ${molts} molts`;
+}
+
+function processDay() {
+  for (const app of apps) {
+    if (app.createdDay !== null && app.createdDay === currentDay && app.alpha === 0) {
+      app.alpha = 0.01;
+      app.targetR = 4 + (app.score / 15);
+      visibleApps.push(app);
+      spawnParticles(app.x, app.y, app.color, 8);
+      addFeedItem(`✦ ${app.title} appeared in ${categories[app.category] || app.category}`, 'spawn');
+    }
+    if (app.moltDay !== null && app.moltDay === currentDay && !moltedSet.has(app.file)) {
+      moltedSet.add(app.file);
+      app.targetR = Math.max(app.targetR, 6 + (app.score / 12));
+      pulsingApps.push({ app, phase: 0 });
+      spawnParticles(app.x, app.y, '#e8a838', 15);
+      addFeedItem(`⟳ ${app.title} evolved to Gen ${app.generation}`, 'molt');
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Category labels
+  for (const [key, pos] of Object.entries(catPositions)) {
+    ctx.save();
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = catColors[key] || '#555';
+    ctx.globalAlpha = 0.5;
+    ctx.textAlign = 'center';
+    ctx.fillText(categories[key] || key, pos.x, pos.y - 10);
+    ctx.restore();
+  }
+
+  // App circles
+  for (const app of visibleApps) {
+    if (app.alpha <= 0) continue;
+    app.r += (app.targetR - app.r) * 0.08;
+    app.alpha = Math.min(1, app.alpha + 0.03);
+    ctx.save();
+    ctx.globalAlpha = app.alpha * 0.85;
+    ctx.beginPath();
+    ctx.arc(app.x, app.y, app.r, 0, Math.PI * 2);
+    ctx.fillStyle = app.color;
+    ctx.fill();
+    if (app.featured) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = app.alpha * 0.4;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Pulsing molt effect
+  for (let i = pulsingApps.length - 1; i >= 0; i--) {
+    const p = pulsingApps[i];
+    p.phase += 0.04;
+    if (p.phase > 1) { pulsingApps.splice(i, 1); continue; }
+    const r = p.app.r + p.phase * 20;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.app.x, p.app.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = '#e8a838';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = (1 - p.phase) * 0.6;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.97;
+    p.vy *= 0.97;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.save();
+    ctx.globalAlpha = p.life * 0.7;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function tick(ts) {
+  requestAnimationFrame(tick);
+  if (playing && ts - lastTick > 1000 / 60) {
+    const elapsed = (ts - lastTick) / 1000;
+    lastTick = ts;
+    const advance = Math.max(1, Math.round(speed * elapsed));
+    for (let i = 0; i < advance && currentDay < totalDays; i++) {
+      currentDay++;
+      processDay();
+    }
+    if (currentDay >= totalDays) {
+      playing = false;
+      btnPlay.textContent = '▶';
+    }
+    updateTimeline();
+    updateStats();
+  }
+  if (!playing) lastTick = ts;
+
+  // Age feed items
+  for (const item of feedItems) item.age++;
+
+  draw();
+}
+
+function resize() {
+  W = canvas.clientWidth;
+  H = canvas.clientHeight;
+  canvas.width = W;
+  canvas.height = H;
+  layoutCategories();
+  assignAppPositions();
+  drawTimelineTicks();
+}
+
+function seekTo(pct) {
+  const newDay = Math.round(pct * totalDays);
+  if (newDay < currentDay) {
+    // Reset and replay
+    visibleApps = [];
+    moltedSet.clear();
+    pulsingApps = [];
+    particles = [];
+    feedItems = [];
+    for (const app of apps) { app.alpha = 0; app.r = 0; }
+    for (let d = 0; d <= newDay; d++) {
+      currentDay = d;
+      processDay();
+    }
+  } else {
+    for (let d = currentDay + 1; d <= newDay; d++) {
+      currentDay = d;
+      processDay();
+    }
+  }
+  currentDay = newDay;
+  updateTimeline();
+  updateStats();
+}
+
+function stepDays(n) {
+  const target = Math.max(0, Math.min(totalDays, currentDay + n));
+  seekTo(target / totalDays);
+}
+
+// Timeline drag
+let dragging = false;
+timelineWrap.addEventListener('mousedown', e => { dragging = true; handleTimelineClick(e); });
+timelineWrap.addEventListener('touchstart', e => { dragging = true; handleTimelineTouch(e); }, { passive: true });
+window.addEventListener('mousemove', e => { if (dragging) handleTimelineClick(e); });
+window.addEventListener('touchmove', e => { if (dragging) handleTimelineTouch(e); }, { passive: true });
+window.addEventListener('mouseup', () => { dragging = false; });
+window.addEventListener('touchend', () => { dragging = false; });
+
+function handleTimelineClick(e) {
+  const rect = timelineWrap.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  seekTo(pct);
+}
+function handleTimelineTouch(e) {
+  if (!e.touches.length) return;
+  const rect = timelineWrap.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.touches[0].clientX - rect.left) / rect.width));
+  seekTo(pct);
+}
+
+// Play/pause
+btnPlay.addEventListener('click', () => {
+  playing = !playing;
+  btnPlay.textContent = playing ? '⏸' : '▶';
+  if (playing && currentDay >= totalDays) {
+    seekTo(0);
+  }
+});
+
+// Speed buttons
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    speed = parseInt(btn.dataset.speed, 10);
+    localStorage.setItem('gtm-speed', speed);
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+// Set active speed button
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  if (parseInt(btn.dataset.speed, 10) === speed) btn.classList.add('active');
+});
+
+// Keyboard
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); btnPlay.click(); }
+  else if (e.code === 'ArrowRight' && e.shiftKey) { e.preventDefault(); stepDays(30); }
+  else if (e.code === 'ArrowLeft' && e.shiftKey) { e.preventDefault(); stepDays(-30); }
+  else if (e.code === 'ArrowRight') { e.preventDefault(); stepDays(1); }
+  else if (e.code === 'ArrowLeft') { e.preventDefault(); stepDays(-1); }
+});
+
+window.addEventListener('resize', resize);
+
+// Load data
+async function init() {
+  try {
+    const [manifestRes, rankingsRes] = await Promise.all([
+      fetch('../manifest.json'),
+      fetch('../rankings.json').catch(() => null)
+    ]);
+
+    if (!manifestRes.ok) throw new Error('Failed to load manifest.json');
+    const manifest = await manifestRes.json();
+    apps = parseManifest(manifest);
+
+    if (rankingsRes && rankingsRes.ok) {
+      try {
+        const rData = await rankingsRes.json();
+        rankings = parseRankings(rData);
+      } catch (e) { /* rankings optional */ }
+    }
+
+    // Apply scores
+    for (const app of apps) {
+      app.score = rankings[app.file] || 0;
+    }
+
+    // Compute date range
+    const dates = apps.map(a => a.created).filter(Boolean).map(d => new Date(d)).filter(d => !isNaN(d));
+    const moltDates = apps.map(a => a.lastMolted).filter(Boolean).map(d => new Date(d)).filter(d => !isNaN(d));
+    const allDates = dates.concat(moltDates);
+
+    if (allDates.length === 0) {
+      // No dates — assign synthetic ones spread over a year
+      const now = new Date();
+      const yearAgo = new Date(now.getTime() - 365 * 86400000);
+      minDate = yearAgo;
+      maxDate = now;
+      apps.forEach((app, i) => {
+        const d = new Date(yearAgo.getTime() + (i / apps.length) * 365 * 86400000);
+        app.created = d.toISOString().slice(0, 10);
+      });
+    } else {
+      minDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+      maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
+      // Pad a bit
+      maxDate = new Date(maxDate.getTime() + 2 * 86400000);
+    }
+
+    totalDays = Math.max(1, Math.round((maxDate - minDate) / 86400000));
+
+    // Precompute days
+    for (const app of apps) {
+      app.createdDay = dateToDay(app.created);
+      app.moltDay = dateToDay(app.lastMolted);
+      if (app.createdDay === null) {
+        // Assign to day 0 if no date
+        app.createdDay = 0;
+      }
+    }
+
+    // Sort by created day for consistent processing
+    apps.sort((a, b) => (a.createdDay || 0) - (b.createdDay || 0));
+
+    resize();
+    drawTimelineTicks();
+    updateTimeline();
+    updateStats();
+    loadingEl.style.display = 'none';
+    requestAnimationFrame(tick);
+
+  } catch (err) {
+    showError('Could not load data: ' + err.message);
+    console.error(err);
+  }
+}
+
+init();
+})();
+</script>
+</body>
+</html>

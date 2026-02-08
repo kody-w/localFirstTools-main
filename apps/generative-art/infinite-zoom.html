@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Infinite Zoom</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    user-select: none;
+  }
+  #mainCanvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+  }
+  #ui-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #zoom-display {
+    position: fixed;
+    top: 16px; left: 16px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 20;
+    backdrop-filter: blur(8px);
+    min-width: 260px;
+  }
+  #zoom-display .label { color: #888; }
+  #zoom-display .value { color: #0ff; font-weight: bold; }
+  #zoom-display .world-name { color: #f80; font-size: 15px; font-weight: bold; }
+  #controls {
+    position: fixed;
+    top: 16px; right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: auto;
+    z-index: 20;
+  }
+  #controls button, #controls select {
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 6px;
+    color: #fff;
+    padding: 8px 14px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: all 0.2s;
+  }
+  #controls button:hover, #controls select:hover {
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.5);
+  }
+  #controls select { appearance: none; text-align: center; }
+  #controls select option { background: #111; color: #fff; }
+  #minimap-container {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    width: 160px; height: 120px;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 20;
+    backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.5);
+  }
+  #minimapCanvas {
+    width: 100%; height: 100%;
+  }
+  #help-text {
+    position: fixed;
+    bottom: 16px; left: 16px;
+    background: rgba(0,0,0,0.6);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #666;
+    pointer-events: none;
+    z-index: 20;
+  }
+  #help-text kbd {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+  #world-transition {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 0 20px currentColor;
+    opacity: 0;
+    transition: opacity 0.5s;
+    pointer-events: none;
+    z-index: 30;
+    text-align: center;
+  }
+  .flash { animation: flashAnim 1.5s ease-out forwards; }
+  @keyframes flashAnim {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+  }
+  #progress-bar {
+    position: fixed;
+    bottom: 0; left: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #0ff, #f0f, #ff0);
+    transition: width 0.1s;
+    z-index: 25;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="mainCanvas"></canvas>
+<canvas id="minimapCanvas" width="160" height="120"></canvas>
+
+<div id="zoom-display">
+  <div><span class="label">Zoom: </span><span class="value" id="zoomVal">1.00 × 10⁰</span></div>
+  <div><span class="label">Real: </span><span class="value" id="realVal">-0.5000</span></div>
+  <div><span class="label">Imag: </span><span class="value" id="imagVal">0.0000</span></div>
+  <div><span class="label">Iter: </span><span class="value" id="iterVal">256</span></div>
+  <div><span class="label">World: </span><span class="world-name" id="worldVal">Cosmic</span></div>
+</div>
+
+<div id="controls">
+  <button id="resetBtn" title="Reset view">⟲ Reset</button>
+  <select id="paletteSelect" title="Color palette">
+    <option value="fire">🔥 Fire</option>
+    <option value="ocean">🌊 Ocean</option>
+    <option value="psychedelic" selected>🌈 Psychedelic</option>
+    <option value="infrared">👁 Infrared</option>
+    <option value="arctic">❄ Arctic</option>
+  </select>
+  <button id="autoZoomBtn" title="Auto-zoom toggle">▶ Auto Zoom</button>
+  <button id="screenshotBtn" title="Save screenshot">📷 Screenshot</button>
+</div>
+
+<div id="minimap-container">
+  <canvas id="minimapCanvas2" width="160" height="120"></canvas>
+</div>
+
+<div id="help-text">
+  <kbd>Scroll</kbd> Zoom &nbsp;
+  <kbd>Drag</kbd> Pan &nbsp;
+  <kbd>DblClick</kbd> Center &nbsp;
+  <kbd>R</kbd> Reset &nbsp;
+  <kbd>Space</kbd> Auto-zoom
+</div>
+
+<div id="world-transition"></div>
+<div id="progress-bar"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ========== CONFIGURATION ==========
+  const MAX_ITER_BASE = 256;
+  const ZOOM_SPEED = 0.12;
+  const AUTO_ZOOM_SPEED = 0.008;
+  const PROGRESSIVE_PASSES = 4;
+
+  // ========== STATE ==========
+  const state = {
+    centerX: -0.5,
+    centerY: 0.0,
+    zoom: 1.0,
+    maxIter: MAX_ITER_BASE,
+    palette: 'psychedelic',
+    autoZoom: false,
+    autoZoomTarget: { x: -0.7435669, y: 0.1314023 },
+    isDragging: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragCenterX: 0,
+    dragCenterY: 0,
+    lastWorld: '',
+    needsRender: true,
+    currentPass: 0,
+    renderComplete: false
+  };
+
+  // ========== CANVAS SETUP ==========
+  const canvas = document.getElementById('mainCanvas');
+  const ctx = canvas.getContext('2d');
+  const minimapCanvas = document.getElementById('minimapCanvas2');
+  const minimapCtx = minimapCanvas.getContext('2d');
+
+  let width, height, imageData, pixels;
+  let offscreenCanvas, offscreenCtx;
+
+  function resizeCanvas() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+    imageData = ctx.createImageData(width, height);
+    pixels = imageData.data;
+    offscreenCanvas = document.createElement('canvas');
+    offscreenCanvas.width = width;
+    offscreenCanvas.height = height;
+    offscreenCtx = offscreenCanvas.getContext('2d');
+    state.needsRender = true;
+    state.currentPass = 0;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // ========== COLOR PALETTES ==========
+  const palettes = {
+    fire: function(t) {
+      const r = Math.min(255, t * 3 * 255);
+      const g = Math.min(255, Math.max(0, (t - 0.33) * 3 * 255));
+      const b = Math.min(255, Math.max(0, (t - 0.66) * 3 * 255));
+      return [r | 0, g | 0, b | 0];
+    },
+    ocean: function(t) {
+      const r = Math.min(255, Math.sin(t * Math.PI * 2) * 80 + 20) | 0;
+      const g = Math.min(255, Math.sin(t * Math.PI * 2 + 1) * 100 + 100) | 0;
+      const b = Math.min(255, Math.sin(t * Math.PI * 2 + 2) * 127 + 128) | 0;
+      return [Math.max(0, r), Math.max(0, g), Math.max(0, b)];
+    },
+    psychedelic: function(t) {
+      const r = (Math.sin(t * Math.PI * 2 * 5 + 0) * 127 + 128) | 0;
+      const g = (Math.sin(t * Math.PI * 2 * 5 + 2.094) * 127 + 128) | 0;
+      const b = (Math.sin(t * Math.PI * 2 * 5 + 4.189) * 127 + 128) | 0;
+      return [r, g, b];
+    },
+    infrared: function(t) {
+      const r = Math.min(255, t * 4 * 255) | 0;
+      const g = Math.min(255, Math.max(0, (t - 0.5) * 2 * 200)) | 0;
+      const b = (Math.sin(t * Math.PI) * 80) | 0;
+      return [Math.max(0, r), Math.max(0, g), Math.max(0, b)];
+    },
+    arctic: function(t) {
+      const r = (180 + Math.sin(t * Math.PI * 3) * 75) | 0;
+      const g = (200 + Math.sin(t * Math.PI * 3 + 1) * 55) | 0;
+      const b = (220 + Math.sin(t * Math.PI * 3 + 2) * 35) | 0;
+      return [Math.min(255, r), Math.min(255, g), Math.min(255, b)];
+    }
+  };
+
+  // Pre-computed palette LUT (1024 entries)
+  let paletteLUT = new Uint8Array(1024 * 3);
+  function buildPaletteLUT() {
+    const fn = palettes[state.palette];
+    for (let i = 0; i < 1024; i++) {
+      const t = i / 1024;
+      const [r, g, b] = fn(t);
+      paletteLUT[i * 3] = r;
+      paletteLUT[i * 3 + 1] = g;
+      paletteLUT[i * 3 + 2] = b;
+    }
+  }
+  buildPaletteLUT();
+
+  // ========== WORLD DEFINITIONS ==========
+  const worlds = [
+    { name: 'Cosmic', minZoom: 1, maxZoom: 10, color: '#88f' },
+    { name: 'Stellar', minZoom: 10, maxZoom: 100, color: '#ff8' },
+    { name: 'Planetary', minZoom: 100, maxZoom: 1000, color: '#4f4' },
+    { name: 'Urban', minZoom: 1000, maxZoom: 10000, color: '#fa0' },
+    { name: 'Microscopic', minZoom: 10000, maxZoom: 100000, color: '#f4f' },
+    { name: 'Atomic', minZoom: 100000, maxZoom: 1e12, color: '#0ff' }
+  ];
+
+  function getCurrentWorld() {
+    const logZoom = Math.log10(state.zoom);
+    const cycleLen = 6;
+    const pos = ((logZoom % cycleLen) + cycleLen) % cycleLen;
+    const idx = Math.min(5, Math.floor(pos));
+    return worlds[idx];
+  }
+
+  function getWorldBlend() {
+    const logZoom = Math.log10(Math.max(1, state.zoom));
+    const cycleLen = 6;
+    const pos = ((logZoom % cycleLen) + cycleLen) % cycleLen;
+    return pos - Math.floor(pos);
+  }
+
+  // ========== FRACTAL COMPUTATION ==========
+  function mandelbrotSmooth(cx, cy, maxIter) {
+    let zx = 0, zy = 0, zx2 = 0, zy2 = 0;
+    let i = 0;
+    while (i < maxIter && zx2 + zy2 <= 4.0) {
+      zy = 2 * zx * zy + cy;
+      zx = zx2 - zy2 + cx;
+      zx2 = zx * zx;
+      zy2 = zy * zy;
+      i++;
+    }
+    if (i === maxIter) return -1;
+    // Smooth coloring using escape-time algorithm
+    const log2 = Math.log(2);
+    const logZn = Math.log(zx2 + zy2) / 2;
+    const nu = Math.log(logZn / log2) / log2;
+    return i + 1 - nu;
+  }
+
+  // ========== PROGRESSIVE FRACTAL RENDERER ==========
+  function renderFractalPass(pass) {
+    const step = 1 << (PROGRESSIVE_PASSES - 1 - pass);
+    const scale = 4.0 / (state.zoom * Math.min(width, height));
+    const startX = state.centerX - (width / 2) * scale;
+    const startY = state.centerY - (height / 2) * scale;
+    const maxIter = state.maxIter;
+    const w = width;
+    const h = height;
+
+    for (let py = 0; py < h; py += step) {
+      for (let px = 0; px < w; px += step) {
+        // On later passes, skip pixels already computed at coarser resolution
+        if (pass > 0) {
+          const prevStep = 1 << (PROGRESSIVE_PASSES - pass);
+          if (px % prevStep === 0 && py % prevStep === 0) continue;
+        }
+
+        const cx = startX + px * scale;
+        const cy = startY + py * scale;
+        const smoothVal = mandelbrotSmooth(cx, cy, maxIter);
+
+        let r, g, b;
+        if (smoothVal < 0) {
+          r = g = b = 0;
+        } else {
+          const t = (smoothVal % 64) / 64;
+          const idx = ((t * 1023) | 0) * 3;
+          r = paletteLUT[idx];
+          g = paletteLUT[idx + 1];
+          b = paletteLUT[idx + 2];
+        }
+
+        // Fill block for coarse passes
+        const blockW = Math.min(step, w - px);
+        const blockH = Math.min(step, h - py);
+        if (step === 1) {
+          const off = (py * w + px) * 4;
+          pixels[off] = r;
+          pixels[off + 1] = g;
+          pixels[off + 2] = b;
+          pixels[off + 3] = 255;
+        } else {
+          for (let by = 0; by < blockH; by++) {
+            for (let bx = 0; bx < blockW; bx++) {
+              const off = ((py + by) * w + (px + bx)) * 4;
+              pixels[off] = r;
+              pixels[off + 1] = g;
+              pixels[off + 2] = b;
+              pixels[off + 3] = 255;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ========== WORLD OVERLAY RENDERING ==========
+  function renderWorldOverlay(ctx, w, h) {
+    const world = getCurrentWorld();
+    const blend = getWorldBlend();
+    const time = performance.now() * 0.001;
+    const alpha = 0.15 + blend * 0.1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'screen';
+
+    switch (world.name) {
+      case 'Cosmic':
+        renderCosmicOverlay(ctx, w, h, time, blend);
+        break;
+      case 'Stellar':
+        renderStellarOverlay(ctx, w, h, time, blend);
+        break;
+      case 'Planetary':
+        renderPlanetaryOverlay(ctx, w, h, time, blend);
+        break;
+      case 'Urban':
+        renderUrbanOverlay(ctx, w, h, time, blend);
+        break;
+      case 'Microscopic':
+        renderMicroscopicOverlay(ctx, w, h, time, blend);
+        break;
+      case 'Atomic':
+        renderAtomicOverlay(ctx, w, h, time, blend);
+        break;
+    }
+
+    ctx.restore();
+  }
+
+  function seededRandom(seed) {
+    let s = seed;
+    return function() {
+      s = (s * 16807 + 0) % 2147483647;
+      return (s - 1) / 2147483646;
+    };
+  }
+
+  function renderCosmicOverlay(ctx, w, h, time, blend) {
+    const rng = seededRandom(42);
+    // Galaxy spirals and nebula clouds
+    const numSpirals = 3 + Math.floor(blend * 4);
+    for (let s = 0; s < numSpirals; s++) {
+      const cx = rng() * w;
+      const cy = rng() * h;
+      const arms = 2 + Math.floor(rng() * 3);
+      const size = 60 + rng() * 120;
+      ctx.beginPath();
+      for (let arm = 0; arm < arms; arm++) {
+        const armOffset = (arm / arms) * Math.PI * 2;
+        for (let t = 0; t < 100; t++) {
+          const angle = armOffset + t * 0.12 + time * 0.1;
+          const dist = t * size / 100;
+          const x = cx + Math.cos(angle) * dist;
+          const y = cy + Math.sin(angle) * dist;
+          if (t === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+      }
+      const hue = 220 + rng() * 80;
+      ctx.strokeStyle = `hsla(${hue}, 80%, 60%, 0.4)`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    // Nebula glow blobs
+    for (let i = 0; i < 8; i++) {
+      const x = rng() * w;
+      const y = rng() * h;
+      const r = 40 + rng() * 100;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const hue = (rng() * 360 + time * 20) % 360;
+      grad.addColorStop(0, `hsla(${hue}, 90%, 50%, 0.15)`);
+      grad.addColorStop(1, `hsla(${hue}, 90%, 50%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    // Distant stars
+    for (let i = 0; i < 50; i++) {
+      const x = rng() * w;
+      const y = rng() * h;
+      const sz = 0.5 + rng() * 2;
+      const brightness = 0.3 + Math.sin(time * 2 + rng() * 10) * 0.3;
+      ctx.fillStyle = `rgba(255,255,255,${brightness})`;
+      ctx.beginPath();
+      ctx.arc(x, y, sz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function renderStellarOverlay(ctx, w, h, time, blend) {
+    const rng = seededRandom(137);
+    // Star systems with orbiting planets
+    const numSystems = 4 + Math.floor(blend * 5);
+    for (let s = 0; s < numSystems; s++) {
+      const cx = rng() * w;
+      const cy = rng() * h;
+      // Central star with glow
+      const starSize = 3 + rng() * 6;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, starSize * 8);
+      const starHue = rng() * 60 + 20;
+      grad.addColorStop(0, `hsla(${starHue}, 100%, 90%, 0.8)`);
+      grad.addColorStop(0.3, `hsla(${starHue}, 100%, 70%, 0.3)`);
+      grad.addColorStop(1, `hsla(${starHue}, 100%, 50%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, starSize * 8, 0, Math.PI * 2);
+      ctx.fill();
+      // Orbiting bodies
+      const numPlanets = 2 + Math.floor(rng() * 4);
+      for (let p = 0; p < numPlanets; p++) {
+        const orbitR = 20 + rng() * 60;
+        const speed = 0.3 + rng() * 0.8;
+        const phase = rng() * Math.PI * 2;
+        const angle = time * speed + phase;
+        const px2 = cx + Math.cos(angle) * orbitR;
+        const py2 = cy + Math.sin(angle) * orbitR;
+        const pSize = 1.5 + rng() * 3;
+        // Orbit line
+        ctx.strokeStyle = `rgba(255,255,255,0.08)`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, orbitR, 0, Math.PI * 2);
+        ctx.stroke();
+        // Planet dot
+        const hue = rng() * 360;
+        ctx.fillStyle = `hsla(${hue}, 70%, 60%, 0.7)`;
+        ctx.beginPath();
+        ctx.arc(px2, py2, pSize, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Background star field
+    for (let i = 0; i < 80; i++) {
+      const x = rng() * w;
+      const y = rng() * h;
+      const sz = 0.3 + rng() * 1.2;
+      const twinkle = 0.2 + Math.sin(time * 3 + rng() * 20) * 0.3;
+      ctx.fillStyle = `rgba(255,255,220,${twinkle})`;
+      ctx.beginPath();
+      ctx.arc(x, y, sz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function renderPlanetaryOverlay(ctx, w, h, time, blend) {
+    const rng = seededRandom(256);
+    // Continental shapes — blobby landmasses
+    ctx.globalAlpha *= 0.6;
+    for (let c = 0; c < 5; c++) {
+      const cx = rng() * w;
+      const cy = rng() * h;
+      ctx.beginPath();
+      const points = 8 + Math.floor(rng() * 6);
+      for (let p = 0; p <= points; p++) {
+        const angle = (p / points) * Math.PI * 2;
+        const baseR = 40 + rng() * 80;
+        const wobble = Math.sin(angle * 3 + time * 0.2) * 15;
+        const r = baseR + wobble + rng() * 20;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        if (p === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      const isLand = rng() > 0.3;
+      if (isLand) {
+        ctx.fillStyle = `hsla(${100 + rng() * 40}, 40%, ${30 + rng() * 20}%, 0.3)`;
+      } else {
+        ctx.fillStyle = `hsla(${200 + rng() * 30}, 60%, ${40 + rng() * 15}%, 0.25)`;
+      }
+      ctx.fill();
+    }
+    // Ocean waves
+    for (let w2 = 0; w2 < 6; w2++) {
+      ctx.beginPath();
+      const yBase = rng() * h;
+      for (let x = 0; x < w; x += 3) {
+        const y = yBase + Math.sin(x * 0.02 + time + w2) * 8;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(100,150,255,0.12)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // Atmosphere haze at edges
+    const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.6);
+    grad.addColorStop(0, 'rgba(100,180,255,0)');
+    grad.addColorStop(0.8, 'rgba(100,180,255,0)');
+    grad.addColorStop(1, 'rgba(100,180,255,0.15)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  function renderUrbanOverlay(ctx, w, h, time, blend) {
+    const rng = seededRandom(512);
+    // Grid street pattern
+    ctx.strokeStyle = `rgba(255,200,100,0.1)`;
+    ctx.lineWidth = 0.5;
+    const gridSize = 30 + Math.floor(rng() * 20);
+    const offsetX = (time * 2) % gridSize;
+    const offsetY = (time * 1.5) % gridSize;
+    for (let x = -gridSize + offsetX; x < w + gridSize; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = -gridSize + offsetY; y < h + gridSize; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+    // Buildings as rectangles
+    for (let i = 0; i < 40; i++) {
+      const bx = rng() * w;
+      const by = rng() * h;
+      const bw = 8 + rng() * 25;
+      const bh = 12 + rng() * 40;
+      ctx.fillStyle = `rgba(${150 + rng() * 80}, ${120 + rng() * 60}, ${80 + rng() * 40}, 0.15)`;
+      ctx.fillRect(bx, by, bw, bh);
+      // Windows
+      const winSize = 2;
+      ctx.fillStyle = `rgba(255,255,200,${0.1 + rng() * 0.2})`;
+      for (let wx = bx + 3; wx < bx + bw - 3; wx += 5) {
+        for (let wy = by + 3; wy < by + bh - 3; wy += 5) {
+          if (rng() > 0.4) {
+            ctx.fillRect(wx, wy, winSize, winSize);
+          }
+        }
+      }
+    }
+    // Moving dots (vehicles)
+    for (let i = 0; i < 15; i++) {
+      const roadY = rng() * h;
+      const speed = 20 + rng() * 60;
+      const x = ((time * speed + rng() * w * 5) % (w + 40)) - 20;
+      ctx.fillStyle = `rgba(255,${200 + rng() * 55},100,0.4)`;
+      ctx.beginPath();
+      ctx.arc(x, roadY, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function renderMicroscopicOverlay(ctx, w, h, time, blend) {
+    const rng = seededRandom(1024);
+    // Cell-like structures
+    for (let i = 0; i < 12; i++) {
+      const cx = rng() * w;
+      const cy = rng() * h;
+      const cellR = 25 + rng() * 50;
+      // Cell membrane
+      ctx.beginPath();
+      ctx.arc(cx, cy, cellR, 0, Math.PI * 2);
+      ctx.strokeStyle = `hsla(${280 + rng() * 60}, 60%, 50%, 0.25)`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Cell body fill
+      const cellGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cellR);
+      cellGrad.addColorStop(0, `hsla(${300 + rng() * 40}, 50%, 40%, 0.1)`);
+      cellGrad.addColorStop(1, `hsla(${300 + rng() * 40}, 50%, 30%, 0.02)`);
+      ctx.fillStyle = cellGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, cellR, 0, Math.PI * 2);
+      ctx.fill();
+      // Nucleus
+      const nucR = cellR * 0.3;
+      const nucX = cx + Math.cos(time * 0.3 + i) * cellR * 0.1;
+      const nucY = cy + Math.sin(time * 0.3 + i) * cellR * 0.1;
+      ctx.beginPath();
+      ctx.arc(nucX, nucY, nucR, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${260 + rng() * 30}, 70%, 40%, 0.2)`;
+      ctx.fill();
+      // Organelles — mitochondria-like shapes
+      const numOrganelles = 3 + Math.floor(rng() * 5);
+      for (let o = 0; o < numOrganelles; o++) {
+        const angle = rng() * Math.PI * 2;
+        const dist = rng() * cellR * 0.7;
+        const ox = cx + Math.cos(angle + time * 0.2) * dist;
+        const oy = cy + Math.sin(angle + time * 0.2) * dist;
+        const oSize = 3 + rng() * 6;
+        ctx.beginPath();
+        ctx.ellipse(ox, oy, oSize, oSize * 0.5, angle, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${rng() * 360}, 50%, 50%, 0.15)`;
+        ctx.fill();
+      }
+    }
+    // Floating particles (proteins/molecules)
+    for (let i = 0; i < 30; i++) {
+      const x = rng() * w + Math.sin(time + rng() * 10) * 5;
+      const y = rng() * h + Math.cos(time + rng() * 10) * 5;
+      const sz = 0.8 + rng() * 2;
+      ctx.fillStyle = `rgba(200,150,255,0.2)`;
+      ctx.beginPath();
+      ctx.arc(x, y, sz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function renderAtomicOverlay(ctx, w, h, time, blend) {
+    const rng = seededRandom(2048);
+    // Electron clouds — probability density visualization
+    const numAtoms = 5 + Math.floor(blend * 4);
+    for (let a = 0; a < numAtoms; a++) {
+      const cx = rng() * w;
+      const cy = rng() * h;
+      const atomR = 40 + rng() * 60;
+      // Nucleus
+      ctx.fillStyle = `rgba(255,100,50,0.4)`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3 + rng() * 2, 0, Math.PI * 2);
+      ctx.fill();
+      // Orbital shells / electron probability clouds
+      const numOrbitals = 2 + Math.floor(rng() * 3);
+      for (let o = 0; o < numOrbitals; o++) {
+        const orbR = (o + 1) * atomR / numOrbitals;
+        // Draw probability cloud using dots
+        const dotCount = 40 + o * 20;
+        for (let d = 0; d < dotCount; d++) {
+          const angle = rng() * Math.PI * 2 + time * (0.5 + o * 0.3);
+          const dist = orbR + (rng() - 0.5) * orbR * 0.3;
+          const ex = cx + Math.cos(angle) * dist;
+          const ey = cy + Math.sin(angle) * dist;
+          const alpha = 0.05 + rng() * 0.1;
+          const hue = 180 + o * 40;
+          ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 1 + rng() * 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Orbital path hint
+        ctx.strokeStyle = `rgba(100,200,255,0.06)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Electron particles with motion
+      const numElectrons = 1 + Math.floor(rng() * 3);
+      for (let e = 0; e < numElectrons; e++) {
+        const eOrbR = (1 + Math.floor(rng() * numOrbitals)) * atomR / numOrbitals;
+        const eAngle = time * (1 + e * 0.7) + rng() * Math.PI * 2;
+        const ex = cx + Math.cos(eAngle) * eOrbR;
+        const ey = cy + Math.sin(eAngle) * eOrbR;
+        const eGrad = ctx.createRadialGradient(ex, ey, 0, ex, ey, 6);
+        eGrad.addColorStop(0, 'rgba(100,200,255,0.6)');
+        eGrad.addColorStop(1, 'rgba(100,200,255,0)');
+        ctx.fillStyle = eGrad;
+        ctx.beginPath();
+        ctx.arc(ex, ey, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Quantum field fluctuation dots
+    for (let i = 0; i < 60; i++) {
+      const x = rng() * w;
+      const y = rng() * h;
+      const lifePhase = Math.sin(time * 2 + rng() * 20);
+      if (lifePhase > 0) {
+        ctx.fillStyle = `rgba(150,220,255,${lifePhase * 0.1})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 0.5 + lifePhase, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // ========== MINIMAP RENDERING ==========
+  function renderMinimap() {
+    const mw = 160, mh = 120;
+    minimapCtx.fillStyle = '#111';
+    minimapCtx.fillRect(0, 0, mw, mh);
+
+    // Render a very low-res Mandelbrot for minimap
+    const scale = 4.0 / (1 * Math.min(mw, mh));
+    const startX = -0.5 - (mw / 2) * scale;
+    const startY = 0 - (mh / 2) * scale;
+    const miniImageData = minimapCtx.createImageData(mw, mh);
+    const mp = miniImageData.data;
+
+    for (let py = 0; py < mh; py += 2) {
+      for (let px = 0; px < mw; px += 2) {
+        const cx = startX + px * scale;
+        const cy = startY + py * scale;
+        const val = mandelbrotSmooth(cx, cy, 64);
+        let r, g, b;
+        if (val < 0) { r = g = b = 0; }
+        else {
+          const t = (val % 16) / 16;
+          const idx = ((t * 1023) | 0) * 3;
+          r = paletteLUT[idx];
+          g = paletteLUT[idx + 1];
+          b = paletteLUT[idx + 2];
+        }
+        for (let dy = 0; dy < 2 && py + dy < mh; dy++) {
+          for (let dx = 0; dx < 2 && px + dx < mw; dx++) {
+            const off = ((py + dy) * mw + (px + dx)) * 4;
+            mp[off] = r; mp[off + 1] = g; mp[off + 2] = b; mp[off + 3] = 255;
+          }
+        }
+      }
+    }
+    minimapCtx.putImageData(miniImageData, 0, 0);
+
+    // Draw viewport rectangle on minimap
+    const vScale = 4.0 / (state.zoom * Math.min(width, height));
+    const vw = width * vScale / scale;
+    const vh = height * vScale / scale;
+    const vx = (state.centerX - startX) / scale - vw / 2;
+    const vy = (state.centerY - startY) / scale - vh / 2;
+
+    minimapCtx.strokeStyle = '#fff';
+    minimapCtx.lineWidth = 1;
+    minimapCtx.strokeRect(
+      Math.max(0, Math.min(mw - 2, vx)),
+      Math.max(0, Math.min(mh - 2, vy)),
+      Math.max(2, Math.min(mw, vw)),
+      Math.max(2, Math.min(mh, vh))
+    );
+  }
+
+  // ========== UI UPDATE ==========
+  function formatZoom(z) {
+    if (z < 10) return z.toFixed(2) + ' × 10⁰';
+    const exp = Math.floor(Math.log10(z));
+    const mantissa = z / Math.pow(10, exp);
+    const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+    let expStr = '';
+    const expAbs = Math.abs(exp);
+    const digits = expAbs.toString();
+    for (let i = 0; i < digits.length; i++) {
+      expStr += superscripts[parseInt(digits[i])];
+    }
+    if (exp < 0) expStr = '⁻' + expStr;
+    return mantissa.toFixed(2) + ' × 10' + expStr;
+  }
+
+  function updateUI() {
+    document.getElementById('zoomVal').textContent = formatZoom(state.zoom);
+    document.getElementById('realVal').textContent = state.centerX.toPrecision(8);
+    document.getElementById('imagVal').textContent = state.centerY.toPrecision(8);
+    document.getElementById('iterVal').textContent = state.maxIter;
+
+    const world = getCurrentWorld();
+    const worldEl = document.getElementById('worldVal');
+    worldEl.textContent = world.name;
+    worldEl.style.color = world.color;
+
+    // World transition notification
+    if (world.name !== state.lastWorld && state.lastWorld !== '') {
+      const transEl = document.getElementById('world-transition');
+      transEl.textContent = '⟫ ' + world.name + ' Scale ⟪';
+      transEl.style.color = world.color;
+      transEl.className = '';
+      void transEl.offsetWidth;
+      transEl.className = 'flash';
+    }
+    state.lastWorld = world.name;
+  }
+
+  // ========== ADAPTIVE ITERATION COUNT ==========
+  function updateMaxIter() {
+    const logZoom = Math.log2(Math.max(1, state.zoom));
+    state.maxIter = Math.min(4096, Math.max(MAX_ITER_BASE, Math.floor(MAX_ITER_BASE + logZoom * 30)));
+  }
+
+  // ========== COORDINATE TRANSFORMS ==========
+  function screenToComplex(sx, sy) {
+    const scale = 4.0 / (state.zoom * Math.min(width, height));
+    return {
+      x: state.centerX + (sx - width / 2) * scale,
+      y: state.centerY + (sy - height / 2) * scale
+    };
+  }
+
+  // ========== INTERACTION HANDLERS ==========
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    const mouseComplex = screenToComplex(e.clientX, e.clientY);
+    const direction = e.deltaY < 0 ? 1 : -1;
+    const factor = Math.exp(direction * ZOOM_SPEED);
+
+    state.centerX += (mouseComplex.x - state.centerX) * (1 - 1 / factor);
+    state.centerY += (mouseComplex.y - state.centerY) * (1 - 1 / factor);
+    state.zoom *= factor;
+
+    updateMaxIter();
+    state.needsRender = true;
+    state.currentPass = 0;
+  }, { passive: false });
+
+  canvas.addEventListener('mousedown', function(e) {
+    if (e.button === 0) {
+      state.isDragging = true;
+      state.dragStartX = e.clientX;
+      state.dragStartY = e.clientY;
+      state.dragCenterX = state.centerX;
+      state.dragCenterY = state.centerY;
+      canvas.style.cursor = 'grabbing';
+    }
+  });
+
+  canvas.addEventListener('mousemove', function(e) {
+    if (state.isDragging) {
+      const scale = 4.0 / (state.zoom * Math.min(width, height));
+      state.centerX = state.dragCenterX - (e.clientX - state.dragStartX) * scale;
+      state.centerY = state.dragCenterY - (e.clientY - state.dragStartY) * scale;
+      state.needsRender = true;
+      state.currentPass = 0;
+    }
+  });
+
+  canvas.addEventListener('mouseup', function() {
+    state.isDragging = false;
+    canvas.style.cursor = 'crosshair';
+  });
+
+  canvas.addEventListener('mouseleave', function() {
+    state.isDragging = false;
+    canvas.style.cursor = 'crosshair';
+  });
+
+  canvas.addEventListener('dblclick', function(e) {
+    e.preventDefault();
+    const c = screenToComplex(e.clientX, e.clientY);
+    state.centerX = c.x;
+    state.centerY = c.y;
+    state.zoom *= 4;
+    updateMaxIter();
+    state.needsRender = true;
+    state.currentPass = 0;
+  });
+
+  // Touch support for mobile
+  let lastTouchDist = 0;
+  let lastTouchCenter = null;
+
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      state.isDragging = true;
+      state.dragStartX = e.touches[0].clientX;
+      state.dragStartY = e.touches[0].clientY;
+      state.dragCenterX = state.centerX;
+      state.dragCenterY = state.centerY;
+    } else if (e.touches.length === 2) {
+      state.isDragging = false;
+      const dx = e.touches[1].clientX - e.touches[0].clientX;
+      const dy = e.touches[1].clientY - e.touches[0].clientY;
+      lastTouchDist = Math.sqrt(dx * dx + dy * dy);
+      lastTouchCenter = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+      };
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (e.touches.length === 1 && state.isDragging) {
+      const scale = 4.0 / (state.zoom * Math.min(width, height));
+      state.centerX = state.dragCenterX - (e.touches[0].clientX - state.dragStartX) * scale;
+      state.centerY = state.dragCenterY - (e.touches[0].clientY - state.dragStartY) * scale;
+      state.needsRender = true;
+      state.currentPass = 0;
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[1].clientX - e.touches[0].clientX;
+      const dy = e.touches[1].clientY - e.touches[0].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (lastTouchDist > 0) {
+        const factor = dist / lastTouchDist;
+        const center = screenToComplex(
+          (e.touches[0].clientX + e.touches[1].clientX) / 2,
+          (e.touches[0].clientY + e.touches[1].clientY) / 2
+        );
+        state.centerX += (center.x - state.centerX) * (1 - 1 / factor);
+        state.centerY += (center.y - state.centerY) * (1 - 1 / factor);
+        state.zoom *= factor;
+        updateMaxIter();
+        state.needsRender = true;
+        state.currentPass = 0;
+      }
+      lastTouchDist = dist;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', function(e) {
+    state.isDragging = false;
+    lastTouchDist = 0;
+    lastTouchCenter = null;
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'r' || e.key === 'R') {
+      resetView();
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      toggleAutoZoom();
+    }
+  });
+
+  // ========== CONTROLS ==========
+  document.getElementById('resetBtn').addEventListener('click', resetView);
+  document.getElementById('autoZoomBtn').addEventListener('click', toggleAutoZoom);
+  document.getElementById('screenshotBtn').addEventListener('click', takeScreenshot);
+  document.getElementById('paletteSelect').addEventListener('change', function(e) {
+    state.palette = e.target.value;
+    buildPaletteLUT();
+    state.needsRender = true;
+    state.currentPass = 0;
+  });
+
+  function resetView() {
+    state.centerX = -0.5;
+    state.centerY = 0.0;
+    state.zoom = 1.0;
+    state.maxIter = MAX_ITER_BASE;
+    state.autoZoom = false;
+    document.getElementById('autoZoomBtn').textContent = '▶ Auto Zoom';
+    state.needsRender = true;
+    state.currentPass = 0;
+  }
+
+  function toggleAutoZoom() {
+    state.autoZoom = !state.autoZoom;
+    const btn = document.getElementById('autoZoomBtn');
+    btn.textContent = state.autoZoom ? '⏸ Auto Zoom' : '▶ Auto Zoom';
+    if (state.autoZoom) {
+      // Set a beautiful target deep in the fractal
+      const targets = [
+        { x: -0.7435669, y: 0.1314023 },
+        { x: -0.16070135, y: 1.0375665 },
+        { x: -1.25066, y: 0.02012 },
+        { x: 0.281717921930775, y: 0.5771052841488505 },
+        { x: -0.745428, y: 0.113009 }
+      ];
+      const t = targets[Math.floor(Math.random() * targets.length)];
+      state.autoZoomTarget = t;
+    }
+  }
+
+  function takeScreenshot() {
+    const link = document.createElement('a');
+    link.download = 'infinite-zoom-fractal.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  // ========== MAIN RENDER LOOP ==========
+  let lastFrameTime = 0;
+  let minimapTimer = 0;
+  const MINIMAP_INTERVAL = 500; // ms between minimap updates
+
+  function mainLoop(timestamp) {
+    const dt = timestamp - lastFrameTime;
+    lastFrameTime = timestamp;
+
+    // Auto-zoom logic
+    if (state.autoZoom) {
+      const t = state.autoZoomTarget;
+      const lerpSpeed = AUTO_ZOOM_SPEED;
+      state.centerX += (t.x - state.centerX) * lerpSpeed;
+      state.centerY += (t.y - state.centerY) * lerpSpeed;
+      state.zoom *= 1 + lerpSpeed * 0.8;
+      updateMaxIter();
+      state.needsRender = true;
+      state.currentPass = 0;
+    }
+
+    // Progressive fractal rendering
+    if (state.needsRender && state.currentPass < PROGRESSIVE_PASSES) {
+      const passStart = performance.now();
+      renderFractalPass(state.currentPass);
+
+      // Time-budget: spend at most 30ms per frame
+      const elapsed = performance.now() - passStart;
+      state.currentPass++;
+
+      if (state.currentPass >= PROGRESSIVE_PASSES) {
+        state.renderComplete = true;
+        state.needsRender = false;
+      }
+
+      // Put fractal pixels to canvas
+      ctx.putImageData(imageData, 0, 0);
+
+      // Render world overlay on top
+      renderWorldOverlay(ctx, width, height);
+
+      // Update progress bar
+      const progress = (state.currentPass / PROGRESSIVE_PASSES) * 100;
+      document.getElementById('progress-bar').style.width = progress + '%';
+      if (state.currentPass >= PROGRESSIVE_PASSES) {
+        document.getElementById('progress-bar').style.width = '0%';
+      }
+    } else if (state.autoZoom) {
+      // During auto-zoom, still need overlays to animate
+      ctx.putImageData(imageData, 0, 0);
+      renderWorldOverlay(ctx, width, height);
+    } else if (!state.renderComplete) {
+      // Keep animating overlays even when fractal is complete
+    } else {
+      // Animate overlays only
+      ctx.putImageData(imageData, 0, 0);
+      renderWorldOverlay(ctx, width, height);
+    }
+
+    // Update minimap periodically
+    minimapTimer += dt;
+    if (minimapTimer > MINIMAP_INTERVAL) {
+      minimapTimer = 0;
+      renderMinimap();
+    }
+
+    updateUI();
+    requestAnimationFrame(mainLoop);
+  }
+
+  // ========== STARTUP ==========
+  updateMaxIter();
+  renderMinimap();
+  requestAnimationFrame(mainLoop);
+
+  // Initial welcome flash
+  setTimeout(function() {
+    const transEl = document.getElementById('world-transition');
+    transEl.textContent = '∞ The Infinite Zoom ∞';
+    transEl.style.color = '#0ff';
+    transEl.className = 'flash';
+  }, 500);
+
+  // Store references for debugging
+  window._fractalState = state;
+
+})();
+</script>
+</body>
+</html>
