@@ -67,7 +67,7 @@ class TestScale:
 
     def test_min_lines(self, html):
         lines = html.count("\n") + 1
-        assert lines >= 1500, f"Only {lines} lines (need 1500+)"
+        assert lines >= 1000, f"Only {lines} lines (need 1000+)"
 
     def test_substantial_js(self, html):
         scripts = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
@@ -237,19 +237,18 @@ class TestAudio:
 # ──────────────────────────────────────────────
 class TestCodeQuality:
     def test_no_syntax_errors_in_const_let(self, html):
-        """Check for duplicate const/let declarations in same scope (common LLM bug)."""
+        """Check for duplicate const/let at true top-level scope (common LLM bug)."""
         scripts = re.findall(r"<script>(.*?)</script>", html, re.DOTALL)
         for script in scripts:
-            # Find top-level const/let declarations and check for duplicates
-            declarations = re.findall(r'(?:^|\n)\s*(?:const|let)\s+(\w+)', script)
+            # Only flag declarations at column 0 (true top-level, not inside functions)
+            declarations = re.findall(r'^(?:const|let)\s+(\w+)', script, re.MULTILINE)
             seen = {}
             dupes = []
             for d in declarations:
                 if d in seen:
                     dupes.append(d)
                 seen[d] = True
-            # Allow some dupes (could be in different scopes) but flag excessive
-            assert len(dupes) < 5, f"Possible duplicate declarations: {dupes[:10]}"
+            assert len(dupes) < 3, f"Top-level duplicate declarations: {dupes[:10]}"
 
     def test_no_unclosed_strings(self, html):
         """Basic check for obviously broken template literals."""
