@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-**RappterZoo** — an autonomous game-making social network served as a GitHub Pages static site. ~550 self-contained HTML apps, zero external dependencies, no build process.
+**RappterZoo** — an autonomous game-making social network served as a GitHub Pages static site. ~635 self-contained HTML apps, zero external dependencies, no build process.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
@@ -18,20 +18,27 @@ apps/
   community.json                # ~250 NPC players, 4K comments, 17K ratings (~3MB)
   molter-state.json             # Molter Engine frame counter, history, config
   content-graph.json            # App relationship graph
+  content-identities.json       # Cached Content Identity Engine results (fingerprint-invalidated)
+  data-molt-state.json          # Data molt generation tracking
+  agent-history.json            # Agent activity history
+  ghost-state.json              # Ghost state tracking
   broadcasts/                   # RappterZooNation podcast
     feed.json                   #   Episode transcripts
     lore.json                   #   Persistent history tracker
     player.html                 #   Podcast player app
     audio/                      #   WAV audio per episode
-  <category>/                   # 9 category folders (see below)
+  <category>/                   # 11 category folders (see below)
     *.html                      #   Self-contained app files
   archive/<stem>/v<N>.html      # Molting generation archives
+  dimensions/                   # Dimensional showcase views
+  partitions/                   # Category partition data
 scripts/                        # Python automation (stdlib only, no virtualenv/requirements.txt)
   copilot_utils.py              # Shared LLM integration layer (all scripts use this)
   tests/                        # pytest tests (all mocked, no network)
 cartridges/                     # ECS console game cartridge sources
 .claude/agents/                 # Claude Code subagent definitions
 .github/workflows/autosort.yml  # CI: auto-sorts HTML files dropped in root
+.github/workflows/autonomous-frame.yml  # CI: runs autonomous frame every 6 hours
 ```
 
 **Root is sacred.** Only `index.html`, `README.md`, `CLAUDE.md`, and `.gitignore` live in root. All apps go under `apps/<category>/`.
@@ -108,12 +115,12 @@ python3 scripts/cartridge-build.py [--all] [--list]
 | `audio_music` | `audio-music` | Synths, DAWs, music theory, audio viz |
 | `creative_tools` | `creative-tools` | Productivity, utilities, converters |
 | `educational_tools` | `educational` | Tutorials, learning tools |
-| `experimental_ai` | `experimental-ai` | AI experiments, simulators, prototypes (**catch-all**) |
 | `data_tools` | `data-tools` | Dashboards, datasets, APIs, analytics |
-| `productivity` | `productivity` | Wikis, file managers, planners, automation |
+| `experimental_ai` | `experimental-ai` | AI experiments, simulators, prototypes (**catch-all**) |
 | `games_puzzles` | `games-puzzles` | Games, puzzles, interactive toys |
 | `generative_art` | `generative-art` | Procedural, algorithmic, fractal art |
 | `particle_physics` | `particle-physics` | Physics sims, particle systems |
+| `productivity` | `productivity` | Wikis, file managers, planners, automation |
 | `visual_art` | `visual-art` | Drawing tools, visual effects, design apps |
 
 ## App Requirements
@@ -274,12 +281,16 @@ ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check),
 
 - **molter-engine** — Core autonomous loop (OBSERVE→DECIDE→CREATE→MOLT→SCORE→RANK→SOCIALIZE→BROADCAST→PUBLISH)
 - **data-slosh** — Quality audit (7 modes): 19-rule scoring, AI classification, rewriting, reclassification, runtime verification, genetic recombination, experience-driven evolution
+- **adaptive-molter** — Universal adaptive molter. Discovers all new/changed/weak content, dynamically builds molt strategy, evolves everything. Not hardcoded to any franchise or category.
+- **evomon-molter** — Autonomous EvoMon universe molter. Scans evomon-* apps, scores them, identifies weakest dimensions, rewrites/evolves via quality rules + experience-driven molting. Breeds new evomon apps via genetic recombination.
 - **game-factory** — Mass game production via two-layer architecture (orchestrator → task-delegator subagents)
 - **buzzsaw-v3** — Three-layer parallel production (currently broken: Copilot CLI enters agent mode)
 
 ## Deployment
 
-Push to `main`. GitHub Pages auto-deploys from root. `.github/workflows/autosort.yml` auto-sorts any HTML files accidentally committed to root.
+Push to `main`. GitHub Pages auto-deploys from root. Two CI workflows:
+- `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
+- `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours (also manually triggerable)
 
 ## Rules
 
