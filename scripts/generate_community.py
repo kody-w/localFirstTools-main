@@ -394,6 +394,54 @@ TAG_OBSERVATIONS = {
         "seeing the equations animate in real time was an aha moment for me",
         "the numerical precision is impressive for JavaScript floating point",
     ],
+    "svg": [
+        "the vector rendering stays crisp at any zoom level — no pixelation",
+        "the SVG animations are buttery smooth and scale beautifully to any screen",
+        "smart use of SVG — the DOM elements make the interactivity layer cleaner",
+        "the path manipulation here shows deep understanding of SVG geometry",
+        "resized the browser and everything reflows perfectly — SVG does that well",
+        "the SVG filter effects add a richness that canvas usually can't match",
+    ],
+    "generative": [
+        "the generative outputs are consistently surprising — not just random",
+        "ran it 50 times and every result had its own character",
+        "the parameter space is vast — tiny changes create wildly different outcomes",
+        "the rules behind the generation produce patterns that feel organic",
+        "some of these generative outputs belong in a gallery",
+        "the constraint system ensures every generation is interesting, not just noise",
+    ],
+    "webgl": [
+        "the WebGL performance is impressive — pushing serious polygons in a browser",
+        "the shader work here is on par with native applications",
+        "the GPU utilization makes this feel like a desktop app",
+        "the WebGL context management is solid — no lost contexts even during heavy use",
+        "the rendering pipeline is well-architected — smooth even on integrated GPUs",
+        "WebGL used to its full potential — not just textured quads",
+    ],
+    "idle": [
+        "left it running overnight and came back to something amazing",
+        "the idle progression is tuned well — meaningful growth without feeling grindy",
+        "the offline calculation when you come back is generous and accurate",
+        "numbers go up and somehow that never stops being satisfying",
+        "the prestige system adds real decision-making to what could be mindless",
+        "it respects your time whether you're active or idle",
+    ],
+    "typing": [
+        "my WPM went up 15% after a week with this",
+        "the key feedback makes typing practice actually enjoyable",
+        "the difficulty adapts to your weak letters — smart design",
+        "the stats tracking gives real motivation to improve",
+        "makes touch typing practice feel like a game instead of homework",
+        "the accuracy metrics are more useful than raw speed numbers",
+    ],
+    "quiz": [
+        "the question variety keeps it from feeling repetitive",
+        "the difficulty scaling matches your actual knowledge level",
+        "the explanations after wrong answers are where the real learning happens",
+        "the scoring system rewards consistent accuracy over lucky guesses",
+        "learned more in 15 minutes than from reading for an hour",
+        "the spaced repetition makes knowledge stick",
+    ],
 }
 
 # Reactions to description keywords (mined from the actual description text)
@@ -565,21 +613,38 @@ def build_comment_for_app(app, rng):
     # specific to THIS game — never generic enough to appear on any game.
     candidates = []
 
-    # Strategy 1: Tag observations + title callout (always title-specific)
-    title_connectors = [
-        ". {title} really nails that",
-        " — that's what makes {title} stand out in the arcade",
-        ". rare to see this level of quality in {title}'s category",
-        " and {title} executes it better than most",
-        ". {title} gets this right where others don't",
-        " — {title} understands what matters",
-        ". this is why {title} keeps pulling me back",
-        ". credit to {title} for getting this detail right",
-    ]
+    # Use short title reference to avoid repeating verbose names
+    short_title = title.split(":")[0].strip() if ":" in title else title
+    if len(short_title) > 25:
+        short_title = "this"
+
+    # Strategy 1: Tag observations — most stand alone, only some get title ref
     rng.shuffle(tag_pool)
+    title_refs = [short_title, "this one", "this", "it", "this app"]
+    connectors_named = [
+        ". {ref} really nails that",
+        " — {ref} gets this right where others don't",
+    ]
+    connectors_anon = [
+        "",  # standalone — no title appended
+        "",
+        "",  # weight standalone 3x
+        ". not many in the arcade get this right",
+        ". this is the standard other apps should aim for",
+    ]
     for i, obs in enumerate(tag_pool[:10]):
-        connector = title_connectors[i % len(title_connectors)].format(title=title)
-        candidates.append(obs + connector)
+        if i < 3:
+            # First few: standalone (no title bloat)
+            candidates.append(obs)
+        elif i < 5:
+            # Middle: with a short reference
+            ref = rng.choice(title_refs)
+            conn = rng.choice(connectors_named).format(ref=ref)
+            candidates.append(obs + conn)
+        else:
+            # Rest: anonymous connectors
+            conn = rng.choice(connectors_anon)
+            candidates.append(obs + conn)
 
     # Strategy 2: Compound — combine a tag observation with a description reaction
     if tag_pool and desc_pool:
@@ -587,34 +652,71 @@ def build_comment_for_app(app, rng):
         for i in range(min(6, len(tag_pool), len(desc_pool))):
             candidates.append(tag_pool[i] + ". also, " + desc_pool[i % len(desc_pool)])
 
-    # Strategy 3: Tag observations as standalone (only first 4, rest are compounds)
-    for obs in tag_pool[:4]:
+    # Strategy 3: Complexity observations (only half get title, use short ref)
+    for i, obs in enumerate(comp_pool):
+        if i % 2 == 0:
+            candidates.append(obs)
+        else:
+            candidates.append(obs + " — " + short_title + " shows that")
+
+    # Strategy 4: Type observations (standalone or with short ref)
+    for i, obs in enumerate(type_pool):
+        if i % 2 == 0:
+            candidates.append(obs)
+        else:
+            candidates.append(short_title + ": " + obs)
+
+    # Strategy 5: Description reactions (standalone, no title suffix)
+    for obs in desc_pool:
         candidates.append(obs)
 
-    # Strategy 4: Complexity + title (never standalone — always named)
-    for obs in comp_pool:
-        candidates.append(obs + " — " + title + " is a good example of that")
+    # Strategy 6: Constructive criticism — real communities aren't 100% positive
+    constructive = []
+    if complexity == "simple":
+        constructive.extend([
+            "feels a bit too minimal — would love to see more depth added",
+            "solid foundation but i wish there was a settings menu or customization",
+            "the core is good but it could use a tutorial or onboarding flow",
+        ])
+    if complexity == "advanced":
+        constructive.extend([
+            "the learning curve is steep — a quick-start guide would help a lot",
+            "overwhelming at first. took me 3 sessions before things clicked",
+            "powerful but the UI could use some decluttering",
+        ])
+    if app_type == "game":
+        constructive.extend([
+            "the difficulty spike around the midpoint felt sudden — could use smoother ramping",
+            "wish there was a way to save mid-run progress",
+            "the core loop is solid but the endgame could use more variety",
+        ])
+    if app_type == "visual":
+        constructive.extend([
+            "beautiful but i wish there were more export options",
+            "the visuals are strong but interactivity feels limited",
+        ])
+    if not constructive:
+        constructive = [
+            "solid work but the mobile layout needs attention",
+            "good concept — would love to see where this goes with a few more iterations",
+            "the foundation is there, just needs more polish in the details",
+        ]
+    # Add 1-2 constructive comments
+    rng.shuffle(constructive)
+    candidates.extend(constructive[:2])
 
-    # Strategy 5: Type + title (never standalone — always named)
-    for obs in type_pool:
-        candidates.append(title + ": " + obs)
-
-    # Strategy 6: Description reactions + title
-    for obs in desc_pool:
-        candidates.append(obs + ". " + title + " delivers on this front")
-
-    # Strategy 7: Compound — complexity + type + title
+    # Strategy 7: Compound — complexity + type (no title)
     if comp_pool and type_pool:
-        for i in range(min(3, len(comp_pool))):
-            candidates.append(title + " — " + comp_pool[i] + ". " + rng.choice(type_pool))
+        for i in range(min(2, len(comp_pool))):
+            candidates.append(comp_pool[i] + ". " + rng.choice(type_pool))
 
-    # Fallback: title-specific reactions if we somehow have nothing
+    # Fallback: general reactions if we somehow have nothing
     if not candidates:
         candidates = [
-            "spent more time with " + title + " than i expected — it pulls you in",
-            title + " does something i haven't seen in the rest of the arcade",
-            "there's a subtlety to " + title + " that rewards repeated sessions",
-            "keep coming back to " + title + " — it has that one-more-run quality",
+            "spent more time with this than i expected — it pulls you in",
+            "does something i haven't seen in the rest of the arcade",
+            "there's a subtlety here that rewards repeated sessions",
+            "keep coming back to this — it has that one-more-run quality",
         ]
 
     # Deduplicate while preserving order, then shuffle
@@ -631,6 +733,12 @@ def build_comment_for_app(app, rng):
 def build_reply_for_comment(parent_text, app, rng):
     """Build a reply that actually responds to what the parent comment said."""
     title = app.get("title", "")
+    # Use short title to avoid robotic full-name repetition
+    short = title.split(":")[0].strip() if ":" in title else title
+    if len(short) > 25:
+        short = "this"
+    # Vary references: use "it", "this", short title
+    ref = rng.choice([short, "it", "this", "this one"])
 
     # Parse what the parent was talking about and respond to it
     parent_lower = parent_text.lower()
@@ -639,125 +747,136 @@ def build_reply_for_comment(parent_text, app, rng):
 
     if any(w in parent_lower for w in ["physics", "collision", "gravity", "weighty", "momentum"]):
         replies.extend([
-            "yeah the physics in " + title + " are what kept me playing too. objects interact so naturally",
-            "tried to break " + title + "'s physics and couldn't — that's how you know it's solid",
-            title + "'s physics engine is doing way more than it looks like on the surface",
-            "what really gets me is how " + title + "'s physics create emergent gameplay moments",
-            "the mass and friction in " + title + " feel individually tuned per object type. attention to detail",
-            "compare " + title + "'s physics to most browser games and it's night and day",
+            "yeah the physics are what kept me playing too. objects interact so naturally",
+            "tried to break the physics and couldn't — that's how you know it's solid",
+            "the physics engine is doing way more than it looks like on the surface",
+            "what really gets me is how the physics create emergent gameplay moments",
+            "the mass and friction feel individually tuned per object type. attention to detail",
+            "compare the physics here to most browser games and it's night and day",
         ])
     if any(w in parent_lower for w in ["sound", "audio", "music", "headphones", "listen", "sonic", "tone"]):
         replies.extend([
-            title + "'s audio is criminally underrated. glad someone else noticed",
-            "played " + title + " muted first, then with sound — completely different experience",
-            "the audio feedback in " + title + " is what makes it feel so responsive",
-            "the way " + title + "'s audio layers stack as complexity increases is really smart design",
-            "seriously — headphones transform " + title + " from good to incredible",
-            title + "'s sound design does half the work of communicating game state",
+            "the audio is criminally underrated. glad someone else noticed",
+            "played it muted first, then with sound — completely different experience",
+            "the audio feedback is what makes it feel so responsive",
+            "the way audio layers stack as complexity increases is really smart design",
+            "seriously — headphones transform this from good to incredible",
+            "the sound design does half the work of communicating game state",
         ])
     if any(w in parent_lower for w in ["depth", "deep", "complex", "layers", "systems", "mechanics"]):
         replies.extend([
-            "still finding new interactions in " + title + " after multiple sessions",
-            "the depth is what separates " + title + " from similar concepts in the arcade",
-            "i thought i understood " + title + " after 10 minutes. i was wrong. in the best way",
-            "the way " + title + "'s systems interact creates situations the designer probably didn't even plan",
-            title + " has the kind of depth you usually only get in desktop games with 10x the code",
-            "showed " + title + " to a game designer friend and they were impressed by the system design",
+            "still finding new interactions after multiple sessions",
+            "the depth is what separates " + ref + " from similar concepts in the arcade",
+            "i thought i understood it after 10 minutes. i was wrong. in the best way",
+            "the way the systems interact creates situations the designer probably didn't even plan",
+            "has the kind of depth you usually only get in desktop games with 10x the code",
+            "showed it to a game designer friend and they were impressed by the system design",
         ])
     if any(w in parent_lower for w in ["addictive", "hours", "hooked", "kept me", "coming back", "lost an hour", "one more"]):
         replies.extend([
-            "same. 'just one more run' on " + title + " is a dangerous phrase",
-            "my play time on " + title + " is embarrassing and i regret nothing",
-            title + " is the definition of 'easy to learn, impossible to put down'",
-            "set a timer for 15 minutes with " + title + ". turned it off and kept playing",
-            title + "'s session length creeps up on you. dangerously engaging",
-            "it's the 'just let me try one more thing' in " + title + " that gets you",
+            "same. 'just one more run' is a dangerous phrase with this one",
+            "my play time is embarrassing and i regret nothing",
+            "the definition of 'easy to learn, impossible to put down'",
+            "set a timer for 15 minutes. turned it off and kept playing",
+            "the session length creeps up on you. dangerously engaging",
+            "it's the 'just let me try one more thing' that gets you",
         ])
     if any(w in parent_lower for w in ["beautiful", "gorgeous", "visual", "looks", "screenshot", "wallpaper", "artistic"]):
         replies.extend([
-            "every time i open " + title + " the visuals hit different. genuinely artistic",
-            "screenshotted " + title + " more than any other app in the arcade",
-            title + "'s visual design elevates the whole experience",
-            "the color choices in " + title + " show real taste — not just default palettes",
-            title + " is functional art. practical and beautiful at the same time",
-            title + "'s visual polish makes you trust the rest of the experience",
+            "every time i open it the visuals hit different. genuinely artistic",
+            "screenshotted this more than any other app in the arcade",
+            "the visual design elevates the whole experience",
+            "the color choices show real taste — not just default palettes",
+            "functional art. practical and beautiful at the same time",
+            "the visual polish makes you trust the rest of the experience",
         ])
     if any(w in parent_lower for w in ["smooth", "responsive", "controls", "control scheme", "tight controls", "input lag", "latency", "60fps"]):
         replies.extend([
-            "the input responsiveness is what makes " + title + " work. you can feel the polish",
-            "so many games get the controls wrong. " + title + " nails it",
-            "the input latency in " + title + " is basically imperceptible — hard to achieve in a browser",
-            "control feel is the hardest thing to get right and " + title + " nails it",
-            title + " controls like someone actually playtested it. refreshing",
-            "the responsiveness in " + title + " makes the whole experience better",
+            "the input responsiveness is what makes it work. you can feel the polish",
+            "so many apps get the controls wrong. this one nails it",
+            "the input latency is basically imperceptible — hard to achieve in a browser",
+            "control feel is the hardest thing to get right and this nails it",
+            "controls like someone actually playtested it. refreshing",
+            "the responsiveness makes the whole experience better",
         ])
     if any(w in parent_lower for w in ["procedural", "generated", "random", "different each", "unique every", "seed"]):
         replies.extend([
-            title + "'s procedural content is what gives it legs. every session is genuinely fresh",
-            "done maybe 20 runs of " + title + " and each one felt like a new experience",
-            title + " is procedural generation done right — varied but not chaotic",
-            title + "'s generation has real constraints that keep outputs feeling designed",
-            "found a seed in " + title + " that creates this perfect setup — saved it immediately",
-            "the variance in " + title + " hits a sweet spot of familiar yet surprising",
+            "the procedural content is what gives it legs. every session is genuinely fresh",
+            "done maybe 20 runs and each one felt like a new experience",
+            "procedural generation done right — varied but not chaotic",
+            "the generation has real constraints that keep outputs feeling designed",
+            "found a seed that creates this perfect setup — saved it immediately",
+            "the variance hits a sweet spot of familiar yet surprising",
         ])
     if any(w in parent_lower for w in ["ai", "adapt", "intelligent", "opponent", "enemy", "behavior"]):
         replies.extend([
-            title + "'s AI caught me off guard multiple times. it actually learns from you",
-            "rare to see AI this good in a browser game. " + title + " delivers",
-            "the AI in " + title + " is what makes it replayable — you can't just memorize patterns",
-            "watched two AI agents interact in " + title + " and their emergent behavior was wild",
-            title + "'s AI difficulty scaling feels organic, not just stat inflation",
-            "the decision trees in " + title + " must be deep — the AI makes genuinely surprising moves",
+            "the AI caught me off guard multiple times. it actually learns from you",
+            "rare to see AI this good in a browser game",
+            "the AI is what makes it replayable — you can't just memorize patterns",
+            "watched two AI agents interact and their emergent behavior was wild",
+            "AI difficulty scaling feels organic, not just stat inflation",
+            "the decision trees must be deep — the AI makes genuinely surprising moves",
         ])
     if any(w in parent_lower for w in ["satisfying", "feedback", "impact", "rewarding", "chef's kiss"]):
         replies.extend([
-            title + "'s feedback loops are tuned to perfection",
-            "every action in " + title + " having a visible consequence is what keeps you engaged",
-            title + " understands that satisfaction comes from responsive design, not flashy graphics",
-            "the micro-feedback on every interaction in " + title + " adds up to a macro feeling of quality",
-            "when every small action in " + title + " feels good, the whole experience is elevated",
-            "it's the little touches in " + title + " — the shake, the flash, the sound — that make it",
+            "the feedback loops are tuned to perfection",
+            "every action having a visible consequence is what keeps you engaged",
+            "understands that satisfaction comes from responsive design, not flashy graphics",
+            "the micro-feedback on every interaction adds up to a macro feeling of quality",
+            "when every small action feels good, the whole experience is elevated",
+            "it's the little touches — the shake, the flash, the sound — that make it",
         ])
     if any(w in parent_lower for w in ["render", "canvas", "draw", "frame", "fps", "performance"]):
         replies.extend([
-            title + "'s rendering performance is impressive — must be batching draw calls well",
-            "smooth 60fps in " + title + " even with all the effects is no joke in a browser",
-            "opened dev tools on " + title + " and the frame time graph is remarkably consistent",
-            title + "'s rendering optimizations let the gameplay shine without stutters",
-            title + " runs better than some electron apps with 10x the resources",
+            "the rendering performance is impressive — must be batching draw calls well",
+            "smooth 60fps even with all the effects is no joke in a browser",
+            "opened dev tools and the frame time graph is remarkably consistent",
+            "the rendering optimizations let the gameplay shine without stutters",
+            "runs better than some electron apps with 10x the resources",
         ])
     if any(w in parent_lower for w in ["puzzle", "solve", "solution", "figure", "aha", "clever"]):
         replies.extend([
-            title + "'s puzzle design teaches through failure in the best way",
-            "love that " + title + " trusts you to figure it out on your own",
-            "that moment when the solution clicks in " + title + " — delivers it consistently",
-            "the difficulty curve in " + title + "'s puzzles is expertly crafted",
-            "each puzzle in " + title + " adds exactly one new concept — clean pedagogical design",
+            "the puzzle design teaches through failure in the best way",
+            "love that it trusts you to figure it out on your own",
+            "that moment when the solution clicks — delivers it consistently",
+            "the difficulty curve on the puzzles is expertly crafted",
+            "each puzzle adds exactly one new concept — clean pedagogical design",
         ])
     if any(w in parent_lower for w in ["mobile", "touch", "phone", "tablet", "responsive"]):
         replies.extend([
-            title + "'s touch controls are surprisingly well-adapted from keyboard",
-            "played " + title + " on my phone commuting and it works perfectly",
-            "responsive design in " + title + " is impressive attention to detail",
-            title + "'s mobile layout doesn't feel like an afterthought",
+            "the touch controls are surprisingly well-adapted from keyboard",
+            "played it on my phone commuting and it works perfectly",
+            "responsive design is impressive attention to detail",
+            "the mobile layout doesn't feel like an afterthought",
         ])
     if any(w in parent_lower for w in ["save", "progress", "localStorage", "persist", "came back"]):
         replies.extend([
-            title + "'s save system is reliable — never lost progress across sessions",
-            "love that " + title + " persists my progress. makes it feel like a real app",
-            "came back to " + title + " a week later and everything was exactly where i left it",
-            title + "'s data persistence turns a toy into a tool you actually use",
+            "the save system is reliable — never lost progress across sessions",
+            "love that it persists my progress. makes it feel like a real app",
+            "came back a week later and everything was exactly where i left it",
+            "data persistence turns a toy into a tool you actually use",
+        ])
+    if any(w in parent_lower for w in ["minimal", "tutorial", "onboard", "steep", "overwhelm", "settings", "mobile"]):
+        replies.extend([
+            "fair point — a short onboarding would go a long way",
+            "agreed, the core is solid but discoverability could be better",
+            "i think that's intentional but i see where you're coming from",
+            "yeah the settings menu is overdue. even just a dark mode toggle would help",
         ])
 
-    # Fallback: respond to the specific game by name
+    # Fallback: varied conversational replies (not app-name-stuffed)
     if not replies:
         replies = [
-            "agreed — " + title + " has something special that's hard to pin down",
-            "came here to say exactly this. " + title + " keeps surprising me",
-            "this is why i keep checking the arcade. games like " + title + " make it worth it",
-            title + " is one of those apps where you can feel the care that went into it",
-            "been telling friends about " + title + " — it deserves more attention",
-            "the more time you spend with " + title + " the more you appreciate the details",
+            "yeah i had the same experience — hard to articulate what makes it click",
+            "came here to say exactly this",
+            "this is why i keep checking the arcade",
+            "you can feel the care that went into it",
+            "been recommending this to friends — it deserves more attention",
+            "totally. the more time you spend with it the more you notice",
+            "100%. underrated for sure",
+            "this right here ^",
+            "hadn't thought about it that way but you're right",
+            "glad someone said it. exactly my experience too",
         ]
 
     return rng.choice(replies)
