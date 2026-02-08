@@ -296,6 +296,55 @@ class TestValidateMoltOutput:
         errors = molt_mod.validate_molt_output("", 1000)
         assert errors is not None
 
+    def test_js_syntax_error_fails(self):
+        """Molt output with JS syntax errors should be rejected."""
+        bad_html = '<!DOCTYPE html><html><head><title>T</title></head><body><script>if (true) { // }</script></body></html>'
+        errors = molt_mod.validate_molt_output(bad_html, len(bad_html))
+        assert errors is not None
+        assert "syntax" in errors.lower() or "JavaScript" in errors
+
+    def test_valid_js_passes(self):
+        """Molt output with valid JS should pass."""
+        good_html = '<!DOCTYPE html><html><head><title>T</title></head><body><script>const x = 1; if (x) { console.log(x); }</script></body></html>'
+        errors = molt_mod.validate_molt_output(good_html, len(good_html))
+        assert errors is None
+
+    def test_unbalanced_braces_fails(self):
+        """Extra closing brace should be caught."""
+        bad_html = '<!DOCTYPE html><html><head><title>T</title></head><body><script>function f() { } }</script></body></html>'
+        errors = molt_mod.validate_molt_output(bad_html, len(bad_html))
+        assert errors is not None
+
+    def test_shader_script_skipped(self):
+        """Shader scripts should not be checked for JS syntax."""
+        shader_html = '<!DOCTYPE html><html><head><title>T</title></head><body><script type="x-shader/x-vertex">attribute vec4 pos;</script><script>const x = 1;</script></body></html>'
+        errors = molt_mod.validate_molt_output(shader_html, len(shader_html))
+        assert errors is None
+
+
+class TestBugPreventionPrompt:
+    """Verify the molt prompt includes bug prevention rules."""
+
+    def test_prompt_warns_about_css_var(self):
+        prompt = molt_mod.build_molt_prompt("<html></html>", "test.html", 1)
+        assert "var(--" in prompt or "CSS var" in prompt.lower()
+
+    def test_prompt_warns_about_commented_braces(self):
+        prompt = molt_mod.build_molt_prompt("<html></html>", "test.html", 1)
+        assert "comment" in prompt.lower() and "brace" in prompt.lower()
+
+    def test_prompt_warns_about_template_literals(self):
+        prompt = molt_mod.build_molt_prompt("<html></html>", "test.html", 1)
+        assert "//" in prompt and "${" in prompt
+
+    def test_prompt_warns_about_optional_chaining(self):
+        prompt = molt_mod.build_molt_prompt("<html></html>", "test.html", 1)
+        assert "optional chaining" in prompt.lower() or "?." in prompt
+
+    def test_prompt_warns_about_script_escaping(self):
+        prompt = molt_mod.build_molt_prompt("<html></html>", "test.html", 1)
+        assert "script" in prompt.lower() and "escape" in prompt.lower() or "<\\/script>" in prompt
+
 
 # ─── Archive Tests ────────────────────────────────────────────────────────────
 

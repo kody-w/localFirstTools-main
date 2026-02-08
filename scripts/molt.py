@@ -155,6 +155,16 @@ HARD RULES:
 7. If the app uses localStorage, keep that working identically
 8. Do not remove any user-facing UI elements
 
+BUG PREVENTION (critical -- violating these causes the molt to be rejected):
+- Never use CSS var() without quotes in JavaScript: WRONG: {{ color: var(--x) }}  RIGHT: {{ color: 'var(--x)' }}
+- Never comment out closing braces: WRONG: // }}  RIGHT: }}
+- Never put // inside template literal expressions: WRONG: ${{x// }}  RIGHT: ${{x}}
+- Never use optional chaining as assignment target: WRONG: el?.value = x  RIGHT: if (el) el.value = x
+- Escape </script> inside JS string literals as <\\/script>
+- Ensure every {{ has a matching }} -- unbalanced braces crash the app
+- Ensure every try has a catch or finally
+- Use double quotes for strings containing apostrophes: "There's" not 'There's'
+
 Filename: {filename}
 
 HTML content:
@@ -165,7 +175,62 @@ HTML content:
 Return ONLY the complete rewritten HTML."""
 
 
-# ─── Validation ──────────────────────────────────────────────────────────────
+# ─── JS Syntax Validation ────────────────────────────────────────────────────
+
+# Script types that are not JavaScript and should be skipped
+_SKIP_SCRIPT_TYPES = {"x-shader/x-vertex", "x-shader/x-fragment", "importmap",
+                      "application/json", "application/ld+json"}
+
+
+def _check_js_syntax(html):
+    """Run Node.js vm.Script on each <script> block to catch syntax errors.
+
+    Returns None if all blocks parse OK, or an error string if any fail.
+    Skips shader scripts, importmap, JSON, and module scripts.
+    """
+    import subprocess as _sp
+
+    # Extract regular (non-module, non-special) script blocks
+    blocks = []
+    for match in re.finditer(r"<script([^>]*)>([\s\S]*?)</script>", html, re.IGNORECASE):
+        attrs = match.group(1)
+        code = match.group(2).strip()
+        if not code:
+            continue
+        # Skip non-JS types
+        type_match = re.search(r'type\s*=\s*["\']([^"\']+)["\']', attrs)
+        if type_match:
+            stype = type_match.group(1).lower()
+            if any(stype.startswith(skip) for skip in _SKIP_SCRIPT_TYPES):
+                continue
+            if stype == "module":
+                continue  # Module scripts have import/export that vm.Script can't parse
+        blocks.append(code)
+
+    if not blocks:
+        return None
+
+    # Check each block with Node.js vm.Script
+    for code in blocks:
+        check_js = (
+            "const vm=require('vm');"
+            "try{new vm.Script(process.argv[1]);process.exit(0)}"
+            "catch(e){if(e instanceof SyntaxError)"
+            "{process.stderr.write(e.message);process.exit(1)}process.exit(0)}"
+        )
+        try:
+            result = _sp.run(
+                ["node", "-e", check_js, code],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                err = result.stderr.strip().split("\n")[0] if result.stderr.strip() else "Unknown"
+                return err
+        except (FileNotFoundError, _sp.TimeoutExpired):
+            # Node not available or timeout -- skip validation gracefully
+            return None
+
+    return None
 
 
 def validate_molt_output(html, original_size):
@@ -196,6 +261,11 @@ def validate_molt_output(html, original_size):
     )
     if ext_css:
         return f"External stylesheet dependency detected: {ext_css.group()[:80]}"
+
+    # ── JS syntax validation ────────────────────────────────────────────────
+    js_error = _check_js_syntax(html)
+    if js_error:
+        return f"JavaScript syntax error: {js_error}"
 
     # Check size ratio
     new_size = len(html)
