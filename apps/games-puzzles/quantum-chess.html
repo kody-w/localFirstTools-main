@@ -1,461 +1,633 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quantum Chess</title>
-    <meta name="description" content="Chess with superposition. Split your pieces, collapse wave functions, and play with probability.">
-    <style>
-        body {
-            background: #1a1a2e;
-            color: #e0e0e0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-        }
-
-        h1 {
-            margin: 20px 0;
-            text-shadow: 0 0 10px #4a4e69;
-        }
-
-        #game-container {
-            display: flex;
-            gap: 20px;
-            align-items: flex-start;
-        }
-
-        #board {
-            display: grid;
-            grid-template-columns: repeat(8, 60px);
-            grid-template-rows: repeat(8, 60px);
-            border: 5px solid #4a4e69;
-            user-select: none;
-        }
-
-        .square {
-            width: 60px;
-            height: 60px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            cursor: pointer;
-        }
-
-        .white { background-color: #f0d9b5; color: #b58863; }
-        .black { background-color: #b58863; color: #f0d9b5; }
-        
-        .highlight { box-shadow: inset 0 0 0 4px rgba(255, 255, 0, 0.5); }
-        .quantum-highlight { box-shadow: inset 0 0 0 4px rgba(0, 255, 255, 0.8); }
-
-        .piece {
-            font-size: 40px;
-            cursor: grab;
-            transition: opacity 0.2s;
-            pointer-events: none; /* Let clicks pass to square */
-        }
-
-        .piece.white-piece { color: #fff; text-shadow: 0 0 2px #000; }
-        .piece.black-piece { color: #000; text-shadow: 0 0 2px #fff; }
-
-        .probability-badge {
-            position: absolute;
-            bottom: 2px;
-            right: 2px;
-            font-size: 10px;
-            background: rgba(0,0,0,0.7);
-            color: #0ff;
-            padding: 1px 3px;
-            border-radius: 3px;
-        }
-
-        #sidebar {
-            width: 300px;
-            background: #16213e;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-
-        #log {
-            height: 300px;
-            overflow-y: auto;
-            background: #0f3460;
-            padding: 10px;
-            margin-top: 10px;
-            font-family: monospace;
-            font-size: 12px;
-            border: 1px solid #4a4e69;
-        }
-
-        .log-entry { margin-bottom: 5px; border-bottom: 1px solid #1a1a2e; padding-bottom: 2px; }
-        .log-collapse { color: #ff4444; }
-        .log-split { color: #00ffff; }
-
-        button {
-            background: #e94560;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 10px;
-            width: 100%;
-        }
-
-        button:hover { background: #d1364e; }
-
-        .turn-indicator {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            padding: 10px;
-            background: #0f3460;
-            text-align: center;
-            border-radius: 4px;
-        }
-        
-        .quantum-mode {
-            background: #00ffff !important;
-            color: #000 !important;
-        }
-
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantum Chess</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="canvas,chess,quantum,strategy,audio,game">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2025-01-12">
+<meta name="rappterzoo:generation" content="2">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',sans-serif;overflow:hidden}
+canvas{display:block;position:fixed;top:0;left:0;z-index:0}
+#title-screen{position:fixed;inset:0;background:radial-gradient(ellipse at center,#1a1a2e 0%,#0d0d1a 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;transition:opacity .5s}
+#title-screen.hidden{opacity:0;pointer-events:none}
+#title-screen h1{font-size:48px;color:#0ff;text-shadow:0 0 30px rgba(0,255,255,0.4);margin-bottom:8px;letter-spacing:4px}
+#title-screen .sub{color:#4a4e69;font-size:14px;margin-bottom:32px}
+.menu-btn{display:block;padding:12px 40px;margin:8px 0;font-size:15px;background:rgba(26,26,46,0.8);border:1px solid #4a4e69;color:#e0e0e0;border-radius:6px;cursor:pointer;transition:all .2s;font-family:inherit;letter-spacing:2px;min-width:240px;text-align:center}
+.menu-btn:hover{background:rgba(74,78,105,0.6);transform:scale(1.05);box-shadow:0 0 20px rgba(0,255,255,0.2)}
+.diff-row{display:flex;gap:10px;margin:12px 0}
+.diff-btn{padding:8px 20px;font-size:12px;background:#16213e;border:1px solid #4a4e69;color:#aaa;border-radius:4px;cursor:pointer;transition:all .2s}
+.diff-btn:hover,.diff-btn.active{background:#0f3460;border-color:#0ff;color:#0ff}
+#game-ui{position:fixed;inset:0;display:none;z-index:10}
+#board-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+#hud{position:fixed;top:0;left:0;right:0;padding:8px 16px;background:rgba(13,13,26,0.9);border-bottom:1px solid #4a4e69;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+#hud .title{color:#0ff;letter-spacing:2px}
+#sidebar{position:fixed;top:44px;right:0;width:280px;bottom:0;background:rgba(13,13,26,0.9);border-left:1px solid #4a4e69;padding:16px;overflow-y:auto;font-size:12px}
+#sidebar h3{color:#0ff;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;margin:12px 0 8px;border-bottom:1px solid #2a2a4a;padding-bottom:4px}
+.turn-badge{padding:8px 16px;background:#0f3460;text-align:center;border-radius:4px;font-size:14px;font-weight:bold;margin-bottom:12px}
+.turn-badge.white{background:#ddd;color:#222}
+.turn-badge.black{background:#333;color:#fff}
+#log{max-height:200px;overflow-y:auto;font-family:monospace;font-size:10px;line-height:1.5;color:#8888aa}
+.log-entry{padding:2px 0;border-bottom:1px solid #1a1a2a}
+.log-split{color:#0ff}
+.log-collapse{color:#f44}
+.log-capture{color:#ff0}
+.sidebar-btn{display:block;width:100%;padding:8px;margin:4px 0;background:#16213e;border:1px solid #4a4e69;color:#e0e0e0;cursor:pointer;border-radius:4px;font-family:inherit;font-size:11px;text-align:center;transition:all .2s}
+.sidebar-btn:hover{background:#0f3460;border-color:#0ff}
+#pause-overlay{position:fixed;inset:0;background:rgba(13,13,26,0.9);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:900}
+#pause-overlay.show{display:flex}
+#pause-overlay h2{font-size:36px;color:#0ff;margin-bottom:24px}
+#game-over{position:fixed;inset:0;background:rgba(13,13,26,0.95);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:950}
+#game-over.show{display:flex}
+#game-over h2{font-size:36px;margin-bottom:12px}
+#game-over .stats{font-size:14px;text-align:center;line-height:2;margin-bottom:20px;color:#aaa}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0f3460;border:1px solid #0ff;color:#0ff;padding:8px 20px;border-radius:4px;font-size:13px;opacity:0;transition:opacity .3s;z-index:999;pointer-events:none}
+#toast.show{opacity:1}
+.quantum-help{position:fixed;bottom:0;left:0;right:280px;background:rgba(13,13,26,0.9);border-top:1px solid #4a4e69;padding:8px 16px;font-size:10px;color:#666}
+</style>
 </head>
 <body>
+<div id="title-screen">
+<h1>QUANTUM CHESS</h1>
+<div class="sub">Superposition. Entanglement. Collapse.</div>
+<div class="diff-row">
+<button class="diff-btn active" data-diff="easy">Classical+</button>
+<button class="diff-btn" data-diff="normal">Quantum</button>
+<button class="diff-btn" data-diff="hard">Chaotic</button>
+</div>
+<button class="menu-btn" id="start-btn">NEW GAME</button>
+<button class="menu-btn" id="start-ai-btn">VS AI</button>
+<div style="color:#4a4e69;font-size:11px;margin-top:20px;max-width:400px;text-align:center;line-height:1.6">
+Click a piece to select. Click a square to move.<br>
+Hold SHIFT + click TWO squares to SPLIT a piece into quantum superposition.<br>
+When a quantum piece attacks, the wave function COLLAPSES.
+</div>
+</div>
+<div id="pause-overlay">
+<h2>PAUSED</h2>
+<button class="menu-btn" id="resume-btn">RESUME</button>
+<button class="menu-btn" id="quit-btn">QUIT</button>
+</div>
+<div id="game-over">
+<h2 id="go-title">CHECKMATE</h2>
+<div class="stats" id="go-stats"></div>
+<button class="menu-btn" id="retry-btn">PLAY AGAIN (R)</button>
+<button class="menu-btn" id="menu-btn2">MAIN MENU</button>
+</div>
+<canvas id="bg"></canvas>
+<div id="game-ui">
+<div id="hud">
+<span class="title">QUANTUM CHESS</span>
+<span id="hud-info">Move 1</span>
+<span id="hud-score">Score: 0</span>
+</div>
+<div id="board-wrap"><canvas id="board" width="480" height="480"></canvas></div>
+<div id="sidebar">
+<div class="turn-badge white" id="turn-badge">White's Turn</div>
+<h3>Controls</h3>
+<div style="font-size:10px;color:#888;line-height:1.5;margin-bottom:8px">
+Click piece then click destination to move.<br>
+SHIFT+click two squares to quantum split.<br>
+ESC to pause. R to restart.
+</div>
+<button class="sidebar-btn" id="quantum-toggle">Quantum Mode: OFF</button>
+<button class="sidebar-btn" id="undo-btn">Undo Move</button>
+<button class="sidebar-btn" id="reset-btn">Reset Game</button>
+<h3>Quantum Log</h3>
+<div id="log"></div>
+<h3>Captured</h3>
+<div id="captured" style="font-size:18px;line-height:1.8"></div>
+</div>
+<div class="quantum-help">SHIFT+click for quantum split | Quantum pieces show probability | Attacks collapse superposition</div>
+</div>
+<div id="toast"></div>
+<script>
+// ===== AUDIO =====
+const AC=window.AudioContext||window.webkitAudioContext;
+let actx=null;
+function initAudio(){if(!actx)actx=new AC()}
+function tone(f,d,t,v){if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type=t||'sine';o.frequency.value=f;g.gain.setValueAtTime(v||0.05,actx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+d);o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+d)}
+function sfxMove(){tone(440,0.08,'sine',0.04);tone(550,0.06,'sine',0.03)}
+function sfxCapture(){tone(300,0.15,'sawtooth',0.05);tone(200,0.2,'sawtooth',0.04)}
+function sfxSplit(){tone(880,0.1,'sine',0.04);tone(1100,0.08,'sine',0.03);tone(1320,0.06,'sine',0.02)}
+function sfxCollapse(){tone(600,0.2,'triangle',0.06);tone(400,0.3,'triangle',0.04)}
+function sfxCheck(){tone(660,0.15,'sawtooth',0.06);tone(440,0.2,'sawtooth',0.05)}
+function sfxMenu(){tone(660,0.1,'sine',0.04)}
+function sfxWin(){tone(523,0.2,'sine',0.06);tone(659,0.15,'sine',0.05);tone(784,0.12,'sine',0.04);tone(1047,0.1,'sine',0.03)}
 
-    <h1>Quantum Chess</h1>
+// ===== CONSTANTS =====
+const SQ=60,PIECES_MAP={k:'\u265A',q:'\u265B',r:'\u265C',b:'\u265D',n:'\u265E',p:'\u265F',K:'\u2654',Q:'\u2655',R:'\u2656',B:'\u2657',N:'\u2658',P:'\u2659'};
+const PIECE_VALUES={p:1,n:3,b:3,r:5,q:9,k:100};
+const INIT_BOARD=[
+  ['r','n','b','q','k','b','n','r'],
+  ['p','p','p','p','p','p','p','p'],
+  [null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null],
+  ['P','P','P','P','P','P','P','P'],
+  ['R','N','B','Q','K','B','N','R']
+];
 
-    <div id="game-container">
-        <div id="board"></div>
-        
-        <div id="sidebar">
-            <div id="turn-display" class="turn-indicator">White's Turn</div>
-            
-            <div style="margin-bottom: 10px;">
-                <label>
-                    <input type="checkbox" id="quantum-mode-check"> 
-                    <strong>Quantum Move (Split)</strong>
-                </label>
-                <div style="font-size: 12px; color: #aaa; margin-top: 5px;">
-                    Check this (or hold Shift) to split a piece into two squares (50% probability each).
-                </div>
-            </div>
+// ===== STATE =====
+let gameState='menu',diff='normal',vsAI=false;
+let board=[],turn='white',moveNum=0,score=0;
+let selectedSq=null,quantumMode=false,quantumTarget1=null;
+let captured={white:[],black:[]};
+let moveHistory=[];
+let particles=[],shakeX=0,shakeY=0,shakeMag=0;
+let highScore=parseInt(localStorage.getItem('qchess_hs')||'0');
 
-            <div><strong>Quantum Log</strong></div>
-            <div id="log"></div>
-            
-            <button onclick="resetGame()">Reset Game</button>
-        </div>
-    </div>
+// ===== BOARD LOGIC =====
+function initBoard(){
+  board=[];
+  for(let r=0;r<8;r++){
+    board[r]=[];
+    for(let c=0;c<8;c++){
+      const ch=INIT_BOARD[r][c];
+      if(ch){
+        const color=ch===ch.toUpperCase()?'white':'black';
+        board[r][c]=[{type:ch.toLowerCase(),color,prob:1.0,id:color+'-'+ch.toLowerCase()+'-'+r+'-'+c}];
+      }else{board[r][c]=[]}
+    }
+  }
+  turn='white';moveNum=0;score=0;selectedSq=null;quantumMode=false;quantumTarget1=null;
+  captured={white:[],black:[]};moveHistory=[];
+}
 
-    <script>
-        const boardEl = document.getElementById('board');
-        const logEl = document.getElementById('log');
-        const turnDisplay = document.getElementById('turn-display');
-        const quantumCheck = document.getElementById('quantum-mode-check');
+function getPieceAt(r,c){
+  if(r<0||r>7||c<0||c>7)return null;
+  const sq=board[r][c];
+  return sq.length>0?sq[0]:null;
+}
 
-        const PIECES = {
-            'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚', 'p': '♟',
-            'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙'
-        };
+function isColor(r,c,color){
+  const p=getPieceAt(r,c);
+  return p&&p.color===color;
+}
 
-        let board = []; // 8x8 array of Square objects
-        let turn = 'white';
-        let selectedSquare = null;
-        let quantumMove = false;
+function getValidMoves(r,c){
+  const p=getPieceAt(r,c);
+  if(!p)return[];
+  const moves=[];
+  const dir=p.color==='white'?-1:1;
+  const add=(tr,tc)=>{if(tr>=0&&tr<8&&tc>=0&&tc<8)moves.push({r:tr,c:tc})};
 
-        class Square {
-            constructor(r, c) {
-                this.r = r;
-                this.c = c;
-                this.pieces = []; // Array of { type, color, id, prob }
-            }
+  switch(p.type){
+    case'p':{
+      if(!getPieceAt(r+dir,c))add(r+dir,c);
+      if((p.color==='white'&&r===6)||(p.color==='black'&&r===1))if(!getPieceAt(r+dir,c)&&!getPieceAt(r+dir*2,c))add(r+dir*2,c);
+      if(getPieceAt(r+dir,c-1)&&!isColor(r+dir,c-1,p.color))add(r+dir,c-1);
+      if(getPieceAt(r+dir,c+1)&&!isColor(r+dir,c+1,p.color))add(r+dir,c+1);
+      break;
+    }
+    case'n':{
+      const offsets=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+      for(const[dr,dc]of offsets){const tr=r+dr,tc=c+dc;if(tr>=0&&tr<8&&tc>=0&&tc<8&&!isColor(tr,tc,p.color))add(tr,tc)}
+      break;
+    }
+    case'b':{
+      for(const[dr,dc]of[[-1,-1],[-1,1],[1,-1],[1,1]]){
+        for(let i=1;i<8;i++){const tr=r+dr*i,tc=c+dc*i;if(tr<0||tr>7||tc<0||tc>7)break;if(isColor(tr,tc,p.color))break;add(tr,tc);if(getPieceAt(tr,tc))break}
+      }
+      break;
+    }
+    case'r':{
+      for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+        for(let i=1;i<8;i++){const tr=r+dr*i,tc=c+dc*i;if(tr<0||tr>7||tc<0||tc>7)break;if(isColor(tr,tc,p.color))break;add(tr,tc);if(getPieceAt(tr,tc))break}
+      }
+      break;
+    }
+    case'q':{
+      for(const[dr,dc]of[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]){
+        for(let i=1;i<8;i++){const tr=r+dr*i,tc=c+dc*i;if(tr<0||tr>7||tc<0||tc>7)break;if(isColor(tr,tc,p.color))break;add(tr,tc);if(getPieceAt(tr,tc))break}
+      }
+      break;
+    }
+    case'k':{
+      for(const[dr,dc]of[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]){
+        const tr=r+dr,tc=c+dc;if(tr>=0&&tr<8&&tc>=0&&tc<8&&!isColor(tr,tc,p.color))add(tr,tc);
+      }
+      break;
+    }
+  }
+  return moves;
+}
+
+function executeMove(fr,fc,tr,tc){
+  const piece=board[fr][fc][0];
+  if(!piece)return;
+  const target=board[tr][tc].length>0?board[tr][tc][0]:null;
+  // Save for undo
+  moveHistory.push({fr,fc,tr,tc,piece:JSON.parse(JSON.stringify(piece)),target:target?JSON.parse(JSON.stringify(target)):null,boardState:JSON.parse(JSON.stringify(board))});
+  if(target){
+    // QUANTUM COLLAPSE if either piece is superposed
+    if(piece.prob<1.0||target.prob<1.0){
+      sfxCollapse();
+      const attackRoll=Math.random();
+      const defenseRoll=Math.random();
+      const attackExists=attackRoll<piece.prob;
+      const defenseExists=defenseRoll<target.prob;
+      log('Collapse! Attacker '+(attackExists?'EXISTS':'GONE')+' ('+Math.round(piece.prob*100)+'%), Defender '+(defenseExists?'EXISTS':'GONE')+' ('+Math.round(target.prob*100)+'%)',defenseExists?'collapse':'capture');
+      // Remove all instances of both pieces from board
+      removeAllInstances(piece.id);
+      removeAllInstances(target.id);
+      if(attackExists&&defenseExists){
+        // Both exist: capture happens
+        captured[target.color].push(target.type);
+        score+=PIECE_VALUES[target.type]*10;
+        board[tr][tc]=[{...piece,prob:1.0}];
+        addShake(5);
+      }else if(attackExists&&!defenseExists){
+        // Attacker exists, defender was phantom
+        board[tr][tc]=[{...piece,prob:1.0}];
+      }else if(!attackExists&&defenseExists){
+        // Attacker was phantom, defender stays
+        board[tr][tc]=[{...target,prob:1.0}];
+        log('Attack from phantom failed!','collapse');
+      }else{
+        // Both phantoms vanished
+        log('Both pieces were phantoms! Void remains.','collapse');
+      }
+      spawnParticles(tc*SQ+SQ/2,tr*SQ+SQ/2+44,'#0ff',12);
+    }else{
+      // Normal capture
+      sfxCapture();
+      captured[target.color].push(target.type);
+      score+=PIECE_VALUES[target.type]*10;
+      board[tr][tc]=[{...piece,prob:1.0}];
+      board[fr][fc]=[];
+      addShake(3);
+      spawnParticles(tc*SQ+SQ/2,tr*SQ+SQ/2+44,'#ff0',8);
+      // Check for king capture
+      if(target.type==='k'){
+        endGame(piece.color);
+        return;
+      }
+    }
+  }else{
+    // Move to empty
+    sfxMove();
+    board[tr][tc]=[{...piece}];
+    board[fr][fc]=board[fr][fc].filter(p=>p.id!==piece.id);
+  }
+  // Pawn promotion
+  if(piece.type==='p'&&(tr===0||tr===7)){
+    board[tr][tc][0].type='q';
+    log(piece.color+' pawn promoted to Queen!','split');
+    score+=20;
+  }
+  moveNum++;
+  turn=turn==='white'?'black':'white';
+  selectedSq=null;quantumTarget1=null;
+  // Check for king
+  checkKingSafety();
+  if(vsAI&&turn==='black'&&gameState==='playing')setTimeout(aiMove,300);
+}
+
+function executeQuantumSplit(fr,fc,t1r,t1c,t2r,t2c){
+  const piece=board[fr][fc][0];
+  if(!piece||piece.prob<0.99)return;
+  sfxSplit();
+  const p1={...piece,prob:0.5};
+  const p2={...piece,prob:0.5};
+  board[t1r][t1c].push(p1);
+  board[t2r][t2c].push(p2);
+  board[fr][fc]=board[fr][fc].filter(p=>p.id!==piece.id);
+  log(piece.color+' '+piece.type+' SPLIT to ('+t1r+','+t1c+') and ('+t2r+','+t2c+')','split');
+  spawnParticles(t1c*SQ+SQ/2,t1r*SQ+SQ/2+44,'#0ff',6);
+  spawnParticles(t2c*SQ+SQ/2,t2r*SQ+SQ/2+44,'#0ff',6);
+  moveNum++;score+=5;
+  turn=turn==='white'?'black':'white';
+  selectedSq=null;quantumTarget1=null;
+  if(vsAI&&turn==='black'&&gameState==='playing')setTimeout(aiMove,300);
+}
+
+function removeAllInstances(id){
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    board[r][c]=board[r][c].filter(p=>p.id!==id);
+  }
+}
+
+function checkKingSafety(){
+  let whiteKing=false,blackKing=false;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    for(const p of board[r][c]){
+      if(p.type==='k'&&p.color==='white')whiteKing=true;
+      if(p.type==='k'&&p.color==='black')blackKing=true;
+    }
+  }
+  if(!whiteKing){endGame('black');return}
+  if(!blackKing){endGame('white');return}
+}
+
+function endGame(winner){
+  gameState='gameover';
+  if(score>highScore){highScore=score;localStorage.setItem('qchess_hs',highScore.toString())}
+  if(winner===('white'))sfxWin();else sfxCapture();
+  document.getElementById('go-title').textContent=winner.toUpperCase()+' WINS!';
+  document.getElementById('go-title').style.color=winner==='white'?'#fff':'#888';
+  document.getElementById('go-stats').innerHTML='Moves: '+moveNum+'<br>Score: '+score+'<br>High Score: '+highScore+'<br>Captures: '+(captured.white.length+captured.black.length);
+  document.getElementById('game-over').classList.add('show');
+}
+
+// ===== AI =====
+function aiMove(){
+  if(gameState!=='playing'||turn!=='black')return;
+  // Simple AI: find best capture or random move
+  let bestMove=null,bestVal=-1;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=getPieceAt(r,c);
+    if(!p||p.color!=='black')continue;
+    const moves=getValidMoves(r,c);
+    for(const m of moves){
+      const target=getPieceAt(m.r,m.c);
+      let val=Math.random()*2;
+      if(target&&target.color==='white')val+=PIECE_VALUES[target.type]*10;
+      // Quantum split chance
+      if(diff==='hard'&&Math.random()<0.15&&p.prob>=0.99){
+        const moves2=getValidMoves(r,c);
+        if(moves2.length>=2){
+          const t1=moves2[Math.floor(Math.random()*moves2.length)];
+          let t2=moves2[Math.floor(Math.random()*moves2.length)];
+          if(t1.r!==t2.r||t1.c!==t2.c){
+            executeQuantumSplit(r,c,t1.r,t1.c,t2.r,t2.c);
+            return;
+          }
         }
+      }
+      if(val>bestVal){bestVal=val;bestMove={fr:r,fc:c,tr:m.r,tc:m.c}}
+    }
+  }
+  if(bestMove)executeMove(bestMove.fr,bestMove.fc,bestMove.tr,bestMove.tc);
+}
 
-        function initBoard() {
-            board = [];
-            for(let r=0; r<8; r++) {
-                const row = [];
-                for(let c=0; c<8; c++) {
-                    row.push(new Square(r, c));
-                }
-                board.push(row);
-            }
+// ===== PARTICLES =====
+class Particle{
+  constructor(x,y,color){this.x=x;this.y=y;this.color=color;this.vx=(Math.random()-0.5)*4;this.vy=(Math.random()-0.5)*4-2;this.life=1;this.decay=0.02+Math.random()*0.03;this.size=2+Math.random()*3}
+  update(){this.x+=this.vx;this.y+=this.vy;this.vy+=0.05;this.life-=this.decay;return this.life>0}
+  draw(ctx){ctx.globalAlpha=this.life;ctx.fillStyle=this.color;ctx.fillRect(this.x-this.size/2,this.y-this.size/2,this.size,this.size);ctx.globalAlpha=1}
+}
+function spawnParticles(x,y,color,n){for(let i=0;i<n;i++)particles.push(new Particle(x,y,color))}
+function addShake(m){shakeMag=Math.max(shakeMag,m)}
 
-            // Setup initial pieces
-            const setup = [
-                ['r','n','b','q','k','b','n','r'],
-                ['p','p','p','p','p','p','p','p'],
-                [],[],[],[],
-                ['P','P','P','P','P','P','P','P'],
-                ['R','N','B','Q','K','B','N','R']
-            ];
+// ===== RENDER =====
+const boardCanvas=document.getElementById('board');
+const bctx=boardCanvas.getContext('2d');
+const bgCanvas=document.getElementById('bg');
+const bgCtx=bgCanvas.getContext('2d');
 
-            for(let r=0; r<8; r++) {
-                if(!setup[r]) continue;
-                for(let c=0; c<8; c++) {
-                    const char = setup[r][c];
-                    if(char) {
-                        const color = char === char.toUpperCase() ? 'white' : 'black';
-                        const type = char.toLowerCase();
-                        board[r][c].pieces.push({
-                            type, color, 
-                            id: `${color}-${type}-${r}-${c}`, // Unique ID for tracking splits
-                            prob: 1.0
-                        });
-                    }
-                }
-            }
-            
-            turn = 'white';
-            log("Game Started");
-            render();
+function resize(){bgCanvas.width=innerWidth;bgCanvas.height=innerHeight}
+resize();window.addEventListener('resize',resize);
+
+function drawBoard(){
+  bctx.save();
+  bctx.translate(shakeX,shakeY);
+  // Squares
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const light=(r+c)%2===0;
+    bctx.fillStyle=light?'#f0d9b5':'#b58863';
+    bctx.fillRect(c*SQ,r*SQ,SQ,SQ);
+    // Highlight selected
+    if(selectedSq&&selectedSq.r===r&&selectedSq.c===c){
+      bctx.fillStyle='rgba(255,255,0,0.3)';
+      bctx.fillRect(c*SQ,r*SQ,SQ,SQ);
+    }
+    // Valid moves
+    if(selectedSq){
+      const moves=getValidMoves(selectedSq.r,selectedSq.c);
+      for(const m of moves){
+        if(m.r===r&&m.c===c){
+          bctx.fillStyle='rgba(0,255,100,0.2)';
+          bctx.fillRect(c*SQ,r*SQ,SQ,SQ);
+          bctx.beginPath();bctx.arc(c*SQ+SQ/2,r*SQ+SQ/2,6,0,Math.PI*2);
+          bctx.fillStyle='rgba(0,255,100,0.4)';bctx.fill();
         }
+      }
+    }
+    // Quantum target 1
+    if(quantumTarget1&&quantumTarget1.r===r&&quantumTarget1.c===c){
+      bctx.fillStyle='rgba(0,255,255,0.3)';
+      bctx.fillRect(c*SQ,r*SQ,SQ,SQ);
+    }
+    // Draw pieces
+    for(const p of board[r][c]){
+      const sym=p.color==='white'?PIECES_MAP[p.type.toUpperCase()]:PIECES_MAP[p.type];
+      bctx.globalAlpha=0.3+p.prob*0.7;
+      bctx.font='bold 38px serif';
+      bctx.textAlign='center';bctx.textBaseline='middle';
+      bctx.fillStyle=p.color==='white'?'#fff':'#111';
+      bctx.strokeStyle=p.color==='white'?'#333':'#999';
+      bctx.lineWidth=1;
+      const px=c*SQ+SQ/2,py=r*SQ+SQ/2;
+      // Quantum shimmer
+      if(p.prob<1.0){
+        const shimmer=Math.sin(performance.now()*0.005+r*c)*2;
+        bctx.fillText(sym,px+shimmer,py);
+      }else{
+        bctx.fillText(sym,px,py);
+      }
+      bctx.strokeText(sym,px+(p.prob<1?Math.sin(performance.now()*0.005+r*c)*2:0),py);
+      bctx.globalAlpha=1;
+      // Probability badge
+      if(p.prob<1.0){
+        bctx.font='bold 9px monospace';
+        bctx.fillStyle='rgba(0,0,0,0.7)';
+        const bw=28,bh=14;
+        bctx.fillRect(c*SQ+SQ-bw-2,r*SQ+SQ-bh-2,bw,bh);
+        bctx.fillStyle='#0ff';
+        bctx.textAlign='center';
+        bctx.fillText(Math.round(p.prob*100)+'%',c*SQ+SQ-bw/2-2,r*SQ+SQ-6);
+      }
+    }
+  }
+  // Column/row labels
+  bctx.font='10px monospace';bctx.fillStyle='#666';bctx.textAlign='center';
+  for(let i=0;i<8;i++){
+    bctx.fillText('abcdefgh'[i],i*SQ+SQ/2,8*SQ+12);
+    bctx.fillText(8-i,-8,i*SQ+SQ/2);
+  }
+  // Particles
+  for(const p of particles)p.draw(bctx);
+  bctx.restore();
+}
 
-        function render() {
-            boardEl.innerHTML = '';
-            
-            for(let r=0; r<8; r++) {
-                for(let c=0; c<8; c++) {
-                    const sq = document.createElement('div');
-                    sq.className = `square ${(r+c)%2===0 ? 'white' : 'black'}`;
-                    sq.dataset.r = r;
-                    sq.dataset.c = c;
-                    
-                    if(selectedSquare && selectedSquare.r === r && selectedSquare.c === c) {
-                        sq.classList.add('highlight');
-                    }
+function drawBackground(){
+  bgCtx.fillStyle='#0d0d1a';
+  bgCtx.fillRect(0,0,bgCanvas.width,bgCanvas.height);
+  const t=performance.now()*0.001;
+  for(let i=0;i<30;i++){
+    const x=(Math.sin(i*2.3+t*0.1)*0.5+0.5)*bgCanvas.width;
+    const y=(Math.cos(i*1.7+t*0.08)*0.5+0.5)*bgCanvas.height;
+    bgCtx.beginPath();bgCtx.arc(x,y,1.5,0,Math.PI*2);
+    bgCtx.fillStyle='rgba(0,255,255,'+(0.05+Math.sin(t+i)*0.03)+')';
+    bgCtx.fill();
+  }
+}
 
-                    const squareData = board[r][c];
-                    
-                    // Render pieces
-                    squareData.pieces.forEach(p => {
-                        const pEl = document.createElement('div');
-                        pEl.className = `piece ${p.color}-piece`;
-                        pEl.textContent = PIECES[p.color === 'white' ? p.type.toUpperCase() : p.type];
-                        pEl.style.opacity = p.prob;
-                        
-                        if(p.prob < 1.0) {
-                            const badge = document.createElement('div');
-                            badge.className = 'probability-badge';
-                            badge.textContent = Math.round(p.prob * 100) + '%';
-                            sq.appendChild(badge);
-                        }
-                        
-                        sq.appendChild(pEl);
-                    });
+function log(msg,type){
+  const el=document.getElementById('log');
+  const div=document.createElement('div');
+  div.className='log-entry'+(type?' log-'+type:'');
+  div.textContent='['+moveNum+'] '+msg;
+  el.appendChild(div);
+  el.scrollTop=el.scrollHeight;
+}
 
-                    sq.onclick = (e) => handleClick(r, c, e);
-                    boardEl.appendChild(sq);
-                }
-            }
-            
-            turnDisplay.textContent = `${turn.charAt(0).toUpperCase() + turn.slice(1)}'s Turn`;
-            turnDisplay.style.background = turn === 'white' ? '#e0e0e0' : '#333';
-            turnDisplay.style.color = turn === 'white' ? '#000' : '#fff';
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2000);
+}
+
+// ===== INPUT =====
+boardCanvas.addEventListener('click',e=>{
+  if(gameState!=='playing')return;
+  if(vsAI&&turn==='black')return;
+  const rect=boardCanvas.getBoundingClientRect();
+  const c=Math.floor((e.clientX-rect.left)/SQ);
+  const r=Math.floor((e.clientY-rect.top)/SQ);
+  if(r<0||r>7||c<0||c>7)return;
+  initAudio();
+
+  const isShift=e.shiftKey||quantumMode;
+
+  if(selectedSq){
+    if(selectedSq.r===r&&selectedSq.c===c){selectedSq=null;quantumTarget1=null;return}
+    if(isShift){
+      if(quantumTarget1){
+        // Second target for split
+        const piece=getPieceAt(selectedSq.r,selectedSq.c);
+        if(piece&&piece.color===turn&&piece.prob>=0.99){
+          executeQuantumSplit(selectedSq.r,selectedSq.c,quantumTarget1.r,quantumTarget1.c,r,c);
         }
+        quantumTarget1=null;
+      }else{
+        quantumTarget1={r,c};
+        showToast('Select second quantum target...');
+      }
+    }else{
+      // Regular move
+      const piece=getPieceAt(selectedSq.r,selectedSq.c);
+      if(piece&&piece.color===turn){
+        const moves=getValidMoves(selectedSq.r,selectedSq.c);
+        const valid=moves.find(m=>m.r===r&&m.c===c);
+        if(valid)executeMove(selectedSq.r,selectedSq.c,r,c);
+        else{selectedSq=null;quantumTarget1=null}
+      }
+    }
+  }else{
+    const piece=getPieceAt(r,c);
+    if(piece&&piece.color===turn){selectedSq={r,c}}
+  }
+});
 
-        function handleClick(r, c, e) {
-            const isShift = e.shiftKey || quantumCheck.checked;
-            
-            if(selectedSquare) {
-                // Move attempt
-                if(selectedSquare.r === r && selectedSquare.c === c) {
-                    selectedSquare = null; // Deselect
-                    render();
-                    return;
-                }
-                
-                if(isShift) {
-                    // Quantum Split Attempt
-                    // Need to select a second target
-                    if(quantumMove) {
-                        // Second target selected
-                        executeQuantumMove(selectedSquare, quantumMove, {r, c});
-                        selectedSquare = null;
-                        quantumMove = null;
-                    } else {
-                        // First target selected
-                        quantumMove = {r, c};
-                        log("Select second target for split...");
-                        // Highlight first target?
-                        // For simplicity, just wait for second click
-                        return; 
-                    }
-                } else {
-                    // Standard Move
-                    executeMove(selectedSquare, {r, c});
-                    selectedSquare = null;
-                }
-                render();
-            } else {
-                // Select
-                const sq = board[r][c];
-                const piece = sq.pieces.find(p => p.color === turn);
-                if(piece) {
-                    selectedSquare = {r, c};
-                    render();
-                }
-            }
-        }
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape')togglePause();
+  if(e.key==='r'||e.key==='R'){
+    if(gameState==='gameover'){document.getElementById('game-over').classList.remove('show');startNewGame()}
+  }
+});
 
-        function executeMove(from, to) {
-            const fromSq = board[from.r][from.c];
-            const toSq = board[to.r][to.c];
-            
-            // Find the piece to move (simplification: take the first of current turn color)
-            const pieceIdx = fromSq.pieces.findIndex(p => p.color === turn);
-            if(pieceIdx === -1) return;
-            
-            const piece = fromSq.pieces[pieceIdx];
-            
-            // Basic validation (very simplified)
-            // In a real game, we'd check valid moves for each piece type
-            
-            // Check for capture/collapse
-            if(toSq.pieces.length > 0) {
-                // Measurement!
-                const target = toSq.pieces[0]; // Assume one piece for now
-                
-                log(`Attack on ${target.color} ${target.type} (${Math.round(target.prob*100)}%)`);
-                
-                // Collapse Target
-                const roll = Math.random();
-                if(roll < target.prob) {
-                    // Hit! Target exists here.
-                    log(`<span class="log-collapse">Target CONFIRMED at ${to.r},${to.c}. Captured!</span>`);
-                    
-                    // Remove target from here
-                    toSq.pieces = [];
-                    
-                    // Remove target from other location (if split)
-                    collapsePiece(target.id, to.r, to.c, true); // true = exists here (so remove others)
-                    
-                    // Move attacker
-                    // Attacker also collapses if it was split?
-                    // Rule: Interaction causes mutual collapse.
-                    collapsePiece(piece.id, from.r, from.c, true);
-                    
-                    // Move
-                    piece.prob = 1.0;
-                    toSq.pieces.push(piece);
-                    fromSq.pieces.splice(pieceIdx, 1);
-                    
-                } else {
-                    // Miss! Target is NOT here.
-                    log(`<span class="log-collapse">Target ABSENT at ${to.r},${to.c}. Attack failed.</span>`);
-                    
-                    // Target must be at the other location
-                    collapsePiece(target.id, to.r, to.c, false); // false = does not exist here
-                    
-                    // Attacker stays? Or moves to empty square?
-                    // If target is not here, square is empty. Attacker moves in.
-                    // But wait, if target is not here, it's like moving to empty square.
-                    
-                    // Attacker collapses too
-                    collapsePiece(piece.id, from.r, from.c, true);
-                    piece.prob = 1.0;
-                    
-                    toSq.pieces.push(piece);
-                    fromSq.pieces.splice(pieceIdx, 1);
-                }
-            } else {
-                // Move to empty square
-                // If piece is split, does it drag the other half?
-                // Rule: Standard move of a split piece moves ONLY that instance.
-                // The other instance stays.
-                // Probability mass moves.
-                
-                toSq.pieces.push(piece);
-                fromSq.pieces.splice(pieceIdx, 1);
-                log(`Moved ${piece.type} to ${to.r},${to.c}`);
-            }
-            
-            endTurn();
-        }
+function togglePause(){
+  if(gameState==='playing'){gameState='paused';document.getElementById('pause-overlay').classList.add('show');sfxMenu()}
+  else if(gameState==='paused'){gameState='playing';document.getElementById('pause-overlay').classList.remove('show');sfxMenu()}
+}
 
-        function executeQuantumMove(from, to1, to2) {
-            const fromSq = board[from.r][from.c];
-            const pieceIdx = fromSq.pieces.findIndex(p => p.color === turn);
-            if(pieceIdx === -1) return;
-            
-            const piece = fromSq.pieces[pieceIdx];
-            
-            // Can only split if prob is 1.0 (simplification)
-            if(piece.prob < 0.99) {
-                log("Cannot split an already split piece!");
-                return;
-            }
-            
-            // Create two instances with 0.5 prob
-            const p1 = { ...piece, prob: 0.5 };
-            const p2 = { ...piece, prob: 0.5 };
-            
-            board[to1.r][to1.c].pieces.push(p1);
-            board[to2.r][to2.c].pieces.push(p2);
-            
-            fromSq.pieces.splice(pieceIdx, 1);
-            
-            log(`<span class="log-split">Quantum Split: ${piece.type} to (${to1.r},${to1.c}) and (${to2.r},${to2.c})</span>`);
-            endTurn();
-        }
+// ===== SETUP =====
+function startNewGame(){
+  gameState='playing';initAudio();sfxMenu();
+  initBoard();particles=[];
+  document.getElementById('title-screen').classList.add('hidden');
+  document.getElementById('game-ui').style.display='block';
+  document.getElementById('log').innerHTML='';
+  document.getElementById('captured').innerHTML='';
+  log('Game started! Difficulty: '+diff,'split');
+}
 
-        function collapsePiece(id, r, c, existsHere) {
-            // Find all instances of this piece ID on the board
-            for(let i=0; i<8; i++) {
-                for(let j=0; j<8; j++) {
-                    const sq = board[i][j];
-                    for(let k=sq.pieces.length-1; k>=0; k--) {
-                        const p = sq.pieces[k];
-                        if(p.id === id) {
-                            if(existsHere) {
-                                // If it exists at (r,c), remove all OTHER instances
-                                if(i !== r || j !== c) {
-                                    sq.pieces.splice(k, 1);
-                                } else {
-                                    p.prob = 1.0; // Collapse to 100%
-                                }
-                            } else {
-                                // If it does NOT exist at (r,c)
-                                if(i === r && j === c) {
-                                    sq.pieces.splice(k, 1); // Remove this one
-                                } else {
-                                    // The other one becomes 100% (assuming 2-way split)
-                                    // If 3-way, math is harder. We assume 2-way.
-                                    p.prob = 1.0;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+document.getElementById('start-btn').addEventListener('click',()=>{vsAI=false;startNewGame()});
+document.getElementById('start-ai-btn').addEventListener('click',()=>{vsAI=true;startNewGame()});
+document.getElementById('resume-btn').addEventListener('click',togglePause);
+document.getElementById('quit-btn').addEventListener('click',()=>{
+  gameState='menu';document.getElementById('pause-overlay').classList.remove('show');
+  document.getElementById('title-screen').classList.remove('hidden');
+  document.getElementById('game-ui').style.display='none';
+});
+document.getElementById('retry-btn').addEventListener('click',()=>{document.getElementById('game-over').classList.remove('show');startNewGame()});
+document.getElementById('menu-btn2').addEventListener('click',()=>{
+  gameState='menu';document.getElementById('game-over').classList.remove('show');
+  document.getElementById('title-screen').classList.remove('hidden');
+  document.getElementById('game-ui').style.display='none';
+});
+document.getElementById('quantum-toggle').addEventListener('click',()=>{
+  quantumMode=!quantumMode;
+  document.getElementById('quantum-toggle').textContent='Quantum Mode: '+(quantumMode?'ON':'OFF');
+  document.getElementById('quantum-toggle').style.borderColor=quantumMode?'#0ff':'#4a4e69';
+  sfxMenu();
+});
+document.getElementById('undo-btn').addEventListener('click',()=>{
+  if(moveHistory.length===0)return;
+  const last=moveHistory.pop();
+  board=last.boardState;
+  turn=turn==='white'?'black':'white';
+  moveNum--;selectedSq=null;
+  sfxMenu();
+});
+document.getElementById('reset-btn').addEventListener('click',()=>{
+  initBoard();particles=[];
+  document.getElementById('log').innerHTML='';
+  document.getElementById('captured').innerHTML='';
+  log('Game reset','split');sfxMenu();
+});
+document.querySelectorAll('.diff-btn').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.diff-btn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');diff=b.dataset.diff;sfxMenu();
+  });
+});
 
-        function endTurn() {
-            turn = turn === 'white' ? 'black' : 'white';
-            render();
-        }
+// ===== GAME LOOP =====
+function gameLoop(){
+  // Shake
+  if(shakeMag>0){shakeX=(Math.random()-0.5)*shakeMag;shakeY=(Math.random()-0.5)*shakeMag;shakeMag*=0.85;if(shakeMag<0.3){shakeMag=0;shakeX=0;shakeY=0}}
+  particles=particles.filter(p=>p.update());
+  drawBackground();
+  if(gameState!=='menu')drawBoard();
+  // Update UI
+  if(gameState==='playing'||gameState==='paused'){
+    const tb=document.getElementById('turn-badge');
+    tb.textContent=turn.charAt(0).toUpperCase()+turn.slice(1)+"'s Turn";
+    tb.className='turn-badge '+turn;
+    document.getElementById('hud-info').textContent='Move '+moveNum;
+    document.getElementById('hud-score').textContent='Score: '+score;
+    // Captured display
+    const capEl=document.getElementById('captured');
+    let capHTML='<div style="color:#888">W: ';
+    captured.white.forEach(t=>{capHTML+=PIECES_MAP[t]});
+    capHTML+='</div><div style="color:#444">B: ';
+    captured.black.forEach(t=>{capHTML+=PIECES_MAP[t.toUpperCase()]});
+    capHTML+='</div>';
+    capEl.innerHTML=capHTML;
+  }
+  requestAnimationFrame(gameLoop);
+}
 
-        function log(msg) {
-            const div = document.createElement('div');
-            div.className = 'log-entry';
-            div.innerHTML = msg;
-            logEl.appendChild(div);
-            logEl.scrollTop = logEl.scrollHeight;
-        }
-
-        function resetGame() {
-            initBoard();
-        }
-
-        initBoard();
-
-    </script>
+// Position board canvas
+function positionBoard(){
+  const wrap=document.getElementById('board-wrap');
+  const bw=8*SQ+20;
+  wrap.style.width=bw+'px';wrap.style.height=bw+'px';
+  boardCanvas.width=8*SQ;boardCanvas.height=8*SQ;
+}
+positionBoard();
+requestAnimationFrame(gameLoop);
+</script>
 </body>
 </html>
