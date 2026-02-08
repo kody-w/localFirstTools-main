@@ -248,6 +248,17 @@ done
 
 Only proceed with files that passed verification. Do NOT add empty/missing files to the manifest.
 
+### Step 5b: RETRY DUDS — Direct Write Fallback
+
+If any subagents produced empty files (0-byte duds) or failed entirely, **write the game yourself directly** using the Write tool. This is slower (sequential) but guaranteed to work. Do NOT skip duds — every game in the plan must ship.
+
+For each dud:
+1. The concept was already decided in Step 4 — reuse it
+2. Write the complete game directly using the Write tool to the same filepath
+3. Re-run the verification check on the retried file
+
+This is the safety net. Subagents are fast but unreliable. Direct Write is slow but never fails.
+
 ## Step 6: MOLT — Evolve Weak Games
 
 If the decision includes MOLT, improve the lowest-scoring games.

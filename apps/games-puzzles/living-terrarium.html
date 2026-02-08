@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Living Terrarium</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e12;color:#d0d8e0;font-family:'Courier New',monospace;overflow:hidden;user-select:none}
+#app{display:flex;width:100vw;height:100vh}
+#terrarium-wrap{flex:1;display:flex;flex-direction:column;position:relative}
+#top-bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#111820;border-bottom:1px solid #1e2a36;height:40px;z-index:10}
+#top-bar .title{font-size:14px;color:#7ecfa0;letter-spacing:2px}
+#top-bar .gen{font-size:12px;color:#5a9;opacity:0.8}
+#top-bar .info{font-size:11px;color:#6a7a8a}
+canvas{display:block;cursor:crosshair}
+#side-panel{width:320px;background:#0d1218;border-left:1px solid #1e2a36;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+.panel-section{padding:10px 12px;border-bottom:1px solid #1a2430}
+.panel-section h3{font-size:11px;text-transform:uppercase;color:#4a7a5a;letter-spacing:1.5px;margin-bottom:8px}
+.stat-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;color:#8a9aaa}
+.stat-row .val{color:#a0d0b0}
+#toolbar{display:flex;align-items:center;gap:4px;padding:6px 12px;background:#111820;border-top:1px solid #1e2a36;flex-wrap:wrap;min-height:44px}
+.tool-btn{padding:4px 10px;font-size:11px;background:#1a2430;border:1px solid #2a3a4a;color:#8ab;border-radius:3px;cursor:pointer;transition:all .15s}
+.tool-btn:hover{background:#243040;border-color:#3a5a6a}
+.tool-btn.active{background:#1a3a2a;border-color:#4a8a5a;color:#7ecfa0}
+.tool-cat{font-size:10px;color:#4a6a5a;margin:0 4px;text-transform:uppercase}
+#speed-controls{display:flex;gap:3px;align-items:center}
+#speed-controls button{padding:2px 8px;font-size:10px;background:#1a2430;border:1px solid #2a3a4a;color:#8ab;border-radius:2px;cursor:pointer}
+#speed-controls button.active{background:#2a3040;color:#adf}
+#seal-btn{padding:5px 16px;font-size:12px;background:#2a1a1a;border:1px solid #6a3a3a;color:#e88;border-radius:3px;cursor:pointer;font-weight:bold;letter-spacing:1px}
+#seal-btn:hover{background:#3a2a2a;border-color:#8a4a4a}
+.pop-graph{width:100%;height:80px;background:#0a0f14;border:1px solid #1a2430;border-radius:3px;margin-top:4px}
+.phylo-tree{width:100%;height:120px;background:#0a0f14;border:1px solid #1a2430;border-radius:3px;margin-top:4px}
+.food-web{width:100%;height:90px;background:#0a0f14;border:1px solid #1a2430;border-radius:3px;margin-top:4px}
+#event-log{max-height:80px;overflow-y:auto;font-size:10px;color:#6a8a7a;line-height:1.5}
+#event-log .evt{padding:1px 0}
+#event-log .evt.bad{color:#c77}
+#event-log .evt.good{color:#7c7}
+#intervention-bar{display:none;align-items:center;gap:8px;padding:6px 12px;background:#111820;border-top:1px solid #1e2a36}
+#intervention-bar label{font-size:11px;color:#6a8a7a}
+#intervention-bar input[type=range]{width:80px;accent-color:#4a8a5a}
+.sealed-badge{display:none;padding:2px 8px;background:#2a1a1a;border:1px solid #6a3a3a;border-radius:3px;font-size:10px;color:#e88;letter-spacing:1px}
+.sealed-badge.show{display:inline-block}
+#save-controls{display:flex;gap:4px;margin-top:6px}
+#save-controls button{padding:3px 8px;font-size:10px;background:#1a2430;border:1px solid #2a3a4a;color:#8ab;border-radius:2px;cursor:pointer}
+#save-controls button:hover{background:#243040}
+#toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#1a3a2a;border:1px solid #4a8a5a;color:#7ecfa0;padding:6px 16px;border-radius:4px;font-size:12px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
+#toast.show{opacity:1}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#0a0e12}
+::-webkit-scrollbar-thumb{background:#2a3a4a;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="terrarium-wrap">
+<div id="top-bar">
+<span class="title">🌿 LIVING TERRARIUM</span>
+<span class="gen" id="gen-display">Generation 0</span>
+<span class="sealed-badge" id="sealed-badge">🔒 SEALED</span>
+<span class="info" id="time-display">Day 1 · Spring · ☀️</span>
+<div id="speed-controls">
+<span style="font-size:10px;color:#4a6a5a;margin-right:4px">SPD:</span>
+<button class="active" data-speed="1">1×</button>
+<button data-speed="5">5×</button>
+<button data-speed="20">20×</button>
+<button data-speed="100">100×</button>
+</div>
+</div>
+<canvas id="terrarium"></canvas>
+<div id="toolbar">
+<span class="tool-cat">Terrain:</span>
+<button class="tool-btn" data-tool="soil">Soil</button>
+<button class="tool-btn" data-tool="sand">Sand</button>
+<button class="tool-btn" data-tool="rock">Rock</button>
+<button class="tool-btn" data-tool="water">Water</button>
+<span class="tool-cat">Plants:</span>
+<button class="tool-btn" data-tool="fern">Fern</button>
+<button class="tool-btn" data-tool="moss">Moss</button>
+<button class="tool-btn" data-tool="vine">Vine</button>
+<button class="tool-btn" data-tool="flower">Flower</button>
+<button class="tool-btn" data-tool="tree">Tree</button>
+<span class="tool-cat">Creatures:</span>
+<button class="tool-btn" data-tool="ant">Ant</button>
+<button class="tool-btn" data-tool="beetle">Beetle</button>
+<button class="tool-btn" data-tool="butterfly">Butterfly</button>
+<button class="tool-btn" data-tool="worm">Worm</button>
+<button class="tool-btn" data-tool="spider">Spider</button>
+<button class="tool-btn" data-tool="snail">Snail</button>
+<span class="tool-cat">Env:</span>
+<button class="tool-btn" data-tool="lamp">Lamp</button>
+<button class="tool-btn" data-tool="mist">Mist</button>
+<button class="tool-btn" data-tool="heatrock">Heat Rock</button>
+<span class="tool-cat" style="margin-left:auto"></span>
+<button id="seal-btn" title="Press Enter to seal">⏎ SEAL IT</button>
+</div>
+<div id="intervention-bar">
+<button class="tool-btn" id="water-drop-btn">💧 Drop Water</button>
+<label>Lamp: <input type="range" id="lamp-slider" min="0" max="100" value="70"></label>
+<label style="font-size:10px;color:#4a6a5a">Click terrarium to add water drop</label>
+</div>
+</div>
+<div id="side-panel">
+<div class="panel-section">
+<h3>Population</h3>
+<canvas class="pop-graph" id="pop-graph"></canvas>
+</div>
+<div class="panel-section">
+<h3>Statistics</h3>
+<div class="stat-row"><span>Total Organisms</span><span class="val" id="stat-total">0</span></div>
+<div class="stat-row"><span>Plants</span><span class="val" id="stat-plants">0</span></div>
+<div class="stat-row"><span>Creatures</span><span class="val" id="stat-creatures">0</span></div>
+<div class="stat-row"><span>Species Count</span><span class="val" id="stat-species">0</span></div>
+<div class="stat-row"><span>Diversity Index</span><span class="val" id="stat-diversity">0.00</span></div>
+<div class="stat-row"><span>Avg Fitness</span><span class="val" id="stat-fitness">0.00</span></div>
+<div class="stat-row"><span>Births / Deaths</span><span class="val" id="stat-bd">0 / 0</span></div>
+<div class="stat-row"><span>Soil Nutrients</span><span class="val" id="stat-nutrients">0</span></div>
+<div class="stat-row"><span>Water Level</span><span class="val" id="stat-water">0</span></div>
+</div>
+<div class="panel-section">
+<h3>Species Tree</h3>
+<canvas class="phylo-tree" id="phylo-tree"></canvas>
+</div>
+<div class="panel-section">
+<h3>Food Web</h3>
+<canvas class="food-web" id="food-web"></canvas>
+</div>
+<div class="panel-section">
+<h3>Event Log</h3>
+<div id="event-log"></div>
+</div>
+<div class="panel-section">
+<h3>Save / Export</h3>
+<div id="save-controls">
+<button id="btn-save">💾 Save</button>
+<button id="btn-load">📂 Load</button>
+<button id="btn-export">📋 Export Species</button>
+</div>
+</div>
+</div>
+</div>
+<div id="toast"></div>
+<script>

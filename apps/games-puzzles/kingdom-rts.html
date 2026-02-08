@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Kingdom RTS</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;color:#ccc;font-family:monospace;overflow:hidden;user-select:none}
+#startScreen{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(#1a0a00,#0a1a00);z-index:100}
+#startScreen h1{font-size:3em;color:#fc0;text-shadow:0 0 20px #f80;margin-bottom:20px}
+#startScreen p{color:#aaa;margin:5px;font-size:14px;max-width:600px;text-align:center}
+.btn{padding:12px 30px;margin:8px;font-size:18px;cursor:pointer;border:2px solid #fc0;background:rgba(0,0,0,0.5);color:#fc0;font-family:monospace;border-radius:4px}
+.btn:hover{background:rgba(255,200,0,0.2)}
+#gameCanvas{position:absolute;top:0;left:0}
+#ui{position:absolute;bottom:0;left:0;width:100%;height:150px;background:rgba(0,0,0,0.88);border-top:2px solid #555;display:none;z-index:10}
+#minimap{position:absolute;bottom:155px;right:5px;border:2px solid #555;z-index:11;cursor:pointer}
+#selInfo{position:absolute;bottom:5px;left:200px;color:#ccc;font-size:12px;width:300px;height:140px;overflow:hidden}
+#resBar{position:absolute;top:5px;left:5px;color:#fc0;font-size:14px;z-index:11;background:rgba(0,0,0,0.7);padding:4px 10px;border-radius:3px}
+#actPanel{position:absolute;bottom:5px;right:200px;display:flex;flex-wrap:wrap;gap:3px;width:280px;height:140px;align-content:start}
+.actBtn{width:65px;height:36px;font-size:9px;cursor:pointer;border:1px solid #666;background:#222;color:#ccc;font-family:monospace;border-radius:2px}
+.actBtn:hover{background:#444;border-color:#aaa}
+#queuePanel{position:absolute;bottom:5px;left:5px;width:185px;font-size:11px;height:140px;overflow:hidden}
+#msgLog{position:absolute;top:30px;left:5px;font-size:12px;color:#fc0;z-index:11;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="startScreen">
+<h1>&#9876; Kingdom RTS &#9876;</h1>
+<p>Build your kingdom, gather resources, train an army, and destroy the enemy Town Hall!</p>
+<p><b>Left-click</b> select | <b>Shift+click</b> multi-select | <b>Drag</b> box select | <b>Right-click</b> move/attack/harvest</p>
+<p><b>Arrow keys</b> scroll | <b>Ctrl+1-5</b> set control group | <b>1-5</b> recall group | <b>H</b> Town Hall | <b>Q</b> attack-move | <b>Esc</b> cancel</p>
+<p style="margin-top:15px">Select difficulty:</p>
+<div>
+<button class="btn" onclick="window.startGame(0)">Easy</button>
+<button class="btn" onclick="window.startGame(1)">Medium</button>
+<button class="btn" onclick="window.startGame(2)">Hard</button>
+</div>
+</div>
+<canvas id="gameCanvas"></canvas>
+<canvas id="minimap" width="160" height="160"></canvas>
+<div id="resBar"></div>
+<div id="msgLog"></div>
+<div id="ui">
+<div id="queuePanel"></div>
+<div id="selInfo"></div>
+<div id="actPanel"></div>
+</div>
+<script>
+(()=>{
+"use strict";
+const MW=80,MH=80,TS=32;
+const GRASS=0,FOREST=1,MOUNTAIN=2,GOLDMINE=3,WATER=4;
+const TCOLS=['#3a7a44','#285828','#777','#daa520','#2468ac'];
+let canvas,ctx,mcanvas,mctx;
+let gameState='menu',difficulty=1;
+let camX=0,camY=0;
+let mapT,fogMap;
+let res=[{gold:200,wood:100},{gold:200,wood:100}];
+let ents=[],blds=[],projs=[];
+let sel=[],selBox=null,cgroups={};
+let lastT=0,gTime=0;
+let audioCtx=null,msgs=[];
+let pSup=0,pMaxSup=10,aSup=0,aMaxSup=10;
+let placeBld=null,keys={};
+let mouseX=0,mouseY=0,mDown=false,dragSt=null;
+const UDATA={
+worker:{hp:40,atk:3,spd:80,rng:1,time:15,g:50,w:0,sup:1,sz:10,c:'#0af'},
+swordsman:{hp:80,atk:12,spd:60,rng:1,time:20,g:60,w:20,sup:1,sz:11,c:'#e55'},
+spearman:{hp:70,atk:10,spd:55,rng:1,time:20,g:50,w:30,sup:1,sz:11,c:'#f84'},
+archer:{hp:45,atk:8,spd:55,rng:5,time:22,g:40,w:40,sup:1,sz:10,c:'#5d5'},
+crossbowman:{hp:50,atk:12,spd:50,rng:6,time:25,g:60,w:50,sup:1,sz:10,c:'#4a4'},
+cavalry:{hp:100,atk:15,spd:100,rng:1,time:30,g:100,w:40,sup:2,sz:13,c:'#fa0'},
+catapult:{hp:60,atk:40,spd:30,rng:7,time:40,g:150,w:100,sup:3,sz:14,c:'#a60'}
+};
+const BDATA={
+townhall:{hp:500,bw:3,bh:3,g:0,w:0,time:0,vis:8,sup:10,tr:['worker'],c:'#dd0'},
+barracks:{hp:300,bw:2,bh:2,g:150,w:100,time:30,vis:5,sup:0,tr:['swordsman','spearman'],c:'#c55'},
+archery:{hp:250,bw:2,bh:2,g:150,w:120,time:30,vis:5,sup:0,tr:['archer','crossbowman'],c:'#4c4'},
+stables:{hp:300,bw:2,bh:2,g:200,w:150,time:35,vis:5,sup:0,tr:['cavalry'],c:'#ca0'},
+siege:{hp:300,bw:2,bh:2,g:250,w:200,time:40,vis:5,sup:0,tr:['catapult'],c:'#a60'},
+tower:{hp:200,bw:1,bh:1,g:80,w:60,time:20,vis:7,sup:0,tr:[],c:'#88f',aRng:6,aDmg:10},
+wall:{hp:400,bw:1,bh:1,g:20,w:10,time:8,vis:1,sup:0,tr:[],c:'#999'},
+farm:{hp:150,bw:2,bh:2,g:50,w:30,time:20,vis:3,sup:5,tr:[],c:'#8b4'}
+};
+const DMG={};
+DMG['swordsman_archer']=1.5;DMG['swordsman_crossbowman']=1.4;
+DMG['spearman_cavalry']=2.5;
+DMG['archer_swordsman']=1.3;DMG['archer_spearman']=1.3;
+DMG['crossbowman_swordsman']=1.3;DMG['crossbowman_spearman']=1.3;
+DMG['cavalry_archer']=1.8;DMG['cavalry_crossbowman']=1.8;
+DMG['cavalry_swordsman']=1.3;DMG['cavalry_spearman']=0.4;
+DMG['catapult_building']=4.0;
+['worker','swordsman','spearman','archer','crossbowman','cavalry'].forEach(u=>{DMG['catapult_'+u]=0.6});
+
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)()}
+function snd(type){
+if(!audioCtx)return;
+try{
+let o=audioCtx.createOscillator(),g=audioCtx.createGain(),n=audioCtx.currentTime;
+o.connect(g);g.connect(audioCtx.destination);
+if(type==='sword'){o.type='sawtooth';o.frequency.value=200;g.gain.setValueAtTime(0.12,n);g.gain.exponentialRampToValueAtTime(0.001,n+0.12);o.start(n);o.stop(n+0.12)}
+else if(type==='arrow'){o.type='sine';o.frequency.value=800;o.frequency.exponentialRampToValueAtTime(400,n+0.1);g.gain.setValueAtTime(0.08,n);g.gain.exponentialRampToValueAtTime(0.001,n+0.1);o.start(n);o.stop(n+0.1)}
+else if(type==='build'){o.type='square';o.frequency.value=440;g.gain.setValueAtTime(0.08,n);o.frequency.setValueAtTime(550,n+0.1);o.frequency.setValueAtTime(660,n+0.2);g.gain.exponentialRampToValueAtTime(0.001,n+0.3);o.start(n);o.stop(n+0.3)}
+else if(type==='train'){o.type='triangle';o.frequency.value=330;o.frequency.setValueAtTime(440,n+0.1);g.gain.setValueAtTime(0.08,n);g.gain.exponentialRampToValueAtTime(0.001,n+0.2);o.start(n);o.stop(n+0.2)}
+else if(type==='siege'){
+let buf=audioCtx.createBuffer(1,audioCtx.sampleRate*0.25|0,audioCtx.sampleRate);
+let d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*5);
+let s=audioCtx.createBufferSource();s.buffer=buf;let gn=audioCtx.createGain();gn.gain.value=0.12;
+s.connect(gn);gn.connect(audioCtx.destination);s.start(n);g.disconnect();
+}
+}catch(e){}
+}
+
+function addMsg(t){msgs.push({text:t,tm:3})}
+
+function genMap(){
+mapT=[];fogMap=[];
+for(let y=0;y<MH;y++){mapT[y]=[];fogMap[y]=[];for(let x=0;x<MW;x++){mapT[y][x]=GRASS;fogMap[y][x]=0}}
+let R=Math.random;
+// Water bodies
+for(let i=0;i<3;i++){let wx=(R()*50+15)|0,wy=(R()*50+15)|0;
+for(let s=0;s<90;s++){if(wx>=0&&wx<MW&&wy>=0&&wy<MH)mapT[wy][wx]=WATER;
+wx+=(R()*3-1.5)|0;wy+=(R()*3-1.5)|0;wx=Math.max(1,Math.min(MW-2,wx));wy=Math.max(1,Math.min(MH-2,wy))}}
+// Mountain ranges
+for(let i=0;i<4;i++){let mx=(R()*50+15)|0,my=(R()*50+15)|0;
+for(let s=0;s<35;s++){if(mx>=0&&mx<MW&&my>=0&&my<MH)mapT[my][mx]=MOUNTAIN;
+mx+=(R()*3-1.5)|0;my+=(R()*3-1.5)|0;mx=Math.max(1,Math.min(MW-2,mx));my=Math.max(1,Math.min(MH-2,my))}}
+// Forest clusters
+for(let i=0;i<14;i++){let fx=(R()*MW)|0,fy=(R()*MH)|0;let sz=(R()*18+8)|0;
+for(let s=0;s<sz;s++){let tx=fx+((R()*8-4)|0),ty=fy+((R()*8-4)|0);
+if(tx>=0&&tx<MW&&ty>=0&&ty<MH&&mapT[ty][tx]===GRASS)mapT[ty][tx]=FOREST}}
+// Gold mines
+for(let i=0;i<16;i++){let gx=(R()*MW)|0,gy=(R()*MH)|0;
+if(gx>=0&&gx<MW&&gy>=0&&gy<MH&&mapT[gy][gx]===GRASS)mapT[gy][gx]=GOLDMINE}
+// Clear spawn areas (12x12)
+function clr(sx,sy){for(let dy=-6;dy<6;dy++)for(let dx=-6;dx<6;dx++){
+let tx=sx+dx,ty=sy+dy;if(tx>=0&&tx<MW&&ty>=0&&ty<MH)mapT[ty][tx]=GRASS}}
+clr(6,MH-7);clr(MW-7,6);
+// Ensure resources near spawns
+mapT[MH-13][10]=GOLDMINE;mapT[MH-12][12]=GOLDMINE;mapT[MH-11][8]=GOLDMINE;
+mapT[10][MW-12]=GOLDMINE;mapT[11][MW-10]=GOLDMINE;mapT[12][MW-13]=GOLDMINE;
+for(let i=0;i<10;i++){
+let ox=(R()*6+7)|0,oy=(R()*6+7)|0;
+if(MH-7-oy>=0&&6+ox<MW)mapT[MH-7-oy][6+ox]=FOREST;
+if(6+oy<MH&&MW-7-ox>=0)mapT[6+oy][MW-7-ox]=FOREST;
+}
+}
+
+function tPass(tx,ty){
+if(tx<0||ty<0||tx>=MW||ty>=MH)return false;
+let t=mapT[ty][tx];if(t===WATER||t===MOUNTAIN)return false;
+for(let b of blds){if(tx>=b.tx&&tx<b.tx+b.bw&&ty>=b.ty&&ty<b.ty+b.bh)return false}
+return true;
+}
+
+function aStar(sx,sy,ex,ey){
+sx=sx|0;sy=sy|0;ex=ex|0;ey=ey|0;
+if(!tPass(ex,ey)){
+let best=null,bd=1e9;
+for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+let nx=ex+dx,ny=ey+dy;
+if(tPass(nx,ny)){let d=Math.abs(nx-sx)+Math.abs(ny-sy);if(d<bd){bd=d;best={x:nx,y:ny}}}}
+if(best){ex=best.x;ey=best.y}else return[];}
+if(sx===ex&&sy===ey)return[{x:sx,y:sy}];
+let open=[],closed=new Set(),nodes=0;
+open.push({x:sx,y:sy,g:0,f:Math.abs(ex-sx)+Math.abs(ey-sy),p:null});
+while(open.length>0&&nodes<500){
+nodes++;
+let mi=0;for(let i=1;i<open.length;i++)if(open[i].f<open[mi].f)mi=i;
+let c=open.splice(mi,1)[0];
+if(c.x===ex&&c.y===ey){let path=[];let n=c;while(n){path.unshift({x:n.x,y:n.y});n=n.p}return path}
+let k=c.y*MW+c.x;if(closed.has(k))continue;closed.add(k);
+let dirs=[[-1,0],[1,0],[0,-1],[0,1]];
+for(let d of dirs){let nx=c.x+d[0],ny=c.y+d[1];
+if(!tPass(nx,ny))continue;let nk=ny*MW+nx;if(closed.has(nk))continue;
+let ng=c.g+1,nf=ng+Math.abs(ex-nx)+Math.abs(ey-ny);
+let dup=false;for(let o of open){if(o.x===nx&&o.y===ny&&o.g<=ng){dup=true;break}}
+if(!dup)open.push({x:nx,y:ny,g:ng,f:nf,p:c});
+}}
+return[];
+}
+
+function dist(a,b){let dx=a.x-b.x,dy=a.y-b.y;return Math.sqrt(dx*dx+dy*dy)}
+
+function mkUnit(type,x,y,team){
+let s=UDATA[type];
+return{kind:'unit',type:type,x:x,y:y,hp:s.hp,mhp:s.hp,atk:s.atk,spd:s.spd,rng:s.rng,
+sz:s.sz,col:team===0?s.c:'#e44',team:team,path:[],tgt:null,st:'idle',
+htype:null,carried:0,htgt:null,btgt:null,acd:0,sup:s.sup};
+}
+function mkBld(type,tx,ty,team,done){
+let s=BDATA[type];
+return{kind:'bld',type:type,tx:tx,ty:ty,x:tx*TS+s.bw*TS/2,y:ty*TS+s.bh*TS/2,
+hp:done?s.hp:1,mhp:s.hp,bw:s.bw,bh:s.bh,col:team===0?s.c:'#e44',team:team,
+vis:s.vis,queue:[],trnTm:0,done:!!done,prog:done?1:0,sup:s.sup,acd:0,
+aRng:s.aRng||0,aDmg:s.aDmg||0,fTm:0};
+}
+
+function spawnStart(){
+let pb=mkBld('townhall',4,MH-7,0,true);blds.push(pb);
+for(let i=0;i<3;i++)ents.push(mkUnit('worker',pb.x+(i-1)*20,pb.y+TS*2,0));
+let ab=mkBld('townhall',MW-7,4,1,true);blds.push(ab);
+for(let i=0;i<3;i++)ents.push(mkUnit('worker',ab.x+(i-1)*20,ab.y+TS*2,1));
+res=[{gold:200,wood:100},{gold:200,wood:100}];
+}
+
+function updFog(){
+for(let y=0;y<MH;y++)for(let x=0;x<MW;x++)if(fogMap[y][x]===2)fogMap[y][x]=1;
+function rev(cx,cy,r){
+let tx=cx/TS|0,ty=cy/TS|0;
+for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+if(dx*dx+dy*dy<=r*r){let mx=tx+dx,my=ty+dy;
+if(mx>=0&&mx<MW&&my>=0&&my<MH)fogMap[my][mx]=2;}}}
+for(let e of ents)if(e.team===0)rev(e.x,e.y,5);
+for(let b of blds)if(b.team===0)rev(b.x,b.y,b.vis);
+}
+
+function dmgMul(atk,def){
+if(def.kind==='bld')return DMG[atk.type+'_building']||1;
+return DMG[atk.type+'_'+def.type]||1;
+}
+
+function nearRes(u,rt){
+let best=null,bd=1e9;
+for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
+if(mapT[y][x]===rt){let d=Math.abs((u.x/TS|0)-x)+Math.abs((u.y/TS|0)-y);if(d<bd){bd=d;best={x:x,y:y}}}}
+return best;
+}
+function nearBld(u,type){
+let best=null,bd=1e9;
+for(let b of blds){if(b.team===u.team&&b.type===type&&b.done){let d=dist(u,b);if(d<bd){bd=d;best=b}}}
+return best;
+}
+
+function moveU(u,dt){
+if(u.path.length===0)return;
+let g=u.path[0],gx=g.x*TS+TS/2,gy=g.y*TS+TS/2;
+let dx=gx-u.x,dy=gy-u.y,d=Math.sqrt(dx*dx+dy*dy);
+if(d<4){u.path.shift();return}
+let step=u.spd*dt;u.x+=dx/d*step;u.y+=dy/d*step;
+}
+
+function updUnit(u,dt){
+u.acd=Math.max(0,u.acd-dt);
+if(u.st==='move'){moveU(u,dt);if(u.path.length===0)u.st='idle'}
+else if(u.st==='attack'){
+if(!u.tgt||u.tgt.hp<=0){u.tgt=null;u.st='idle';return}
+let d=dist(u,u.tgt)/TS;
+if(d<=u.rng+0.6){
+if(u.acd<=0){
+let dmg=u.atk*dmgMul(u,u.tgt);
+u.tgt.hp-=dmg;u.acd=1;
+if(u.type==='catapult'){snd('siege');projs.push({x:u.x,y:u.y,tx:u.tgt.x,ty:u.tgt.y,t:0,dur:0.5})}
+else if(u.rng>2){snd('arrow');projs.push({x:u.x,y:u.y,tx:u.tgt.x,ty:u.tgt.y,t:0,dur:0.25})}
+else snd('sword');
+}}else{
+let tx=u.tgt.x/TS|0,ty=u.tgt.y/TS|0;
+if(u.path.length===0||Math.random()<0.05)u.path=aStar(u.x/TS|0,u.y/TS|0,tx,ty);
+moveU(u,dt);
+}}
+else if(u.st==='harvest'){
+if(u.carried>=10){
+let th=nearBld(u,'townhall');
+if(th){u.st='return';u.path=aStar(u.x/TS|0,u.y/TS|0,th.tx+1,th.ty+1);return}}
+let ht=u.htgt;if(!ht){u.st='idle';return}
+let d=Math.abs((u.x/TS|0)-ht.x)+Math.abs((u.y/TS|0)-ht.y);
+if(d<=1.5){u.carried+=3*dt;if(u.carried>10)u.carried=10}
+else{if(u.path.length===0)u.path=aStar(u.x/TS|0,u.y/TS|0,ht.x,ht.y);moveU(u,dt)}
+}
+else if(u.st==='return'){
+moveU(u,dt);
+if(u.path.length===0){
+if(u.htype==='gold')res[u.team].gold+=u.carried|0;else res[u.team].wood+=u.carried|0;
+u.carried=0;u.st='harvest';
+if(u.htgt)u.path=aStar(u.x/TS|0,u.y/TS|0,u.htgt.x,u.htgt.y);
+}}
+else if(u.st==='build'){
+if(!u.btgt||u.btgt.done){u.st='idle';return}
+let d=dist(u,u.btgt);
+if(d<TS*3){
+let bt=BDATA[u.btgt.type].time||30;
+u.btgt.prog+=dt/bt;
+u.btgt.hp=(u.btgt.mhp*Math.min(1,u.btgt.prog))|0;
+if(u.btgt.prog>=1){u.btgt.done=true;u.btgt.hp=u.btgt.mhp;u.st='idle';
+if(u.team===0){snd('build');addMsg(u.btgt.type+' complete!')}}
+}else{
+let bx=u.btgt.tx,by=u.btgt.ty+u.btgt.bh;
+if(u.path.length===0)u.path=aStar(u.x/TS|0,u.y/TS|0,bx,by);moveU(u,dt)}
+}
+else if(u.st==='idle'){
+// Auto-attack nearby
+let cl=null,cd=1e9;
+for(let e of ents){if(e.team!==u.team&&e.hp>0){let d=dist(u,e)/TS;if(d<(u.rng+1.5)&&d<cd){cd=d;cl=e}}}
+if(!cl){for(let b of blds){if(b.team!==u.team&&b.hp>0){let d=dist(u,b)/TS;if(d<(u.rng+1.5)&&d<cd){cd=d;cl=b}}}}
+if(cl&&u.type!=='worker'){u.tgt=cl;u.st='attack'}
+}
+}
+
+function updBld(b,dt){
+if(!b.done)return;
+// Tower attack
+if(b.aRng>0){
+b.acd=Math.max(0,b.acd-dt);
+if(b.acd<=0){let cl=null,cd=1e9;
+for(let e of ents){if(e.team!==b.team){let d=dist(b,e)/TS;if(d<b.aRng&&d<cd){cd=d;cl=e}}}
+if(cl){cl.hp-=(b.aDmg||10);b.acd=1.5;projs.push({x:b.x,y:b.y,tx:cl.x,ty:cl.y,t:0,dur:0.2});snd('arrow')}
+}}
+// Farm
+if(b.type==='farm'){b.fTm+=dt;if(b.fTm>=5){b.fTm=0;res[b.team].gold+=1}}
+// Training
+if(b.queue.length>0){
+let ut=UDATA[b.queue[0]];
+let sp=b.team===1?[2,1,0.8][difficulty]:1;
+b.trnTm+=dt;
+if(b.trnTm>=ut.time*sp){
+b.trnTm=0;let utype=b.queue.shift();
+ents.push(mkUnit(utype,b.x,b.y+b.bh*TS/2+TS,b.team));
+if(b.team===0){snd('train');addMsg(utype+' ready!')}
+}}
+}
+
+function calcSup(){
+pSup=0;pMaxSup=0;aSup=0;aMaxSup=0;
+for(let b of blds){if(!b.done)continue;if(b.team===0)pMaxSup+=b.sup;else aMaxSup+=b.sup}
+for(let e of ents){if(e.team===0)pSup+=e.sup;else aSup+=e.sup}
+for(let b of blds)for(let q of b.queue){let s=UDATA[q];if(b.team===0)pSup+=s.sup;else aSup+=s.sup}
+}
+
+// AI
+let ai={tm:0,atm:0};
+function updAI(dt){
+let sp=[2,1,0.8][difficulty];
+ai.tm+=dt;ai.atm+=dt;
+let g=res[1].gold,w=res[1].wood;
+let th=blds.find(b=>b.team===1&&b.type==='townhall'&&b.done);
+if(!th)return;
+let wrk=ents.filter(e=>e.team===1&&e.type==='worker');
+let army=ents.filter(e=>e.team===1&&e.type!=='worker');
+let ablds=blds.filter(b=>b.team===1&&b.done);
+// Idle workers harvest
+for(let u of wrk){
+if(u.st==='idle'){
+let gm=nearRes(u,GOLDMINE),fm=nearRes(u,FOREST);
+if(res[1].gold<150&&gm){u.htgt=gm;u.htype='gold';u.st='harvest';u.carried=0;u.path=aStar(u.x/TS|0,u.y/TS|0,gm.x,gm.y)}
+else if(fm){u.htgt=fm;u.htype='wood';u.st='harvest';u.carried=0;u.path=aStar(u.x/TS|0,u.y/TS|0,fm.x,fm.y)}
+else if(gm){u.htgt=gm;u.htype='gold';u.st='harvest';u.carried=0;u.path=aStar(u.x/TS|0,u.y/TS|0,gm.x,gm.y)}
+}}
+// Train workers
+if(wrk.length<5&&res[1].gold>=50){
+let t=blds.find(b=>b.team===1&&b.type==='townhall'&&b.done&&b.queue.length<3);
+if(t&&aSup+1<=aMaxSup){t.queue.push('worker');res[1].gold-=50}}
+// Build structures
+function aiBuild(type,ox,oy){
+let bs=BDATA[type];
+let bx=th.tx+ox,by=th.ty+oy;
+if(bx<0||by<0||bx+bs.bw>MW||by+bs.bh>MH)return false;
+let ok=true;for(let dy=0;dy<bs.bh;dy++)for(let dx=0;dx<bs.bw;dx++)if(!tPass(bx+dx,by+dy))ok=false;
+if(!ok)return false;
+if(res[1].gold<bs.g||res[1].wood<bs.w)return false;
+res[1].gold-=bs.g;res[1].wood-=bs.w;
+let nb=mkBld(type,bx,by,1,false);blds.push(nb);
+let wk=wrk.find(u=>u.st!=='build');if(wk){wk.btgt=nb;wk.st='build'}
+return true;
+}
+if(ai.tm>8/sp&&!ablds.find(b=>b.type==='barracks'))aiBuild('barracks',-3,0);
+if(ai.tm>12/sp&&!ablds.find(b=>b.type==='farm'))aiBuild('farm',4,0);
+if(ai.tm>20/sp&&!ablds.find(b=>b.type==='archery'))aiBuild('archery',-3,3);
+if(ai.tm>35/sp&&!ablds.find(b=>b.type==='stables'))aiBuild('stables',4,3);
+// Auto-complete AI buildings
+for(let b of blds){if(b.team===1&&!b.done){b.prog+=dt*0.04/sp;b.hp=(b.mhp*Math.min(1,b.prog))|0;if(b.prog>=1){b.done=true;b.hp=b.mhp}}}
+// Train army
+let brk=blds.find(b=>b.team===1&&b.type==='barracks'&&b.done&&b.queue.length<2);
+if(brk&&res[1].gold>=60&&res[1].wood>=30&&aSup+1<=aMaxSup){
+brk.queue.push(Math.random()>0.5?'swordsman':'spearman');res[1].gold-=55;res[1].wood-=25}
+let arc=blds.find(b=>b.team===1&&b.type==='archery'&&b.done&&b.queue.length<2);
+if(arc&&res[1].gold>=40&&res[1].wood>=40&&aSup+1<=aMaxSup){
+arc.queue.push(Math.random()>0.5?'archer':'crossbowman');res[1].gold-=50;res[1].wood-=45}
+let stb=blds.find(b=>b.team===1&&b.type==='stables'&&b.done&&b.queue.length<2);
+if(stb&&res[1].gold>=100&&res[1].wood>=40&&aSup+2<=aMaxSup){
+stb.queue.push('cavalry');res[1].gold-=100;res[1].wood-=40}
+// Attack waves
+let fat=[300,180,120][difficulty];
+let asz=[3,5,8][difficulty];
+if(ai.atm>fat&&army.length>=asz){
+let pth=blds.find(b=>b.team===0&&b.type==='townhall');
+let tgt=pth||ents.find(e=>e.team===0);
+if(tgt){for(let u of army){if(u.st==='idle'){u.tgt=tgt;u.st='attack';u.path=aStar(u.x/TS|0,u.y/TS|0,tgt.x/TS|0,tgt.y/TS|0)}}}
+ai.atm=fat*0.4;
+}
+// Army auto-attack visible enemies
+for(let u of army){if(u.st==='idle'){let cl=null,cd=1e9;
+for(let e of ents){if(e.team===0){let d=dist(u,e)/TS;if(d<10&&d<cd){cd=d;cl=e}}}
+if(cl){u.tgt=cl;u.st='attack'}}}
+// Hard mode resource bonus
+if(difficulty===2){res[1].gold+=dt*0.5;res[1].wood+=dt*0.3}
+}
+
+function rightClick(wx,wy){
+let tx=wx/TS|0,ty=wy/TS|0;
+let su=sel.filter(s=>s.kind==='unit'&&s.team===0);
+if(su.length===0)return;
+let enemy=null;
+for(let e of ents){if(e.team===1&&Math.abs(e.x-wx)<15&&Math.abs(e.y-wy)<15){enemy=e;break}}
+if(!enemy)for(let b of blds){if(b.team===1&&wx>=b.tx*TS&&wx<(b.tx+b.bw)*TS&&wy>=b.ty*TS&&wy<(b.ty+b.bh)*TS){enemy=b;break}}
+let tile=(ty>=0&&ty<MH&&tx>=0&&tx<MW)?mapT[ty][tx]:-1;
+for(let u of su){
+if(enemy){u.tgt=enemy;u.st='attack';u.path=aStar(u.x/TS|0,u.y/TS|0,tx,ty)}
+else if(u.type==='worker'&&tile===GOLDMINE){u.htgt={x:tx,y:ty};u.htype='gold';u.st='harvest';u.carried=0;u.path=aStar(u.x/TS|0,u.y/TS|0,tx,ty)}
+else if(u.type==='worker'&&tile===FOREST){u.htgt={x:tx,y:ty};u.htype='wood';u.st='harvest';u.carried=0;u.path=aStar(u.x/TS|0,u.y/TS|0,tx,ty)}
+else{u.st='move';u.path=aStar(u.x/TS|0,u.y/TS|0,tx,ty);u.tgt=null}
+}
+}
+
+function scrW(){return canvas.width}
+function scrH(){return canvas.height-150}
+
+function render(){
+let sw=scrW(),sh=scrH();
+ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+let sx=Math.max(0,camX/TS|0),sy=Math.max(0,camY/TS|0);
+let ex=Math.min(MW,((camX+sw)/TS|0)+2),ey=Math.min(MH,((camY+sh)/TS|0)+2);
+// Terrain
+for(let y=sy;y<ey;y++)for(let x=sx;x<ex;x++){
+let fog=fogMap[y][x];if(fog===0)continue;
+let px=x*TS-camX,py=y*TS-camY;
+ctx.fillStyle=TCOLS[mapT[y][x]];ctx.fillRect(px,py,TS,TS);
+if(mapT[y][x]===GOLDMINE){ctx.fillStyle='#fc0';ctx.fillRect(px+8,py+8,16,16)}
+if(mapT[y][x]===FOREST){ctx.fillStyle='#1a4a1a';ctx.beginPath();ctx.arc(px+16,py+12,10,0,Math.PI*2);ctx.fill()}
+if(fog===1){ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(px,py,TS,TS)}
+}
+// Fog black
+for(let y=sy;y<ey;y++)for(let x=sx;x<ex;x++){
+if(fogMap[y][x]===0){ctx.fillStyle='#000';ctx.fillRect(x*TS-camX,y*TS-camY,TS,TS)}}
+// Buildings
+for(let b of blds){
+let f=fogMap[b.ty]?fogMap[b.ty][b.tx]:0;
+if(b.team===1&&f!==2)continue;
+let px=b.tx*TS-camX,py=b.ty*TS-camY,pw=b.bw*TS,ph=b.bh*TS;
+ctx.fillStyle=b.team===0?b.col:'#c55';
+if(!b.done)ctx.globalAlpha=0.35+b.prog*0.65;
+ctx.fillRect(px+2,py+2,pw-4,ph-4);
+ctx.globalAlpha=1;
+if(sel.includes(b)){ctx.strokeStyle='#0f0';ctx.lineWidth=2;ctx.strokeRect(px,py,pw,ph)}
+if(b.hp<b.mhp){ctx.fillStyle='#400';ctx.fillRect(px+2,py-7,pw-4,5);
+ctx.fillStyle='#0c0';ctx.fillRect(px+2,py-7,(pw-4)*(b.hp/b.mhp),5)}
+ctx.fillStyle='#fff';ctx.font='bold 9px monospace';
+let lbl=b.type==='townhall'?'TH':b.type==='barracks'?'BRK':b.type==='archery'?'ARC':b.type==='stables'?'STB':b.type==='siege'?'SIG':b.type==='tower'?'TWR':b.type==='wall'?'W':b.type==='farm'?'FRM':b.type.substr(0,3);
+ctx.fillText(lbl,px+pw/2-8,py+ph/2+3);
+}
+// Entities
+for(let e of ents){
+let etx=e.x/TS|0,ety=e.y/TS|0;
+if(e.team===1){let f=fogMap[ety]?fogMap[ety][etx]:0;if(f!==2)continue}
+let px=e.x-camX,py=e.y-camY;
+ctx.fillStyle=e.col;
+ctx.beginPath();ctx.arc(px,py,e.sz,0,Math.PI*2);ctx.fill();
+if(sel.includes(e)){ctx.strokeStyle='#0f0';ctx.lineWidth=2;ctx.stroke()}
+if(e.hp<e.mhp){ctx.fillStyle='#400';ctx.fillRect(px-10,py-e.sz-7,20,4);
+ctx.fillStyle='#0c0';ctx.fillRect(px-10,py-e.sz-7,20*(e.hp/e.mhp),4)}
+ctx.fillStyle='#fff';ctx.font='bold 9px monospace';
+let c=e.type[0].toUpperCase();if(e.type==='crossbowman')c='X';if(e.type==='catapult')c='C';
+ctx.fillText(c,px-3,py+3);
+}
+// Projectiles
+for(let p of projs){let t=Math.min(1,p.t/p.dur);let px=p.x+(p.tx-p.x)*t-camX,py=p.y+(p.ty-p.y)*t-camY;
+ctx.fillStyle='#ff0';ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill()}
+// Selection box
+if(selBox){ctx.strokeStyle='#0f0';ctx.lineWidth=1;
+ctx.strokeRect(selBox.x-camX,selBox.y-camY,selBox.w,selBox.h)}
+// Placement preview
+if(placeBld){
+let bs=BDATA[placeBld];
+let tx=(mouseX+camX)/TS|0,ty=(mouseY+camY)/TS|0;
+let px=tx*TS-camX,py=ty*TS-camY;
+let ok=true;
+for(let dy=0;dy<bs.bh;dy++)for(let dx=0;dx<bs.bw;dx++)if(!tPass(tx+dx,ty+dy))ok=false;
+ctx.globalAlpha=0.45;ctx.fillStyle=ok?'#0f0':'#f00';
+ctx.fillRect(px,py,bs.bw*TS,bs.bh*TS);ctx.globalAlpha=1;
+}
+}
+
+function renderMM(){
+mctx.fillStyle='#000';mctx.fillRect(0,0,160,160);
+let s=160/MW;
+for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
+if(fogMap[y][x]===0)continue;
+mctx.fillStyle=fogMap[y][x]===1?'#222':TCOLS[mapT[y][x]];
+mctx.fillRect(x*s|0,y*s|0,(s+1)|0,(s+1)|0);
+}
+for(let b of blds){
+if(b.team===1){let f=fogMap[b.ty]?fogMap[b.ty][b.tx]:0;if(f!==2)continue}
+mctx.fillStyle=b.team===0?'#0f0':'#f00';
+mctx.fillRect(b.tx*s|0,b.ty*s|0,(b.bw*s)|0,(b.bh*s)|0)}
+for(let e of ents){
+if(e.team===1){let ey=e.y/TS|0,ex=e.x/TS|0;let f=fogMap[ey]?fogMap[ey][ex]:0;if(f!==2)continue}
+mctx.fillStyle=e.team===0?'#0f0':'#f00';
+mctx.fillRect((e.x/TS*s-1)|0,(e.y/TS*s-1)|0,3,3)}
+mctx.strokeStyle='#fff';mctx.lineWidth=1;
+mctx.strokeRect((camX/TS*s)|0,(camY/TS*s)|0,(scrW()/TS*s)|0,(scrH()/TS*s)|0);
+}
+
+function renderUI(){
+let rb=document.getElementById('resBar');
+let min=gTime/60|0,sec=gTime%60|0;
+rb.textContent='\u26CF Gold: '+(res[0].gold|0)+'  \u25A0 Wood: '+(res[0].wood|0)+'  Pop: '+pSup+'/'+pMaxSup+'  Time: '+min+':'+(sec<10?'0':'')+sec;
+let si=document.getElementById('selInfo');
+let ap=document.getElementById('actPanel');
+let qp=document.getElementById('queuePanel');
+si.innerHTML='';ap.innerHTML='';qp.innerHTML='';
+if(sel.length===0){si.innerHTML='<i>Nothing selected</i>';return}
+let s=sel[0];
+if(s.kind==='bld'){
+si.innerHTML='<b style="color:'+s.col+'">'+s.type.toUpperCase()+'</b><br>HP: '+s.hp+'/'+s.mhp+
+(s.done?'':'<br>Building... '+(s.prog*100|0)+'%');
+if(s.done&&s.team===0){
+let bd=BDATA[s.type];
+for(let ut of bd.tr){
+let us=UDATA[ut];
+ap.innerHTML+='<button class="actBtn" onclick="window._qU(\''+ut+'\')">'+ut.substr(0,7)+'<br><span style="color:#fc0">G'+us.g+'</span> <span style="color:#8f4">W'+us.w+'</span></button>';
+}}
+if(s.queue.length>0){
+let pct=s.trnTm/(UDATA[s.queue[0]].time*(s.team===1?[2,1,0.8][difficulty]:1))*100|0;
+qp.innerHTML='<b>Queue:</b><br>'+s.queue.map((q,i)=>(i===0?'\u25B6 '+pct+'% ':'  ')+q).join('<br>')}
+}else{
+let types={};for(let u of sel)if(u.kind==='unit')types[u.type]=(types[u.type]||0)+1;
+let desc=Object.entries(types).map(([k,v])=>v+'x '+k).join(', ');
+si.innerHTML='<b style="color:'+s.col+'">'+desc+'</b><br>HP: '+s.hp+'/'+s.mhp+'<br>State: '+s.st;
+if(sel.some(u=>u.type==='worker')&&s.team===0){
+let btns=[['townhall','TownHall'],['barracks','Barracks'],['archery','Archery'],['stables','Stables'],
+['siege','SiegeWk'],['tower','Tower'],['wall','Wall'],['farm','Farm']];
+for(let [k,l] of btns){let bd=BDATA[k];
+ap.innerHTML+='<button class="actBtn" onclick="window._plB(\''+k+'\')">'+l+'<br><span style="color:#fc0">G'+bd.g+'</span> <span style="color:#8f4">W'+bd.w+'</span></button>'}
+}}
+let ml=document.getElementById('msgLog');
+ml.innerHTML=msgs.map(m=>'<div>'+m.text+'</div>').join('');
+}
+
+window._qU=function(type){
+let b=sel.find(s=>s.kind==='bld'&&s.team===0&&s.done);
+if(!b)return;let us=UDATA[type];
+if(res[0].gold<us.g||res[0].wood<us.w){addMsg('Not enough resources!');return}
+if(pSup+us.sup>pMaxSup){addMsg('Need more supply! Build farms.');return}
+if(b.queue.length>=5){addMsg('Queue full!');return}
+res[0].gold-=us.g;res[0].wood-=us.w;b.queue.push(type);
+};
+window._plB=function(type){placeBld=type};
+
+function update(dt){
+if(dt>0.1)dt=0.1;
+gTime+=dt;
+for(let i=ents.length-1;i>=0;i--){
+updUnit(ents[i],dt);
+if(ents[i].hp<=0){sel=sel.filter(s=>s!==ents[i]);ents.splice(i,1)}}
+for(let i=blds.length-1;i>=0;i--){
+updBld(blds[i],dt);
+if(blds[i].hp<=0){
+let b=blds[i];
+if(b.type==='townhall'){
+if(b.team===0){gameState='defeat';addMsg('TOWN HALL DESTROYED - DEFEAT!')}
+else{gameState='victory';addMsg('ENEMY DESTROYED - VICTORY!')}}
+sel=sel.filter(s=>s!==b);blds.splice(i,1)}}
+for(let i=projs.length-1;i>=0;i--){projs[i].t+=dt;if(projs[i].t>=projs[i].dur)projs.splice(i,1)}
+for(let i=msgs.length-1;i>=0;i--){msgs[i].tm-=dt;if(msgs[i].tm<=0)msgs.splice(i,1)}
+calcSup();updFog();updAI(dt);
+// Camera
+let cs=400*dt;
+if(keys['ArrowLeft'])camX-=cs;if(keys['ArrowRight'])camX+=cs;
+if(keys['ArrowUp'])camY-=cs;if(keys['ArrowDown'])camY+=cs;
+camX=Math.max(0,Math.min(MW*TS-scrW(),camX));
+camY=Math.max(0,Math.min(MH*TS-scrH(),camY));
+}
+
+function loop(ts){
+if(gameState==='menu')return;
+let dt=(ts-lastT)/1000;lastT=ts;
+if(gameState==='playing')update(dt);
+render();renderMM();renderUI();
+if(gameState==='victory'||gameState==='defeat'){
+ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,canvas.width,canvas.height);
+ctx.fillStyle=gameState==='victory'?'#0f0':'#f00';ctx.font='bold 48px monospace';
+ctx.textAlign='center';
+ctx.fillText(gameState==='victory'?'VICTORY!':'DEFEAT!',canvas.width/2,canvas.height/2-20);
+ctx.fillStyle='#ccc';ctx.font='18px monospace';
+ctx.fillText('Refresh page to play again',canvas.width/2,canvas.height/2+30);
+ctx.textAlign='left';
+}
+requestAnimationFrame(loop);
+}
+
+window.startGame=function(diff){
+difficulty=diff;initAudio();
+canvas=document.getElementById('gameCanvas');ctx=canvas.getContext('2d');
+mcanvas=document.getElementById('minimap');mctx=mcanvas.getContext('2d');
+canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+document.getElementById('startScreen').style.display='none';
+document.getElementById('ui').style.display='block';
+genMap();spawnStart();updFog();
+camX=2*TS;camY=(MH-12)*TS;
+gameState='playing';lastT=performance.now();
+requestAnimationFrame(loop);
+};
+
+document.addEventListener('keydown',e=>{
+keys[e.key]=true;
+if(e.key==='h'||e.key==='H'){let th=blds.find(b=>b.team===0&&b.type==='townhall');
+if(th){sel=[th];camX=th.x-scrW()/2;camY=th.y-scrH()/2}}
+if(e.key>='1'&&e.key<='5'&&e.ctrlKey){e.preventDefault();cgroups[e.key]=sel.slice()}
+else if(e.key>='1'&&e.key<='5'){if(cgroups[e.key])sel=cgroups[e.key].filter(s=>s.hp>0)}
+if(e.key==='Escape'){placeBld=null;sel=[]}
+if(e.key==='q'||e.key==='Q'){
+let su=sel.filter(s=>s.kind==='unit'&&s.team===0&&s.type!=='worker');
+for(let u of su){let cl=null,cd=1e9;
+for(let en of ents){if(en.team===1){let d=dist(u,en);if(d<cd){cd=d;cl=en}}}
+if(cl){u.tgt=cl;u.st='attack'}}}
+});
+document.addEventListener('keyup',e=>{keys[e.key]=false});
+
+document.addEventListener('mousedown',e=>{
+if(gameState!=='playing')return;
+let rect=canvas.getBoundingClientRect();
+let mx=e.clientX-rect.left,my=e.clientY-rect.top;
+mDown=true;
+// Minimap click
+let mm=document.getElementById('minimap'),mr=mm.getBoundingClientRect();
+if(e.clientX>=mr.left&&e.clientX<=mr.right&&e.clientY>=mr.top&&e.clientY<=mr.bottom){
+let mmx=(e.clientX-mr.left)/160*MW*TS,mmy=(e.clientY-mr.top)/160*MH*TS;
+camX=mmx-scrW()/2;camY=mmy-scrH()/2;return}
+if(my>scrH())return;
+let wx=mx+camX,wy=my+camY;
+if(e.button===2){e.preventDefault();if(placeBld){placeBld=null;return}rightClick(wx,wy);return}
+if(e.button===0){
+if(placeBld){
+let bs=BDATA[placeBld],tx=wx/TS|0,ty=wy/TS|0;
+let ok=true;
+for(let dy=0;dy<bs.bh;dy++)for(let dx=0;dx<bs.bw;dx++)if(!tPass(tx+dx,ty+dy))ok=false;
+if(res[0].gold<bs.g||res[0].wood<bs.w){addMsg('Not enough resources!');ok=false}
+if(ok){
+res[0].gold-=bs.g;res[0].wood-=bs.w;
+let nb=mkBld(placeBld,tx,ty,0,false);blds.push(nb);
+let wks=sel.filter(s=>s.type==='worker'&&s.team===0);
+for(let u of wks){u.btgt=nb;u.st='build'}
+if(wks.length===0)addMsg('Select workers to build!');
+}
+placeBld=null;return}
+dragSt={x:wx,y:wy};
+}
+});
+
+document.addEventListener('mousemove',e=>{
+let rect=canvas?canvas.getBoundingClientRect():{left:0,top:0};
+mouseX=e.clientX-rect.left;mouseY=e.clientY-rect.top;
+if(mDown&&dragSt){
+let wx=mouseX+camX,wy=mouseY+camY;
+selBox={x:Math.min(dragSt.x,wx),y:Math.min(dragSt.y,wy),
+w:Math.abs(wx-dragSt.x),h:Math.abs(wy-dragSt.y)}}
+// Edge scroll
+if(gameState==='playing'&&canvas){
+let edge=25;
+if(mouseX<edge&&mouseX>=0)camX-=10;if(mouseX>canvas.width-edge)camX+=10;
+if(mouseY<edge&&mouseY>=0)camY-=10;if(mouseY>scrH()-edge&&mouseY<scrH())camY+=10;
+}
+});
+
+document.addEventListener('mouseup',e=>{
+if(!mDown){dragSt=null;return}
+mDown=false;
+if(selBox&&(selBox.w>8||selBox.h>8)){
+if(!e.shiftKey)sel=[];
+for(let en of ents){if(en.team===0&&en.x>=selBox.x&&en.x<=selBox.x+selBox.w&&en.y>=selBox.y&&en.y<=selBox.y+selBox.h)
+if(!sel.includes(en))sel.push(en)}
+selBox=null;dragSt=null;return}
+selBox=null;
+if(e.button!==0){dragSt=null;return}
+let wx=mouseX+camX,wy=mouseY+camY;
+if(!e.shiftKey)sel=[];
+for(let en of ents){if(en.team===0&&Math.abs(en.x-wx)<15&&Math.abs(en.y-wy)<15){if(!sel.includes(en))sel.push(en);dragSt=null;return}}
+for(let b of blds){if(b.team===0&&wx>=b.tx*TS&&wx<(b.tx+b.bw)*TS&&wy>=b.ty*TS&&wy<(b.ty+b.bh)*TS){if(!sel.includes(b))sel.push(b);dragSt=null;return}}
+dragSt=null;
+});
+
+document.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('resize',()=>{if(canvas){canvas.width=window.innerWidth;canvas.height=window.innerHeight}});
+})();
+</script>
+</body>
+</html>
