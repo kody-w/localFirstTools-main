@@ -111,18 +111,185 @@ def check_js_syntax(content: str) -> dict:
 
 
 def _strip_strings_and_comments(js: str) -> str:
-    """Remove string literals and comments from JS to avoid false bracket matches."""
-    # Remove single-line comments
-    result = re.sub(r"//[^\n]*", "", js)
-    # Remove multi-line comments
-    result = re.sub(r"/\*.*?\*/", "", result, flags=re.DOTALL)
-    # Remove template literals (backtick strings)
-    result = re.sub(r"`[^`]*`", '""', result)
-    # Remove double-quoted strings
-    result = re.sub(r'"(?:[^"\\]|\\.)*"', '""', result)
-    # Remove single-quoted strings
-    result = re.sub(r"'(?:[^'\\]|\\.)*'", "''", result)
-    return result
+    """Remove string literals and comments from JS to avoid false bracket matches.
+
+    Single-pass character scanner that correctly handles nested template
+    literals (e.g. ``${arr.map(x => `inner ${x}`)}``) which a simple
+    regex cannot match.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(js)
+
+    while i < n:
+        c = js[i]
+
+        # Single-line comment
+        if c == "/" and i + 1 < n and js[i + 1] == "/":
+            while i < n and js[i] != "\n":
+                i += 1
+            continue
+
+        # Multi-line comment
+        if c == "/" and i + 1 < n and js[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (js[i] == "*" and js[i + 1] == "/"):
+                i += 1
+            i += 2  # skip */
+            continue
+
+        # Regex literal — skip body so backticks/brackets inside don't confuse us
+        if c == "/" and i + 1 < n and js[i + 1] not in ("/", "*"):
+            # A '/' is a regex start when preceded by a token that can't end
+            # an expression (i.e. not an identifier char or closing delimiter).
+            prev = ""
+            prev_word = ""
+            for k in range(len(out) - 1, -1, -1):
+                if out[k] not in (" ", "\t", "\n", "\r"):
+                    prev = out[k]
+                    # Grab preceding word to detect keywords like 'return'
+                    if prev.isalpha() or prev == "_":
+                        wend = k + 1
+                        wstart = k
+                        while wstart > 0 and (out[wstart - 1].isalpha() or out[wstart - 1] == "_"):
+                            wstart -= 1
+                        prev_word = "".join(out[wstart:wend])
+                    break
+            _REGEX_KEYWORDS = {"return", "typeof", "instanceof", "in",
+                               "void", "delete", "throw", "new", "case",
+                               "yield", "await", "of"}
+            is_regex = (
+                prev in ("", "=", "(", ",", ";", "[", "!", "&", "|", "?",
+                          "+", "-", "~", "^", "%", "<", ">", "*", "{", ":",
+                          "\n", "}", "\\")
+                or prev_word in _REGEX_KEYWORDS
+            )
+            if is_regex:
+                i += 1  # skip opening /
+                while i < n:
+                    if js[i] == "\\":
+                        i += 2
+                        continue
+                    if js[i] == "/":
+                        i += 1
+                        # skip flags (g, i, m, s, u, y, v, d)
+                        while i < n and js[i].isalpha():
+                            i += 1
+                        break
+                    if js[i] == "\n":
+                        break  # regex can't span lines; bail
+                    i += 1
+                continue
+
+        # Single or double-quoted string
+        if c in ("'", '"'):
+            i += 1
+            while i < n:
+                if js[i] == "\\":
+                    i += 2
+                    continue
+                if js[i] == c:
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        # Template literal (handles nested ${} with inner backtick strings)
+        if c == "`":
+            i += 1
+            _skip_template_body(js, n, i_ref := [i])
+            i = i_ref[0]
+            continue
+
+        out.append(c)
+        i += 1
+
+    return "".join(out)
+
+
+def _skip_template_body(js: str, n: int, i_ref: list[int]) -> None:
+    """Advance *i_ref[0]* past the body of a template literal (after opening `)."""
+    i = i_ref[0]
+    while i < n:
+        c = js[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "`":
+            i += 1
+            break
+        if c == "$" and i + 1 < n and js[i + 1] == "{":
+            i += 2  # skip ${
+            depth = 1
+            prev_sig = "{"  # previous significant char (for regex detection)
+            while i < n and depth > 0:
+                ic = js[i]
+                if ic == "{":
+                    depth += 1
+                    prev_sig = ic
+                    i += 1
+                elif ic == "}":
+                    depth -= 1
+                    if depth > 0:
+                        prev_sig = ic
+                    i += 1
+                elif ic in ("'", '"'):
+                    q = ic
+                    i += 1
+                    while i < n:
+                        if js[i] == "\\":
+                            i += 2
+                            continue
+                        if js[i] == q:
+                            i += 1
+                            break
+                        i += 1
+                    prev_sig = q
+                elif ic == "`":
+                    i += 1
+                    _nested = [i]
+                    _skip_template_body(js, n, _nested)
+                    i = _nested[0]
+                    prev_sig = "`"
+                elif ic == "/" and i + 1 < n and js[i + 1] == "/":
+                    while i < n and js[i] != "\n":
+                        i += 1
+                elif ic == "/" and i + 1 < n and js[i + 1] == "*":
+                    i += 2
+                    while i + 1 < n and not (js[i] == "*" and js[i + 1] == "/"):
+                        i += 1
+                    i += 2
+                elif ic == "/" and i + 1 < n and js[i + 1] not in ("/", "*"):
+                    # Regex literal detection inside ${} expressions
+                    _RE_PREV = ("", "=", "(", ",", ";", "[", "!", "&",
+                                "|", "?", "+", "-", "~", "^", "%", "<",
+                                ">", "*", "{", ":", "\n", "}", "\\")
+                    if prev_sig in _RE_PREV:
+                        i += 1  # skip opening /
+                        while i < n:
+                            if js[i] == "\\":
+                                i += 2
+                                continue
+                            if js[i] == "/":
+                                i += 1
+                                while i < n and js[i].isalpha():
+                                    i += 1
+                                break
+                            if js[i] == "\n":
+                                break
+                            i += 1
+                        prev_sig = "/"
+                    else:
+                        prev_sig = ic
+                        i += 1
+                elif ic in (" ", "\t", "\n", "\r"):
+                    i += 1
+                else:
+                    prev_sig = ic
+                    i += 1
+            continue
+        i += 1
+    i_ref[0] = i
 
 
 # ---------------------------------------------------------------------------

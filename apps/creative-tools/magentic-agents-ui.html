@@ -4,8 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magentic Copilot</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* Inline icon system replacing Font Awesome CDN */
+        .fas, .far, .fa { display: inline-block; font-style: normal; font-weight: normal; text-rendering: auto; -webkit-font-smoothing: antialiased; }
+        .fas::before, .far::before { font-family: sans-serif; }
+        .fa-moon::before { content: "\1F319"; }
+        .fa-sun::before { content: "\2600\FE0F"; }
+        .fa-sync-alt::before { content: "\27F3"; }
+        .fa-envelope::before { content: "\2709"; }
+        .fa-star::before { content: "\2605"; }
+        .fa-star-half-alt::before { content: "\2BEA"; }
+        .far .fa-star::before, .far.fa-star::before { content: "\2606"; }
+        .fa-user-check::before { content: "\1F464"; }
+        .fa-headset::before { content: "\1F3A7"; }
+        .fa-calendar-alt::before { content: "\1F4C5"; }
+        .fa-clipboard-list::before { content: "\1F4CB"; }
+        .fa-receipt::before { content: "\1F9FE"; }
+        .fa-edit::before { content: "\270F\FE0F"; }
+        .fa-plus::before { content: "+"; }
+        .fa-times::before { content: "\00D7"; }
+        .fa-arrow-right::before { content: "\2192"; }
+        .fa-comment::before { content: "\1F4AC"; }
+        .fa-robot::before { content: "\1F916"; }
+        .fa-paper-plane::before { content: "\2708"; }
+        .fa-database::before { content: "\1F5C4"; }
+        .fa-brain::before { content: "\1F9E0"; }
+        .fa-cog::before { content: "\2699"; }
         :root {
             --primary-color: #2563eb;
             --primary-light: #3b82f6;
@@ -37,11 +61,7 @@
             --footer-height: 60px;
         }
 
-        @font-face {
-            font-family: "Inter";
-            src: local("Inter"), url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            font-weight: normal;
-        }
+        /* Use Inter if available locally, otherwise fall back to system fonts */
 
         * {
             box-sizing: border-box;
@@ -1697,4 +1717,357 @@
             appState.commandQueue.forEach((command, index) => {
                 const queueItem = document.createElement('div');
                 queueItem.className = 'queue-item';
-                queueItem.setAttribute('data-index', index);
+
+                const skill = appState.expectedSkills[index] || '';
+
+                queueItem.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <span><strong>#${index + 1}</strong> ${skill ? '<span class="badge">' + skill + '</span>' : ''}</span>
+                        <button class="button icon-only queue-remove-btn" title="Remove"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div style="font-size:13px;color:#555;">${command}</div>
+                `;
+
+                queueItem.querySelector('.queue-remove-btn').addEventListener('click', () => {
+                    appState.commandQueue.splice(index, 1);
+                    delete appState.expectedSkills[index];
+                    renderCommandQueue();
+                    showToast('Command removed from queue');
+                });
+
+                queueList.appendChild(queueItem);
+            });
+
+            queueStatus.textContent = appState.commandQueue.length + ' command(s) in queue';
+        }
+
+        function getIconForAgentType(type) {
+            const icons = { dynamics: 'fa-database', email: 'fa-envelope', memory: 'fa-brain', custom: 'fa-cog' };
+            return icons[type] || 'fa-cog';
+        }
+
+        function openEditAgentModal(agentId) {
+            const workflow = initialData.workflows[appState.currentWorkflowId];
+            const agent = workflow.agents.find(a => a.id === agentId);
+            if (!agent) return;
+            appState.editingAgentId = agentId;
+            document.getElementById('agent-name').value = agent.name;
+            document.getElementById('agent-description').value = agent.description;
+            document.getElementById('agent-command').value = agent.command;
+            editAgentModal.classList.add('active');
+        }
+
+        function addAgentToQueue(agentId) {
+            const workflow = initialData.workflows[appState.currentWorkflowId];
+            const agent = workflow.agents.find(a => a.id === agentId);
+            if (!agent) return;
+            const index = appState.commandQueue.length;
+            appState.commandQueue.push(agent.command);
+            appState.expectedSkills[index] = agent.type;
+            renderCommandQueue();
+            showToast('Added "' + agent.name + '" to queue');
+        }
+
+        function selectWorkflow(workflowId) {
+            if (!initialData.workflows[workflowId]) return;
+            appState.currentWorkflowId = workflowId;
+            const workflow = initialData.workflows[workflowId];
+            document.getElementById('current-workflow-name').textContent = workflow.name;
+            document.getElementById('current-workflow-description').textContent = workflow.description;
+            document.querySelectorAll('.app-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.workflowId === workflowId);
+            });
+            renderAgentList();
+            renderConnectionList();
+            updateFooterStatus('Loaded: ' + workflow.name);
+        }
+
+        function openModal(modal) { modal.classList.add('active'); }
+        function closeModal(modal) { modal.classList.remove('active'); }
+
+        function openChat(context) {
+            appState.chatContext = context || 'general';
+            chatContainer.classList.add('active');
+            chatTitleText.textContent = context === 'queue' ? 'Queue Assistant' : 'Workflow Assistant';
+            if (appState.chatHistory.length === 0) {
+                addChatMessage('assistant', 'Hello! I can help you with your workflow. How can I assist you?');
+            }
+        }
+
+        function addChatMessage(role, content) {
+            const msg = document.createElement('div');
+            msg.className = 'chat-message ' + role;
+            msg.textContent = content;
+            chatMessages.appendChild(msg);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            appState.chatHistory.push({ role: role, content: content });
+        }
+
+        function sendChatMessage() {
+            const text = chatInput.value.trim();
+            if (!text) return;
+            addChatMessage('user', text);
+            chatInput.value = '';
+            setTimeout(() => {
+                const responses = [
+                    'I understand your request. Let me help with that workflow configuration.',
+                    'Great idea! You can configure this by editing the agent command.',
+                    'Try adding a connection between those agents to link them.',
+                    'Consider adding a new agent step to your workflow.',
+                    'You can modify the workflow settings using the edit button.'
+                ];
+                addChatMessage('assistant', responses[Math.floor(Math.random() * responses.length)]);
+            }, 500);
+        }
+
+        function saveState() {
+            const state = {
+                workflows: initialData.workflows,
+                currentWorkflowId: appState.currentWorkflowId,
+                commandQueue: appState.commandQueue,
+                expectedSkills: appState.expectedSkills,
+                darkMode: appState.darkMode
+            };
+            localStorage.setItem('magentic-copilot-state', JSON.stringify(state));
+        }
+
+        function loadState() {
+            try {
+                const saved = localStorage.getItem('magentic-copilot-state');
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    if (state.workflows) Object.assign(initialData.workflows, state.workflows);
+                    if (state.currentWorkflowId) appState.currentWorkflowId = state.currentWorkflowId;
+                    if (state.commandQueue) appState.commandQueue = state.commandQueue;
+                    if (state.expectedSkills) appState.expectedSkills = state.expectedSkills;
+                    if (state.darkMode) {
+                        appState.darkMode = true;
+                        document.body.classList.add('dark-mode');
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to load saved state:', e);
+            }
+        }
+
+        function exportFullJson() {
+            const data = { version: initialData.version, exportDate: new Date().toISOString(), workflows: initialData.workflows };
+            document.getElementById('json-modal-title').textContent = 'Export JSON';
+            document.getElementById('json-content').value = JSON.stringify(data, null, 2);
+            document.getElementById('json-content').readOnly = true;
+            document.getElementById('confirm-json-modal').style.display = 'none';
+            openModal(jsonModal);
+        }
+
+        function importFullJson() {
+            document.getElementById('json-modal-title').textContent = 'Import JSON';
+            document.getElementById('json-content').value = '';
+            document.getElementById('json-content').readOnly = false;
+            document.getElementById('confirm-json-modal').style.display = '';
+            openModal(jsonModal);
+        }
+
+        // --- Event Listeners ---
+
+        document.querySelectorAll('.app-item[data-workflow-id]').forEach(item => {
+            item.addEventListener('click', () => selectWorkflow(item.dataset.workflowId));
+        });
+
+        themeToggle.addEventListener('click', () => {
+            appState.darkMode = !appState.darkMode;
+            document.body.classList.toggle('dark-mode');
+            themeToggle.querySelector('i').className = appState.darkMode ? 'fas fa-sun' : 'fas fa-moon';
+            saveState();
+        });
+
+        document.getElementById('create-workflow-btn').addEventListener('click', () => {
+            const id = 'workflow-' + Date.now();
+            initialData.workflows[id] = { id: id, name: 'New Workflow', description: 'A new workflow', created: new Date().toISOString(), lastRun: null, agents: [], connections: [] };
+            selectWorkflow(id);
+            showToast('New workflow created');
+            saveState();
+        });
+
+        document.getElementById('edit-workflow-btn').addEventListener('click', () => {
+            const wf = initialData.workflows[appState.currentWorkflowId];
+            document.getElementById('workflow-name').value = wf.name;
+            document.getElementById('workflow-description').value = wf.description;
+            openModal(editWorkflowModal);
+        });
+
+        document.getElementById('save-edit-workflow').addEventListener('click', () => {
+            const wf = initialData.workflows[appState.currentWorkflowId];
+            wf.name = document.getElementById('workflow-name').value;
+            wf.description = document.getElementById('workflow-description').value;
+            document.getElementById('current-workflow-name').textContent = wf.name;
+            document.getElementById('current-workflow-description').textContent = wf.description;
+            closeModal(editWorkflowModal);
+            showToast('Workflow updated');
+            saveState();
+        });
+
+        document.getElementById('close-edit-workflow').addEventListener('click', () => closeModal(editWorkflowModal));
+        document.getElementById('cancel-edit-workflow').addEventListener('click', () => closeModal(editWorkflowModal));
+
+        document.getElementById('save-edit-agent').addEventListener('click', () => {
+            const wf = initialData.workflows[appState.currentWorkflowId];
+            const agent = wf.agents.find(a => a.id === appState.editingAgentId);
+            if (agent) {
+                agent.name = document.getElementById('agent-name').value;
+                agent.description = document.getElementById('agent-description').value;
+                agent.command = document.getElementById('agent-command').value;
+                renderAgentList();
+                showToast('Agent updated');
+                saveState();
+            }
+            closeModal(editAgentModal);
+        });
+
+        document.getElementById('close-edit-agent').addEventListener('click', () => closeModal(editAgentModal));
+        document.getElementById('cancel-edit-agent').addEventListener('click', () => closeModal(editAgentModal));
+
+        document.getElementById('export-workflow-btn').addEventListener('click', () => {
+            const wf = initialData.workflows[appState.currentWorkflowId];
+            document.getElementById('json-modal-title').textContent = 'Export Workflow';
+            document.getElementById('json-content').value = JSON.stringify(wf, null, 2);
+            document.getElementById('json-content').readOnly = true;
+            document.getElementById('confirm-json-modal').style.display = 'none';
+            openModal(jsonModal);
+        });
+
+        document.getElementById('import-workflow-btn').addEventListener('click', () => {
+            document.getElementById('json-modal-title').textContent = 'Import Workflow';
+            document.getElementById('json-content').value = '';
+            document.getElementById('json-content').readOnly = false;
+            document.getElementById('confirm-json-modal').style.display = '';
+            appState._importMode = 'workflow';
+            openModal(jsonModal);
+        });
+
+        document.getElementById('confirm-json-modal').addEventListener('click', () => {
+            try {
+                const data = JSON.parse(document.getElementById('json-content').value);
+                if (appState._importMode === 'workflow') {
+                    const id = data.id || 'workflow-' + Date.now();
+                    data.id = id;
+                    initialData.workflows[id] = data;
+                    selectWorkflow(id);
+                    showToast('Workflow imported');
+                } else if (data.workflows) {
+                    Object.assign(initialData.workflows, data.workflows);
+                    selectWorkflow(appState.currentWorkflowId);
+                    showToast('Data imported');
+                }
+                saveState();
+            } catch (e) {
+                showToast('Invalid JSON: ' + e.message);
+            }
+            closeModal(jsonModal);
+        });
+
+        document.getElementById('close-json-modal').addEventListener('click', () => closeModal(jsonModal));
+        document.getElementById('cancel-json-modal').addEventListener('click', () => closeModal(jsonModal));
+
+        document.getElementById('convert-to-queue-btn').addEventListener('click', () => {
+            const wf = initialData.workflows[appState.currentWorkflowId];
+            const result = workflowToCommandQueue(wf);
+            appState.commandQueue = result.queue;
+            appState.expectedSkills = result.expectedSkills;
+            renderCommandQueue();
+            showToast('Converted ' + result.queue.length + ' agent(s) to queue');
+        });
+
+        document.getElementById('convert-to-workflow-btn').addEventListener('click', () => {
+            if (appState.commandQueue.length === 0) { showToast('Queue is empty'); return; }
+            const template = initialData.workflows[appState.currentWorkflowId];
+            const wf = commandQueueToWorkflow(appState.commandQueue, appState.expectedSkills, template);
+            initialData.workflows[wf.id] = wf;
+            selectWorkflow(wf.id);
+            showToast('Queue converted to workflow');
+            saveState();
+        });
+
+        document.getElementById('run-workflow-btn').addEventListener('click', () => {
+            const wf = initialData.workflows[appState.currentWorkflowId];
+            if (!wf.agents || wf.agents.length === 0) { showToast('No agents to run'); return; }
+            appState.isProcessing = true;
+            updateFooterStatus('Running workflow...');
+            setTimeout(() => {
+                wf.lastRun = new Date().toISOString();
+                appState.isProcessing = false;
+                document.getElementById('workflow-response').classList.remove('hidden');
+                document.getElementById('response-content').innerHTML =
+                    '<p><strong>Workflow completed!</strong></p><p>Executed ' + wf.agents.length +
+                    ' agent(s) at ' + new Date().toLocaleTimeString() + '</p><ul>' +
+                    wf.agents.map(a => '<li>' + a.name + ': \u2713 Complete</li>').join('') + '</ul>';
+                updateFooterStatus('Workflow completed');
+                showToast('Workflow run completed');
+                saveState();
+            }, 1500);
+        });
+
+        document.getElementById('add-command-btn').addEventListener('click', () => {
+            const command = commandInput.value.trim();
+            if (!command) { showToast('Please enter a command'); return; }
+            const index = appState.commandQueue.length;
+            appState.commandQueue.push(command);
+            if (skillInput.value) appState.expectedSkills[index] = skillInput.value;
+            commandInput.value = '';
+            skillInput.value = '';
+            renderCommandQueue();
+            showToast('Command added to queue');
+        });
+
+        document.getElementById('clear-queue-btn').addEventListener('click', () => {
+            appState.commandQueue = [];
+            appState.expectedSkills = {};
+            renderCommandQueue();
+            showToast('Queue cleared');
+        });
+
+        document.getElementById('run-queue-btn').addEventListener('click', () => {
+            if (appState.commandQueue.length === 0) { showToast('Queue is empty'); return; }
+            appState.isProcessing = true;
+            updateFooterStatus('Running queue...');
+            setTimeout(() => {
+                appState.isProcessing = false;
+                document.getElementById('queue-response').classList.remove('hidden');
+                document.getElementById('queue-response-content').innerHTML =
+                    '<p><strong>Queue executed!</strong></p><p>Processed ' +
+                    appState.commandQueue.length + ' command(s) at ' + new Date().toLocaleTimeString() + '</p>';
+                updateFooterStatus('Queue completed');
+                showToast('Queue run completed');
+            }, 1000);
+        });
+
+        document.getElementById('open-chat-btn').addEventListener('click', () => openChat('workflow'));
+        document.getElementById('queue-open-chat-btn').addEventListener('click', () => openChat('queue'));
+        chatClose.addEventListener('click', () => { chatContainer.classList.remove('active'); });
+        chatSend.addEventListener('click', sendChatMessage);
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+        });
+
+        document.getElementById('close-chat-context-modal').addEventListener('click', () => closeModal(chatContextModal));
+        document.getElementById('cancel-chat-context').addEventListener('click', () => closeModal(chatContextModal));
+        document.getElementById('confirm-chat-context').addEventListener('click', () => { closeModal(chatContextModal); openChat('workflow'); });
+
+        saveApiKeyBtn.addEventListener('click', () => {
+            const key = apiKeyInput.value.trim();
+            if (key) { appState.apiKey = key; localStorage.setItem('apiKey', key); closeModal(authModal); showToast('API key saved'); }
+        });
+
+        document.getElementById('export-json-btn').addEventListener('click', exportFullJson);
+        document.getElementById('import-json-btn').addEventListener('click', () => { appState._importMode = 'full'; importFullJson(); });
+        document.getElementById('refresh-apps-btn').addEventListener('click', () => { selectWorkflow(appState.currentWorkflowId); showToast('Refreshed'); });
+
+        // Initialize
+        (function init() {
+            loadState();
+            selectWorkflow(appState.currentWorkflowId);
+            renderCommandQueue();
+            updateFooterStatus('Ready');
+        })();
+    </script>
+</body>
+</html>

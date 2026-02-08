@@ -1134,18 +1134,153 @@ localStorage.wowmon_autobattler = {
     </div>
 
     <script>
-        // Add smooth scrolling
+        // Interactive design document viewer
+        const state = {
+            currentSection: 0,
+            collapsed: {},
+            searchTerm: '',
+            readProgress: 0,
+            darkMode: true,
+            fontSize: 16,
+            bookmarks: JSON.parse(localStorage.getItem('wowmon-bookmarks') || '[]'),
+            lastVisit: localStorage.getItem('wowmon-lastvisit') || null
+        };
+
+        function getAllSections() {
+            return Array.from(document.querySelectorAll('.section'));
+        }
+
+        function updateReadProgress() {
+            const scrollTop = window.scrollY;
+            const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+            state.readProgress = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0;
+            const bar = document.getElementById('progress-bar');
+            if (bar) {
+                bar.style.width = state.readProgress + '%';
+                bar.textContent = state.readProgress + '%';
+            }
+        }
+
+        function toggleSection(sectionEl) {
+            const content = sectionEl.querySelector('p, ul, ol, .feature-box, .stat-grid, .grid');
+            if (!content) return;
+            const id = sectionEl.querySelector('h2, h3')?.textContent || '';
+            if (state.collapsed[id]) {
+                sectionEl.style.maxHeight = 'none';
+                sectionEl.style.overflow = 'visible';
+                state.collapsed[id] = false;
+            } else {
+                sectionEl.style.maxHeight = '60px';
+                sectionEl.style.overflow = 'hidden';
+                state.collapsed[id] = true;
+            }
+        }
+
+        function scrollToSection(index) {
+            const sections = getAllSections();
+            if (index >= 0 && index < sections.length) {
+                state.currentSection = index;
+                sections[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+                sections[index].style.outline = '2px solid #60a5fa';
+                setTimeout(() => { sections[index].style.outline = 'none'; }, 1500);
+            }
+        }
+
+        function navigateNext() {
+            const sections = getAllSections();
+            if (state.currentSection < sections.length - 1) {
+                scrollToSection(state.currentSection + 1);
+            }
+        }
+
+        function navigatePrev() {
+            if (state.currentSection > 0) {
+                scrollToSection(state.currentSection - 1);
+            }
+        }
+
+        function toggleBookmark() {
+            const sections = getAllSections();
+            const heading = sections[state.currentSection]?.querySelector('h2, h3');
+            if (!heading) return;
+            const title = heading.textContent;
+            const idx = state.bookmarks.indexOf(title);
+            if (idx >= 0) {
+                state.bookmarks.splice(idx, 1);
+            } else {
+                state.bookmarks.push(title);
+            }
+            localStorage.setItem('wowmon-bookmarks', JSON.stringify(state.bookmarks));
+        }
+
+        function adjustFontSize(delta) {
+            state.fontSize = Math.max(12, Math.min(24, state.fontSize + delta));
+            document.body.style.fontSize = state.fontSize + 'px';
+        }
+
+        function handleKeyDown(e) {
+            switch (e.key) {
+                case 'j': case 'ArrowDown':
+                    if (!e.ctrlKey && !e.metaKey) { navigateNext(); e.preventDefault(); }
+                    break;
+                case 'k': case 'ArrowUp':
+                    if (!e.ctrlKey && !e.metaKey) { navigatePrev(); e.preventDefault(); }
+                    break;
+                case 'b':
+                    if (!e.ctrlKey) toggleBookmark();
+                    break;
+                case '+': case '=':
+                    adjustFontSize(1);
+                    break;
+                case '-':
+                    adjustFontSize(-1);
+                    break;
+                case 'Home':
+                    scrollToSection(0);
+                    break;
+                case 'End':
+                    scrollToSection(getAllSections().length - 1);
+                    break;
+            }
+        }
+
+        function initProgressBar() {
+            const bar = document.createElement('div');
+            bar.id = 'progress-bar';
+            bar.style.cssText = 'position:fixed;top:0;left:0;height:4px;background:#60a5fa;z-index:999;transition:width 0.2s;font-size:10px;color:#fff;text-align:right;padding-right:4px;line-height:4px;';
+            document.body.appendChild(bar);
+        }
+
+        function initSectionClicks() {
+            const sections = getAllSections();
+            for (let i = 0; i < sections.length; i++) {
+                const heading = sections[i].querySelector('h2, h3');
+                if (heading) {
+                    heading.style.cursor = 'pointer';
+                    heading.addEventListener('click', function(e) {
+                        toggleSection(sections[i]);
+                    });
+                }
+            }
+        }
+
+        // Smooth scrolling for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
                 e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) target.scrollIntoView({ behavior: 'smooth' });
             });
         });
 
-        // Add animation on load
+        window.addEventListener('scroll', updateReadProgress);
+        document.addEventListener('keydown', handleKeyDown);
         window.addEventListener('load', () => {
+            initProgressBar();
+            initSectionClicks();
+            updateReadProgress();
+            state.lastVisit = new Date().toISOString();
+            localStorage.setItem('wowmon-lastvisit', state.lastVisit);
             document.querySelector('.container').style.animation = 'fadeIn 0.5s ease-in';
         });
     </script>

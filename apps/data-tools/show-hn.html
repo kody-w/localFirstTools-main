@@ -351,10 +351,356 @@ footer{text-align:center;padding:2rem;color:var(--muted);font-size:.85rem;border
 </footer>
 
 <script>
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }});
-}, { threshold: 0.1 });
-document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+(function() {
+  'use strict';
+
+  // --- State ---
+  var visitCount = 0;
+  var animatedStats = false;
+  var searchActive = false;
+  var currentFilter = 'all';
+  var scrollY = 0;
+  var darkMode = true;
+  var sectionTimers = {};
+
+  // --- Initialization ---
+  function init() {
+    loadVisitData();
+    setupRevealObserver();
+    setupStatAnimations();
+    setupCategoryFilter();
+    setupKeyboardShortcuts();
+    setupSmoothScroll();
+    setupParallaxHero();
+    setupTooltips();
+    updateVisitBadge();
+    trackSectionEngagement();
+    console.log('[ShowHN] Initialized, visit #' + visitCount);
+  }
+
+  // --- Visit Tracking (localStorage) ---
+  function loadVisitData() {
+    try {
+      var stored = localStorage.getItem('showhn_visits');
+      if (stored) {
+        var data = JSON.parse(stored);
+        visitCount = (data.count || 0) + 1;
+      } else {
+        visitCount = 1;
+      }
+      saveVisitData();
+    } catch (e) {
+      visitCount = 1;
+    }
+  }
+
+  function saveVisitData() {
+    try {
+      var data = {
+        count: visitCount,
+        lastVisit: new Date().toISOString(),
+        firstVisit: getFirstVisitDate()
+      };
+      localStorage.setItem('showhn_visits', JSON.stringify(data));
+    } catch (e) { /* storage full or disabled */ }
+  }
+
+  function getFirstVisitDate() {
+    try {
+      var stored = localStorage.getItem('showhn_visits');
+      if (stored) {
+        var data = JSON.parse(stored);
+        if (data.firstVisit) return data.firstVisit;
+      }
+    } catch (e) { /* ignore */ }
+    return new Date().toISOString();
+  }
+
+  function updateVisitBadge() {
+    if (visitCount <= 1) return;
+    var badge = document.querySelector('.hero-badge');
+    if (badge) {
+      var span = document.createElement('span');
+      span.textContent = ' · Visit #' + visitCount;
+      span.style.opacity = '0.7';
+      badge.appendChild(span);
+    }
+  }
+
+  // --- Scroll Reveal Observer ---
+  function setupRevealObserver() {
+    var options = { threshold: 0.1 };
+    var observer = new IntersectionObserver(function(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          staggerChildren(entry.target);
+          observer.unobserve(entry.target);
+        }
+      }
+    }, options);
+    var sections = document.querySelectorAll('.reveal');
+    for (var i = 0; i < sections.length; i++) {
+      observer.observe(sections[i]);
+    }
+  }
+
+  function staggerChildren(section) {
+    var cards = section.querySelectorAll('.principle, .track, .cat-card, .showcase-card, .flow-step');
+    for (var i = 0; i < cards.length; i++) {
+      (function(el, delay) {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(12px)';
+        el.style.transition = 'opacity 0.4s ease ' + delay + 'ms, transform 0.4s ease ' + delay + 'ms';
+        setTimeout(function() {
+          el.style.opacity = '1';
+          el.style.transform = 'translateY(0)';
+        }, 50);
+      })(cards[i], i * 80);
+    }
+  }
+
+  // --- Stat Counter Animations ---
+  function setupStatAnimations() {
+    var heroObserver = new IntersectionObserver(function(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting && !animatedStats) {
+          animatedStats = true;
+          animateAllStats();
+          heroObserver.unobserve(entries[i].target);
+        }
+      }
+    }, { threshold: 0.3 });
+
+    var statsContainer = document.querySelector('.hero-stats');
+    if (statsContainer) {
+      heroObserver.observe(statsContainer);
+    }
+  }
+
+  function animateAllStats() {
+    var statNums = document.querySelectorAll('.stat-num');
+    for (var i = 0; i < statNums.length; i++) {
+      var target = parseInt(statNums[i].textContent, 10);
+      if (!isNaN(target) && target > 0) {
+        animateCounter(statNums[i], target);
+      }
+    }
+  }
+
+  function animateCounter(element, target) {
+    var duration = 1200;
+    var startTime = null;
+    var startVal = 0;
+
+    function easeOutCubic(t) {
+      return 1 - Math.pow(1 - t, 3);
+    }
+
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var elapsed = timestamp - startTime;
+      var progress = Math.min(elapsed / duration, 1);
+      var easedProgress = easeOutCubic(progress);
+      var current = Math.round(startVal + (target - startVal) * easedProgress);
+      element.textContent = current;
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        element.textContent = target;
+      }
+    }
+
+    element.textContent = '0';
+    requestAnimationFrame(step);
+  }
+
+  // --- Category Filter ---
+  function setupCategoryFilter() {
+    var catCards = document.querySelectorAll('.cat-card');
+    for (var i = 0; i < catCards.length; i++) {
+      catCards[i].addEventListener('mouseenter', handleCategoryHover);
+      catCards[i].addEventListener('mouseleave', handleCategoryLeave);
+    }
+  }
+
+  function handleCategoryHover(e) {
+    var card = e.currentTarget;
+    var countEl = card.querySelector('.cat-count');
+    if (countEl && !countEl.dataset.original) {
+      countEl.dataset.original = countEl.textContent;
+      var text = countEl.textContent;
+      var num = parseInt(text, 10);
+      if (!isNaN(num)) {
+        countEl.textContent = num + ' apps → Click to browse';
+      }
+    }
+  }
+
+  function handleCategoryLeave(e) {
+    var card = e.currentTarget;
+    var countEl = card.querySelector('.cat-count');
+    if (countEl && countEl.dataset.original) {
+      countEl.textContent = countEl.dataset.original;
+      delete countEl.dataset.original;
+    }
+  }
+
+  // --- Keyboard Shortcuts ---
+  function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key === '/' || e.key === 's') {
+        e.preventDefault();
+        scrollToSection('.categories');
+      } else if (e.key === 'g') {
+        scrollToTop();
+      } else if (e.key === 'n') {
+        scrollToSection('.showcase-grid');
+      } else if (e.key === '?') {
+        toggleShortcutHelp();
+      }
+    });
+  }
+
+  function scrollToSection(selector) {
+    var el = document.querySelector(selector);
+    if (el) {
+      var section = el.closest('section') || el;
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function toggleShortcutHelp() {
+    var existing = document.getElementById('shortcut-help');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    var overlay = document.createElement('div');
+    overlay.id = 'shortcut-help';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#12121a;border:1px solid #1e1e2e;border-radius:12px;padding:2rem;max-width:360px;color:#e0e0e0;';
+    var shortcuts = [
+      ['/', 'Jump to categories'],
+      ['n', 'Jump to new apps'],
+      ['g', 'Go to top'],
+      ['?', 'Toggle this help']
+    ];
+    var html = '<h3 style="margin-bottom:1rem;color:#ff6b35;">Keyboard Shortcuts</h3>';
+    for (var i = 0; i < shortcuts.length; i++) {
+      html += '<div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid #1e1e2e;">';
+      html += '<kbd style="background:rgba(255,107,53,0.1);padding:.1rem .5rem;border-radius:4px;color:#ff6b35;">' + shortcuts[i][0] + '</kbd>';
+      html += '<span style="color:#888;">' + shortcuts[i][1] + '</span></div>';
+    }
+    html += '<p style="margin-top:1rem;font-size:.8rem;color:#555;">Press ? or click to close</p>';
+    box.innerHTML = html;
+    overlay.appendChild(box);
+    overlay.addEventListener('click', function() { overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+
+  // --- Smooth Scroll for Internal Links ---
+  function setupSmoothScroll() {
+    var links = document.querySelectorAll('a[href^="#"]');
+    for (var i = 0; i < links.length; i++) {
+      links[i].addEventListener('click', function(e) {
+        var targetId = this.getAttribute('href').slice(1);
+        if (targetId) {
+          var target = document.getElementById(targetId);
+          if (target) {
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth' });
+          }
+        }
+      });
+    }
+  }
+
+  // --- Parallax Hero Effect ---
+  function setupParallaxHero() {
+    var hero = document.querySelector('.hero');
+    if (!hero) return;
+
+    window.addEventListener('scroll', function() {
+      scrollY = window.pageYOffset;
+      if (scrollY < window.innerHeight) {
+        var opacity = Math.max(0, 1 - scrollY / (window.innerHeight * 0.8));
+        var translate = scrollY * 0.3;
+        hero.style.opacity = opacity;
+        hero.style.transform = 'translateY(' + translate + 'px)';
+      }
+    }, { passive: true });
+  }
+
+  // --- Tooltip on Showcase Cards ---
+  function setupTooltips() {
+    var showcaseCards = document.querySelectorAll('.showcase-card');
+    for (var i = 0; i < showcaseCards.length; i++) {
+      showcaseCards[i].addEventListener('mouseenter', function() {
+        var meta = this.querySelector('.showcase-meta');
+        if (meta) {
+          meta.style.transition = 'color 0.2s ease';
+          meta.style.color = '#e0e0e0';
+        }
+      });
+      showcaseCards[i].addEventListener('mouseleave', function() {
+        var meta = this.querySelector('.showcase-meta');
+        if (meta) {
+          meta.style.color = '';
+        }
+      });
+    }
+  }
+
+  // --- Section Engagement Tracking ---
+  function trackSectionEngagement() {
+    var sections = document.querySelectorAll('section');
+    var engagementObserver = new IntersectionObserver(function(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        var id = entry.target.querySelector('.section-label');
+        var label = id ? id.textContent : 'unknown';
+        if (entry.isIntersecting) {
+          sectionTimers[label] = Date.now();
+        } else if (sectionTimers[label]) {
+          var timeSpent = Date.now() - sectionTimers[label];
+          logEngagement(label, timeSpent);
+          delete sectionTimers[label];
+        }
+      }
+    }, { threshold: 0.3 });
+
+    for (var i = 0; i < sections.length; i++) {
+      engagementObserver.observe(sections[i]);
+    }
+  }
+
+  function logEngagement(section, ms) {
+    if (ms < 500) return;
+    try {
+      var stored = localStorage.getItem('showhn_engagement');
+      var data = stored ? JSON.parse(stored) : {};
+      if (!data[section]) data[section] = 0;
+      data[section] += ms;
+      localStorage.setItem('showhn_engagement', JSON.stringify(data));
+    } catch (e) { /* ignore */ }
+  }
+
+  // --- Boot ---
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
 </script>
 </body>
 </html>
