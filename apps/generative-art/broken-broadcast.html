@@ -1,255 +1,648 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Broken Broadcast Station</title>
-    <meta name="description" content="An endless stream of glitched video art from a TV station that exists between channels">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; overflow: hidden; font-family: monospace; }
-        #crt {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 90vmin; height: 70vmin; background: #111;
-            border-radius: 40px; padding: 30px;
-            box-shadow: 0 0 50px rgba(0,0,0,0.8), inset 0 0 100px rgba(0,0,0,0.5);
-        }
-        #screen {
-            width: 100%; height: 100%; background: #000; border-radius: 20px;
-            overflow: hidden; position: relative;
-        }
-        #canvas { width: 100%; height: 100%; }
-        #scanlines {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: repeating-linear-gradient(0deg, rgba(0,0,0,0.2) 0px, rgba(0,0,0,0.2) 1px, transparent 1px, transparent 2px);
-            pointer-events: none;
-        }
-        #vignette {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(ellipse, transparent 60%, rgba(0,0,0,0.6));
-            pointer-events: none;
-        }
-        #channel {
-            position: absolute; top: 20px; right: 20px; color: #0f0;
-            font-size: 32px; text-shadow: 2px 2px #000, 0 0 10px #0f0;
-        }
-        #dial {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            display: flex; align-items: center; gap: 20px; color: #666;
-        }
-        #dial-knob {
-            width: 80px; height: 80px; background: linear-gradient(145deg, #333, #222);
-            border-radius: 50%; cursor: pointer; position: relative;
-            border: 3px solid #444;
-        }
-        #dial-knob::after {
-            content: ''; position: absolute; top: 10px; left: 50%;
-            width: 4px; height: 20px; background: #888; transform: translateX(-50%);
-        }
-        #ticker {
-            position: absolute; bottom: 30px; left: 0; right: 0;
-            background: rgba(200, 0, 0, 0.8); color: #fff; padding: 5px 0;
-            font-size: 14px; white-space: nowrap; overflow: hidden;
-        }
-        #ticker-text { animation: scroll 20s linear infinite; display: inline-block; }
-        @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
-        #record-btn {
-            position: fixed; top: 20px; right: 20px;
-            padding: 10px 20px; background: #300; border: 1px solid #600;
-            color: #f66; cursor: pointer; border-radius: 5px;
-        }
-        #record-btn.recording { background: #600; animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0.5; } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="generative_art">
+<meta name="rappterzoo:tags" content="canvas,glitch,crt,tv,retro,audio,procedural,generative,game">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2024-12-01">
+<meta name="rappterzoo:generation" content="2">
+<title>Broken Broadcast Station</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Courier New',monospace;user-select:none}
+canvas{position:fixed;top:0;left:0}
+#title-screen{position:fixed;inset:0;background:linear-gradient(180deg,#000 0%,#0a0a20 50%,#000 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;transition:opacity 1s}
+#title-screen h1{font-size:2.8rem;color:#0f0;letter-spacing:0.3rem;text-shadow:0 0 20px rgba(0,255,0,0.5),0 0 40px rgba(0,255,0,0.2);margin-bottom:0.3rem;animation:flicker 3s infinite}
+@keyframes flicker{0%,100%{opacity:1}50%{opacity:0.95}51%{opacity:0.85}52%{opacity:1}80%{opacity:0.97}81%{opacity:0.7}82%{opacity:1}}
+#title-screen .sub{color:#0a0;font-size:0.8rem;margin-bottom:1.5rem}
+#title-screen p{color:#060;font-size:0.75rem;max-width:480px;text-align:center;line-height:1.7;margin-bottom:1.5rem}
+.diff-row{display:flex;gap:10px;margin-bottom:1.2rem}
+.diff-btn{background:rgba(0,255,0,0.05);border:1px solid rgba(0,255,0,0.2);color:#0a0;padding:10px 20px;font-family:inherit;font-size:0.75rem;cursor:pointer;border-radius:4px;transition:all 0.3s}
+.diff-btn:hover{background:rgba(0,255,0,0.1);border-color:#0f0;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,255,0,0.2)}
+.diff-btn.selected{background:rgba(0,255,0,0.15);border-color:#0f0;box-shadow:0 0 0 2px rgba(0,255,0,0.2)}
+.diff-label{font-size:0.6rem;color:#060;display:block;margin-top:3px}
+.mode-row{display:flex;gap:12px;margin-bottom:1rem}
+.btn{background:linear-gradient(135deg,#030,#060);border:1px solid #0a0;color:#0f0;padding:12px 30px;font-family:inherit;font-size:0.8rem;cursor:pointer;border-radius:4px;transition:all 0.3s;letter-spacing:0.1rem}
+.btn:hover{box-shadow:0 0 20px rgba(0,255,0,0.3);transform:translateY(-2px)}
+.keys-hint{font-size:0.6rem;color:#040;margin-top:1rem}
+#hud{position:fixed;top:12px;right:12px;z-index:100;font-size:0.7rem;color:#060;text-align:right;line-height:1.9;background:rgba(0,0,0,0.8);padding:10px 14px;border-radius:6px;border:1px solid rgba(0,255,0,0.1);display:none}
+#hud span{color:#0f0;font-weight:bold}
+#hud .combo{font-size:0.85rem;color:#0a0}
+#channel-display{position:fixed;top:12px;left:12px;z-index:100;font-size:1.8rem;color:#0f0;text-shadow:2px 2px #000,0 0 10px #0f0;display:none;background:rgba(0,0,0,0.6);padding:8px 14px;border-radius:6px}
+#controls{position:fixed;bottom:12px;left:12px;z-index:100;background:rgba(0,0,0,0.85);padding:12px;border-radius:6px;border:1px solid rgba(0,255,0,0.1);display:none;font-size:0.65rem;color:#060}
+.cr{margin:4px 0;display:flex;justify-content:space-between;align-items:center}
+.cr label{color:#060}
+.cr input[type="range"]{width:80px;accent-color:#0f0}
+.btn-sm{display:inline-block;padding:4px 8px;font-size:0.6rem;background:rgba(0,255,0,0.08);border:1px solid rgba(0,255,0,0.2);color:#0a0;cursor:pointer;border-radius:3px;font-family:inherit;margin:2px;transition:all 0.2s}
+.btn-sm:hover{background:rgba(0,255,0,0.15)}
+#pause-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:150}
+#pause-overlay h2{color:#0f0;font-size:2.5rem;letter-spacing:0.4rem;text-shadow:0 0 20px rgba(0,255,0,0.5)}
+#pause-overlay p{color:#060;margin:0.5rem 0 1rem}
+.pause-stats{color:#0a0;font-size:0.75rem;line-height:1.8;text-align:center;margin:1rem 0}
+#game-over{position:fixed;inset:0;background:rgba(0,0,0,0.92);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:160}
+#game-over h2{color:#0f0;font-size:2rem;letter-spacing:0.3rem}
+.final-grade{font-size:4rem;margin:0.5rem 0}
+.go-stats{color:#0a0;font-size:0.75rem;line-height:2;text-align:center;margin:1rem 0}
+.high-scores{font-size:0.68rem;color:#060;text-align:center;line-height:1.8;margin-top:1rem}
+.high-scores h4{color:#0a0;font-size:0.75rem;margin-bottom:6px}
+#challenge-hud{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:140;display:none;text-align:center;pointer-events:none}
+.ch-name{font-size:1.2rem;color:#0f0;letter-spacing:0.2rem;text-shadow:0 0 10px rgba(0,255,0,0.5)}
+.ch-desc{font-size:0.7rem;color:#060;margin-top:4px}
+.ch-timer{font-size:1.8rem;color:#f00;margin-top:6px}
+#ticker{position:fixed;bottom:40px;left:0;right:0;z-index:100;background:rgba(200,0,0,0.7);color:#fff;padding:4px 0;font-size:0.7rem;white-space:nowrap;overflow:hidden;display:none}
+#ticker-text{animation:scroll 25s linear infinite;display:inline-block}
+@keyframes scroll{from{transform:translateX(100vw)}to{transform:translateX(-200%)}}
+#scanlines{position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.15) 0px,rgba(0,0,0,0.15) 1px,transparent 1px,transparent 2px);pointer-events:none;z-index:90;display:none}
+@media(max-width:768px){#title-screen h1{font-size:1.8rem}#controls{width:160px}.mode-row,.diff-row{flex-direction:column;gap:6px}}
+</style>
 </head>
 <body>
-    <div id="crt">
-        <div id="screen">
-            <canvas id="canvas"></canvas>
-            <div id="scanlines"></div>
-            <div id="vignette"></div>
-            <div id="channel">CH 0</div>
-            <div id="ticker"><span id="ticker-text">BREAKING: SIGNAL INTERRUPTED... PLEASE STAND BY... THIS IS NOT A TEST... TRANSMISSION ORIGIN UNKNOWN...</span></div>
-        </div>
-    </div>
-    <div id="dial">
-        <span>TUNE</span>
-        <div id="dial-knob"></div>
-        <span>CH</span>
-    </div>
-    <button id="record-btn">REC</button>
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = 640; canvas.height = 480;
-        
-        let channel = 0;
-        let glitchIntensity = 0.5;
-        let time = 0;
-        
-        const channels = [
-            { name: 'STATIC', draw: drawStatic },
-            { name: 'NEWS', draw: drawNews },
-            { name: 'TEST', draw: drawTestPattern },
-            { name: 'WEATHER', draw: drawWeather },
-            { name: 'VOID', draw: drawVoid },
-            { name: 'ERROR', draw: drawError }
-        ];
-        
-        function drawStatic() {
-            const imgData = ctx.createImageData(canvas.width, canvas.height);
-            for (let i = 0; i < imgData.data.length; i += 4) {
-                const v = Math.random() * 255;
-                imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = v;
-                imgData.data[i+3] = 255;
-            }
-            ctx.putImageData(imgData, 0, 0);
+<canvas id="canvas"></canvas>
+<div id="scanlines"></div>
+
+<div id="title-screen">
+  <h1>BROKEN BROADCAST</h1>
+  <div class="sub">a TV station between channels</div>
+  <p>Surf through corrupted channels, decode hidden signals, and collect
+  glitch artifacts. Each channel holds secrets -- if you can keep the
+  signal locked long enough to find them.</p>
+  <div style="font-size:0.7rem;color:#060;margin-bottom:0.5rem;">Difficulty</div>
+  <div class="diff-row">
+    <button class="diff-btn selected" onclick="setDiff('casual')" id="diff-casual">Casual<span class="diff-label">Slow corruption</span></button>
+    <button class="diff-btn" onclick="setDiff('normal')" id="diff-normal">Normal<span class="diff-label">Standard static</span></button>
+    <button class="diff-btn" onclick="setDiff('expert')" id="diff-expert">Expert<span class="diff-label">Heavy glitch</span></button>
+  </div>
+  <div class="mode-row">
+    <button class="btn" onclick="startGame('surf')">Channel Surf</button>
+    <button class="btn" onclick="startGame('challenge')">Signal Hunt</button>
+    <button class="btn" onclick="startGame('zen')">Zen Static</button>
+  </div>
+  <div class="keys-hint">Space/Click: change channel | Arrows: tune | ESC: pause | R: restart</div>
+</div>
+
+<div id="channel-display">CH 0</div>
+
+<div id="hud">
+  <div>Score: <span id="h-score">0</span></div>
+  <div>Signals: <span id="h-signals">0</span></div>
+  <div>Artifacts: <span id="h-art">0</span></div>
+  <div>Streak: <span id="h-streak">0</span></div>
+  <div class="combo" id="h-combo"></div>
+  <div>Level: <span id="h-level">1</span></div>
+  <div>Challenge: <span id="h-ch">--</span></div>
+</div>
+
+<div id="controls">
+  <div class="cr"><label>Glitch</label><input type="range" id="ctrl-glitch" min="1" max="10" value="5"></div>
+  <div class="cr"><label>Scan Speed</label><input type="range" id="ctrl-scan" min="1" max="10" value="5"></div>
+  <div class="cr"><label>Sound</label><input type="checkbox" id="ctrl-sound" checked></div>
+  <div style="margin-top:6px;text-align:center">
+    <button class="btn-sm" onclick="game.randomChannel()">Random CH</button>
+    <button class="btn-sm" onclick="game.captureFrame()">Capture</button>
+  </div>
+</div>
+
+<div id="challenge-hud"><div class="ch-name" id="chn"></div><div class="ch-desc" id="chd"></div><div class="ch-timer" id="cht"></div></div>
+<div id="ticker"><span id="ticker-text">SIGNAL INTERRUPTED... PLEASE STAND BY... TRANSMISSION ORIGIN UNKNOWN...</span></div>
+
+<div id="pause-overlay">
+  <h2>PAUSED</h2>
+  <p>Press ESC to continue</p>
+  <div class="pause-stats" id="p-stats"></div>
+  <button class="btn" onclick="game.togglePause()">Continue</button>
+</div>
+
+<div id="game-over">
+  <h2>BROADCAST ENDED</h2>
+  <div class="final-grade" id="go-grade" style="color:#0f0">A</div>
+  <div class="go-stats" id="go-stats"></div>
+  <div class="high-scores" id="go-hs"></div>
+  <div style="margin-top:1.5rem">
+    <button class="btn" onclick="restart()">New Signal (R)</button>
+    <button class="btn" onclick="toTitle()">Title</button>
+  </div>
+</div>
+
+<script>
+// ==================== AUDIO ====================
+class BroadcastAudio {
+  constructor(){this.ctx=null;this.ok=false;this.on=true;this.m=null}
+  init(){
+    if(this.ok)return;
+    try{
+      this.ctx=new(window.AudioContext||window.webkitAudioContext)();
+      this.m=this.ctx.createGain();this.m.gain.value=0.05;this.m.connect(this.ctx.destination);
+      // Static noise
+      const buf=this.ctx.createBuffer(1,this.ctx.sampleRate*2,this.ctx.sampleRate);
+      const d=buf.getChannelData(0);
+      for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*0.3;
+      this.noiseBuf=buf;
+      this.ok=true;
+    }catch(e){}
+  }
+  _t(f,dur,type,vol){
+    if(!this.ok||!this.on)return;
+    const t=this.ctx.currentTime;const o=this.ctx.createOscillator();const g=this.ctx.createGain();
+    o.type=type||'square';o.frequency.value=f;
+    g.gain.setValueAtTime(vol||0.02,t);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g);g.connect(this.m);o.start(t);o.stop(t+dur);
+  }
+  channelSwitch(){
+    if(!this.ok||!this.on)return;
+    // Burst of noise
+    const src=this.ctx.createBufferSource();src.buffer=this.noiseBuf;
+    const g=this.ctx.createGain();g.gain.setValueAtTime(0.04,this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,this.ctx.currentTime+0.15);
+    src.connect(g);g.connect(this.m);src.start();src.stop(this.ctx.currentTime+0.15);
+    this._t(200+Math.random()*400,0.05,'square',0.015);
+  }
+  signalFound(){this._t(523,0.1,'sine',0.03);setTimeout(()=>this._t(659,0.1,'sine',0.03),80);setTimeout(()=>this._t(784,0.15,'sine',0.04),160)}
+  artifactCollect(){this._t(880,0.08,'triangle',0.025);setTimeout(()=>this._t(1100,0.06,'triangle',0.02),50)}
+  combo(lv){for(let i=0;i<Math.min(lv,5);i++)setTimeout(()=>this._t(440*Math.pow(1.2,i),0.12,'sine',0.025),i*50)}
+  fail(){this._t(150,0.2,'sawtooth',0.02);setTimeout(()=>this._t(120,0.3,'sawtooth',0.015),100)}
+  levelUp(){[392,440,494,523,587,659].forEach((f,i)=>setTimeout(()=>this._t(f,0.15,'sine',0.03),i*50))}
+  menu(){this._t(440,0.06,'sine',0.012)}
+  glitch(){
+    if(!this.ok||!this.on)return;
+    const src=this.ctx.createBufferSource();src.buffer=this.noiseBuf;
+    const g=this.ctx.createGain();g.gain.value=0.008;
+    const f=this.ctx.createBiquadFilter();f.type='bandpass';f.frequency.value=500+Math.random()*2000;f.Q.value=5;
+    src.connect(f);f.connect(g);g.connect(this.m);src.start();src.stop(this.ctx.currentTime+0.03);
+  }
+}
+
+// ==================== CHANNEL RENDERERS ====================
+const CHANNEL_COLORS = ['#0f0','#0ff','#f0f','#ff0','#f00','#00f','#fff','#f80','#0f8','#80f'];
+
+function drawStatic(ctx,W,H,t,intensity){
+  const id=ctx.createImageData(W,H);const d=id.data;
+  for(let i=0;i<d.length;i+=4){
+    const v=Math.random()*255*intensity;
+    d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;
+  }
+  ctx.putImageData(id,0,0);
+}
+
+function drawNews(ctx,W,H,t){
+  ctx.fillStyle='#001030';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#103060';ctx.fillRect(0,H*0.72,W,H*0.28);
+  ctx.fillStyle='#fff';ctx.font=Math.floor(W*0.04)+'px monospace';
+  ctx.fillText('BREAKING NEWS',W*0.03,H*0.8);
+  ctx.font=Math.floor(W*0.025)+'px monospace';
+  const texts=['SIGNAL LOST','PLEASE WAIT','TECHNICAL DIFFICULTIES','UNKNOWN SOURCE','DATA CORRUPTED','SEEKING ORIGIN'];
+  ctx.fillText(texts[Math.floor(t/60)%texts.length],W*0.03,H*0.88);
+  // Anchors
+  ctx.fillStyle='rgba(255,200,100,0.3)';
+  ctx.fillRect(W*0.6,H*0.1,W*0.35,H*0.55);
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(W*0.6,H*0.1,W*0.35,H*0.55);
+  ctx.fillStyle='#fff';ctx.font=Math.floor(W*0.02)+'px monospace';
+  ctx.fillText('LIVE',W*0.62,H*0.16);
+}
+
+function drawTestPattern(ctx,W,H,t){
+  const colors=['#fff','#ff0','#0ff','#0f0','#f0f','#f00','#00f','#000'];
+  const cw=W/colors.length;
+  colors.forEach((c,i)=>{ctx.fillStyle=c;ctx.fillRect(i*cw,0,cw,H*0.75)});
+  ctx.fillStyle='#000';ctx.fillRect(0,H*0.75,W,H*0.25);
+  ctx.fillStyle='#fff';ctx.font=Math.floor(W*0.03)+'px monospace';ctx.textAlign='center';
+  ctx.fillText('PLEASE STAND BY',W/2,H*0.88);ctx.textAlign='start';
+  // Time code
+  const s=Math.floor(t/60);const m=Math.floor(s/60);
+  ctx.fillStyle='#888';ctx.font=Math.floor(W*0.02)+'px monospace';
+  ctx.fillText((m<10?'0':'')+m+':'+(s%60<10?'0':'')+(s%60),W*0.05,H*0.95);
+}
+
+function drawWeather(ctx,W,H,t){
+  ctx.fillStyle='#001820';ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(0,170,68,0.3)';ctx.lineWidth=1;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+  // Radar sweep
+  const cx=W/2,cy=H/2,angle=(t*0.02)%(Math.PI*2);
+  ctx.beginPath();ctx.moveTo(cx,cy);
+  ctx.arc(cx,cy,Math.min(W,H)*0.35,angle,angle+0.3);
+  ctx.fillStyle='rgba(0,255,100,0.15)';ctx.fill();
+  // Storm blobs
+  for(let i=0;i<3;i++){
+    const sx=cx+Math.sin(t*0.01+i*2)*W*0.2;
+    const sy=cy+Math.cos(t*0.008+i*1.5)*H*0.15;
+    const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,40+i*20);
+    grad.addColorStop(0,'rgba(0,255,0,0.4)');grad.addColorStop(1,'transparent');
+    ctx.fillStyle=grad;ctx.fillRect(sx-60,sy-60,120,120);
+  }
+  ctx.fillStyle='#0f0';ctx.font='14px monospace';ctx.fillText('STORM APPROACHING',W*0.35,H*0.93);
+}
+
+function drawVoid(ctx,W,H,t){
+  ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+  const cx=W/2+Math.sin(t*0.005)*W*0.15;
+  const cy=H/2+Math.cos(t*0.003)*H*0.1;
+  // Concentric rings
+  for(let i=5;i>=0;i--){
+    const r=20+i*40+Math.sin(t*0.02+i)*10;
+    const grad=ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+    grad.addColorStop(0,'rgba(80,0,120,0.3)');grad.addColorStop(1,'transparent');
+    ctx.fillStyle=grad;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();
+  }
+  if(Math.random()<0.03){
+    ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='12px monospace';
+    const msgs=['ARE YOU THERE?','HELLO?','CAN YOU HEAR ME?','WHO IS WATCHING?','THE SIGNAL IS ALIVE'];
+    ctx.fillText(msgs[Math.floor(Math.random()*msgs.length)],Math.random()*W*0.7,Math.random()*H*0.8);
+  }
+}
+
+function drawError(ctx,W,H,t){
+  ctx.fillStyle='#200';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#f00';ctx.font=Math.floor(W*0.07)+'px monospace';ctx.textAlign='center';
+  ctx.fillText('ERROR',W/2,H*0.35);
+  ctx.font=Math.floor(W*0.025)+'px monospace';
+  const codes=['0xDEADBEEF','0xFFFFFFFF','0x00000000','SEGFAULT','STACK_OVERFLOW','NULL_PTR'];
+  ctx.fillText('CODE: '+codes[Math.floor(t/30)%codes.length],W/2,H*0.5);
+  ctx.textAlign='start';
+  // Error cascade
+  for(let i=0;i<8;i++){
+    ctx.fillStyle='rgba(255,0,0,'+(0.1+i*0.03)+')';
+    ctx.fillRect(0,H*0.6+i*18,W,14);
+    ctx.fillStyle='#f88';ctx.font='10px monospace';
+    ctx.fillText('ERR['+Math.floor(Math.random()*9999)+'] at 0x'+Math.floor(Math.random()*0xFFFFFF).toString(16),10,H*0.6+i*18+11);
+  }
+}
+
+function drawMatrix(ctx,W,H,t){
+  ctx.fillStyle='rgba(0,0,0,0.1)';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#0f0';ctx.font='14px monospace';
+  for(let x=0;x<W;x+=16){
+    if(Math.random()<0.08){
+      const ch=String.fromCharCode(0x30A0+Math.random()*96);
+      ctx.fillText(ch,x,(t*2+x*7)%H);
+    }
+  }
+}
+
+function drawEmergency(ctx,W,H,t){
+  const flash=Math.sin(t*0.1)>0;
+  ctx.fillStyle=flash?'#ff0':'#f00';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=flash?'#000':'#fff';
+  ctx.font=Math.floor(W*0.05)+'px monospace';ctx.textAlign='center';
+  ctx.fillText('EMERGENCY ALERT',W/2,H*0.3);
+  ctx.font=Math.floor(W*0.025)+'px monospace';
+  ctx.fillText('THIS IS NOT A DRILL',W/2,H*0.45);
+  ctx.fillText('SEEK SHELTER IMMEDIATELY',W/2,H*0.55);
+  ctx.textAlign='start';
+  // EBS tone bars
+  for(let i=0;i<8;i++){
+    ctx.fillStyle=i%2===0?'#000':'#fff';
+    ctx.fillRect(0,H*0.7+i*8,W,8);
+  }
+}
+
+function drawCountdown(ctx,W,H,t){
+  ctx.fillStyle='#111';ctx.fillRect(0,0,W,H);
+  const num=Math.max(0,10-Math.floor((t%600)/60));
+  ctx.fillStyle='#fff';ctx.font=Math.floor(W*0.2)+'px monospace';ctx.textAlign='center';
+  ctx.fillText(num,W/2,H*0.55);
+  // Circle progress
+  ctx.strokeStyle='#0f0';ctx.lineWidth=4;
+  ctx.beginPath();ctx.arc(W/2,H*0.45,W*0.15,-(Math.PI/2),-(Math.PI/2)+((t%60)/60)*Math.PI*2);ctx.stroke();
+  ctx.textAlign='start';
+  ctx.fillStyle='#888';ctx.font='12px monospace';ctx.fillText('TRANSMISSION COUNTDOWN',W*0.3,H*0.85);
+}
+
+const CHANNELS=[
+  {name:'STATIC',draw:drawStatic,color:'#888'},
+  {name:'NEWS',draw:drawNews,color:'#48f'},
+  {name:'TEST',draw:drawTestPattern,color:'#ff0'},
+  {name:'WEATHER',draw:drawWeather,color:'#0a4'},
+  {name:'VOID',draw:drawVoid,color:'#80f'},
+  {name:'ERROR',draw:drawError,color:'#f00'},
+  {name:'MATRIX',draw:drawMatrix,color:'#0f0'},
+  {name:'ALERT',draw:drawEmergency,color:'#f80'},
+  {name:'COUNTDOWN',draw:drawCountdown,color:'#fff'},
+];
+
+// ==================== SIGNALS & ARTIFACTS ====================
+class Signal{
+  constructor(x,y,W,H){
+    this.x=x;this.y=y;this.size=8+Math.random()*12;
+    this.freq=0.02+Math.random()*0.05;this.phase=Math.random()*Math.PI*2;
+    this.life=300+Math.random()*300;this.age=0;this.collected=false;
+    this.type=Math.random()<0.3?'rare':'common';
+    this.value=this.type==='rare'?50:15;
+  }
+  update(){this.age++;this.phase+=this.freq;return this.age<this.life&&!this.collected}
+  draw(ctx){
+    const pulse=1+Math.sin(this.phase)*0.3;
+    const alpha=Math.max(0,1-(this.age/this.life));
+    ctx.save();ctx.globalAlpha=alpha;
+    ctx.beginPath();ctx.arc(this.x,this.y,this.size*pulse,0,Math.PI*2);
+    ctx.fillStyle=this.type==='rare'?'rgba(255,200,50,0.3)':'rgba(0,255,100,0.2)';
+    ctx.fill();
+    ctx.beginPath();ctx.arc(this.x,this.y,this.size*0.5*pulse,0,Math.PI*2);
+    ctx.fillStyle=this.type==='rare'?'rgba(255,200,50,0.7)':'rgba(0,255,100,0.6)';
+    ctx.fill();
+    // Crosshair
+    ctx.strokeStyle=this.type==='rare'?'#fc0':'#0f0';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(this.x-this.size*1.5,this.y);ctx.lineTo(this.x-this.size*0.7,this.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(this.x+this.size*0.7,this.y);ctx.lineTo(this.x+this.size*1.5,this.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(this.x,this.y-this.size*1.5);ctx.lineTo(this.x,this.y-this.size*0.7);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(this.x,this.y+this.size*0.7);ctx.lineTo(this.x,this.y+this.size*1.5);ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ==================== DIFFICULTY ====================
+let difficulty='casual';
+const DIFF={casual:{timeMult:1.5,scoreMult:0.8,glitch:0.3,label:'Casual'},normal:{timeMult:1,scoreMult:1,glitch:0.5,label:'Normal'},expert:{timeMult:0.6,scoreMult:1.5,glitch:0.8,label:'Expert'}};
+function setDiff(d){difficulty=d;document.querySelectorAll('.diff-btn').forEach(b=>b.classList.remove('selected'));document.getElementById('diff-'+d).classList.add('selected')}
+
+// ==================== CHALLENGES ====================
+const CHS=[
+  {name:'Signal Hunter',desc:'Collect 5 signals',type:'signals',target:5,time:30},
+  {name:'Channel Surfer',desc:'Visit all 9 channels',type:'channels_visited',target:9,time:45},
+  {name:'Artifact Rush',desc:'Collect 8 artifacts',type:'artifacts',target:8,time:35},
+  {name:'Rare Find',desc:'Collect 3 rare signals',type:'rare_signals',target:3,time:40},
+  {name:'Speed Scan',desc:'Switch channels 15 times',type:'switches',target:15,time:20},
+  {name:'Static Master',desc:'Watch static for 10 seconds',type:'static_time',target:600,time:15},
+  {name:'Error Decoder',desc:'Stay on error channel 8 sec',type:'error_time',target:480,time:12},
+  {name:'Matrix Reader',desc:'Collect 3 signals on matrix',type:'matrix_signals',target:3,time:30},
+  {name:'Emergency Watch',desc:'Survive alert channel 5 sec',type:'alert_time',target:300,time:8},
+  {name:'Perfect Tuning',desc:'No glitch for 5 seconds',type:'clean_time',target:300,time:10},
+  {name:'Void Gazer',desc:'Stare into void 12 seconds',type:'void_time',target:720,time:15},
+  {name:'Broadcast King',desc:'Reach 500 points',type:'score_threshold',target:500,time:60},
+];
+
+// ==================== PARTICLES ====================
+const particles=[];
+function spawnP(x,y,color,n){for(let i=0;i<(n||5);i++){const a=Math.random()*Math.PI*2;const s=1+Math.random()*3;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,decay:0.02+Math.random()*0.02,size:2+Math.random()*3,color})}}
+let shakeX=0,shakeY=0,shakeMag=0;
+function shake(m){shakeMag=m||4}
+
+// ==================== GAME ====================
+class BroadcastGame{
+  constructor(){
+    this.canvas=document.getElementById('canvas');
+    this.ctx=this.canvas.getContext('2d');
+    this.W=window.innerWidth;this.H=window.innerHeight;
+    this.canvas.width=this.W;this.canvas.height=this.H;
+    this.audio=new BroadcastAudio();
+    this.paused=false;this.gameOver=false;this.mode='surf';this.frame=0;
+    this.channel=0;this.glitchIntensity=0.5;this.scanSpeed=5;
+    this.signals=[];this.artifacts=0;this.signalsCollected=0;this.rareSignals=0;
+    this.score=0;this.streak=0;this.maxStreak=0;this.comboLevel=1;this.comboTimer=0;
+    this.level=1;this.xp=0;this.xpNext=60;
+    this.channelsVisited=new Set();this.switches=0;
+    this.channelTime={};CHANNELS.forEach((_,i)=>this.channelTime[i]=0);
+    this.cleanTime=0;this.lastGlitch=0;
+    this.challenge=null;this.chTimer=0;this.challengesDone=0;
+    this.chSignals=0;this.chRare=0;this.chArtifacts=0;this.chSwitches=0;
+    this.chMatrixSig=0;
+    this.keys={};
+    this.setupEvents();this.setupControls();this.loadState();
+  }
+  setupEvents(){
+    window.addEventListener('resize',()=>{this.W=window.innerWidth;this.H=window.innerHeight;this.canvas.width=this.W;this.canvas.height=this.H});
+    this.canvas.addEventListener('click',(e)=>{
+      if(this.paused||this.gameOver)return;
+      // Check signal click
+      for(let i=this.signals.length-1;i>=0;i--){
+        const s=this.signals[i];const dx=e.clientX-s.x;const dy=e.clientY-s.y;
+        if(dx*dx+dy*dy<(s.size*2)*(s.size*2)){
+          s.collected=true;
+          this.signalsCollected++;this.chSignals++;
+          if(s.type==='rare'){this.rareSignals++;this.chRare++}
+          if(this.channel===6)this.chMatrixSig++;
+          this.addScore(s.value);this.addCombo();
+          this.audio.signalFound();
+          spawnP(s.x,s.y,s.type==='rare'?'#fc0':'#0f0',8);
+          shake(4);
+          break;
         }
-        
-        function drawNews() {
-            ctx.fillStyle = '#001030';
-            ctx.fillRect(0, 0, 640, 480);
-            ctx.fillStyle = '#103060';
-            ctx.fillRect(0, 350, 640, 130);
-            ctx.fillStyle = '#fff';
-            ctx.font = '24px monospace';
-            ctx.fillText('BREAKING NEWS', 20, 390);
-            ctx.font = '16px monospace';
-            const texts = ['SIGNAL LOST', 'PLEASE WAIT', 'TECHNICAL DIFFICULTIES', 'UNKNOWN SOURCE'];
-            ctx.fillText(texts[Math.floor(time/60) % texts.length], 20, 430);
-            if (Math.random() < 0.3) {
-                ctx.fillStyle = 'rgba(255,255,255,0.1)';
-                ctx.fillRect(0, Math.random() * 480, 640, 5);
-            }
-        }
-        
-        function drawTestPattern() {
-            const colors = ['#fff', '#ff0', '#0ff', '#0f0', '#f0f', '#f00', '#00f', '#000'];
-            const w = 640 / colors.length;
-            colors.forEach((c, i) => {
-                ctx.fillStyle = c;
-                ctx.fillRect(i * w, 0, w, 360);
-            });
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 360, 640, 120);
-            ctx.fillStyle = '#fff';
-            ctx.font = '20px monospace';
-            ctx.fillText('PLEASE STAND BY', 220, 420);
-            if (Math.random() < 0.1) {
-                const shift = (Math.random() - 0.5) * 20;
-                ctx.drawImage(canvas, shift, 0);
-            }
-        }
-        
-        function drawWeather() {
-            ctx.fillStyle = '#001820';
-            ctx.fillRect(0, 0, 640, 480);
-            ctx.strokeStyle = '#0a4';
-            ctx.lineWidth = 1;
-            for (let x = 0; x < 640; x += 40) {
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 480); ctx.stroke();
-            }
-            for (let y = 0; y < 480; y += 40) {
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(640, y); ctx.stroke();
-            }
-            ctx.fillStyle = '#0f0';
-            ctx.beginPath();
-            ctx.arc(320 + Math.sin(time/30) * 50, 240 + Math.cos(time/20) * 30, 80, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.font = '14px monospace';
-            ctx.fillText('STORM APPROACHING', 250, 450);
-        }
-        
-        function drawVoid() {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, 640, 480);
-            const cx = 320 + Math.sin(time/50) * 100;
-            const cy = 240 + Math.cos(time/40) * 80;
-            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 200);
-            grd.addColorStop(0, 'rgba(50,0,50,0.5)');
-            grd.addColorStop(1, 'transparent');
-            ctx.fillStyle = grd;
-            ctx.fillRect(0, 0, 640, 480);
-            if (Math.random() < 0.05) {
-                ctx.fillStyle = '#fff';
-                ctx.font = '12px monospace';
-                ctx.fillText('ARE YOU THERE?', Math.random() * 500, Math.random() * 400);
-            }
-        }
-        
-        function drawError() {
-            ctx.fillStyle = '#200';
-            ctx.fillRect(0, 0, 640, 480);
-            ctx.fillStyle = '#f00';
-            ctx.font = '48px monospace';
-            ctx.fillText('ERROR', 240, 200);
-            ctx.font = '16px monospace';
-            const codes = ['0xDEADBEEF', '0xFFFFFFFF', '0x00000000', 'SEGFAULT'];
-            ctx.fillText('CODE: ' + codes[Math.floor(time/30) % codes.length], 220, 280);
-            for (let i = 0; i < 10; i++) {
-                ctx.fillStyle = 'rgba(255,0,0,0.2)';
-                ctx.fillRect(Math.random() * 640, Math.random() * 480, Math.random() * 100, 2);
-            }
-        }
-        
-        function applyGlitch() {
-            if (Math.random() < glitchIntensity * 0.3) {
-                const slice = Math.random() * 480;
-                const h = 10 + Math.random() * 30;
-                const shift = (Math.random() - 0.5) * 50;
-                const imgData = ctx.getImageData(0, slice, 640, h);
-                ctx.putImageData(imgData, shift, slice);
-            }
-            if (Math.random() < glitchIntensity * 0.1) {
-                ctx.fillStyle = 'rgba(' + (Math.random() * 255) + ',0,0,0.3)';
-                ctx.fillRect(0, 0, 640, 480);
-            }
-            if (Math.random() < glitchIntensity * 0.05) {
-                const imgData = ctx.getImageData(0, 0, 640, 480);
-                for (let i = 0; i < imgData.data.length; i += 4) {
-                    if (Math.random() < 0.001) {
-                        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = 255;
-                    }
-                }
-                ctx.putImageData(imgData, 0, 0);
-            }
-        }
-        
-        function animate() {
-            time++;
-            channels[channel].draw();
-            applyGlitch();
-            document.getElementById('channel').textContent = 'CH ' + channel;
-            requestAnimationFrame(animate);
-        }
-        
-        document.getElementById('dial-knob').onclick = () => {
-            channel = (channel + 1) % channels.length;
-            glitchIntensity = 1;
-            setTimeout(() => glitchIntensity = 0.3 + Math.random() * 0.4, 500);
-        };
-        
-        let recording = false;
-        document.getElementById('record-btn').onclick = function() {
-            recording = !recording;
-            this.classList.toggle('recording', recording);
-            this.textContent = recording ? 'STOP' : 'REC';
-        };
-        
-        setInterval(() => {
-            const msgs = [
-                'SIGNAL INTERRUPTED... ',
-                'TRANSMISSION ORIGIN: UNKNOWN... ',
-                'DO NOT ADJUST YOUR SET... ',
-                'WE ARE EXPERIENCING TECHNICAL DIFFICULTIES... ',
-                'PLEASE STAND BY... ',
-                'THIS IS NOT A TEST... '
-            ];
-            document.getElementById('ticker-text').textContent = msgs.sort(() => Math.random() - 0.5).join('');
-        }, 20000);
-        
-        animate();
-    </script>
+      }
+      // Artifact collection on double-click area
+      if(Math.random()<0.15){
+        this.artifacts++;this.chArtifacts++;this.addScore(10);
+        this.audio.artifactCollect();
+        spawnP(e.clientX,e.clientY,'#0ff',5);
+      }
+    });
+    this.canvas.addEventListener('touchstart',(e)=>{
+      e.preventDefault();
+      if(this.paused||this.gameOver)return;
+      this.changeChannel(1);
+    },{passive:false});
+    document.addEventListener('keydown',(e)=>{
+      this.keys[e.key]=true;
+      if(e.key==='Escape'){e.preventDefault();if(!this.gameOver)this.togglePause()}
+      else if(e.key===' '){e.preventDefault();if(!this.paused&&!this.gameOver)this.changeChannel(1)}
+      else if(e.key==='ArrowRight'||e.key==='d')this.changeChannel(1);
+      else if(e.key==='ArrowLeft'||e.key==='a')this.changeChannel(-1);
+      else if(e.key==='r'||e.key==='R'){if(!e.ctrlKey)restart()}
+    });
+    document.addEventListener('keyup',(e)=>{this.keys[e.key]=false});
+  }
+  setupControls(){
+    document.getElementById('ctrl-glitch').addEventListener('input',(e)=>{this.glitchIntensity=parseInt(e.target.value)/10});
+    document.getElementById('ctrl-scan').addEventListener('input',(e)=>{this.scanSpeed=parseInt(e.target.value)});
+    document.getElementById('ctrl-sound').addEventListener('change',(e)=>{this.audio.on=e.target.checked});
+  }
+  changeChannel(dir){
+    this.channel=(this.channel+dir+CHANNELS.length)%CHANNELS.length;
+    this.channelsVisited.add(this.channel);
+    this.switches++;this.chSwitches++;
+    this.glitchIntensity=1;
+    setTimeout(()=>{this.glitchIntensity=DIFF[difficulty].glitch+Math.random()*0.2},400);
+    this.audio.channelSwitch();
+    document.getElementById('channel-display').textContent='CH '+this.channel+' '+CHANNELS[this.channel].name;
+    this.addScore(2);
+    // Spawn signal on new channel
+    if(Math.random()<0.4){
+      this.signals.push(new Signal(50+Math.random()*(this.W-100),50+Math.random()*(this.H-100),this.W,this.H));
+    }
+  }
+  randomChannel(){
+    this.channel=Math.floor(Math.random()*CHANNELS.length);
+    this.channelsVisited.add(this.channel);this.switches++;this.chSwitches++;
+    this.audio.channelSwitch();shake(3);
+    document.getElementById('channel-display').textContent='CH '+this.channel+' '+CHANNELS[this.channel].name;
+  }
+  captureFrame(){
+    const link=document.createElement('a');
+    link.download='broadcast-ch'+this.channel+'-'+Date.now()+'.png';
+    link.href=this.canvas.toDataURL('image/png');link.click();
+    this.addScore(15);this.audio.menu();
+  }
+  addCombo(){
+    this.streak++;if(this.streak>this.maxStreak)this.maxStreak=this.streak;
+    this.comboTimer=120;
+    const old=this.comboLevel;
+    this.comboLevel=this.streak>=40?8:this.streak>=25?6:this.streak>=15?5:this.streak>=10?4:this.streak>=6?3:this.streak>=3?2:1;
+    if(this.comboLevel>old){this.audio.combo(this.comboLevel);shake(this.comboLevel*1.5);spawnP(this.W/2,this.H/2,CHANNELS[this.channel].color,8)}
+  }
+  breakCombo(){if(this.streak>3)this.audio.fail();this.streak=0;this.comboLevel=1}
+  addScore(base){
+    const pts=Math.floor(base*this.comboLevel*DIFF[difficulty].scoreMult);this.score+=pts;this.xp+=pts;
+    while(this.xp>=this.xpNext){this.xp-=this.xpNext;this.level++;this.xpNext=Math.floor(this.xpNext*1.3);this.audio.levelUp();shake(8);spawnP(this.W/2,this.H/2,'#0f0',15)}
+  }
+  startChallenge(){
+    const ch=CHS[Math.floor(Math.random()*CHS.length)];
+    const d=DIFF[difficulty];
+    this.challenge={...ch};this.chTimer=Math.floor(ch.time*d.timeMult*60);
+    this.chSignals=0;this.chRare=0;this.chArtifacts=0;this.chSwitches=0;this.chMatrixSig=0;
+    this.channelsVisited=new Set();this.channelsVisited.add(this.channel);
+    CHANNELS.forEach((_,i)=>this.channelTime[i]=0);this.cleanTime=0;
+    document.getElementById('chn').textContent=ch.name;
+    document.getElementById('chd').textContent=ch.desc;
+    document.getElementById('challenge-hud').style.display='block';
+    setTimeout(()=>{document.getElementById('challenge-hud').style.display='none'},3000);
+  }
+  updateChallenge(){
+    if(!this.challenge||this.paused||this.gameOver)return;
+    this.chTimer--;
+    const secs=Math.max(0,Math.ceil(this.chTimer/60));
+    document.getElementById('cht').textContent=secs+'s';
+    document.getElementById('h-ch').textContent=this.challenge.name+' '+secs+'s';
+    let prog=0;const ch=this.challenge;
+    switch(ch.type){
+      case'signals':prog=this.chSignals;break;
+      case'channels_visited':prog=this.channelsVisited.size;break;
+      case'artifacts':prog=this.chArtifacts;break;
+      case'rare_signals':prog=this.chRare;break;
+      case'switches':prog=this.chSwitches;break;
+      case'static_time':prog=this.channelTime[0]||0;break;
+      case'error_time':prog=this.channelTime[5]||0;break;
+      case'matrix_signals':prog=this.chMatrixSig;break;
+      case'alert_time':prog=this.channelTime[7]||0;break;
+      case'clean_time':prog=this.cleanTime;break;
+      case'void_time':prog=this.channelTime[4]||0;break;
+      case'score_threshold':prog=this.score;break;
+    }
+    if(prog>=ch.target){
+      this.challengesDone++;this.addScore(120*this.level);this.audio.signalFound();shake(6);spawnP(this.W/2,this.H/3,'#0f0',15);
+      this.challenge=null;document.getElementById('h-ch').textContent='Complete!';
+      setTimeout(()=>{if(this.mode==='challenge'&&!this.gameOver&&!this.paused)this.startChallenge()},2500);return;
+    }
+    if(this.chTimer<=0){this.audio.fail();this.breakCombo();this.challenge=null;document.getElementById('h-ch').textContent='Failed!';
+      setTimeout(()=>{if(this.mode==='challenge'&&!this.gameOver&&!this.paused)this.startChallenge()},2500)}
+  }
+  applyGlitch(ctx){
+    const gi=this.glitchIntensity*DIFF[difficulty].glitch;
+    if(Math.random()<gi*0.3){
+      const slice=Math.random()*this.H;const h=10+Math.random()*30;const shift=(Math.random()-0.5)*50;
+      try{const id=ctx.getImageData(0,Math.max(0,slice),this.W,Math.min(h,this.H-slice));ctx.putImageData(id,shift,Math.max(0,slice))}catch(e){}
+      this.lastGlitch=this.frame;this.audio.glitch();
+    }
+    if(Math.random()<gi*0.1){
+      ctx.fillStyle='rgba('+(Math.random()*255)+',0,0,0.2)';ctx.fillRect(0,0,this.W,this.H);
+      this.lastGlitch=this.frame;
+    }
+    if(Math.random()<gi*0.05){
+      try{
+        const id=ctx.getImageData(0,0,this.W,this.H);
+        for(let i=0;i<id.data.length;i+=4){if(Math.random()<0.001){id.data[i]=id.data[i+1]=id.data[i+2]=255}}
+        ctx.putImageData(id,0,0);
+      }catch(e){}
+      this.lastGlitch=this.frame;
+    }
+  }
+  update(){
+    if(this.paused||this.gameOver)return;
+    this.frame++;
+    // Track channel time
+    this.channelTime[this.channel]=(this.channelTime[this.channel]||0)+1;
+    // Clean time (no glitch)
+    if(this.frame-this.lastGlitch>5)this.cleanTime++;else this.cleanTime=0;
+    // Auto-spawn signals
+    if(this.frame%120===0&&this.signals.length<8){
+      this.signals.push(new Signal(50+Math.random()*(this.W-100),50+Math.random()*(this.H-100),this.W,this.H));
+    }
+    // Update signals
+    for(let i=this.signals.length-1;i>=0;i--){if(!this.signals[i].update())this.signals.splice(i,1)}
+    // Combo decay
+    if(this.comboTimer>0){this.comboTimer--;if(this.comboTimer<=0)this.breakCombo()}
+    // Challenge
+    if(this.mode==='challenge'&&this.challenge)this.updateChallenge();
+    // Particles
+    for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.03;p.life-=p.decay;if(p.life<=0)particles.splice(i,1)}
+    // Shake
+    if(shakeMag>0.1){shakeX=(Math.random()-0.5)*shakeMag;shakeY=(Math.random()-0.5)*shakeMag;shakeMag*=0.9}else{shakeX=shakeY=0;shakeMag=0}
+    // Ticker update
+    if(this.frame%1200===0){
+      const msgs=['SIGNAL INTERRUPTED... ','TRANSMISSION ORIGIN: UNKNOWN... ','DO NOT ADJUST YOUR SET... ','WE ARE EXPERIENCING TECHNICAL DIFFICULTIES... ','PLEASE STAND BY... ','THIS IS NOT A TEST... ','CHANNEL '+this.channel+' LOCKED... ','SCORE: '+this.score+'... '];
+      document.getElementById('ticker-text').textContent=msgs.sort(()=>Math.random()-0.5).join('');
+    }
+    if(this.frame%600===0)this.saveState();
+  }
+  draw(){
+    const ctx=this.ctx;
+    ctx.save();ctx.translate(shakeX,shakeY);
+    // Draw current channel
+    const ch=CHANNELS[this.channel];
+    if(ch.name==='STATIC')ch.draw(ctx,this.W,this.H,this.frame,this.glitchIntensity);
+    else if(ch.name==='MATRIX'){
+      if(this.frame%3===0)ch.draw(ctx,this.W,this.H,this.frame);
+    }
+    else ch.draw(ctx,this.W,this.H,this.frame);
+    // Apply glitch
+    this.applyGlitch(ctx);
+    // Draw signals
+    this.signals.forEach(s=>s.draw(ctx));
+    // Particles
+    particles.forEach(p=>{ctx.save();ctx.globalAlpha=p.life;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();ctx.restore()});
+    ctx.restore();
+  }
+  updateHUD(){
+    document.getElementById('h-score').textContent=this.score;
+    document.getElementById('h-signals').textContent=this.signalsCollected;
+    document.getElementById('h-art').textContent=this.artifacts;
+    document.getElementById('h-streak').textContent=this.streak;
+    document.getElementById('h-level').textContent=this.level;
+    document.getElementById('h-combo').textContent=this.comboLevel>1?'x'+this.comboLevel+' COMBO':'';
+  }
+  togglePause(){
+    this.paused=!this.paused;
+    document.getElementById('pause-overlay').style.display=this.paused?'flex':'none';
+    if(this.paused)document.getElementById('p-stats').innerHTML='Score: '+this.score+'<br>Level: '+this.level+'<br>Signals: '+this.signalsCollected+'<br>Artifacts: '+this.artifacts+'<br>Max Streak: '+this.maxStreak+'<br>Channels: '+this.channelsVisited.size+'/'+CHANNELS.length+'<br>Difficulty: '+DIFF[difficulty].label;
+    this.audio.menu();
+  }
+  endGame(){
+    this.gameOver=true;document.getElementById('game-over').style.display='flex';
+    const grade=this.score>=3000?'S':this.score>=2000?'A':this.score>=1000?'B':this.score>=400?'C':'D';
+    const gc={S:'#fc0',A:'#0f0',B:'#0ff',C:'#f80',D:'#f00'};
+    document.getElementById('go-grade').textContent=grade;document.getElementById('go-grade').style.color=gc[grade];
+    document.getElementById('go-stats').innerHTML='Score: '+this.score+'<br>Level: '+this.level+'<br>Signals: '+this.signalsCollected+'<br>Rare Signals: '+this.rareSignals+'<br>Artifacts: '+this.artifacts+'<br>Channels Visited: '+this.channelsVisited.size+'/'+CHANNELS.length+'<br>Max Streak: '+this.maxStreak+'<br>Challenges: '+this.challengesDone+'<br>Difficulty: '+DIFF[difficulty].label;
+    this.saveHS(this.score,grade);this.renderHS();this.saveState();
+  }
+  saveHS(score,grade){try{const k='broadcast-hs';let s=JSON.parse(localStorage.getItem(k)||'[]');s.push({score,grade,level:this.level,signals:this.signalsCollected,diff:difficulty,date:new Date().toISOString().split('T')[0]});s.sort((a,b)=>b.score-a.score);localStorage.setItem(k,JSON.stringify(s.slice(0,10)))}catch(e){}}
+  renderHS(){try{const s=JSON.parse(localStorage.getItem('broadcast-hs')||'[]');const el=document.getElementById('go-hs');if(!s.length){el.innerHTML='<h4>No high scores</h4>';return}let h='<h4>High Scores</h4>';s.slice(0,5).forEach((sc,i)=>{h+=(i+1)+'. '+sc.score+' ('+sc.grade+') Lv'+sc.level+' '+sc.diff+'<br>'});el.innerHTML=h}catch(e){}}
+  saveState(){try{localStorage.setItem('broadcast-state',JSON.stringify({difficulty,bestScore:Math.max(this.score,parseInt(localStorage.getItem('broadcast-best')||'0'))}))}catch(e){}}
+  loadState(){try{const s=JSON.parse(localStorage.getItem('broadcast-state'));if(s&&s.difficulty){difficulty=s.difficulty;setDiff(s.difficulty)}}catch(e){}}
+  run(){const loop=()=>{this.update();this.draw();this.updateHUD();requestAnimationFrame(loop)};loop()}
+}
+
+// ==================== GLOBALS ====================
+let game;
+function startGame(mode){
+  game=new BroadcastGame();game.mode=mode;game.audio.init();
+  document.getElementById('hud').style.display='block';
+  document.getElementById('channel-display').style.display='block';
+  document.getElementById('controls').style.display='block';
+  document.getElementById('scanlines').style.display='block';
+  document.getElementById('ticker').style.display='block';
+  const ts=document.getElementById('title-screen');ts.style.opacity='0';setTimeout(()=>{ts.style.display='none'},1000);
+  if(mode==='challenge')setTimeout(()=>game.startChallenge(),2000);
+  game.run();
+}
+function restart(){
+  document.getElementById('game-over').style.display='none';
+  if(game){game.gameOver=false;game.paused=false;game.score=0;game.streak=0;game.maxStreak=0;game.comboLevel=1;game.level=1;game.xp=0;game.xpNext=60;game.signalsCollected=0;game.rareSignals=0;game.artifacts=0;game.signals=[];game.challengesDone=0;game.channelsVisited=new Set();game.switches=0;game.cleanTime=0;CHANNELS.forEach((_,i)=>game.channelTime[i]=0);
+  if(game.mode==='challenge')setTimeout(()=>game.startChallenge(),1000)}
+}
+function toTitle(){document.getElementById('game-over').style.display='none';document.getElementById('hud').style.display='none';document.getElementById('channel-display').style.display='none';document.getElementById('controls').style.display='none';document.getElementById('scanlines').style.display='none';document.getElementById('ticker').style.display='none';document.getElementById('title-screen').style.display='flex';document.getElementById('title-screen').style.opacity='1'}
+</script>
 </body>
 </html>
