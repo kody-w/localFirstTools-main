@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Decode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #0a0e1a 0%, #1a1f2e 100%);
+            color: #00ff88;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        #scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.5;
+        }
+
+        #container {
+            width: 95%;
+            max-width: 1200px;
+            background: rgba(10, 20, 30, 0.9);
+            border: 2px solid #00ff88;
+            border-radius: 8px;
+            box-shadow: 0 0 40px rgba(0, 255, 136, 0.3),
+                        inset 0 0 60px rgba(0, 255, 136, 0.05);
+            padding: 20px;
+            position: relative;
+        }
+
+        #header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.8),
+                         0 0 40px rgba(0, 255, 136, 0.4);
+            letter-spacing: 4px;
+            margin-bottom: 10px;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 20px rgba(0, 255, 136, 0.8), 0 0 40px rgba(0, 255, 136, 0.4); }
+            to { text-shadow: 0 0 30px rgba(0, 255, 136, 1), 0 0 60px rgba(0, 255, 136, 0.6); }
+        }
+
+        #stats {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+            font-size: 1.1em;
+        }
+
+        .stat {
+            padding: 8px 15px;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .stat:hover {
+            background: rgba(0, 255, 136, 0.2);
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
+        }
+
+        .stat-value {
+            color: #00ffff;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            max-width: 900px;
+            height: 500px;
+            margin: 0 auto;
+            background: #000814;
+            border: 2px solid #00ff88;
+            border-radius: 4px;
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.2),
+                        inset 0 0 40px rgba(0, 20, 30, 0.8);
+            cursor: crosshair;
+        }
+
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        button {
+            background: linear-gradient(135deg, #00aa66 0%, #00ff88 100%);
+            color: #0a0e1a;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.1em;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        button:hover {
+            background: linear-gradient(135deg, #00ff88 0%, #00ffaa 100%);
+            box-shadow: 0 6px 25px rgba(0, 255, 136, 0.5);
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 10px rgba(0, 255, 136, 0.4);
+        }
+
+        button:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        #messageBox {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 4px;
+            min-height: 60px;
+            text-align: center;
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+
+        .screen {
+            display: none;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        #titleScreen {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        #titleScreen h2 {
+            font-size: 1.8em;
+            margin: 30px 0;
+            color: #00ffff;
+            text-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+        }
+
+        #titleScreen p {
+            font-size: 1.1em;
+            line-height: 1.8;
+            margin: 15px auto;
+            max-width: 700px;
+            color: #88ffbb;
+        }
+
+        .story {
+            background: rgba(0, 100, 100, 0.1);
+            padding: 20px;
+            border-left: 3px solid #00ffff;
+            margin: 20px auto;
+            max-width: 800px;
+            text-align: left;
+        }
+
+        #inputArea {
+            margin-top: 20px;
+        }
+
+        #cipherInput {
+            background: rgba(0, 20, 30, 0.8);
+            color: #00ff88;
+            border: 2px solid #00ff88;
+            padding: 12px;
+            font-size: 1.2em;
+            font-family: 'Courier New', monospace;
+            width: 300px;
+            text-align: center;
+            border-radius: 4px;
+            outline: none;
+            text-transform: uppercase;
+        }
+
+        #cipherInput:focus {
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+            border-color: #00ffff;
+        }
+
+        .symbol-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+            gap: 15px;
+            margin: 20px auto;
+            max-width: 600px;
+        }
+
+        .symbol-btn {
+            width: 100%;
+            aspect-ratio: 1;
+            background: rgba(0, 100, 100, 0.2);
+            border: 2px solid #00ff88;
+            color: #00ff88;
+            font-size: 2em;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .symbol-btn:hover {
+            background: rgba(0, 255, 136, 0.3);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+            transform: scale(1.05);
+        }
+
+        .symbol-btn.selected {
+            background: rgba(0, 255, 136, 0.5);
+            box-shadow: 0 0 25px rgba(0, 255, 136, 0.8);
+        }
+
+        .lives-container {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 15px 0;
+        }
+
+        .life {
+            width: 30px;
+            height: 30px;
+            background: #ff0000;
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .life.lost {
+            background: #331111;
+            box-shadow: none;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .timer-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(0, 100, 100, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .timer-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00ffff);
+            transition: width 0.1s linear;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.6);
+        }
+
+        #highScores {
+            margin: 20px auto;
+            max-width: 500px;
+            background: rgba(0, 100, 100, 0.1);
+            padding: 20px;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 4px;
+        }
+
+        .score-entry {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            margin: 5px 0;
+            background: rgba(0, 255, 136, 0.05);
+            border-radius: 3px;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        .shake {
+            animation: shake 0.3s ease-in-out;
+        }
+
+        @keyframes flash {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .flash {
+            animation: flash 0.3s ease-in-out;
+        }
+
+        .instruction {
+            background: rgba(0, 255, 255, 0.1);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            padding: 15px;
+            margin: 15px auto;
+            max-width: 700px;
+            border-radius: 4px;
+            font-size: 1.05em;
+        }
+
+        .combo-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4em;
+            font-weight: bold;
+            color: #ffff00;
+            text-shadow: 0 0 30px rgba(255, 255, 0, 0.8);
+            pointer-events: none;
+            animation: comboAnim 1s ease-out forwards;
+            z-index: 100;
+        }
+
+        @keyframes comboAnim {
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(0.5); }
+            50% { transform: translate(-50%, -50%) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -100%) scale(1); }
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 1.8em; }
+            #gameCanvas { height: 400px; }
+            button { padding: 10px 20px; font-size: 1em; }
+            .symbol-grid { grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+    <div id="scanlines"></div>
+
+    <div id="container">
+        <div id="header">
+            <h1>◈ SIGNAL DECODE ◈</h1>
+            <div id="stats">
+                <div class="stat">LEVEL: <span class="stat-value" id="levelDisplay">1</span></div>
+                <div class="stat">SCORE: <span class="stat-value" id="scoreDisplay">0</span></div>
+                <div class="stat">STREAK: <span class="stat-value" id="streakDisplay">0</span></div>
+                <div class="stat">MULTIPLIER: <span class="stat-value" id="multiplierDisplay">1.0x</span></div>
+            </div>
+        </div>
+
+        <!-- Title Screen -->
+        <div id="titleScreen" class="screen active">
+            <h2>⚡ CLASSIFIED TRANSMISSION DETECTED ⚡</h2>
+            <div class="story">
+                <p><strong>BRIEFING:</strong> Agent, we've intercepted encrypted enemy transmissions. Your mission: decode the signals before they disappear.</p>
+                <p>Each signal contains vital intelligence. Use pattern recognition, frequency analysis, and cipher-breaking skills to extract the data.</p>
+                <p><strong>WARNING:</strong> Incorrect decodes will corrupt your equipment. You have 3 attempts per mission.</p>
+                <p><strong>BONUS:</strong> Speed is critical. Faster decryption yields higher intelligence scores and combo multipliers.</p>
+            </div>
+            <div class="instruction">
+                <strong>CONTROLS:</strong><br>
+                Pattern Match: Click symbols in correct order<br>
+                Frequency Match: Click the matching frequency<br>
+                Cipher Decode: Type the decoded message<br>
+                Pause: Press P | Restart: Press R
+            </div>
+            <button onclick="game.startGame()">BEGIN MISSION</button>
+            <div id="highScores">
+                <h3 style="text-align: center; margin-bottom: 15px; color: #00ffff;">TOP ANALYSTS</h3>
+                <div id="scoresList"></div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="gameScreen" class="screen">
+            <div class="lives-container" id="livesDisplay"></div>
+            <div class="timer-bar">
+                <div class="timer-fill" id="timerFill"></div>
+            </div>
+            <canvas id="gameCanvas" width="900" height="500"></canvas>
+            <div id="inputArea"></div>
+            <div id="messageBox"></div>
+            <div id="controls">
+                <button onclick="game.pauseGame()">PAUSE (P)</button>
+                <button onclick="game.resetGame()">RESTART (R)</button>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen" class="screen">
+            <h2 style="text-align: center; margin: 30px 0; font-size: 2.5em; color: #ff6666;">MISSION TERMINATED</h2>
+            <div style="text-align: center; font-size: 1.5em; margin: 20px 0;">
+                <div class="stat" style="display: inline-block; margin: 10px;">
+                    FINAL SCORE: <span class="stat-value" id="finalScore">0</span>
+                </div>
+                <div class="stat" style="display: inline-block; margin: 10px;">
+                    LEVELS COMPLETED: <span class="stat-value" id="levelsCompleted">0</span>
+                </div>
+                <div class="stat" style="display: inline-block; margin: 10px;">
+                    MAX STREAK: <span class="stat-value" id="maxStreak">0</span>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 30px;">
+                <button onclick="game.resetGame()">RETRY MISSION</button>
+                <button onclick="game.returnToTitle()">MAIN MENU</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const game = {
+            // Game state
+            canvas: null,
+            ctx: null,
+            state: 'title', // title, playing, paused, gameover
+            level: 1,
+            score: 0,
+            lives: 3,
+            streak: 0,
+            maxStreak: 0,
+            multiplier: 1.0,
+
+            // Level data
+            currentLevelType: null, // 'pattern', 'frequency', 'cipher'
+            levelStartTime: 0,
+            levelTimeLimit: 30000, // 30 seconds
+
+            // Pattern matching
+            targetPattern: [],
+            playerPattern: [],
+            availableSymbols: ['◆', '◇', '★', '☆', '●', '○', '■', '□', '▲', '△'],
+
+            // Frequency matching
+            targetFrequency: 0,
+            frequencyBands: [],
+
+            // Cipher decoding
+            cipherText: '',
+            cipherAnswer: '',
+            cipherHint: '',
+
+            // Visual effects
+            particles: [],
+            waveOffset: 0,
+            noiseData: [],
+
+            // Audio
+            audioContext: null,
+
+            // Animation
+            animationId: null,
+            lastTime: 0,
+
+            init() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+
+                // Setup audio
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkioudioContext)();
+                } catch (e) {
+                    console.warn('Web Audio API not supported');
+                }
+
+                // Event listeners
+                this.canvas.addEventListener('click', (e) => this.handleClick(e));
+                document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+
+                // Initialize noise data for visual effects
+                for (let i = 0; i < 1000; i++) {
+                    this.noiseData.push(Math.random() * 2 - 1);
+                }
+
+                // Load high scores
+                this.loadHighScores();
+
+                // Start animation loop
+                this.animate(0);
+            },
+
+            startGame() {
+                this.state = 'playing';
+                this.level = 1;
+                this.score = 0;
+                this.lives = 3;
+                this.streak = 0;
+                this.maxStreak = 0;
+                this.multiplier = 1.0;
+
+                this.showScreen('gameScreen');
+                this.startLevel();
+                this.playSound(440, 0.1, 'sine');
+            },
+
+            startLevel() {
+                this.levelStartTime = Date.now();
+                this.playerPattern = [];
+
+                // Determine level type based on level number
+                const types = ['pattern', 'frequency', 'cipher'];
+                this.currentLevelType = types[this.level % 3];
+
+                // Adjust difficulty
+                this.levelTimeLimit = Math.max(15000, 30000 - (this.level * 500));
+
+                // Generate level based on type
+                switch (this.currentLevelType) {
+                    case 'pattern':
+                        this.generatePatternLevel();
+                        break;
+                    case 'frequency':
+                        this.generateFrequencyLevel();
+                        break;
+                    case 'cipher':
+                        this.generateCipherLevel();
+                        break;
+                }
+
+                this.updateUI();
+                this.playSound(550, 0.05, 'sine');
+            },
+
+            generatePatternLevel() {
+                const patternLength = Math.min(3 + Math.floor(this.level / 3), 8);
+                this.targetPattern = [];
+
+                for (let i = 0; i < patternLength; i++) {
+                    this.targetPattern.push(this.availableSymbols[Math.floor(Math.random() * this.availableSymbols.length)]);
+                }
+
+                this.setMessage(`PATTERN DETECTED: ${this.targetPattern.join(' ')}<br>Reproduce the sequence...`);
+                this.createSymbolGrid();
+            },
+
+            generateFrequencyLevel() {
+                this.targetFrequency = Math.floor(200 + Math.random() * 600);
+                this.frequencyBands = [];
+
+                const numBands = Math.min(8 + Math.floor(this.level / 2), 16);
+                for (let i = 0; i < numBands; i++) {
+                    this.frequencyBands.push({
+                        freq: 200 + (i * 600 / numBands),
+                        x: (i / numBands) * this.canvas.width,
+                        width: this.canvas.width / numBands
+                    });
+                }
+
+                this.setMessage(`FREQUENCY ANALYSIS REQUIRED<br>Listen and identify the signal...`);
+                this.playTone(this.targetFrequency, 1.0);
+                document.getElementById('inputArea').innerHTML = '';
+            },
+
+            generateCipherLevel() {
+                const words = [
+                    { cipher: 'FYYFHP', plain: 'ATTACK', hint: 'ROT-1' },
+                    { cipher: 'TGIWKV', plain: 'SIGNAL', hint: 'ROT-2' },
+                    { cipher: 'GHFRGH', plain: 'DECODE', hint: 'ROT-3' },
+                    { cipher: 'UGEVKXG', plain: 'ACTIVE', hint: 'ROT-2' },
+                    { cipher: 'VCTIGT', plain: 'TARGET', hint: 'ROT-2' },
+                    { cipher: 'OKPPKQP', plain: 'MISSION', hint: 'ROT-2' },
+                    { cipher: 'EQORNGVG', plain: 'COMPLETE', hint: 'ROT-2' },
+                    { cipher: 'UGEWTKV[', plain: 'SECURITY', hint: 'ROT-2' }
+                ];
+
+                const choice = words[Math.floor(Math.random() * words.length)];
+                this.cipherText = choice.cipher;
+                this.cipherAnswer = choice.plain;
+                this.cipherHint = choice.hint;
+
+                this.setMessage(`ENCRYPTED MESSAGE: "${this.cipherText}"<br>HINT: ${this.cipherHint}<br>Enter decoded message:`);
+
+                document.getElementById('inputArea').innerHTML = `
+                    <input type="text" id="cipherInput" maxlength="${this.cipherAnswer.length}" placeholder="DECODE...">
+                    <button onclick="game.submitCipher()">SUBMIT</button>
+                `;
+
+                setTimeout(() => {
+                    document.getElementById('cipherInput').focus();
+                }, 100);
+            },
+
+            createSymbolGrid() {
+                const gridHTML = this.availableSymbols.slice(0, Math.min(6 + Math.floor(this.level / 2), 10))
+                    .map(symbol => `<button class="symbol-btn" onclick="game.selectSymbol('${symbol}')">${symbol}</button>`)
+                    .join('');
+
+                document.getElementById('inputArea').innerHTML = `
+                    <div class="symbol-grid">${gridHTML}</div>
+                    <button onclick="game.submitPattern()">SUBMIT PATTERN</button>
+                    <button onclick="game.clearPattern()">CLEAR</button>
+                `;
+            },
+
+            selectSymbol(symbol) {
+                this.playerPattern.push(symbol);
+                this.playSound(300 + this.playerPattern.length * 50, 0.05, 'square');
+                this.updatePatternDisplay();
+            },
+
+            clearPattern() {
+                this.playerPattern = [];
+                this.updatePatternDisplay();
+                this.playSound(200, 0.05, 'sawtooth');
+            },
+
+            updatePatternDisplay() {
+                this.setMessage(`PATTERN: ${this.targetPattern.join(' ')}<br>YOUR INPUT: ${this.playerPattern.join(' ')}`);
+            },
+
+            submitPattern() {
+                if (this.playerPattern.length !== this.targetPattern.length) {
+                    this.setMessage(`ERROR: Pattern length mismatch!<br>PATTERN: ${this.targetPattern.join(' ')}<br>YOUR INPUT: ${this.playerPattern.join(' ')}`);
+                    return;
+                }
+
+                const correct = this.playerPattern.every((sym, idx) => sym === this.targetPattern[idx]);
+                this.checkAnswer(correct);
+            },
+
+            submitCipher() {
+                const input = document.getElementById('cipherInput').value.toUpperCase();
+                const correct = input === this.cipherAnswer;
+                this.checkAnswer(correct);
+            },
+
+            handleClick(e) {
+                if (this.state !== 'playing' || this.currentLevelType !== 'frequency') return;
+
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+
+                // Find clicked frequency band
+                for (let band of this.frequencyBands) {
+                    if (x >= band.x && x < band.x + band.width) {
+                        const diff = Math.abs(band.freq - this.targetFrequency);
+                        const correct = diff < 50; // 50Hz tolerance
+
+                        this.playTone(band.freq, 0.3);
+                        this.checkAnswer(correct);
+                        break;
+                    }
+                }
+            },
+
+            checkAnswer(correct) {
+                if (correct) {
+                    // Correct answer
+                    const timeBonus = Math.max(0, Math.floor((this.levelTimeLimit - (Date.now() - this.levelStartTime)) / 100));
+                    const basePoints = 100 + (this.level * 10);
+                    const totalPoints = Math.floor((basePoints + timeBonus) * this.multiplier);
+
+                    this.score += totalPoints;
+                    this.streak++;
+                    this.maxStreak = Math.max(this.maxStreak, this.streak);
+                    this.multiplier = Math.min(1.0 + (this.streak * 0.1), 3.0);
+
+                    this.playSound(660, 0.15, 'sine');
+                    this.playSound(880, 0.15, 'sine');
+
+                    this.flashScreen('#00ff88');
+                    this.createParticles(this.canvas.width / 2, this.canvas.height / 2, 30);
+
+                    if (this.streak > 1) {
+                        this.showCombo(`${this.streak}X COMBO!`);
+                    }
+
+                    this.setMessage(`✓ SIGNAL DECODED! +${totalPoints} pts<br>Time Bonus: ${timeBonus} | Multiplier: ${this.multiplier.toFixed(1)}x`);
+
+                    // Advance to next level
+                    setTimeout(() => {
+                        this.level++;
+                        if (this.level > 20) {
+                            this.winGame();
+                        } else {
+                            this.startLevel();
+                        }
+                    }, 2000);
+
+                } else {
+                    // Wrong answer
+                    this.lives--;
+                    this.streak = 0;
+                    this.multiplier = 1.0;
+
+                    this.playSound(150, 0.2, 'sawtooth');
+                    this.playSound(100, 0.2, 'sawtooth');
+
+                    this.shakeScreen();
+                    this.flashScreen('#ff0000');
+
+                    this.setMessage(`✗ DECODE FAILED! Equipment damaged.<br>Lives remaining: ${this.lives}`);
+
+                    if (this.lives <= 0) {
+                        setTimeout(() => this.gameOver(), 1500);
+                    }
+                }
+
+                this.updateUI();
+            },
+
+            updateUI() {
+                document.getElementById('levelDisplay').textContent = this.level;
+                document.getElementById('scoreDisplay').textContent = this.score;
+                document.getElementById('streakDisplay').textContent = this.streak;
+                document.getElementById('multiplierDisplay').textContent = this.multiplier.toFixed(1) + 'x';
+
+                // Update lives
+                const livesHTML = Array(3).fill(0).map((_, i) =>
+                    `<div class="life ${i >= this.lives ? 'lost' : ''}"></div>`
+                ).join('');
+                document.getElementById('livesDisplay').innerHTML = livesHTML;
+
+                // Update timer
+                const elapsed = Date.now() - this.levelStartTime;
+                const remaining = Math.max(0, this.levelTimeLimit - elapsed);
+                const percentage = (remaining / this.levelTimeLimit) * 100;
+                document.getElementById('timerFill').style.width = percentage + '%';
+
+                if (remaining <= 0 && this.state === 'playing') {
+                    this.checkAnswer(false); // Time's up = wrong answer
+                }
+            },
+
+            setMessage(html) {
+                document.getElementById('messageBox').innerHTML = html;
+            },
+
+            showScreen(screenId) {
+                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+                document.getElementById(screenId).classList.add('active');
+            },
+
+            pauseGame() {
+                if (this.state === 'playing') {
+                    this.state = 'paused';
+                    this.setMessage('⏸ PAUSED - Click PAUSE or press P to resume');
+                    this.playSound(440, 0.05, 'sine');
+                } else if (this.state === 'paused') {
+                    this.state = 'playing';
+                    this.levelStartTime += Date.now() - this.pauseStartTime;
+                    this.setMessage('Game resumed...');
+                    this.playSound(440, 0.05, 'sine');
+                }
+
+                if (this.state === 'paused') {
+                    this.pauseStartTime = Date.now();
+                }
+            },
+
+            resetGame() {
+                this.state = 'title';
+                this.showScreen('titleScreen');
+                this.playSound(330, 0.1, 'sine');
+            },
+
+            gameOver() {
+                this.state = 'gameover';
+                document.getElementById('finalScore').textContent = this.score;
+                document.getElementById('levelsCompleted').textContent = this.level - 1;
+                document.getElementById('maxStreak').textContent = this.maxStreak;
+
+                this.saveHighScore();
+                this.showScreen('gameOverScreen');
+
+                this.playSound(220, 0.3, 'sawtooth');
+                setTimeout(() => this.playSound(180, 0.3, 'sawtooth'), 200);
+                setTimeout(() => this.playSound(150, 0.4, 'sawtooth'), 400);
+            },
+
+            winGame() {
+                this.score += 5000; // Victory bonus
+                this.gameOver();
+            },
+
+            returnToTitle() {
+                this.resetGame();
+            },
+
+            handleKeyDown(e) {
+                if (e.key === 'p' || e.key === 'P') {
+                    this.pauseGame();
+                } else if (e.key === 'r' || e.key === 'R') {
+                    this.resetGame();
+                } else if (e.key === 'Enter' && this.currentLevelType === 'cipher') {
+                    this.submitCipher();
+                }
+            },
+
+            // Visual effects
+            drawWaveform() {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                ctx.strokeStyle = 'rgba(0, 255, 136, 0.3)';
+                ctx.lineWidth = 2;
+
+                // Main signal wave
+                ctx.beginPath();
+                for (let x = 0; x < w; x += 2) {
+                    const freq = this.targetFrequency || 440;
+                    const y = h / 2 + Math.sin((x + this.waveOffset) * 0.02 * (freq / 440)) * 80;
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                // Noise overlay
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                for (let x = 0; x < w; x += 3) {
+                    const noiseIdx = Math.floor((x + this.waveOffset) % this.noiseData.length);
+                    const y = h / 2 + this.noiseData[noiseIdx] * 40;
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                this.waveOffset += 2;
+            },
+
+            drawFrequencyBands() {
+                const ctx = this.ctx;
+                const h = this.canvas.height;
+
+                this.frequencyBands.forEach(band => {
+                    const isTarget = Math.abs(band.freq - this.targetFrequency) < 50;
+
+                    // Bar height based on frequency
+                    const barHeight = 50 + Math.sin((this.waveOffset + band.x) * 0.05) * 30;
+
+                    ctx.fillStyle = isTarget ?
+                        'rgba(0, 255, 255, 0.5)' :
+                        'rgba(0, 255, 136, 0.2)';
+
+                    ctx.fillRect(band.x + 2, h - barHeight, band.width - 4, barHeight);
+
+                    // Border
+                    ctx.strokeStyle = isTarget ? '#00ffff' : '#00ff88';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(band.x + 2, h - barHeight, band.width - 4, barHeight);
+
+                    // Frequency label
+                    ctx.fillStyle = '#00ff88';
+                    ctx.font = '10px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(Math.floor(band.freq) + 'Hz', band.x + band.width / 2, h - 5);
+                });
+            },
+
+            drawCipher() {
+                const ctx = this.ctx;
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                // Animated cipher text
+                ctx.fillStyle = '#00ff88';
+                ctx.font = 'bold 48px Courier New';
+                ctx.textAlign = 'center';
+
+                const glitchOffset = Math.sin(this.waveOffset * 0.1) * 3;
+                ctx.fillText(this.cipherText, w / 2 + glitchOffset, h / 2);
+
+                // Glitch effect
+                if (Math.random() > 0.95) {
+                    ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+                    ctx.fillText(this.cipherText, w / 2 + Math.random() * 10 - 5, h / 2 + Math.random() * 10 - 5);
+                }
+
+                // Hint
+                ctx.fillStyle = '#00ffff';
+                ctx.font = '20px Courier New';
+                ctx.fillText(`ENCRYPTION: ${this.cipherHint}`, w / 2, h / 2 + 60);
+            },
+
+            createParticles(x, y, count) {
+                for (let i = 0; i < count; i++) {
+                    this.particles.push({
+                        x: x,
+                        y: y,
+                        vx: (Math.random() - 0.5) * 8,
+                        vy: (Math.random() - 0.5) * 8,
+                        life: 1.0,
+                        size: Math.random() * 4 + 2,
+                        color: Math.random() > 0.5 ? '#00ff88' : '#00ffff'
+                    });
+                }
+            },
+
+            updateParticles() {
+                const ctx = this.ctx;
+
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    const p = this.particles[i];
+
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life -= 0.02;
+
+                    if (p.life <= 0) {
+                        this.particles.splice(i, 1);
+                        continue;
+                    }
+
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.life;
+                    ctx.fillRect(p.x, p.y, p.size, p.size);
+                }
+
+                ctx.globalAlpha = 1;
+            },
+
+            flashScreen(color) {
+                this.canvas.classList.add('flash');
+                this.canvas.style.borderColor = color;
+                setTimeout(() => {
+                    this.canvas.classList.remove('flash');
+                    this.canvas.style.borderColor = '#00ff88';
+                }, 300);
+            },
+
+            shakeScreen() {
+                document.getElementById('container').classList.add('shake');
+                setTimeout(() => {
+                    document.getElementById('container').classList.remove('shake');
+                }, 300);
+            },
+
+            showCombo(text) {
+                const comboEl = document.createElement('div');
+                comboEl.className = 'combo-display';
+                comboEl.textContent = text;
+                document.getElementById('container').appendChild(comboEl);
+
+                setTimeout(() => comboEl.remove(), 1000);
+            },
+
+            // Audio
+            playSound(frequency, duration, type = 'sine') {
+                if (!this.audioContext) return;
+
+                try {
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+
+                    oscillator.type = type;
+                    oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+
+                    gainNode.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
+
+                    oscillator.start(this.audioContext.currentTime);
+                    oscillator.stop(this.audioContext.currentTime + duration);
+                } catch (e) {
+                    console.warn('Audio playback failed:', e);
+                }
+            },
+
+            playTone(frequency, duration) {
+                this.playSound(frequency, duration, 'sine');
+            },
+
+            playStaticNoise(duration) {
+                if (!this.audioContext) return;
+
+                try {
+                    const bufferSize = this.audioContext.sampleRate * duration;
+                    const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+                    const data = buffer.getChannelData(0);
+
+                    for (let i = 0; i < bufferSize; i++) {
+                        data[i] = Math.random() * 2 - 1;
+                    }
+
+                    const source = this.audioContext.createBufferSource();
+                    const gainNode = this.audioContext.createGain();
+
+                    gainNode.gain.value = 0.05;
+
+                    source.buffer = buffer;
+                    source.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
+
+                    source.start();
+                } catch (e) {
+                    console.warn('Static noise failed:', e);
+                }
+            },
+
+            // High scores
+            saveHighScore() {
+                try {
+                    let scores = JSON.parse(localStorage.getItem('signalDecodeScores') || '[]');
+                    scores.push({
+                        score: this.score,
+                        level: this.level - 1,
+                        date: new Date().toISOString().split('T')[0]
+                    });
+                    scores.sort((a, b) => b.score - a.score);
+                    scores = scores.slice(0, 10); // Keep top 10
+                    localStorage.setItem('signalDecodeScores', JSON.stringify(scores));
+                    this.loadHighScores();
+                } catch (e) {
+                    console.warn('Could not save high score:', e);
+                }
+            },
+
+            loadHighScores() {
+                try {
+                    const scores = JSON.parse(localStorage.getItem('signalDecodeScores') || '[]');
+                    const scoresHTML = scores.map((s, i) => `
+                        <div class="score-entry">
+                            <span>${i + 1}. LVL ${s.level}</span>
+                            <span>${s.score} pts</span>
+                            <span>${s.date}</span>
+                        </div>
+                    `).join('');
+
+                    document.getElementById('scoresList').innerHTML = scoresHTML ||
+                        '<div style="text-align: center; color: #666;">No scores yet</div>';
+                } catch (e) {
+                    console.warn('Could not load high scores:', e);
+                }
+            },
+
+            // Main animation loop
+            animate(currentTime) {
+                this.animationId = requestAnimationFrame((t) => this.animate(t));
+
+                const dt = currentTime - this.lastTime;
+                this.lastTime = currentTime;
+
+                // Clear canvas
+                this.ctx.fillStyle = '#000814';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Draw based on game state and level type
+                if (this.state === 'playing' || this.state === 'paused') {
+                    this.drawWaveform();
+
+                    if (this.currentLevelType === 'frequency') {
+                        this.drawFrequencyBands();
+                    } else if (this.currentLevelType === 'cipher') {
+                        this.drawCipher();
+                    } else if (this.currentLevelType === 'pattern') {
+                        // Draw pattern visualization
+                        this.ctx.fillStyle = '#00ff88';
+                        this.ctx.font = '36px Courier New';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('TARGET PATTERN', this.canvas.width / 2, 80);
+
+                        const spacing = 60;
+                        const startX = this.canvas.width / 2 - (this.targetPattern.length * spacing) / 2;
+                        this.targetPattern.forEach((symbol, i) => {
+                            const x = startX + i * spacing;
+                            const y = 150;
+
+                            // Glow effect
+                            this.ctx.shadowBlur = 20;
+                            this.ctx.shadowColor = '#00ff88';
+                            this.ctx.fillText(symbol, x, y);
+                            this.ctx.shadowBlur = 0;
+                        });
+
+                        // Draw player's input
+                        if (this.playerPattern.length > 0) {
+                            this.ctx.fillStyle = '#00ffff';
+                            this.ctx.font = '30px Courier New';
+                            this.ctx.fillText('YOUR INPUT', this.canvas.width / 2, 230);
+
+                            const inputStartX = this.canvas.width / 2 - (this.playerPattern.length * spacing) / 2;
+                            this.playerPattern.forEach((symbol, i) => {
+                                const x = inputStartX + i * spacing;
+                                const y = 280;
+                                this.ctx.fillText(symbol, x, y);
+                            });
+                        }
+                    }
+
+                    this.updateParticles();
+
+                    if (this.state === 'playing') {
+                        this.updateUI();
+                    } else if (this.state === 'paused') {
+                        // Draw pause overlay
+                        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                        this.ctx.fillStyle = '#00ff88';
+                        this.ctx.font = 'bold 48px Courier New';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('⏸ PAUSED', this.canvas.width / 2, this.canvas.height / 2);
+                    }
+                } else {
+                    // Title screen animation
+                    this.drawWaveform();
+
+                    this.ctx.fillStyle = 'rgba(0, 255, 136, 0.8)';
+                    this.ctx.font = 'bold 60px Courier New';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.shadowBlur = 30;
+                    this.ctx.shadowColor = '#00ff88';
+                    this.ctx.fillText('SIGNAL DECODE', this.canvas.width / 2, this.canvas.height / 2);
+                    this.ctx.shadowBlur = 0;
+                }
+            }
+        };
+
+        // Initialize game when page loads
+        window.addEventListener('load', () => {
+            game.init();
+        });
+
+        // Prevent accidental page navigation
+        window.addEventListener('beforeunload', (e) => {
+            if (game.state === 'playing') {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+    </script>
+</body>
+</html>
