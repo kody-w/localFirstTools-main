@@ -3,726 +3,930 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WowMon Card Game - Design Demo</title>
+    <title>WowMon Card Game</title>
+    <meta name="description" content="Collect and battle WowMon creatures in a strategic card game with elemental types, evolution, and boss battles.">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Arial', sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            color: #fff;
-            min-height: 100vh;
-            padding: 20px;
+            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+            min-height: 100vh; font-family: Arial, sans-serif;
+            overflow: hidden; user-select: none; -webkit-user-select: none;
         }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
+        canvas { display: block; }
+        #hud {
+            position: fixed; top: 0; left: 0; right: 0;
+            padding: 8px 12px; display: none;
+            justify-content: space-between; align-items: center;
+            pointer-events: none; z-index: 100;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
         }
-
-        h1 {
-            text-align: center;
-            margin-bottom: 10px;
-            font-size: 2.5em;
-            text-shadow: 0 0 20px rgba(79, 172, 254, 0.8);
+        .hud-section { display: flex; flex-direction: column; gap: 2px; }
+        .hud-label { font-size: 9px; color: rgba(79,172,254,0.7); text-transform: uppercase; letter-spacing: 1px; }
+        .hud-value { font-size: 14px; color: #fff; font-weight: bold; }
+        .bar-container { width: 100px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .hp-bar { background: linear-gradient(to right, #e74c3c, #2ecc71); }
+        .xp-bar { background: linear-gradient(to right, #3498db, #9b59b6); }
+        .combo-display { font-size: 13px; color: #ffd700; text-shadow: 0 0 6px rgba(255,215,0,0.5); }
+        #menu-screen {
+            position: fixed; inset: 0; z-index: 200;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: radial-gradient(ellipse at center, #16213e, #0a0a1e);
         }
-
-        .subtitle {
-            text-align: center;
-            color: #4facfe;
-            margin-bottom: 30px;
-            font-size: 1.2em;
+        #menu-screen h1 {
+            font-size: 48px; color: #4facfe; margin-bottom: 8px;
+            text-shadow: 0 0 30px rgba(79,172,254,0.5);
+            animation: glow 3s ease-in-out infinite;
         }
-
-        .section {
-            margin-bottom: 40px;
+        @keyframes glow {
+            0%, 100% { text-shadow: 0 0 20px rgba(79,172,254,0.3); }
+            50% { text-shadow: 0 0 40px rgba(79,172,254,0.7), 0 0 60px rgba(240,147,251,0.3); }
         }
-
-        .section-title {
-            font-size: 1.8em;
-            margin-bottom: 20px;
-            color: #f093fb;
-            border-bottom: 2px solid #4facfe;
-            padding-bottom: 10px;
+        .subtitle { color: rgba(79,172,254,0.5); font-style: italic; margin-bottom: 35px; font-size: 14px; }
+        .menu-btn {
+            width: 200px; padding: 12px; margin: 5px;
+            background: rgba(79,172,254,0.15); border: 1px solid rgba(79,172,254,0.3);
+            color: #4facfe; font-size: 15px; font-family: inherit; cursor: pointer;
+            border-radius: 8px; transition: all 0.3s;
         }
-
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+        .menu-btn:hover { background: rgba(79,172,254,0.3); border-color: #4facfe; transform: scale(1.05); }
+        .diff-label { font-size: 10px; opacity: 0.5; display: block; margin-top: 2px; }
+        .high-scores { margin-top: 20px; text-align: center; }
+        .high-scores h3 { color: rgba(79,172,254,0.4); font-size: 12px; margin-bottom: 5px; }
+        .high-scores p { color: rgba(79,172,254,0.3); font-size: 11px; }
+        #pause-overlay {
+            position: fixed; inset: 0; z-index: 200;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(10,10,30,0.85);
         }
-
-        /* Card Styles */
-        .card {
-            width: 280px;
-            height: 400px;
-            background: linear-gradient(145deg, #2d3748 0%, #1a202c 100%);
-            border-radius: 16px;
-            border: 3px solid;
-            padding: 12px;
-            position: relative;
-            cursor: pointer;
-            transition: all 0.3s;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+        #pause-overlay h2 { color: #4facfe; font-size: 36px; margin-bottom: 20px; }
+        #gameover-screen {
+            position: fixed; inset: 0; z-index: 200;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(10,10,30,0.9);
         }
-
-        .card:hover {
-            transform: translateY(-10px) scale(1.05);
-            box-shadow: 0 12px 30px rgba(79, 172, 254, 0.6);
-        }
-
-        .card.water { border-color: #4169E1; }
-        .card.fire { border-color: #DC143C; }
-        .card.nature { border-color: #228B22; }
-        .card.shadow { border-color: #4B0082; }
-        .card.dragon { border-color: #FFD700; }
-        .card.warrior { border-color: #FF6347; }
-        .card.beast { border-color: #8B4513; }
-        .card.undead { border-color: #696969; }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .card-name {
-            font-size: 1.1em;
-            font-weight: bold;
-            color: #fff;
-        }
-
-        .card-cost {
-            background: #4facfe;
-            color: #000;
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 1.3em;
-            box-shadow: 0 0 10px rgba(79, 172, 254, 0.8);
-        }
-
-        .card-types {
-            display: flex;
-            gap: 6px;
-            margin-bottom: 8px;
-        }
-
-        .type-badge {
-            background: rgba(79, 172, 254, 0.3);
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 0.75em;
-            border: 1px solid rgba(79, 172, 254, 0.5);
-        }
-
-        .card-art {
-            height: 160px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 8px;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3em;
-            border: 2px solid rgba(79, 172, 254, 0.3);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .card-art::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(circle, rgba(79, 172, 254, 0.1) 0%, transparent 70%);
-        }
-
-        .card-stats {
-            display: flex;
-            justify-content: space-around;
-            margin-bottom: 10px;
-            padding: 8px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 8px;
-        }
-
-        .stat {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 1.2em;
-            font-weight: bold;
-        }
-
-        .stat-label {
-            color: #4facfe;
-        }
-
-        .card-text {
-            background: rgba(0, 0, 0, 0.5);
-            padding: 10px;
-            border-radius: 8px;
-            font-size: 0.85em;
-            line-height: 1.5;
-            min-height: 70px;
-            border: 1px solid rgba(79, 172, 254, 0.2);
-        }
-
-        .keyword {
-            color: #FFD700;
-            font-weight: bold;
-        }
-
-        .rarity {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            box-shadow: 0 0 10px currentColor;
-        }
-
-        .rarity.common { background: #9E9E9E; }
-        .rarity.uncommon { background: #4CAF50; }
-        .rarity.rare { background: #2196F3; }
-        .rarity.epic { background: #9C27B0; }
-        .rarity.legendary { background: #FF9800; animation: pulse 2s infinite; }
-
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 10px currentColor; }
-            50% { box-shadow: 0 0 20px currentColor, 0 0 30px currentColor; }
-        }
-
-        .spell-card .card-art {
-            background: radial-gradient(circle, rgba(240, 147, 251, 0.3), rgba(79, 172, 254, 0.3));
-        }
-
-        .explanation {
-            background: rgba(30, 41, 59, 0.8);
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            border: 2px solid rgba(79, 172, 254, 0.3);
-        }
-
-        .explanation h3 {
-            color: #4facfe;
-            margin-bottom: 10px;
-        }
-
-        .explanation ul {
-            margin-left: 20px;
-            line-height: 1.8;
-        }
-
-        .battlefield-demo {
-            background: rgba(30, 41, 59, 0.8);
-            padding: 30px;
-            border-radius: 16px;
-            border: 3px solid rgba(79, 172, 254, 0.5);
-            margin-bottom: 30px;
-        }
-
-        .board-row {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin: 20px 0;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 8px;
-        }
-
-        .mini-card {
-            width: 120px;
-            height: 160px;
-            background: linear-gradient(145deg, #2d3748 0%, #1a202c 100%);
-            border: 2px solid #4facfe;
-            border-radius: 8px;
-            padding: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .mini-card-name {
-            font-size: 0.8em;
-            font-weight: bold;
-            text-align: center;
-        }
-
-        .mini-card-art {
-            font-size: 2em;
-            margin: 10px 0;
-        }
-
-        .mini-stats {
-            display: flex;
-            gap: 15px;
-            font-weight: bold;
-        }
-
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            padding: 15px;
-            background: rgba(0, 0, 0, 0.5);
-            border-radius: 8px;
-            margin: 10px 0;
-        }
-
-        .energy-orbs {
-            display: flex;
-            gap: 8px;
-        }
-
-        .energy-orb {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: linear-gradient(145deg, #4facfe, #00f2fe);
-            box-shadow: 0 0 15px rgba(79, 172, 254, 0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .energy-orb.spent {
-            background: #333;
-            box-shadow: none;
-        }
-
-        @media (max-width: 768px) {
-            .card-grid {
-                grid-template-columns: 1fr;
-                justify-items: center;
-            }
-
-            .mini-card {
-                width: 100px;
-                height: 140px;
-            }
-        }
+        #gameover-screen h2 { font-size: 40px; margin-bottom: 8px; }
+        .stat-row { color: rgba(255,255,255,0.6); font-size: 13px; margin: 3px 0; }
+        .ending-text { color: #ffd700; font-size: 16px; margin: 12px 0; font-style: italic; max-width: 380px; text-align: center; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>WowMon: Deck Builder Card Game</h1>
-        <p class="subtitle">Strategic Card Battle System - Design Showcase</p>
+    <canvas id="c"></canvas>
 
-        <div class="explanation">
-            <h3>About This Demo</h3>
-            <p>This interactive showcase demonstrates the card design system for the WowMon deck-building game. The redesign transforms the Pokemon-style RPG into a Slay the Spire-inspired strategic card battler featuring Warcraft creatures.</p>
-            <ul>
-                <li><strong>Hover over cards</strong> to see them come alive</li>
-                <li><strong>Energy System</strong>: Cards cost 0-4 energy to play</li>
-                <li><strong>Creature Cards</strong>: Summon allies with Attack/Health stats</li>
-                <li><strong>Spell Cards</strong>: One-time powerful effects</li>
-                <li><strong>Strategic Depth</strong>: Build synergistic decks with multiple archetypes</li>
-            </ul>
+    <div id="hud">
+        <div class="hud-section">
+            <span class="hud-label">Round</span>
+            <span class="hud-value" id="round-val">1</span>
         </div>
-
-        <div class="section">
-            <h2 class="section-title">Creature Cards</h2>
-            <div class="card-grid">
-                <!-- Murloc -->
-                <div class="card water">
-                    <div class="rarity common"></div>
-                    <div class="card-header">
-                        <div class="card-name">MURLOC</div>
-                        <div class="card-cost">1</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Water</span>
-                        <span class="type-badge">Beast</span>
-                    </div>
-                    <div class="card-art">
-                        <span>🐟</span>
-                    </div>
-                    <div class="card-stats">
-                        <div class="stat">
-                            <span class="stat-label">⚔️</span>
-                            <span>2</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">🛡️</span>
-                            <span>3</span>
-                        </div>
-                    </div>
-                    <div class="card-text">
-                        <span class="keyword">Battlecry:</span> Draw a card if you control another Water creature.
-                        <br><br>
-                        <em>"Mrglglglgl!"</em>
-                    </div>
-                </div>
-
-                <!-- Dire Wolf -->
-                <div class="card beast">
-                    <div class="rarity uncommon"></div>
-                    <div class="card-header">
-                        <div class="card-name">DIRE WOLF</div>
-                        <div class="card-cost">3</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Beast</span>
-                        <span class="type-badge">Shadow</span>
-                    </div>
-                    <div class="card-art">
-                        <span>🐺</span>
-                    </div>
-                    <div class="card-stats">
-                        <div class="stat">
-                            <span class="stat-label">⚔️</span>
-                            <span>5</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">🛡️</span>
-                            <span>4</span>
-                        </div>
-                    </div>
-                    <div class="card-text">
-                        <span class="keyword">Quick:</span> Can attack immediately.
-                        <br>
-                        <span class="keyword">Bloodthirst:</span> +2 ATK if enemy was damaged this turn.
-                    </div>
-                </div>
-
-                <!-- Ancient Wisp -->
-                <div class="card nature">
-                    <div class="rarity rare"></div>
-                    <div class="card-header">
-                        <div class="card-name">ANCIENT WISP</div>
-                        <div class="card-cost">4</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Nature</span>
-                        <span class="type-badge">Spirit</span>
-                    </div>
-                    <div class="card-art">
-                        <span>✨</span>
-                    </div>
-                    <div class="card-stats">
-                        <div class="stat">
-                            <span class="stat-label">⚔️</span>
-                            <span>3</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">🛡️</span>
-                            <span>6</span>
-                        </div>
-                    </div>
-                    <div class="card-text">
-                        At end of turn: Heal all friendly creatures for 1 HP.
-                        <br>
-                        <span class="keyword">Can't attack.</span>
-                    </div>
-                </div>
-
-                <!-- Dragon -->
-                <div class="card dragon">
-                    <div class="rarity legendary"></div>
-                    <div class="card-header">
-                        <div class="card-name">DRAGON</div>
-                        <div class="card-cost">4</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Dragon</span>
-                        <span class="type-badge">Fire</span>
-                    </div>
-                    <div class="card-art">
-                        <span>🐲</span>
-                    </div>
-                    <div class="card-stats">
-                        <div class="stat">
-                            <span class="stat-label">⚔️</span>
-                            <span>8</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">🛡️</span>
-                            <span>8</span>
-                        </div>
-                    </div>
-                    <div class="card-text">
-                        <span class="keyword">Flying.</span> <span class="keyword">Quick.</span>
-                        <br>
-                        <span class="keyword">Battlecry:</span> Deal 4 damage to all enemies.
-                    </div>
-                </div>
-
-                <!-- Abomination -->
-                <div class="card undead">
-                    <div class="rarity epic"></div>
-                    <div class="card-header">
-                        <div class="card-name">ABOMINATION</div>
-                        <div class="card-cost">4</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Undead</span>
-                        <span class="type-badge">Shadow</span>
-                    </div>
-                    <div class="card-art">
-                        <span>🧟</span>
-                    </div>
-                    <div class="card-stats">
-                        <div class="stat">
-                            <span class="stat-label">⚔️</span>
-                            <span>6</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">🛡️</span>
-                            <span>9</span>
-                        </div>
-                    </div>
-                    <div class="card-text">
-                        <span class="keyword">Taunt.</span>
-                        <br>
-                        <span class="keyword">Deathrattle:</span> Deal 3 damage to all enemies.
-                    </div>
-                </div>
-
-                <!-- Orc Warlord -->
-                <div class="card warrior">
-                    <div class="rarity rare"></div>
-                    <div class="card-header">
-                        <div class="card-name">ORC WARLORD</div>
-                        <div class="card-cost">3</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Warrior</span>
-                        <span class="type-badge">Beast</span>
-                    </div>
-                    <div class="card-art">
-                        <span>⚔️</span>
-                    </div>
-                    <div class="card-stats">
-                        <div class="stat">
-                            <span class="stat-label">⚔️</span>
-                            <span>7</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">🛡️</span>
-                            <span>5</span>
-                        </div>
-                    </div>
-                    <div class="card-text">
-                        <span class="keyword">Battlecry:</span> Give all friendly Warriors +2 ATK.
-                        <br>
-                        <span class="keyword">Quick.</span>
-                    </div>
-                </div>
-            </div>
+        <div class="hud-section">
+            <span class="hud-label">HP</span>
+            <div class="bar-container"><div class="bar-fill hp-bar" id="hp-bar" style="width:100%"></div></div>
         </div>
-
-        <div class="section">
-            <h2 class="section-title">Spell Cards</h2>
-            <div class="card-grid">
-                <!-- Hydro Pump -->
-                <div class="card water spell-card">
-                    <div class="rarity rare"></div>
-                    <div class="card-header">
-                        <div class="card-name">HYDRO PUMP</div>
-                        <div class="card-cost">3</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Water</span>
-                        <span class="type-badge">Spell</span>
-                    </div>
-                    <div class="card-art">
-                        <span>💧</span>
-                    </div>
-                    <div class="card-text" style="margin-top: 20px;">
-                        Deal 8 damage to any target.
-                        <br><br>
-                        <span class="keyword">Drench:</span> If target survives, reduce their ATK by 2.
-                    </div>
-                </div>
-
-                <!-- Battle Shout -->
-                <div class="card warrior spell-card">
-                    <div class="rarity uncommon"></div>
-                    <div class="card-header">
-                        <div class="card-name">BATTLE SHOUT</div>
-                        <div class="card-cost">1</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Warrior</span>
-                        <span class="type-badge">Spell</span>
-                    </div>
-                    <div class="card-art">
-                        <span>📣</span>
-                    </div>
-                    <div class="card-text" style="margin-top: 20px;">
-                        Give all friendly creatures +2 ATK this turn.
-                        <br><br>
-                        Draw a card.
-                    </div>
-                </div>
-
-                <!-- Plague Strike -->
-                <div class="card shadow spell-card">
-                    <div class="rarity uncommon"></div>
-                    <div class="card-header">
-                        <div class="card-name">PLAGUE STRIKE</div>
-                        <div class="card-cost">2</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Undead</span>
-                        <span class="type-badge">Shadow</span>
-                    </div>
-                    <div class="card-art">
-                        <span>☠️</span>
-                    </div>
-                    <div class="card-text" style="margin-top: 20px;">
-                        Deal 3 damage to target.
-                        <br><br>
-                        Apply <span class="keyword">Poison (2)</span>: Take 2 damage at start of their turns.
-                    </div>
-                </div>
-
-                <!-- Inferno -->
-                <div class="card fire spell-card">
-                    <div class="rarity epic"></div>
-                    <div class="card-header">
-                        <div class="card-name">INFERNO</div>
-                        <div class="card-cost">3</div>
-                    </div>
-                    <div class="card-types">
-                        <span class="type-badge">Fire</span>
-                        <span class="type-badge">Demon</span>
-                    </div>
-                    <div class="card-art">
-                        <span>🔥</span>
-                    </div>
-                    <div class="card-text" style="margin-top: 20px;">
-                        Deal 12 damage to target enemy.
-                        <br><br>
-                        50% chance to deal 6 damage to self instead.
-                    </div>
-                </div>
-            </div>
+        <div class="hud-section">
+            <span class="hud-label">XP</span>
+            <div class="bar-container"><div class="bar-fill xp-bar" id="xp-bar" style="width:0%"></div></div>
         </div>
-
-        <div class="section">
-            <h2 class="section-title">Battlefield Example</h2>
-            <div class="battlefield-demo">
-                <div class="status-bar">
-                    <div>
-                        <strong>🎯 ENEMY</strong> - HP: 45/60 | Block: 8
-                    </div>
-                    <div>
-                        <strong>Intent:</strong> ⚔️ Attack for 12
-                    </div>
-                </div>
-
-                <div class="board-row">
-                    <div class="mini-card" style="border-color: #8B4513;">
-                        <div class="mini-card-name">Gnoll</div>
-                        <div class="mini-card-art">🦴</div>
-                        <div class="mini-stats">
-                            <span>⚔️4</span>
-                            <span>🛡️3</span>
-                        </div>
-                    </div>
-                    <div class="mini-card" style="border-color: #8B4513;">
-                        <div class="mini-card-name">Kobold</div>
-                        <div class="mini-card-art">⛏️</div>
-                        <div class="mini-stats">
-                            <span>⚔️2</span>
-                            <span>🛡️2</span>
-                        </div>
-                    </div>
-                    <div class="mini-card" style="border-color: #8B4513;">
-                        <div class="mini-card-name">Wolf</div>
-                        <div class="mini-card-art">🐺</div>
-                        <div class="mini-stats">
-                            <span>⚔️3</span>
-                            <span>🛡️3</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="text-align: center; padding: 20px; font-size: 1.5em; color: #4facfe;">
-                    ⚡ BATTLEFIELD ⚡
-                </div>
-
-                <div class="board-row">
-                    <div class="mini-card" style="border-color: #4169E1;">
-                        <div class="mini-card-name">Murloc</div>
-                        <div class="mini-card-art">🐟</div>
-                        <div class="mini-stats">
-                            <span>⚔️2</span>
-                            <span>🛡️3</span>
-                        </div>
-                    </div>
-                    <div class="mini-card" style="border-color: #228B22;">
-                        <div class="mini-card-name">Wisp</div>
-                        <div class="mini-card-art">✨</div>
-                        <div class="mini-stats">
-                            <span>⚔️1</span>
-                            <span>🛡️4</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="status-bar">
-                    <div>
-                        <strong>🛡️ YOU</strong> - HP: 52/60 | Block: 12
-                    </div>
-                    <div class="energy-orbs">
-                        <div class="energy-orb">⚡</div>
-                        <div class="energy-orb">⚡</div>
-                        <div class="energy-orb">⚡</div>
-                    </div>
-                </div>
-            </div>
+        <div class="hud-section">
+            <span class="hud-label">Score</span>
+            <span class="hud-value" id="score-val">0</span>
         </div>
-
-        <div class="explanation">
-            <h3>Key Design Features</h3>
-            <ul>
-                <li><strong>Energy System:</strong> 3 energy per turn, cards cost 0-4</li>
-                <li><strong>Creature Combat:</strong> Creatures persist and can attack each turn</li>
-                <li><strong>Keywords:</strong> Quick (attack immediately), Taunt (must be attacked first), Flying, Battlecry, Deathrattle</li>
-                <li><strong>Synergies:</strong> Water creatures benefit from playing together, Warriors buff each other</li>
-                <li><strong>Intent System:</strong> Enemy shows what they'll do next turn</li>
-                <li><strong>Block Mechanic:</strong> Damage hits block first, then HP</li>
-                <li><strong>Strategic Depth:</strong> Multiple archetypes (Aggro, Control, Combo, Midrange)</li>
-                <li><strong>Deck Building:</strong> Start with 15 cards, add more through victories</li>
-                <li><strong>Roguelike Progression:</strong> Each run is unique with different cards and paths</li>
-            </ul>
+        <div class="hud-section">
+            <span class="combo-display" id="combo-val"></span>
         </div>
-
-        <div class="explanation">
-            <h3>Deck Archetypes</h3>
-            <ul>
-                <li><strong>Water Swarm:</strong> Play many small creatures, draw lots of cards</li>
-                <li><strong>Fire Burn:</strong> Direct damage spells, ignore creatures, fast wins</li>
-                <li><strong>Nature Tank:</strong> High HP creatures, healing, outlast opponents</li>
-                <li><strong>Shadow Poison:</strong> Damage over time, stall with defenses</li>
-                <li><strong>Warrior Tempo:</strong> Efficient trades, board control, consistent pressure</li>
-                <li><strong>Dragon Ramp:</strong> Expensive late-game dragons, energy generation</li>
-                <li><strong>Undead Sacrifice:</strong> Sacrifice creatures for powerful effects</li>
-            </ul>
-        </div>
-
-        <div class="explanation" style="text-align: center; background: linear-gradient(145deg, rgba(79, 172, 254, 0.2), rgba(240, 147, 251, 0.2));">
-            <h3>See Full Design Document</h3>
-            <p style="margin: 15px 0;">For complete card mechanics, progression systems, balance guidelines, and implementation details, see:</p>
-            <p style="font-size: 1.2em; color: #4facfe;"><strong>WOWMON_CARD_GAME_REDESIGN.md</strong></p>
-            <p style="margin-top: 10px; color: #f093fb;">150+ cards | 7 deck archetypes | Roguelike progression | Strategic depth</p>
+        <div class="hud-section">
+            <span class="hud-label">Deck</span>
+            <span class="hud-value" id="deck-val">0</span>
         </div>
     </div>
+
+    <div id="menu-screen">
+        <h1>WowMon Card Game</h1>
+        <p class="subtitle">Collect, battle, and evolve your creatures!</p>
+        <button class="menu-btn" onclick="startGame('easy')">Apprentice<span class="diff-label">Weak enemies, more cards</span></button>
+        <button class="menu-btn" onclick="startGame('normal')">Champion<span class="diff-label">Standard difficulty</span></button>
+        <button class="menu-btn" onclick="startGame('hard')">Legendary<span class="diff-label">Tough enemies, fewer cards</span></button>
+        <div class="high-scores" id="high-scores"></div>
+    </div>
+
+    <div id="pause-overlay">
+        <h2>Paused</h2>
+        <button class="menu-btn" onclick="resumeGame()">Resume</button>
+        <button class="menu-btn" onclick="quitToMenu()">Quit to Menu</button>
+    </div>
+
+    <div id="gameover-screen">
+        <h2 id="go-title" style="color:#4facfe;">Game Over</h2>
+        <p class="ending-text" id="go-ending"></p>
+        <div id="go-stats"></div>
+        <button class="menu-btn" style="margin-top:15px;" onclick="startGame(G.difficulty)">Play Again (R)</button>
+        <button class="menu-btn" onclick="quitToMenu()">Menu</button>
+    </div>
+
+    <script>
+    // ===== AUDIO =====
+    const AC = window.AudioContext || window.webkitAudioContext;
+    let ac = null;
+    function initAudio() { if (!ac) ac = new AC(); }
+    function snd(type, freq, dur, vol) {
+        if (!ac) return;
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.connect(g); g.connect(ac.destination);
+        o.type = type; o.frequency.setValueAtTime(freq, ac.currentTime);
+        g.gain.setValueAtTime(vol || 0.1, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+        o.start(); o.stop(ac.currentTime + dur);
+    }
+    function sfxAttack() { snd('sawtooth', 200, 0.15, 0.12); snd('square', 150, 0.1, 0.08); }
+    function sfxHit() { snd('sawtooth', 80, 0.2, 0.15); snd('square', 60, 0.15, 0.1); }
+    function sfxHeal() { snd('sine', 600, 0.2, 0.1); snd('sine', 800, 0.15, 0.08); }
+    function sfxCollect() { snd('sine', 880, 0.12, 0.1); setTimeout(() => snd('sine', 1100, 0.15, 0.08), 60); }
+    function sfxEvolve() { [440,554,659,880,1100].forEach((f,i) => setTimeout(() => snd('sine', f, 0.3, 0.1), i*80)); }
+    function sfxBoss() { snd('sawtooth', 40, 0.5, 0.18); snd('square', 55, 0.4, 0.12); }
+    function sfxWin() { [440,554,659,880].forEach((f,i) => setTimeout(() => snd('sine', f, 0.35, 0.1), i*100)); }
+    function sfxMenu() { snd('sine', 440, 0.1, 0.06); }
+    function sfxDeath() { snd('sawtooth', 100, 0.3, 0.1); snd('square', 70, 0.25, 0.08); }
+
+    // ===== CANVAS =====
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    let W, H;
+    function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+    resize(); window.addEventListener('resize', resize);
+
+    // ===== ELEMENT TYPES =====
+    const ELEMENTS = {
+        fire:    { color: '#DC143C', strong: 'nature', weak: 'water',  icon: 'F' },
+        water:   { color: '#4169E1', strong: 'fire',   weak: 'nature', icon: 'W' },
+        nature:  { color: '#2ecc71', strong: 'water',  weak: 'fire',   icon: 'N' },
+        shadow:  { color: '#8e44ad', strong: 'light',  weak: 'light',  icon: 'S' },
+        light:   { color: '#f1c40f', strong: 'shadow', weak: 'shadow', icon: 'L' }
+    };
+
+    // ===== WOWMON DATABASE =====
+    const WOWMON_DB = [
+        { name: 'Flamepup',   element: 'fire',   baseAtk: 8,  baseDef: 5,  baseHP: 30, evolves: 'Blazehound' },
+        { name: 'Blazehound', element: 'fire',   baseAtk: 14, baseDef: 9,  baseHP: 50, evolves: null },
+        { name: 'Aquafish',   element: 'water',  baseAtk: 6,  baseDef: 8,  baseHP: 35, evolves: 'Tsunamaw' },
+        { name: 'Tsunamaw',   element: 'water',  baseAtk: 12, baseDef: 14, baseHP: 55, evolves: null },
+        { name: 'Seedling',   element: 'nature', baseAtk: 5,  baseDef: 6,  baseHP: 40, evolves: 'Thornking' },
+        { name: 'Thornking',  element: 'nature', baseAtk: 11, baseDef: 12, baseHP: 60, evolves: null },
+        { name: 'Duskbat',    element: 'shadow', baseAtk: 10, baseDef: 4,  baseHP: 25, evolves: 'Nightwraith' },
+        { name: 'Nightwraith',element: 'shadow', baseAtk: 18, baseDef: 8,  baseHP: 40, evolves: null },
+        { name: 'Sparkmote',  element: 'light',  baseAtk: 7,  baseDef: 7,  baseHP: 32, evolves: 'Solarburst' },
+        { name: 'Solarburst', element: 'light',  baseAtk: 13, baseDef: 13, baseHP: 48, evolves: null }
+    ];
+
+    function createCard(dbIndex, level) {
+        const db = WOWMON_DB[dbIndex];
+        const lvlMul = 1 + (level - 1) * 0.15;
+        return {
+            name: db.name, element: db.element, dbIndex,
+            level, xp: 0, xpNeeded: 20 + level * 10,
+            atk: Math.floor(db.baseAtk * lvlMul),
+            def: Math.floor(db.baseDef * lvlMul),
+            hp: Math.floor(db.baseHP * lvlMul),
+            maxHP: Math.floor(db.baseHP * lvlMul),
+            evolves: db.evolves,
+            abilities: generateAbilities(db.element, level)
+        };
+    }
+
+    function generateAbilities(element, level) {
+        const el = ELEMENTS[element];
+        const abilities = [
+            { name: 'Strike', damage: 5 + level * 2, type: 'attack', element, cost: 0 },
+            { name: el.icon + ' Blast', damage: 8 + level * 3, type: 'elemental', element, cost: 1 },
+            { name: 'Guard', damage: 0, type: 'defend', element: 'none', cost: 0, defBoost: 3 + level }
+        ];
+        if (level >= 3) {
+            abilities.push({ name: 'ULTIMATE', damage: 15 + level * 5, type: 'ultimate', element, cost: 2 });
+        }
+        return abilities;
+    }
+
+    // ===== GAME STATE =====
+    const G = {
+        state: 'menu',
+        difficulty: 'normal',
+        score: 0, combo: 0, comboTimer: 0, maxCombo: 0,
+        round: 1, battlesWon: 0, bossesDefeated: 0,
+        playerHP: 100, maxPlayerHP: 100,
+        deck: [], hand: [], graveyard: [],
+        enemyCard: null, enemyHP: 0, enemyMaxHP: 0,
+        selectedCard: -1, selectedAbility: -1,
+        phase: 'draw', // draw, select, battle, reward, shop
+        battleLog: [],
+        particles: [], floatingTexts: [],
+        shakeX: 0, shakeY: 0, shakeMag: 0,
+        time: 0, lastTime: 0,
+        animating: false, animTimer: 0,
+        turnEnergy: 2, maxEnergy: 3,
+        cardPositions: [], enemyPos: { x: 0, y: 0 },
+        diffSettings: {
+            easy:   { enemyLvlBonus: -1, startCards: 6, healRate: 0.3, bossEvery: 5 },
+            normal: { enemyLvlBonus: 0,  startCards: 5, healRate: 0.15, bossEvery: 4 },
+            hard:   { enemyLvlBonus: 2,  startCards: 4, healRate: 0.05, bossEvery: 3 }
+        },
+        settings: null,
+        rewardCards: [],
+        shopOpen: false
+    };
+
+    // ===== INPUT =====
+    const keys = {};
+    let mouseX = 0, mouseY = 0;
+    document.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.key === 'Escape') {
+            if (G.state === 'playing') { pauseGame(); e.preventDefault(); }
+            else if (G.state === 'paused') { resumeGame(); e.preventDefault(); }
+        }
+        if (e.key === 'r' && G.state === 'gameover') startGame(G.difficulty);
+    });
+    document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+    canvas.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+    canvas.addEventListener('click', e => { initAudio(); handleClick(e.clientX, e.clientY); });
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault(); initAudio();
+        const t = e.touches[0];
+        mouseX = t.clientX; mouseY = t.clientY;
+        handleClick(t.clientX, t.clientY);
+    }, { passive: false });
+
+    // ===== CLICK HANDLING =====
+    function handleClick(x, y) {
+        if (G.state !== 'playing' || G.animating) return;
+
+        if (G.phase === 'select') {
+            // Check hand card clicks
+            for (let i = 0; i < G.hand.length; i++) {
+                const cp = G.cardPositions[i];
+                if (cp && x >= cp.x && x <= cp.x + cp.w && y >= cp.y && y <= cp.y + cp.h) {
+                    G.selectedCard = i;
+                    G.selectedAbility = -1;
+                    sfxMenu();
+                    return;
+                }
+            }
+
+            // Check ability clicks when card selected
+            if (G.selectedCard >= 0) {
+                const card = G.hand[G.selectedCard];
+                const abY = H * 0.35;
+                for (let i = 0; i < card.abilities.length; i++) {
+                    const abX = W / 2 - (card.abilities.length * 70) / 2 + i * 70;
+                    if (x >= abX && x <= abX + 65 && y >= abY && y <= abY + 55) {
+                        if (card.abilities[i].cost <= G.turnEnergy) {
+                            G.selectedAbility = i;
+                            executeBattle(G.selectedCard, i);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        else if (G.phase === 'reward') {
+            // Pick reward card
+            for (let i = 0; i < G.rewardCards.length; i++) {
+                const rx = W / 2 - (G.rewardCards.length * 100) / 2 + i * 100;
+                const ry = H / 2 - 50;
+                if (x >= rx && x <= rx + 90 && y >= ry && y <= ry + 120) {
+                    G.deck.push(G.rewardCards[i]);
+                    sfxCollect();
+                    addFloat(rx + 45, ry, 'Added!', '#4facfe', 1);
+                    nextRound();
+                    return;
+                }
+            }
+            // Skip button
+            const skipX = W / 2 - 40, skipY = H / 2 + 90;
+            if (x >= skipX && x <= skipX + 80 && y >= skipY && y <= skipY + 30) {
+                nextRound();
+                return;
+            }
+        }
+    }
+
+    // ===== BATTLE SYSTEM =====
+    function executeBattle(cardIdx, abilityIdx) {
+        const card = G.hand[cardIdx];
+        const ability = card.abilities[abilityIdx];
+        G.turnEnergy -= ability.cost;
+        G.animating = true;
+        G.animTimer = 1;
+
+        let damage = 0;
+        if (ability.type === 'defend') {
+            card.def += ability.defBoost;
+            addFloat(G.cardPositions[cardIdx].x + 40, G.cardPositions[cardIdx].y, '+' + ability.defBoost + ' DEF', '#3498db', 1);
+            sfxHeal();
+        } else {
+            damage = Math.max(1, ability.damage + card.atk - Math.floor(G.enemyCard.def * 0.5));
+
+            // Elemental bonus
+            const cardEl = ELEMENTS[card.element];
+            if (cardEl && cardEl.strong === G.enemyCard.element) {
+                damage = Math.floor(damage * 1.5);
+                addFloat(G.enemyPos.x, G.enemyPos.y - 30, 'SUPER EFFECTIVE!', '#ffd700', 1.5);
+            } else if (cardEl && cardEl.weak === G.enemyCard.element) {
+                damage = Math.floor(damage * 0.7);
+                addFloat(G.enemyPos.x, G.enemyPos.y - 30, 'Not very effective...', '#e74c3c', 1);
+            }
+
+            G.enemyHP -= damage;
+            sfxAttack();
+            G.shakeMag = 8;
+            addFloat(G.enemyPos.x, G.enemyPos.y - 15, '-' + damage, '#e74c3c', 1);
+            spawnHitParticles(G.enemyPos.x, G.enemyPos.y, ELEMENTS[G.enemyCard.element].color);
+        }
+
+        // Enemy counter-attack
+        setTimeout(() => {
+            if (G.enemyHP <= 0) {
+                // Victory
+                G.combo++;
+                G.comboTimer = 5;
+                if (G.combo > G.maxCombo) G.maxCombo = G.combo;
+                const points = 50 * Math.max(1, G.combo) + (G.enemyCard.isBoss ? 200 : 0);
+                G.score += points;
+                G.battlesWon++;
+                if (G.enemyCard.isBoss) G.bossesDefeated++;
+
+                // XP for used card
+                card.xp += 10 + G.round * 2;
+                if (card.xp >= card.xpNeeded && card.evolves) {
+                    evolveCard(card);
+                }
+
+                addFloat(W / 2, H / 2 - 30, '+' + points + (G.combo > 1 ? ' x' + G.combo : ''), '#ffd700', 1.5);
+                sfxWin();
+
+                // Heal player slightly
+                G.playerHP = Math.min(G.maxPlayerHP, G.playerHP + Math.floor(G.maxPlayerHP * G.settings.healRate));
+
+                // Enter reward phase
+                G.phase = 'reward';
+                generateRewards();
+                G.animating = false;
+            } else {
+                // Enemy attacks
+                const enemyDmg = Math.max(1, G.enemyCard.atk + Math.floor(G.enemyCard.atk * Math.random() * 0.3) - Math.floor(card.def * 0.3));
+                G.playerHP -= enemyDmg;
+                card.hp -= Math.floor(enemyDmg * 0.5);
+                sfxHit();
+                G.shakeMag = 6;
+                addFloat(G.cardPositions[cardIdx].x + 40, G.cardPositions[cardIdx].y, '-' + enemyDmg, '#e74c3c', 1);
+
+                if (card.hp <= 0) {
+                    G.hand.splice(cardIdx, 1);
+                    G.graveyard.push(card);
+                    sfxDeath();
+                    addFloat(G.cardPositions[cardIdx].x + 40, G.cardPositions[cardIdx].y, card.name + ' fainted!', '#888', 1.5);
+                    G.selectedCard = -1;
+                }
+
+                if (G.playerHP <= 0) {
+                    G.playerHP = 0;
+                    gameOver(G.bossesDefeated >= 3 ? 'champion' : 'defeated');
+                    G.animating = false;
+                    return;
+                }
+
+                G.turnEnergy = G.maxEnergy;
+                G.selectedCard = -1;
+                G.selectedAbility = -1;
+                G.animating = false;
+
+                // Refill hand if needed
+                while (G.hand.length < 3 && G.deck.length > 0) {
+                    G.hand.push(G.deck.pop());
+                }
+                if (G.hand.length === 0 && G.deck.length === 0) {
+                    gameOver('outofcards');
+                    return;
+                }
+            }
+        }, 600);
+    }
+
+    function evolveCard(card) {
+        const evolvedName = card.evolves;
+        const evolvedDb = WOWMON_DB.find(m => m.name === evolvedName);
+        if (!evolvedDb) return;
+
+        const newLevel = card.level + 1;
+        const lvlMul = 1 + (newLevel - 1) * 0.15;
+        card.name = evolvedDb.name;
+        card.level = newLevel;
+        card.atk = Math.floor(evolvedDb.baseAtk * lvlMul);
+        card.def = Math.floor(evolvedDb.baseDef * lvlMul);
+        card.maxHP = Math.floor(evolvedDb.baseHP * lvlMul);
+        card.hp = card.maxHP;
+        card.xp = 0;
+        card.xpNeeded = 30 + newLevel * 15;
+        card.evolves = evolvedDb.evolves;
+        card.abilities = generateAbilities(card.element, newLevel);
+
+        sfxEvolve();
+        addFloat(W / 2, H / 2, card.name + ' EVOLVED!', '#ffd700', 2);
+        G.shakeMag = 10;
+    }
+
+    // ===== ENEMY GENERATION =====
+    function spawnEnemy() {
+        const isBoss = G.round > 1 && G.round % G.settings.bossEvery === 0;
+        const baseMonsters = WOWMON_DB.filter(m => !m.evolves || isBoss);
+        const pick = baseMonsters[Math.floor(Math.random() * baseMonsters.length)];
+        const level = Math.max(1, G.round + G.settings.enemyLvlBonus + (isBoss ? 2 : 0));
+        const lvlMul = 1 + (level - 1) * 0.2;
+
+        G.enemyCard = {
+            name: isBoss ? 'MEGA ' + pick.name : pick.name,
+            element: pick.element, level,
+            atk: Math.floor((isBoss ? pick.baseAtk * 1.5 : pick.baseAtk) * lvlMul),
+            def: Math.floor((isBoss ? pick.baseDef * 1.5 : pick.baseDef) * lvlMul),
+            isBoss
+        };
+        G.enemyHP = Math.floor((isBoss ? pick.baseHP * 2 : pick.baseHP) * lvlMul);
+        G.enemyMaxHP = G.enemyHP;
+        G.enemyPos = { x: W / 2, y: H * 0.15 };
+
+        if (isBoss) sfxBoss();
+    }
+
+    function generateRewards() {
+        G.rewardCards = [];
+        for (let i = 0; i < 3; i++) {
+            const baseIdx = Math.floor(Math.random() * WOWMON_DB.length);
+            // Only offer base forms
+            const base = WOWMON_DB.filter(m => m.evolves != null);
+            const pick = base[Math.floor(Math.random() * base.length)] || WOWMON_DB[0];
+            const dbIdx = WOWMON_DB.indexOf(pick);
+            G.rewardCards.push(createCard(dbIdx, 1 + Math.floor(G.round / 3)));
+        }
+    }
+
+    function nextRound() {
+        G.round++;
+        G.phase = 'select';
+        G.selectedCard = -1;
+        G.selectedAbility = -1;
+        G.turnEnergy = G.maxEnergy;
+        G.rewardCards = [];
+
+        // Check win condition
+        if (G.round > 20) { gameOver('master'); return; }
+        if (G.bossesDefeated >= 5) { gameOver('legend'); return; }
+
+        spawnEnemy();
+        document.getElementById('round-val').textContent = G.round;
+    }
+
+    // ===== PARTICLES =====
+    function spawnHitParticles(x, y, color) {
+        for (let i = 0; i < 12; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            G.particles.push({
+                x, y, vx: Math.cos(angle) * (2 + Math.random() * 4),
+                vy: Math.sin(angle) * (2 + Math.random() * 4),
+                life: 0.8, maxLife: 0.8, size: 2 + Math.random() * 3, color
+            });
+        }
+    }
+
+    function addFloat(x, y, text, color, dur) {
+        G.floatingTexts.push({ x, y, text, color, life: dur, maxLife: dur });
+    }
+
+    // ===== GAME FLOW =====
+    function startGame(diff) {
+        initAudio(); sfxMenu();
+        G.difficulty = diff;
+        G.settings = G.diffSettings[diff];
+        G.state = 'playing';
+        G.score = 0; G.combo = 0; G.comboTimer = 0; G.maxCombo = 0;
+        G.round = 1; G.battlesWon = 0; G.bossesDefeated = 0;
+        G.playerHP = 100; G.maxPlayerHP = 100;
+        G.deck = []; G.hand = []; G.graveyard = [];
+        G.particles = []; G.floatingTexts = [];
+        G.shakeMag = 0; G.time = 0;
+        G.phase = 'select'; G.selectedCard = -1; G.selectedAbility = -1;
+        G.turnEnergy = 2; G.rewardCards = [];
+
+        // Build starting deck
+        const starters = [0, 2, 4, 6, 8]; // One of each element
+        for (let i = 0; i < G.settings.startCards; i++) {
+            const idx = starters[i % starters.length];
+            G.deck.push(createCard(idx, 1));
+        }
+        // Shuffle
+        for (let i = G.deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [G.deck[i], G.deck[j]] = [G.deck[j], G.deck[i]];
+        }
+        // Draw initial hand
+        G.hand = G.deck.splice(0, Math.min(3, G.deck.length));
+
+        spawnEnemy();
+
+        document.getElementById('menu-screen').style.display = 'none';
+        document.getElementById('gameover-screen').style.display = 'none';
+        document.getElementById('pause-overlay').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+    }
+
+    function pauseGame() { G.state = 'paused'; document.getElementById('pause-overlay').style.display = 'flex'; sfxMenu(); }
+    function resumeGame() { G.state = 'playing'; document.getElementById('pause-overlay').style.display = 'none'; G.lastTime = performance.now(); sfxMenu(); }
+    function quitToMenu() {
+        G.state = 'menu';
+        document.getElementById('menu-screen').style.display = 'flex';
+        document.getElementById('pause-overlay').style.display = 'none';
+        document.getElementById('gameover-screen').style.display = 'none';
+        document.getElementById('hud').style.display = 'none';
+        displayHighScores();
+    }
+
+    function gameOver(ending) {
+        G.state = 'gameover';
+        document.getElementById('gameover-screen').style.display = 'flex';
+        const endings = {
+            defeated: { title: 'Defeated!', text: 'Your WowMon team was overwhelmed. Train harder and try again!' },
+            outofcards: { title: 'Out of Cards', text: 'Your deck ran empty. Build a stronger collection next time!' },
+            champion: { title: 'Champion!', text: 'You defeated multiple bosses and proved your worth as a WowMon trainer!' },
+            master: { title: 'Grand Master!', text: 'You conquered all 20 rounds! Your name echoes through the WowMon halls of fame.' },
+            legend: { title: 'LEGENDARY!', text: 'Five bosses fell before your might. You are the undisputed WowMon Legend!' }
+        };
+        const e = endings[ending] || endings.defeated;
+        document.getElementById('go-title').textContent = e.title;
+        document.getElementById('go-title').style.color = ending === 'defeated' || ending === 'outofcards' ? '#e74c3c' : '#ffd700';
+        document.getElementById('go-ending').textContent = e.text;
+        let html = '';
+        html += '<p class="stat-row">Score: ' + G.score + '</p>';
+        html += '<p class="stat-row">Rounds survived: ' + G.round + '</p>';
+        html += '<p class="stat-row">Battles won: ' + G.battlesWon + '</p>';
+        html += '<p class="stat-row">Bosses defeated: ' + G.bossesDefeated + '</p>';
+        html += '<p class="stat-row">Max combo: ' + G.maxCombo + 'x</p>';
+        html += '<p class="stat-row">Difficulty: ' + G.difficulty + '</p>';
+        document.getElementById('go-stats').innerHTML = html;
+        saveHighScore(G.score, G.round, ending);
+    }
+
+    // ===== LOCALSTORAGE =====
+    function saveHighScore(score, round, ending) {
+        try {
+            let scores = JSON.parse(localStorage.getItem('wowmon-scores') || '[]');
+            scores.push({ score, round, ending, date: new Date().toISOString(), difficulty: G.difficulty });
+            scores.sort((a, b) => b.score - a.score);
+            scores = scores.slice(0, 10);
+            localStorage.setItem('wowmon-scores', JSON.stringify(scores));
+        } catch(e) {}
+    }
+
+    function displayHighScores() {
+        try {
+            const scores = JSON.parse(localStorage.getItem('wowmon-scores') || '[]');
+            const el = document.getElementById('high-scores');
+            if (scores.length === 0) {
+                el.innerHTML = '<h3>High Scores</h3><p>No scores yet</p>';
+            } else {
+                let html = '<h3>High Scores</h3>';
+                scores.slice(0, 5).forEach((s, i) => {
+                    html += '<p>' + (i + 1) + '. ' + s.score + ' pts (Round ' + s.round + ', ' + s.difficulty + ')</p>';
+                });
+                el.innerHTML = html;
+            }
+        } catch(e) {}
+    }
+
+    // ===== DRAW CARD =====
+    function drawCard(card, x, y, w, h, selected, hovered) {
+        const el = ELEMENTS[card.element];
+        const scale = selected ? 1.08 : hovered ? 1.03 : 1;
+        const sx = x + w * (1 - scale) / 2;
+        const sy = y + h * (1 - scale) / 2;
+        const sw = w * scale, sh = h * scale;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(sx + 3, sy + 3, sw, sh);
+
+        // Card body
+        const grad = ctx.createLinearGradient(sx, sy, sx + sw, sy + sh);
+        grad.addColorStop(0, selected ? el.color : '#2d3748');
+        grad.addColorStop(1, '#1a202c');
+        ctx.fillStyle = grad;
+        ctx.fillRect(sx, sy, sw, sh);
+
+        // Border
+        ctx.strokeStyle = selected ? '#ffd700' : el.color;
+        ctx.lineWidth = selected ? 3 : 2;
+        ctx.strokeRect(sx, sy, sw, sh);
+
+        // Element icon circle
+        ctx.fillStyle = el.color;
+        ctx.beginPath();
+        ctx.arc(sx + sw - 15, sy + 15, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(el.icon, sx + sw - 15, sy + 19);
+
+        // Name
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(card.name, sx + 8, sy + 18);
+
+        // Level
+        ctx.fillStyle = '#888';
+        ctx.font = '10px Arial';
+        ctx.fillText('Lv.' + card.level, sx + 8, sy + 30);
+
+        // WowMon art (procedural)
+        const artY = sy + 35;
+        const artH = sh * 0.35;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(sx + 5, artY, sw - 10, artH);
+        // Simple creature silhouette
+        ctx.fillStyle = el.color;
+        const cx = sx + sw / 2, cy = artY + artH / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, artH * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+        // Eyes
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(cx - 5, cy - 3, 3, 0, Math.PI * 2);
+        ctx.arc(cx + 5, cy - 3, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(cx - 4, cy - 3, 1.5, 0, Math.PI * 2);
+        ctx.arc(cx + 6, cy - 3, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Stats
+        const statY = artY + artH + 8;
+        ctx.fillStyle = '#e74c3c';
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText('ATK: ' + card.atk, sx + 8, statY);
+        ctx.fillStyle = '#3498db';
+        ctx.fillText('DEF: ' + card.def, sx + 8, statY + 13);
+
+        // HP bar
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(sx + 8, statY + 18, sw - 16, 6);
+        ctx.fillStyle = card.hp / card.maxHP > 0.5 ? '#2ecc71' : card.hp / card.maxHP > 0.25 ? '#f1c40f' : '#e74c3c';
+        ctx.fillRect(sx + 8, statY + 18, (sw - 16) * (card.hp / card.maxHP), 6);
+
+        ctx.fillStyle = '#aaa';
+        ctx.font = '9px Arial';
+        ctx.fillText(card.hp + '/' + card.maxHP + ' HP', sx + 8, statY + 36);
+
+        // XP bar
+        if (card.xp !== undefined) {
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(sx + 8, statY + 40, sw - 16, 4);
+            ctx.fillStyle = '#9b59b6';
+            ctx.fillRect(sx + 8, statY + 40, (sw - 16) * (card.xp / card.xpNeeded), 4);
+        }
+    }
+
+    // ===== UPDATE =====
+    function update(dt) {
+        if (G.state !== 'playing') return;
+        G.time += dt;
+
+        // Combo timer
+        if (G.combo > 0) {
+            G.comboTimer -= dt;
+            if (G.comboTimer <= 0) G.combo = 0;
+        }
+
+        // Animation timer
+        if (G.animating) {
+            G.animTimer -= dt;
+            if (G.animTimer <= 0) G.animating = false;
+        }
+
+        // Shake decay
+        G.shakeMag *= 0.9;
+        G.shakeX = (Math.random() - 0.5) * G.shakeMag;
+        G.shakeY = (Math.random() - 0.5) * G.shakeMag;
+
+        // Particles
+        G.particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life -= dt; });
+        G.particles = G.particles.filter(p => p.life > 0);
+
+        // Floating texts
+        G.floatingTexts.forEach(f => { f.y -= 25 * dt; f.life -= dt; });
+        G.floatingTexts = G.floatingTexts.filter(f => f.life > 0);
+
+        // HUD
+        document.getElementById('hp-bar').style.width = (G.playerHP / G.maxPlayerHP * 100) + '%';
+        const activeCard = G.selectedCard >= 0 ? G.hand[G.selectedCard] : null;
+        document.getElementById('xp-bar').style.width = activeCard ? (activeCard.xp / activeCard.xpNeeded * 100) + '%' : '0%';
+        document.getElementById('score-val').textContent = G.score;
+        document.getElementById('combo-val').textContent = G.combo > 1 ? G.combo + 'x' : '';
+        document.getElementById('deck-val').textContent = G.deck.length;
+    }
+
+    // ===== RENDER =====
+    function draw() {
+        ctx.save();
+        ctx.translate(G.shakeX, G.shakeY);
+
+        // Background
+        const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+        bgGrad.addColorStop(0, '#1a1a2e');
+        bgGrad.addColorStop(0.5, '#16213e');
+        bgGrad.addColorStop(1, '#0f3460');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(-10, -10, W + 20, H + 20);
+
+        if (G.state === 'menu') { ctx.restore(); return; }
+        if (G.state !== 'playing' && G.state !== 'paused') { ctx.restore(); return; }
+
+        // Battle arena
+        ctx.strokeStyle = 'rgba(79,172,254,0.1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(W / 2, H / 2, Math.min(W, H) * 0.35, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw enemy card
+        if (G.enemyCard) {
+            const ex = W / 2 - 50, ey = H * 0.05;
+            G.enemyPos = { x: W / 2, y: ey + 60 };
+
+            // Enemy card display
+            const eEl = ELEMENTS[G.enemyCard.element];
+            ctx.fillStyle = G.enemyCard.isBoss ? 'rgba(220,20,60,0.15)' : 'rgba(0,0,0,0.3)';
+            ctx.fillRect(ex - 10, ey - 5, 120, 135);
+
+            ctx.fillStyle = eEl.color;
+            ctx.beginPath();
+            ctx.arc(W / 2, ey + 45, 28, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Enemy eyes
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(W / 2 - 8, ey + 42, 5, 0, Math.PI * 2);
+            ctx.arc(W / 2 + 8, ey + 42, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#f00';
+            ctx.beginPath();
+            ctx.arc(W / 2 - 7, ey + 42, 2.5, 0, Math.PI * 2);
+            ctx.arc(W / 2 + 9, ey + 42, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 13px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(G.enemyCard.name, W / 2, ey + 85);
+            ctx.fillStyle = '#aaa';
+            ctx.font = '10px Arial';
+            ctx.fillText('Lv.' + G.enemyCard.level + ' | ATK:' + G.enemyCard.atk + ' DEF:' + G.enemyCard.def, W / 2, ey + 98);
+
+            // HP bar
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(ex, ey + 105, 100, 8);
+            ctx.fillStyle = G.enemyHP / G.enemyMaxHP > 0.5 ? '#2ecc71' : '#e74c3c';
+            ctx.fillRect(ex, ey + 105, 100 * (G.enemyHP / G.enemyMaxHP), 8);
+            ctx.fillStyle = '#fff';
+            ctx.font = '9px Arial';
+            ctx.fillText(G.enemyHP + '/' + G.enemyMaxHP, W / 2, ey + 125);
+
+            if (G.enemyCard.isBoss) {
+                ctx.fillStyle = 'rgba(220,20,60,0.5)';
+                ctx.font = 'bold 10px Arial';
+                ctx.fillText('BOSS', W / 2, ey - 2);
+            }
+        }
+
+        // Draw hand
+        G.cardPositions = [];
+        const handW = Math.min(G.hand.length * 95, W - 40);
+        const cardW = 85, cardH = 140;
+        const startX = (W - handW) / 2;
+        const handY = H - cardH - 60;
+
+        for (let i = 0; i < G.hand.length; i++) {
+            const cx = startX + i * (handW / G.hand.length);
+            const hovered = mouseX >= cx && mouseX <= cx + cardW && mouseY >= handY && mouseY <= handY + cardH;
+            G.cardPositions.push({ x: cx, y: handY, w: cardW, h: cardH });
+            drawCard(G.hand[i], cx, handY, cardW, cardH, i === G.selectedCard, hovered);
+        }
+
+        // Draw abilities if card selected
+        if (G.selectedCard >= 0 && G.phase === 'select') {
+            const card = G.hand[G.selectedCard];
+            const abY = H * 0.38;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(W / 2 - (card.abilities.length * 70) / 2 - 5, abY - 5, card.abilities.length * 70 + 10, 65);
+
+            for (let i = 0; i < card.abilities.length; i++) {
+                const ab = card.abilities[i];
+                const abX = W / 2 - (card.abilities.length * 70) / 2 + i * 70;
+                const hovered = mouseX >= abX && mouseX <= abX + 65 && mouseY >= abY && mouseY <= abY + 55;
+                const canUse = ab.cost <= G.turnEnergy;
+
+                ctx.fillStyle = canUse ? (hovered ? 'rgba(79,172,254,0.4)' : 'rgba(79,172,254,0.2)') : 'rgba(100,100,100,0.2)';
+                ctx.fillRect(abX, abY, 65, 55);
+                ctx.strokeStyle = canUse ? '#4facfe' : '#555';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(abX, abY, 65, 55);
+
+                ctx.fillStyle = canUse ? '#fff' : '#666';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(ab.name, abX + 32, abY + 18);
+                ctx.font = '9px Arial';
+                if (ab.damage > 0) ctx.fillText('DMG: ' + ab.damage, abX + 32, abY + 32);
+                if (ab.defBoost) ctx.fillText('+' + ab.defBoost + ' DEF', abX + 32, abY + 32);
+                ctx.fillStyle = '#ffd700';
+                ctx.fillText('Cost: ' + ab.cost, abX + 32, abY + 46);
+            }
+
+            // Energy display
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Energy: ' + G.turnEnergy + '/' + G.maxEnergy, W / 2, H * 0.36);
+        }
+
+        // Reward phase
+        if (G.phase === 'reward') {
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Choose a reward card!', W / 2, H / 2 - 80);
+
+            for (let i = 0; i < G.rewardCards.length; i++) {
+                const rx = W / 2 - (G.rewardCards.length * 100) / 2 + i * 100;
+                const ry = H / 2 - 50;
+                const hovered = mouseX >= rx && mouseX <= rx + 90 && mouseY >= ry && mouseY <= ry + 120;
+                drawCard(G.rewardCards[i], rx, ry, 90, 120, false, hovered);
+            }
+
+            // Skip button
+            const skipX = W / 2 - 40, skipY = H / 2 + 90;
+            ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            ctx.fillRect(skipX, skipY, 80, 30);
+            ctx.strokeStyle = '#888';
+            ctx.strokeRect(skipX, skipY, 80, 30);
+            ctx.fillStyle = '#aaa';
+            ctx.font = '12px Arial';
+            ctx.fillText('Skip', W / 2, skipY + 20);
+        }
+
+        // Player HP (bottom)
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Trainer HP: ' + G.playerHP + '/' + G.maxPlayerHP, W / 2, H - 15);
+
+        // Particles
+        G.particles.forEach(p => {
+            ctx.globalAlpha = p.life / p.maxLife;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * (p.life / p.maxLife), 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+
+        // Floating texts
+        G.floatingTexts.forEach(f => {
+            ctx.globalAlpha = f.life / f.maxLife;
+            ctx.fillStyle = f.color;
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(f.text, f.x, f.y);
+        });
+        ctx.globalAlpha = 1;
+
+        ctx.restore();
+    }
+
+    // ===== MAIN LOOP =====
+    function loop(now) {
+        if (!G.lastTime) G.lastTime = now;
+        const dt = Math.min((now - G.lastTime) / 1000, 0.05);
+        G.lastTime = now;
+        if (G.state === 'playing') update(dt);
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    displayHighScores();
+    requestAnimationFrame(loop);
+    </script>
 </body>
 </html>
