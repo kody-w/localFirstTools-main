@@ -96,6 +96,13 @@ border-bottom:1px solid #1a1a24;transition:background .1s;white-space:nowrap;ove
 .shortcuts div{font-size:11px;color:#555;padding:1px 0}
 .shortcuts kbd{background:var(--surface2);border:1px solid var(--border);padding:0 4px;border-radius:2px;
 font-size:10px;color:var(--text)}
+.examples-section{border-top:1px solid var(--border);padding:0}
+.examples-section h3{font-size:11px;color:var(--muted);padding:6px 12px 4px;text-transform:uppercase;letter-spacing:.06em}
+.example-item{padding:5px 12px;cursor:pointer;font-size:12px;color:var(--accent);border-bottom:1px solid #1a1a24;
+transition:background .1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.example-item:hover{background:var(--surface2);color:#60a5fa}
+.example-item .ex-num{color:var(--orange);font-size:10px;margin-right:4px;font-weight:700}
+.example-item .ex-desc{color:var(--muted);font-size:10px;display:block;margin-top:1px}
 footer{display:flex;align-items:center;justify-content:space-between;padding:3px 12px;
 background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;font-size:11px;color:var(--muted)}
 .hl-keyword{color:#3b82f6;font-weight:600}
@@ -125,6 +132,9 @@ background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;font-
 <div id="editor-section">
 <div class="editor-toolbar">
 <button onclick="UI.run()">▶ Run</button>
+<select id="examples-select" onchange="UI.loadExample(this.value);this.selectedIndex=0" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font:12px var(--font);cursor:pointer">
+<option value="">⚡ Showcase Queries...</option>
+</select>
 <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
 </div>
 <div class="editor-wrap">
@@ -149,6 +159,7 @@ placeholder="-- Type SQL here. Try: SELECT * FROM users;"></textarea>
 <div><kbd>Ctrl+↑</kbd> Previous query</div>
 <div><kbd>Ctrl+↓</kbd> Next query</div>
 </div>
+<div class="examples-section" id="examples-list"></div>
 </aside>
 </div>
 <footer>
@@ -1257,6 +1268,29 @@ class Database {
 }
 
 // ── UI Controller ────────────────────────────────────────
+const SHOWCASE = [
+  { title: '1. Social Graph', desc: 'Who replies to whom most?',
+    sql: `SELECT u1.username AS commenter, u2.username AS author, COUNT(*) AS interactions\nFROM comments c\nINNER JOIN users u1 ON c.user_id = u1.id\nINNER JOIN posts p ON c.post_id = p.id\nINNER JOIN users u2 ON p.user_id = u2.id\nWHERE u1.id != u2.id\nGROUP BY u1.username, u2.username\nORDER BY interactions DESC;` },
+  { title: '2. Viral Score', desc: 'Engagement per view, ranked',
+    sql: `SELECT p.title, u.username,\n  p.views, COUNT(c.id) AS comments,\n  ROUND(COUNT(c.id) * 1000 / p.views) AS engagement_per_1k_views\nFROM posts p\nINNER JOIN users u ON p.user_id = u.id\nLEFT JOIN comments c ON c.post_id = p.id\nGROUP BY p.id, p.title, u.username, p.views\nORDER BY engagement_per_1k_views DESC\nLIMIT 5;` },
+  { title: '3. The Lurkers', desc: 'Users who comment but never post',
+    sql: `SELECT DISTINCT u.username, u.email\nFROM users u\nINNER JOIN comments c ON c.user_id = u.id\nWHERE u.id NOT IN (SELECT DISTINCT user_id FROM posts)\nORDER BY u.username;` },
+  { title: '4. EXPLAIN', desc: 'Query plan for a 4-table join',
+    sql: `EXPLAIN SELECT u.username, cat.name, COUNT(*) AS posts\nFROM users u\nINNER JOIN posts p ON u.id = p.user_id\nINNER JOIN post_categories pc ON p.id = pc.post_id\nINNER JOIN categories cat ON pc.category_id = cat.id\nWHERE p.views > 100\nGROUP BY u.username, cat.name\nHAVING COUNT(*) >= 1\nORDER BY posts DESC\nLIMIT 10;` },
+  { title: '5. CASE Personas', desc: 'Dynamic tier labels from bio length',
+    sql: `SELECT username, bio,\n  CASE\n    WHEN bio IS NULL THEN '\u{1F47B} Ghost'\n    WHEN LENGTH(bio) > 30 THEN '\u{1F4DD} Storyteller'\n    WHEN LENGTH(bio) > 15 THEN '\u{1F4AC} Chatty'\n    ELSE '\u{1F92B} Minimalist'\n  END AS persona\nFROM users\nORDER BY persona;` },
+  { title: '6. Power Law', desc: 'Zipf distribution with ASCII bar chart',
+    sql: `SELECT title,\n  views,\n  ROUND(views * 100 / 2340) AS pct_of_top,\n  SUBSTR('\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}', 1, views * 20 / 2340) AS bar\nFROM posts\nORDER BY views DESC;` },
+  { title: '7. Cross-Pollination', desc: 'Posts spanning multiple categories',
+    sql: `SELECT p.title, COUNT(*) AS num_categories\nFROM posts p\nINNER JOIN post_categories pc ON p.id = pc.post_id\nGROUP BY p.title\nHAVING num_categories > 1\nORDER BY num_categories DESC;` },
+  { title: '8. DDL Flex', desc: 'CREATE + INSERT + ALTER in one shot',
+    sql: `CREATE TABLE IF NOT EXISTS leaderboard (rank INTEGER PRIMARY KEY, username TEXT NOT NULL, score REAL NOT NULL, badge TEXT DEFAULT 'bronze');\nINSERT INTO leaderboard VALUES (1, 'alice', 98.5, 'gold');\nINSERT INTO leaderboard VALUES (2, 'eve', 87.2, 'silver');\nINSERT INTO leaderboard VALUES (3, 'bob', 76.0, 'bronze');\nALTER TABLE leaderboard ADD COLUMN streak INTEGER DEFAULT 0;\nSELECT * FROM leaderboard;` },
+  { title: '9. Self-Join', desc: 'Users who joined the same month',
+    sql: `SELECT a.username AS user_a, b.username AS user_b, SUBSTR(a.created_at, 1, 7) AS month\nFROM users a\nINNER JOIN users b ON SUBSTR(a.created_at, 1, 7) = SUBSTR(b.created_at, 1, 7)\nWHERE a.id < b.id\nORDER BY month;` },
+  { title: '10. The Everything Query', desc: '7 SQL features in one statement',
+    sql: `SELECT DISTINCT\n  u.username,\n  UPPER(SUBSTR(u.username, 1, 1)) || LOWER(SUBSTR(u.username, 2, LENGTH(u.username))) AS display_name,\n  COUNT(DISTINCT p.id) AS posts,\n  COUNT(DISTINCT c.id) AS comments_received,\n  COALESCE(SUM(p.views), 0) AS total_views,\n  CASE WHEN COUNT(p.id) > 3 THEN '\u{1F525} Prolific' WHEN COUNT(p.id) > 0 THEN '\u{270D}\u{FE0F} Active' ELSE '\u{1F440} Reader' END AS role,\n  ROUND(COALESCE(SUM(p.views), 0) / CASE WHEN COUNT(p.id) = 0 THEN 1 ELSE COUNT(p.id) END) AS avg_views\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nLEFT JOIN comments c ON c.post_id = p.id\nWHERE u.created_at BETWEEN '2025-01-01' AND '2025-12-31'\nGROUP BY u.username\nHAVING total_views >= 0\nORDER BY total_views DESC\nLIMIT 8 OFFSET 0;` }
+];
+
 const UI = {
   db: null,
   history: [],
@@ -1276,6 +1310,7 @@ const UI = {
     this.updateSchema();
     this.updateHistoryPanel();
     this.updateStatus();
+    this.populateExamples();
 
     const ed = document.getElementById('editor');
     ed.addEventListener('input', () => { this.updateLineNums(); this.highlight(); });
@@ -1283,9 +1318,34 @@ const UI = {
     ed.addEventListener('keydown', e => this.onKey(e));
 
     // Set default query
-    ed.value = '-- Welcome to SQL Studio!\n-- Try some queries:\n\nSELECT u.username, COUNT(p.id) AS post_count\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nGROUP BY u.username\nORDER BY post_count DESC;';
+    ed.value = '-- Welcome to SQL Studio!\n-- Pick a showcase query from the dropdown, or try:\n\nSELECT u.username, COUNT(p.id) AS post_count\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nGROUP BY u.username\nORDER BY post_count DESC;';
     this.updateLineNums();
     this.highlight();
+  },
+
+  populateExamples() {
+    const sel = document.getElementById('examples-select');
+    SHOWCASE.forEach((ex, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = ex.title;
+      sel.appendChild(opt);
+    });
+    const list = document.getElementById('examples-list');
+    list.innerHTML = '<h3>⚡ Showcase</h3>' + SHOWCASE.map((ex, i) =>
+      `<div class="example-item" onclick="UI.loadExample(${i})" title="${UI.escHTML(ex.desc)}">` +
+      `<span class="ex-num">#${i+1}</span>${UI.escHTML(ex.title.replace(/^\d+\.\s*/, ''))}` +
+      `<span class="ex-desc">${UI.escHTML(ex.desc)}</span></div>`
+    ).join('');
+  },
+
+  loadExample(idx) {
+    idx = parseInt(idx);
+    if (isNaN(idx) || !SHOWCASE[idx]) return;
+    document.getElementById('editor').value = SHOWCASE[idx].sql;
+    this.updateLineNums();
+    this.highlight();
+    document.getElementById('status-left').textContent = 'Loaded: ' + SHOWCASE[idx].title;
   },
 
   loadDemo() {
