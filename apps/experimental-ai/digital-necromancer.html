@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Necromancer</title>
+<meta name="rappterzoo:author" content="RappterZoo">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental-ai">
+<meta name="rappterzoo:tags" content="necromancer,internet,nostalgia,geocities,procedural,seance,web-archaeology,90s">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;color:#8b8bab;font-family:'Courier New',monospace;min-height:100vh;overflow-x:hidden}
+
+/* ═══ SÉANCE PORTAL ═══ */
+#portal{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:20px;transition:opacity 0.8s}
+#portal.hidden{opacity:0;pointer-events:none;position:absolute}
+#sigil{width:200px;height:200px;position:relative;margin-bottom:30px}
+#sigil canvas{width:100%;height:100%}
+h1{font-size:clamp(22px,5vw,38px);color:#9b59b6;text-shadow:0 0 30px rgba(155,89,182,0.5);
+  margin-bottom:8px;text-align:center}
+#subtitle{color:#555;font-size:14px;margin-bottom:30px;font-style:italic;text-align:center}
+#input-row{display:flex;gap:10px;margin-bottom:18px;width:min(90vw,500px)}
+#url{flex:1;background:#16162a;border:1px solid #333;color:#c0c0ff;padding:12px 16px;
+  font-size:16px;font-family:'Courier New',monospace;border-radius:4px;outline:none}
+#url:focus{border-color:#9b59b6;box-shadow:0 0 15px rgba(155,89,182,0.3)}
+#url::placeholder{color:#444}
+#summon{background:linear-gradient(135deg,#4a1a6b,#2c0f3e);color:#d4aaff;border:1px solid #6b3a9b;
+  padding:12px 24px;font-size:15px;cursor:pointer;font-family:'Courier New',monospace;
+  border-radius:4px;transition:all 0.3s;white-space:nowrap}
+#summon:hover{background:linear-gradient(135deg,#6b2a9b,#4a1a6b);box-shadow:0 0 20px rgba(155,89,182,0.4)}
+#history{margin-top:24px;width:min(90vw,500px)}
+#history h3{color:#555;font-size:12px;margin-bottom:8px;text-transform:uppercase;letter-spacing:2px}
+.hist-item{color:#6b4a9b;cursor:pointer;padding:3px 0;font-size:13px;transition:color 0.2s}
+.hist-item:hover{color:#9b69cb}
+#presets{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:min(90vw,500px)}
+.preset{background:#1a1a2e;border:1px solid #2a2a4e;color:#6b6b9b;padding:5px 12px;
+  font-size:11px;cursor:pointer;border-radius:12px;transition:all 0.2s}
+.preset:hover{border-color:#9b59b6;color:#c0a0ff}
+
+/* ═══ RITUAL ANIMATION ═══ */
+#ritual{display:none;position:fixed;inset:0;background:#0a0a12;z-index:1000;
+  flex-direction:column;align-items:center;justify-content:center}
+#ritual.active{display:flex}
+#ritual-text{color:#9b59b6;font-size:18px;text-align:center;margin-top:20px;min-height:60px}
+#ritual canvas{width:min(300px,80vw);height:min(300px,80vw)}
+
+/* ═══ RESURRECTED SITE ═══ */
+#graveyard{display:none;min-height:100vh;position:relative}
+#graveyard.active{display:block}
+#back-btn{position:fixed;top:10px;right:10px;z-index:9999;background:rgba(0,0,0,0.7);
+  color:#9b59b6;border:1px solid #9b59b6;padding:6px 14px;cursor:pointer;
+  font-family:'Courier New',monospace;font-size:12px;border-radius:3px}
+#back-btn:hover{background:#9b59b6;color:#fff}
+#site-frame{width:100%;min-height:100vh;overflow:auto}
+</style>
+</head>
+<body>
+
+<div id="portal">
+  <div id="sigil"><canvas id="sigil-c" width="200" height="200"></canvas></div>
+  <h1>🧟 DIGITAL NECROMANCER</h1>
+  <div id="subtitle">A séance for the dead internet</div>
+  <div id="input-row">
+    <input id="url" type="text" placeholder="Type a dead website to resurrect..." autocomplete="off" spellcheck="false">
+    <button id="summon">SUMMON</button>
+  </div>
+  <div id="presets"></div>
+  <div id="history"><h3>📜 Previously Summoned</h3><div id="hist-list"></div></div>
+</div>
+
+<div id="ritual">
+  <canvas id="ritual-c" width="300" height="300"></canvas>
+  <div id="ritual-text"></div>
+</div>
+
+<div id="graveyard">
+  <button id="back-btn">✕ CLOSE SÉANCE</button>
+  <div id="site-frame"></div>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════
+// SEEDED RNG
+// ═══════════════════════════════════════════
+function mkRng(seed){
+  let s=0;for(let i=0;i<seed.length;i++)s=((s<<5)-s+seed.charCodeAt(i))|0;
+  s=Math.abs(s)||1;
+  return{next(){s^=s<<13;s^=s>>17;s^=s<<5;return(s>>>0)/4294967296},
+    pick(a){return a[Math.floor(this.next()*a.length)]},
+    int(lo,hi){return lo+Math.floor(this.next()*(hi-lo+1))},
+    chance(p){return this.next()<p},
+    shuffle(a){let b=[...a];for(let i=b.length-1;i>0;i--){let j=Math.floor(this.next()*(i+1));[b[i],b[j]]=[b[j],b[i]]}return b}}}
+
+// ═══════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════
+let AC=null;
+function initAudio(){if(!AC)AC=new(AudioContext||webkitAudioContext)();AC.resume()}
+function modemSound(dur=3){
+  if(!AC)return;
+  let o=AC.createOscillator(),g=AC.createGain(),f=AC.createBiquadFilter();
+  o.type='sawtooth';f.type='bandpass';f.Q.value=15;
+  g.gain.setValueAtTime(0.06,AC.currentTime);
+  let t=AC.currentTime;
+  [1200,2400,980,1650,2100,1800,300,150,2600,1400].forEach((fr,i)=>{
+    o.frequency.setValueAtTime(fr,t+i*dur/10);f.frequency.setValueAtTime(fr*1.2,t+i*dur/10)});
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(f).connect(g).connect(AC.destination);o.start();o.stop(t+dur);
+  let n=AC.createBufferSource(),buf=AC.createBuffer(1,AC.sampleRate*dur,AC.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++){let p=i/d.length;d[i]=(Math.random()*2-1)*0.02*(p<0.3?1:p<0.6?0.5:0.2)}
+  n.buffer=buf;let ng=AC.createGain();ng.gain.value=0.04;n.connect(ng).connect(AC.destination);n.start();n.stop(t+dur)}
+function chime(){
+  if(!AC)return;[523,659,784,1047].forEach((f,i)=>{
+    let o=AC.createOscillator(),g=AC.createGain();o.type='sine';o.frequency.value=f;
+    g.gain.setValueAtTime(0.04,AC.currentTime+i*0.12);
+    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+i*0.12+0.4);
+    o.connect(g).connect(AC.destination);o.start(AC.currentTime+i*0.12);o.stop(AC.currentTime+i*0.12+0.4)})}
+
+// ═══════════════════════════════════════════
+// SIGIL ANIMATION (portal screen)
+// ═══════════════════════════════════════════
+const SC=document.getElementById('sigil-c'),SX=SC.getContext('2d');
+let sFrame=0;
+function drawSigil(){
+  sFrame++;SX.clearRect(0,0,200,200);SX.save();SX.translate(100,100);
+  let t=sFrame*0.015;
+  SX.strokeStyle='rgba(155,89,182,0.3)';SX.lineWidth=1;
+  for(let i=0;i<5;i++){SX.beginPath();
+    let r=60+Math.sin(t+i)*15;
+    for(let a=0;a<6.3;a+=0.02){let d=r+Math.sin(a*3+t*2+i)*8+Math.cos(a*5-t)*5;
+      SX.lineTo(Math.cos(a)*d,Math.sin(a)*d)}SX.closePath();SX.stroke()}
+  SX.strokeStyle='rgba(155,89,182,0.15)';
+  for(let i=0;i<12;i++){let a=(i/12)*Math.PI*2+t*0.5;
+    SX.beginPath();SX.moveTo(0,0);SX.lineTo(Math.cos(a)*85,Math.sin(a)*85);SX.stroke()}
+  SX.fillStyle=`rgba(155,89,182,${0.15+Math.sin(t*2)*0.08})`;
+  SX.beginPath();SX.arc(0,0,12+Math.sin(t*3)*4,0,Math.PI*2);SX.fill();
+  SX.restore();requestAnimationFrame(drawSigil)}
+drawSigil();
+
+// ═══════════════════════════════════════════
+// RITUAL ANIMATION
+// ═══════════════════════════════════════════
+const RC=document.getElementById('ritual-c'),RX=RC.getContext('2d');
+let ritFrame=0,ritActive=false;
+function drawRitual(){
+  if(!ritActive)return;ritFrame++;
+  RX.fillStyle='rgba(10,10,18,0.15)';RX.fillRect(0,0,300,300);
+  RX.save();RX.translate(150,150);
+  let t=ritFrame*0.03;
+  for(let i=0;i<7;i++){
+    let r=40+i*12+Math.sin(t+i*0.7)*10;
+    RX.strokeStyle=`hsla(${270+i*15},70%,60%,${0.4-i*0.04})`;
+    RX.lineWidth=2;RX.beginPath();
+    for(let a=0;a<6.3;a+=0.03){let d=r+Math.sin(a*(3+i)+t*(2-i*0.2))*8;
+      let px=Math.cos(a)*d,py=Math.sin(a)*d;a===0?RX.moveTo(px,py):RX.lineTo(px,py)}
+    RX.closePath();RX.stroke()}
+  for(let i=0;i<20;i++){let a=(i/20)*Math.PI*2+t;
+    let d=80+Math.sin(t*2+i)*30;
+    RX.fillStyle=`hsla(${270+i*18},80%,70%,${0.3+Math.sin(t*3+i)*0.2})`;
+    RX.beginPath();RX.arc(Math.cos(a)*d,Math.sin(a)*d,2,0,Math.PI*2);RX.fill()}
+  RX.restore();requestAnimationFrame(drawRitual)}
+
+// ═══════════════════════════════════════════
+// SITE CLASSIFICATION
+// ═══════════════════════════════════════════
+function classifySite(name){
+  let n=name.toLowerCase();
+  if(/geocit|tripod|angel ?fire|xoom|fortune ?city/.test(n))return'personal';
+  if(/forum|board|phpbb|vbulletin|invision|talk|discuss/.test(n))return'forum';
+  if(/game|flash|newgrounds|miniclip|addicting|armor|kongregate/.test(n))return'flashgame';
+  if(/shop|store|mall|buy|deal|amazon/.test(n))return'store';
+  if(/news|times|daily|herald|gazette|report/.test(n))return'news';
+  if(/fan|shrine|tribute|~|dedication|love/.test(n))return'fansite';
+  if(/blog|journal|diary|live ?journal|xanga|myspace/.test(n))return'blog';
+  if(/web ?ring|links|directory|cool ?sites|hotlist/.test(n))return'webring';
+  if(/midi|wav|mp3|music|band|lyric/.test(n))return'music';
+  if(/chat|irc|talk|messenger/.test(n))return'chat';
+  if(/wiki|pedia|how ?to|faq|guide/.test(n))return'wiki';
+  let types=['personal','forum','fansite','blog','flashgame','store'];
+  return types[Math.abs(n.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%types.length]}
+
+// ═══════════════════════════════════════════
+// PROCEDURAL SITE GENERATION
+// ═══════════════════════════════════════════
+function generateSite(name){
+  let seed=name+'-'+Date.now().toString(36);
+  let R=mkRng(seed),type=classifySite(name);
+  let siteName=name.replace(/^(https?:\/\/)?(www\.)?/,'').replace(/\.(com|org|net|co|io|html?|php|asp).*$/,'');
+  let titleName=siteName.split(/[-_./]/).map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
+
+  // Background
+  let bgType=R.pick(['stars','tile','gradient','pattern']);
+  let bgCSS='';
+  let bgColor1=`hsl(${R.int(0,360)},${R.int(60,100)}%,${R.int(5,20)}%)`;
+  let bgColor2=`hsl(${R.int(0,360)},${R.int(60,100)}%,${R.int(10,30)}%)`;
+  let textColor=R.pick(['#00ff00','#ffff00','#ff00ff','#00ffff','#ff6600','#ffffff','#ff0000','#66ff66','#ff99cc']);
+  let linkColor=R.pick(['#0000ff','#0066ff','#ff00ff','#00ffcc','#ffcc00','#ff6600']);
+  let accentColor=R.pick(['#ff0000','#ffff00','#00ff00','#ff00ff','#00ffff','#ff6600']);
+
+  if(bgType==='stars'){
+    let dots='';for(let i=0;i<80;i++){let x=R.int(0,100),y=R.int(0,100),s=R.int(1,3);
+      dots+=`<div style="position:fixed;left:${x}%;top:${y}%;width:${s}px;height:${s}px;background:#fff;opacity:${R.next()*0.6+0.2};border-radius:50%;pointer-events:none"></div>`}
+    bgCSS=`background:${bgColor1}`;
+  }else if(bgType==='tile'){
+    let tileSize=R.int(20,60);
+    let c1=`hsl(${R.int(0,360)},${R.int(40,90)}%,${R.int(15,35)}%)`;
+    let c2=`hsl(${R.int(0,360)},${R.int(40,90)}%,${R.int(15,35)}%)`;
+    bgCSS=`background:repeating-conic-gradient(${c1} 0% 25%,${c2} 0% 50%) 0 0/${tileSize}px ${tileSize}px`;
+  }else if(bgType==='gradient'){
+    bgCSS=`background:linear-gradient(${R.int(0,360)}deg,${bgColor1},${bgColor2})`;
+  }else{
+    let stripe=R.int(8,25);
+    bgCSS=`background:repeating-linear-gradient(${R.int(0,180)}deg,${bgColor1},${bgColor1} ${stripe}px,${bgColor2} ${stripe}px,${bgColor2} ${stripe*2}px)`;
+  }
+
+  // Hit counter
+  let hits=R.int(127,999999);
+  let counterStyle=R.pick(['digit','text','odometer']);
+  let counterHTML='';
+  if(counterStyle==='digit'){
+    let digits=hits.toString().split('').map(d=>`<span style="background:#000;color:#0f0;padding:2px 5px;border:1px inset #555;font-family:monospace;font-size:18px;margin:0 1px">${d}</span>`).join('');
+    counterHTML=`<div style="text-align:center;margin:8px 0"><span style="color:${textColor};font-size:11px">You are visitor #</span><br>${digits}</div>`}
+  else{counterHTML=`<div style="text-align:center;color:${textColor};font-size:12px;margin:8px 0">👁️ ${hits.toLocaleString()} visitors since ${R.pick(['January','March','June','September','November'])} ${R.int(1996,2004)}</div>`}
+
+  // Under construction
+  let underConstruction=R.chance(0.55)?`
+    <div style="text-align:center;margin:12px 0;padding:8px;border:2px dashed ${accentColor}">
+      <span style="font-size:22px">🚧</span>
+      <blink style="color:${accentColor};font-weight:bold;font-size:14px"> UNDER CONSTRUCTION </blink>
+      <span style="font-size:22px">🚧</span>
+      <br><span style="font-size:11px;color:#999">Last updated: ${R.pick(['Monday','Tuesday','Wednesday','Thursday','Friday'])}, ${R.pick(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'])} ${R.int(1,28)}, ${R.int(1997,2005)}</span>
+    </div>`:'';
+
+  // Marquee
+  let marqueeTexts=R.shuffle([
+    `Welcome to ${titleName}!!!`,
+    `*** ${titleName} - ${R.pick(["The Best","#1","Your Source For","The Ultimate","The Official"])} ${R.pick(["Site","Homepage","Page","Web Site","Corner of the Web"])} ***`,
+    `🌟 ${R.pick(["NEW","HOT","COOL","FRESH","UPDATED"])}! Check out the ${R.pick(["Links","Gallery","Guestbook","Downloads","Forum"])} page! 🌟`,
+    `☆ﾟ.*･｡ﾟ ${titleName} ☆ﾟ.*･｡ﾟ`,
+    `>>> ${R.pick(["Best viewed in Netscape Navigator 4.0","Best viewed at 800x600","Made with Notepad","Powered by GeoCities","IE 5.5 recommended"])} <<<`
+  ]);
+
+  // Guestbook entries
+  let guestNames=R.shuffle(['xXDarkAngelXx','~*StarDust*~','CoolDude99','sk8erboi','SuNfLoWeR','MoonChild','NiNjA2003',
+    '~butterfly~','GAMER_PRO','sweetie_pie','RaVeN','techWiz42','*~LiL_MaMa~*','DragonSlayer','PixelQueen','ShadowFox',
+    'AnimeGurl','SurfDude','~CrYsTaL~','HaCkEr_X']);
+  let guestMsgs=R.shuffle([
+    'Cool site!! Keep it up!! :) :) :)',
+    'Hey nice page, check out mine at the link above ^_^',
+    'I love your site!!! Added you to my favorites!!!',
+    'w0w this is the best ${SITE} site ever!!!',
+    'how did u make this?? teach me plzzz',
+    'FIRST!!!! lol jk great site tho',
+    'came here from the webring, very cool B-)',
+    'ur guestbook is so cool where did u get it??',
+    'This site ROX!!! \\m/ \\m/',
+    'hey its me again, still the best site!!! =D',
+    'omg i cant believe how good this is *_*',
+    'bookmarked!!! tell everyone about this site!!!',
+    'visited from ${CITY}, great page!!!',
+    'LOL the ${SECTION} section is hilarious XD',
+  ]);
+  let cities=['Tokyo','London','New York','Sydney','Berlin','Toronto','São Paulo','Cairo','Seoul'];
+  let sections=['links','gallery','about','music','downloads'];
+
+  let guestbookHTML='';
+  if(R.chance(0.7)){
+    let entries='';for(let i=0;i<R.int(3,6);i++){
+      let msg=guestMsgs[i%guestMsgs.length].replace('${SITE}',titleName).replace('${CITY}',R.pick(cities)).replace('${SECTION}',R.pick(sections));
+      entries+=`<div style="border:1px solid #444;padding:6px;margin:4px 0;background:rgba(0,0,0,0.3)">
+        <b style="color:${linkColor}">${guestNames[i%guestNames.length]}</b>
+        <span style="color:#666;font-size:10px"> - ${R.int(1,12)}/${R.int(1,28)}/${R.int(1998,2005)}</span>
+        <br><span style="color:${textColor};font-size:12px">${msg}</span></div>`}
+    guestbookHTML=`<div style="margin:15px 0"><hr color="${accentColor}"><h3 style="color:${accentColor}">📖 GUESTBOOK</h3>${entries}
+      <div style="margin-top:8px;padding:8px;border:1px solid #444;background:rgba(0,0,0,0.2)">
+        <b style="color:${textColor};font-size:12px">Sign the Guestbook!</b><br>
+        <span style="color:#888;font-size:11px">Name:</span> <input disabled style="background:#1a1a2a;border:1px inset #555;color:#888;width:120px;font-size:11px" value="">
+        <span style="color:#888;font-size:11px">Message:</span> <input disabled style="background:#1a1a2a;border:1px inset #555;color:#888;width:180px;font-size:11px" value="">
+        <button disabled style="font-size:11px">Submit</button>
+      </div></div>`}
+
+  // Broken images
+  function brokenImg(alt,w,h){
+    let show=R.chance(0.45);
+    if(show){
+      let canvas=`<canvas width="${w}" height="${h}" class="fake-img" data-seed="${R.int(0,99999)}" style="border:1px solid #555;display:inline-block;vertical-align:middle"></canvas>`;
+      return canvas}
+    return `<div style="display:inline-block;width:${w}px;height:${h}px;border:1px solid #666;background:#1a1a2a;text-align:center;line-height:${h}px;font-size:10px;color:#666;vertical-align:middle" title="${alt}">✕ ${alt}</div>`}
+
+  // Webring
+  let webringHTML='';
+  if(R.chance(0.6)){
+    let ringName=R.pick([`The ${titleName} Ring`,`${R.pick(["Ultimate","Super","Mega","Cool","Best"])} ${R.pick(["Web","Net","Cyber","Digital"])} Ring`,
+      `Ring of ${R.pick(["Fire","Stars","Dreams","Darkness","Light","Mystery"])}`]);
+    webringHTML=`<div style="text-align:center;margin:12px 0;padding:8px;border:2px ridge ${accentColor};background:rgba(0,0,0,0.4)">
+      <span style="font-size:11px;color:${textColor}">This site is part of the <b style="color:${accentColor}">${ringName}</b></span><br>
+      <span style="color:${linkColor};cursor:pointer;font-size:12px">[ ← Previous ]</span>
+      <span style="color:${linkColor};cursor:pointer;font-size:12px">[ Random ]</span>
+      <span style="color:${linkColor};cursor:pointer;font-size:12px">[ Next → ]</span>
+      <br><span style="font-size:10px;color:#555">Member of ${R.int(12,347)} sites</span></div>`}
+
+  // Awards
+  let awards='';
+  if(R.chance(0.5)){
+    let awardNames=R.shuffle(['🏆 Cool Site of the Day','⭐ Top 5% of All Websites','🌟 GeoCities Pick of the Week',
+      '💎 Golden Web Award '+R.int(1998,2004),'🎖️ Site of the Month','✨ Best of the Web']);
+    let count=R.int(1,3);
+    awards='<div style="text-align:center;margin:10px 0">';
+    for(let i=0;i<count;i++)awards+=`<span style="display:inline-block;padding:4px 10px;margin:3px;border:2px outset gold;background:#1a1a0a;color:gold;font-size:11px;font-weight:bold">${awardNames[i]}</span>`;
+    awards+='</div>'}
+
+  // Type-specific content
+  let mainContent='';
+  if(type==='personal'){
+    let interests=R.shuffle(['anime','video games','music','skateboarding','HTML','cats','dragons','space','magic','computers','drawing','writing','movies','nature','cars']);
+    mainContent=`
+      <h2 style="color:${accentColor};text-align:center">Welcome to my homepage!!!</h2>
+      <table width="100%" cellpadding="8"><tr>
+        <td width="30%" valign="top" style="border-right:1px solid #444">
+          <h3 style="color:${accentColor}">About Me</h3>
+          <p style="font-size:12px;color:${textColor}">
+            Hi!!! My name is ${R.pick(['Alex','Sam','Jordan','Taylor','Casey','Morgan','Riley'])} and I'm ${R.int(13,22)} years old from ${R.pick(cities)}!!! 
+            I made this page because I love ${interests[0]} and ${interests[1]}!!!
+          </p>
+          ${brokenImg('me.gif',120,120)}
+          <p style="font-size:11px;color:#888">^ thats me lol ^</p>
+          <h3 style="color:${accentColor}">My Interests</h3>
+          <ul style="font-size:12px;color:${textColor}">${interests.slice(0,6).map(i=>`<li>${i}</li>`).join('')}</ul>
+          <h3 style="color:${accentColor}">Links</h3>
+          <ul style="font-size:12px">${R.shuffle(['My LiveJournal','My DeviantArt','My Neopets Lookup','AIM: '+siteName+R.int(1,999),'Email me!']).slice(0,3).map(l=>`<li><span style="color:${linkColor};cursor:pointer;text-decoration:underline">${l}</span></li>`).join('')}</ul>
+        </td>
+        <td valign="top">
+          <h3 style="color:${accentColor}">✨ What's New ✨</h3>
+          ${['Added new '+R.pick(['backgrounds','GIFs','links','music','pictures'])+'!!!','Fixed the '+R.pick(['guestbook','counter','links page','MIDI player']),'New section: '+R.pick(['Fan Art','Downloads','Quiz','Rants','Poetry'])+'!'].map(n=>`<p style="font-size:12px;color:${textColor}">📌 ${n}</p>`).join('')}
+          <br>
+          <div style="border:2px groove ${accentColor};padding:10px;margin:8px 0">
+            <h3 style="color:${accentColor};text-align:center">${R.pick(['Cool Stuff','My Favorites','Random Things'])}</h3>
+            <div style="text-align:center">${brokenImg('cool.gif',88,31)} ${brokenImg('awesome.gif',88,31)} ${brokenImg('radical.gif',88,31)}</div>
+          </div>
+        </td></tr></table>`}
+  else if(type==='forum'){
+    let topics=R.shuffle(['General Discussion','Off-Topic','Help & Support','News & Announcements','Introductions',
+      'Creative Corner','Marketplace','Tech Talk','Random','Debate Zone']);
+    let rows='';
+    for(let i=0;i<R.int(5,8);i++){
+      let posts=R.int(12,14500),threads=R.int(3,posts/4|0);
+      rows+=`<tr style="background:${i%2===0?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.05)'}">
+        <td style="padding:5px;border:1px solid #333"><span style="color:${linkColor};cursor:pointer">${topics[i%topics.length]}</span></td>
+        <td style="padding:5px;border:1px solid #333;text-align:center;font-size:11px">${threads.toLocaleString()}</td>
+        <td style="padding:5px;border:1px solid #333;text-align:center;font-size:11px">${posts.toLocaleString()}</td>
+        <td style="padding:5px;border:1px solid #333;font-size:10px">by <span style="color:${linkColor}">${guestNames[i%guestNames.length]}</span><br>${R.int(1,12)}/${R.int(1,28)}/${R.int(2001,2006)}</td></tr>`}
+    let onlineUsers=R.shuffle(guestNames).slice(0,R.int(3,8));
+    mainContent=`
+      <h2 style="color:${accentColor};text-align:center;border-bottom:2px solid ${accentColor};padding-bottom:6px">${titleName} Forums</h2>
+      <div style="font-size:11px;color:#888;margin:6px 0">Welcome, <b>Guest</b>. Please <span style="color:${linkColor};cursor:pointer">Login</span> or <span style="color:${linkColor};cursor:pointer">Register</span>.</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;color:${textColor}">
+        <tr style="background:rgba(${accentColor},0.2)"><th style="padding:5px;border:1px solid #444;text-align:left">Forum</th>
+        <th style="padding:5px;border:1px solid #444;width:60px">Threads</th>
+        <th style="padding:5px;border:1px solid #444;width:60px">Posts</th>
+        <th style="padding:5px;border:1px solid #444;width:130px">Last Post</th></tr>
+        ${rows}</table>
+      <div style="margin-top:10px;padding:6px;border:1px solid #333;font-size:11px;color:#888;background:rgba(0,0,0,0.2)">
+        <b style="color:${accentColor}">Online:</b> ${onlineUsers.map(u=>`<span style="color:${linkColor}">${u}</span>`).join(', ')}
+        <br>Total members: <b>${R.int(500,25000).toLocaleString()}</b> | Total posts: <b>${R.int(10000,900000).toLocaleString()}</b>
+        <br><span style="font-size:10px">Powered by ${R.pick(['phpBB','vBulletin 3.8','Invision Power Board','SMF','YaBB'])}</span>
+      </div>`}
+  else if(type==='flashgame'){
+    mainContent=`
+      <h2 style="color:${accentColor};text-align:center">▶️ ${titleName}</h2>
+      <div style="text-align:center;margin:15px 0">
+        <div style="display:inline-block;width:min(90%,550px);height:300px;background:#000;border:3px inset #555;position:relative;overflow:hidden">
+          <canvas class="flash-placeholder" width="550" height="300" style="width:100%;height:100%"></canvas>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(0,0,0,0.6)">
+            <div style="font-size:40px;margin-bottom:10px">👻</div>
+            <div style="color:#ff6600;font-size:14px;font-weight:bold">Adobe Flash Player is no longer supported</div>
+            <div style="color:#999;font-size:11px;margin-top:5px">This content required Flash Player ${R.int(5,10)}.0</div>
+            <div style="color:#666;font-size:10px;margin-top:10px">RIP Flash Player (1996-2020)</div>
+          </div>
+        </div>
+      </div>
+      <div style="text-align:center;font-size:12px;color:${textColor}">
+        <b>Rating:</b> ${'⭐'.repeat(R.int(2,5))} (${R.int(100,50000).toLocaleString()} votes)
+        <br><b>Plays:</b> ${R.int(10000,5000000).toLocaleString()}
+        <br><b>Author:</b> <span style="color:${linkColor}">${guestNames[0]}</span>
+        <br><b>Category:</b> ${R.pick(['Action','Puzzle','Adventure','Shooter','RPG','Dress Up','Fighting','Racing'])}
+      </div>
+      <div style="margin:12px auto;max-width:500px;text-align:center">
+        <h3 style="color:${accentColor}">Comments</h3>
+        ${guestNames.slice(0,4).map((n,i)=>`<div style="text-align:left;border:1px solid #333;padding:5px;margin:3px 0;font-size:11px;background:rgba(0,0,0,0.2)"><b style="color:${linkColor}">${n}:</b> <span style="color:${textColor}">${R.pick(['this game is SO addicting!!!','how do u get past level '+R.int(3,15)+'??','lol this is hilarious XD','beat it in '+R.int(5,120)+' minutes','BEST GAME EVER','needs a sequel!!!','my high score is '+R.int(1000,999999)])}</span></div>`).join('')}
+      </div>`}
+  else if(type==='fansite'){
+    let subject=titleName.replace(/fan|site|shrine|tribute/gi,'').trim()||R.pick(['Dragon Ball Z','Sailor Moon','Final Fantasy','Pokémon','The Matrix','Linkin Park','Harry Potter','Lord of the Rings']);
+    mainContent=`
+      <h2 style="color:${accentColor};text-align:center;font-size:clamp(16px,4vw,28px)">✧･ﾟ: *✧ THE ULTIMATE ${subject.toUpperCase()} SHRINE ✧*:･ﾟ✧</h2>
+      <div style="text-align:center;margin:8px 0">${brokenImg('banner.gif',468,60)}</div>
+      <table width="100%" cellpadding="8"><tr>
+        <td width="25%" valign="top" style="border-right:1px solid #444">
+          <h3 style="color:${accentColor};font-size:13px">Navigation</h3>
+          <ul style="list-style:none;padding:0;font-size:12px">
+            ${R.shuffle(['🏠 Home','📖 Episode Guide','🖼️ Gallery','💿 Multimedia','📊 Character Profiles','✍️ Fan Fiction','🎨 Fan Art','💬 Forum','📋 FAQ','🔗 Links']).slice(0,7).map(l=>`<li style="margin:3px 0"><span style="color:${linkColor};cursor:pointer">${l}</span></li>`).join('')}
+          </ul>
+          <div style="border:1px solid #444;padding:5px;margin-top:8px;font-size:11px;color:${textColor}">
+            <b style="color:${accentColor}">Site Stats</b><br>
+            Images: ${R.int(50,2000)}<br>
+            Pages: ${R.int(15,200)}<br>
+            Since: ${R.int(1997,2003)}
+          </div>
+        </td>
+        <td valign="top">
+          <p style="font-size:13px;color:${textColor}">Welcome to the ULTIMATE fan page dedicated to <b style="color:${accentColor}">${subject}</b>!!! 
+          This is the most comprehensive ${subject} resource on the entire internet!! We have ${R.pick(['over '+R.int(100,5000)+' images','the complete episode guide','every character profile','exclusive content you wont find anywhere else'])}!!!</p>
+          <div style="text-align:center;margin:12px 0">${brokenImg('char1.jpg',150,150)} ${brokenImg('char2.jpg',150,150)}</div>
+          <h3 style="color:${accentColor}">Latest Updates</h3>
+          ${['Added '+R.int(10,200)+' new images to the gallery!!','New fan fiction: "'+R.pick(['The Lost Episode','Alternate Ending','Dark Tournament','Untold Story'])+'"','Updated character profiles with new info!'].map(u=>`<p style="font-size:12px;color:${textColor}">🔥 ${u}</p>`).join('')}
+          <p style="text-align:center;font-size:18px;margin-top:12px">${R.pick(['♡','★','✦','♪','☆','❀']).repeat(R.int(8,20))}</p>
+        </td></tr></table>`}
+  else if(type==='blog'||type==='music'||type==='chat'||type==='wiki'){
+    let entries='';for(let i=0;i<R.int(2,4);i++){
+      let titles=['Why I hate ${THING}','Today was ${ADJ} day','Does anyone else think about ${THING}???','Current mood: ${MOOD}','Quiz results!!','${THING} appreciation post'];
+      let things=R.shuffle(['Mondays','homework','that song','the weather','this website','life','everything','nothing']);
+      let adjs=['a really good','the worst','an okay','a super weird','a totally random','another boring'];
+      let moods=['😊 happy','😢 sad','😡 angry','🤔 thoughtful','😴 sleepy','🎉 excited','💀 dead'];
+      let title=R.pick(titles).replace('${THING}',R.pick(things)).replace('${ADJ}',R.pick(adjs)).replace('${MOOD}',R.pick(moods));
+      entries+=`<div style="border:1px solid #444;padding:10px;margin:8px 0;background:rgba(0,0,0,0.2)">
+        <h3 style="color:${accentColor};font-size:14px">${title}</h3>
+        <span style="font-size:10px;color:#666">${R.pick(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])} ${R.int(1,12)}/${R.int(1,28)}/${R.int(2001,2006)} ${R.int(1,12)}:${R.int(10,59)} ${R.pick(['AM','PM'])}</span>
+        <p style="font-size:12px;color:${textColor};margin-top:6px">${R.pick([
+          'omg you guys i cant even right now. like seriously. i just... UGH. anyway',
+          'so today i was thinking about how weird it is that we all just... exist?? like what even IS this??',
+          'OKAY so funny story. you know how i said i was gonna '+R.pick(['clean my room','study','go outside','be productive'])+'? yeah that didnt happen lol',
+          'does anyone even read this anymore?? hello?? is this thing on?? *taps microphone*',
+          'listening to '+R.pick(['Linkin Park','Evanescence','Green Day','Blink-182','Good Charlotte'])+' on repeat and feeling THINGS',
+        ])}</p>
+        <span style="font-size:10px;color:#666">[${R.int(0,14)} comments]</span></div>`}
+    mainContent=`
+      <h2 style="color:${accentColor};text-align:center">${titleName}'s ${R.pick(['Blog','Journal','Diary','Corner','World'])}</h2>
+      <div style="text-align:center;font-size:12px;color:${textColor};margin:8px 0">
+        ${R.pick(['"Not all who wander are lost" - Tolkien','"In the end, it doesn\'t even matter" - Linkin Park','"Be yourself; everyone else is already taken" - Oscar Wilde','"I\'m not weird, I\'m limited edition"','"If you can dream it, you can do it"'])}
+      </div>
+      <table width="100%" cellpadding="8"><tr>
+        <td width="70%" valign="top">${entries}</td>
+        <td valign="top" style="border-left:1px solid #444;font-size:12px">
+          <h3 style="color:${accentColor};font-size:13px">About</h3>
+          <div style="text-align:center">${brokenImg('avatar.gif',80,80)}</div>
+          <p style="color:${textColor}">just a ${R.pick(['weird','normal','random','creative','lazy','chaotic'])} ${R.int(14,25)} year old trying to ${R.pick(['figure life out','survive','have fun','exist','vibe'])}</p>
+          <h3 style="color:${accentColor};font-size:13px;margin-top:10px">Current Mood</h3>
+          <p style="color:${textColor}">${R.pick(['😊 content','😴 sleepy','🎵 musical','🤓 nerdy','😈 mischievous','🌧️ melancholy','⚡ energized'])}</p>
+          <h3 style="color:${accentColor};font-size:13px;margin-top:10px">Friends</h3>
+          ${guestNames.slice(0,5).map(n=>`<span style="color:${linkColor};cursor:pointer;font-size:11px">${n}</span><br>`).join('')}
+        </td></tr></table>`}
+  else if(type==='store'){
+    let items=R.shuffle(['Dragon Statue','LED Keyboard','Lava Lamp','Beanbag Chair','Glow Stars','Blacklight Poster','Disco Ball','Plasma Globe','Mood Ring Set','Fiber Optic Lamp','Pewter Wizard','Crystal Ball']);
+    let rows='';for(let i=0;i<R.int(4,7);i++){
+      rows+=`<tr style="background:${i%2===0?'rgba(0,0,0,0.2)':'transparent'}">
+        <td style="padding:5px;border:1px solid #333">${brokenImg(items[i]+'.jpg',50,50)}</td>
+        <td style="padding:5px;border:1px solid #333"><span style="color:${linkColor};cursor:pointer">${items[i%items.length]}</span></td>
+        <td style="padding:5px;border:1px solid #333;color:${accentColor};font-weight:bold">$${R.int(5,99)}.${R.int(10,99)}</td>
+        <td style="padding:5px;border:1px solid #333"><button disabled style="font-size:10px">Add to Cart</button></td></tr>`}
+    mainContent=`
+      <h2 style="color:${accentColor};text-align:center">🛒 ${titleName} ${R.pick(['Super Store','Mega Mall','Shop','Emporium','Marketplace'])}</h2>
+      <div style="text-align:center;color:${textColor};font-size:13px;margin:8px 0">🔥 ${R.pick(['FREE SHIPPING','SALE','CLEARANCE','HOT DEALS','SPECIAL OFFER'])} on orders over $${R.int(25,99)}! 🔥</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;color:${textColor}">
+        <tr><th style="padding:5px;border:1px solid #444">Image</th><th style="padding:5px;border:1px solid #444;text-align:left">Item</th>
+        <th style="padding:5px;border:1px solid #444">Price</th><th style="padding:5px;border:1px solid #444">Buy</th></tr>
+        ${rows}</table>
+      <div style="text-align:center;margin-top:12px;font-size:11px;color:#888">
+        ${R.pick(['Secure checkout powered by','Payment processed by','Transactions secured by'])} ${R.pick(['PayPal','2Checkout','CCNow','RegNow'])}
+        <br>${brokenImg('secure.gif',88,31)}
+      </div>`}
+  else{
+    mainContent=`<h2 style="color:${accentColor};text-align:center">Welcome to ${titleName}!</h2>
+      <p style="color:${textColor};text-align:center;font-size:13px;margin:12px">This page has been restored from the digital afterlife. What you see is a memory — not the original, but an echo.</p>
+      <div style="text-align:center">${brokenImg('main.gif',200,150)}</div>`}
+
+  // Assemble
+  let html=`<div style="${bgCSS};min-height:100vh;padding:8px;font-family:'Comic Sans MS','Courier New',monospace;font-size:13px;color:${textColor};overflow-wrap:break-word">
+    ${bgType==='stars'?Array.from({length:60},(_,i)=>{let x=R.int(0,100),y=R.int(0,200);return`<div style="position:absolute;left:${x}%;top:${y*3}px;width:${R.int(1,3)}px;height:${R.int(1,3)}px;background:#fff;opacity:${R.next()*0.5+0.2};border-radius:50%;pointer-events:none"></div>`}).join(''):''}
+    <div style="max-width:780px;margin:0 auto;position:relative">
+      <marquee scrollamount="${R.int(2,5)}" style="color:${accentColor};font-size:${R.int(12,16)}px;font-weight:bold;margin:5px 0">${marqueeTexts[0]}</marquee>
+      <div style="text-align:center;margin:8px 0">
+        <h1 style="color:${accentColor};font-size:clamp(18px,5vw,32px);text-shadow:2px 2px ${bgColor1}">${R.pick(['~','*','☆','♡','✧','★'])} ${titleName} ${R.pick(['~','*','☆','♡','✧','★'])}</h1>
+        ${R.chance(0.6)?`<marquee scrollamount="3" style="font-size:11px;color:${textColor}">${marqueeTexts[1]}</marquee>`:''}
+      </div>
+      ${underConstruction}
+      <div style="border:${R.pick(['2px ridge','2px groove','3px double','1px solid'])} ${accentColor};padding:10px;margin:10px 0;background:rgba(0,0,0,0.25)">
+        ${mainContent}
+      </div>
+      ${guestbookHTML}
+      ${webringHTML}
+      ${awards}
+      ${counterHTML}
+      <div style="text-align:center;margin:12px 0;font-size:10px;color:#555">
+        <hr color="#333">
+        Made with ${R.pick(['❤️','Notepad','💻','HTML 3.2','FrontPage Express','Netscape Composer'])} by ${R.pick(guestNames)} |
+        ${R.pick(['Best viewed in','Optimized for'])} ${R.pick(['Netscape Navigator 4.0','Internet Explorer 5.5','800x600 resolution','16-bit color'])}
+        <br>© ${R.int(1996,2005)} ${titleName}. All rights reserved.
+        ${R.chance(0.5)?`<br>${brokenImg('netscape.gif',88,31)} ${brokenImg('ie.gif',88,31)} ${brokenImg('notepad.gif',88,31)}`:''}
+        <br><br><span style="color:#333;font-size:9px">[ resurrected by Digital Necromancer — this is not the real site, only a memory ]</span>
+      </div>
+    </div>
+  </div>`;
+  return html}
+
+// ═══════════════════════════════════════════
+// FAKE IMAGE PAINTER (for canvas placeholders)
+// ═══════════════════════════════════════════
+function paintFakeImages(){
+  document.querySelectorAll('.fake-img').forEach(c=>{
+    let ctx=c.getContext('2d'),w=c.width,h=c.height,R=mkRng(c.dataset.seed||'x');
+    ctx.fillStyle=`hsl(${R.int(0,360)},${R.int(20,60)}%,${R.int(15,30)}%)`;ctx.fillRect(0,0,w,h);
+    let style=R.int(0,4);
+    if(style===0){
+      for(let i=0;i<R.int(3,8);i++){ctx.fillStyle=`hsla(${R.int(0,360)},60%,50%,${R.next()*0.4+0.1})`;
+        ctx.fillRect(R.int(0,w),R.int(0,h),R.int(10,w/2),R.int(10,h/2))}
+      ctx.fillStyle='rgba(255,255,255,0.15)';ctx.font=`${Math.min(w,h)*0.15}px monospace`;ctx.textAlign='center';
+      ctx.fillText('IMAGE',w/2,h/2)}
+    else if(style===1){
+      for(let i=0;i<R.int(5,20);i++){ctx.strokeStyle=`hsla(${R.int(0,360)},70%,60%,0.3)`;ctx.lineWidth=R.int(1,4);
+        ctx.beginPath();ctx.arc(R.int(0,w),R.int(0,h),R.int(5,40),0,Math.PI*2);ctx.stroke()}}
+    else if(style===2){
+      let cols=[`hsl(${R.int(0,360)},80%,50%)`,`hsl(${R.int(0,360)},80%,50%)`,`hsl(${R.int(0,360)},80%,50%)`];
+      for(let y=0;y<h;y+=R.int(3,8)){ctx.fillStyle=cols[y%cols.length];ctx.fillRect(0,y,w,R.int(2,6))}}
+    else if(style===3){
+      ctx.fillStyle=`hsl(${R.int(0,360)},40%,25%)`;ctx.fillRect(0,0,w,h);
+      ctx.strokeStyle='rgba(255,255,255,0.08)';
+      for(let x=0;x<w;x+=R.int(8,20)){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+      for(let y=0;y<h;y+=R.int(8,20)){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+      ctx.fillStyle='rgba(255,255,255,0.1)';ctx.font='12px monospace';ctx.textAlign='center';ctx.fillText('404',w/2,h/2)}
+    else{
+      let g=ctx.createLinearGradient(0,0,w,h);
+      g.addColorStop(0,`hsl(${R.int(0,360)},70%,30%)`);g.addColorStop(1,`hsl(${R.int(0,360)},70%,30%)`);
+      ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+      for(let i=0;i<R.int(10,40);i++){ctx.fillStyle=`rgba(255,255,255,${R.next()*0.15})`;
+        ctx.fillRect(R.int(0,w),R.int(0,h),R.int(1,4),R.int(1,4))}}
+    ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1;ctx.strokeRect(0,0,w,h)})}
+
+// ═══════════════════════════════════════════
+// FLASH PLACEHOLDER ANIMATION
+// ═══════════════════════════════════════════
+function animateFlashPlaceholders(){
+  document.querySelectorAll('.flash-placeholder').forEach(c=>{
+    let ctx=c.getContext('2d'),w=c.width,h=c.height,frame=0;
+    function draw(){
+      frame++;ctx.fillStyle='rgba(0,0,0,0.08)';ctx.fillRect(0,0,w,h);
+      for(let i=0;i<3;i++){ctx.fillStyle=`hsla(${frame*2+i*120},60%,50%,0.15)`;
+        ctx.beginPath();ctx.arc(w/2+Math.sin(frame*0.02+i)*100,h/2+Math.cos(frame*0.015+i*2)*60,20+Math.sin(frame*0.03+i)*10,0,Math.PI*2);ctx.fill()}
+      if(frame<180)requestAnimationFrame(draw)}
+    draw()})}
+
+// ═══════════════════════════════════════════
+// BLINK TAG POLYFILL
+// ═══════════════════════════════════════════
+function startBlink(){
+  setInterval(()=>{document.querySelectorAll('blink').forEach(el=>{
+    el.style.visibility=el.style.visibility==='hidden'?'':'hidden'})},650)}
+
+// ═══════════════════════════════════════════
+// HISTORY (localStorage)
+// ═══════════════════════════════════════════
+const STORE_KEY='necromancer-history';
+function getHistory(){try{return JSON.parse(localStorage.getItem(STORE_KEY))||[]}catch(e){return[]}}
+function addHistory(name){let h=getHistory().filter(n=>n!==name);h.unshift(name);if(h.length>20)h.length=20;
+  localStorage.setItem(STORE_KEY,JSON.stringify(h))}
+function renderHistory(){
+  let h=getHistory(),el=document.getElementById('hist-list');
+  if(!h.length){el.innerHTML='<div style="color:#333;font-size:12px;font-style:italic">No spirits yet summoned...</div>';return}
+  el.innerHTML=h.map(n=>`<div class="hist-item" data-name="${n.replace(/"/g,'&quot;')}">🕯️ ${n}</div>`).join('');
+  el.querySelectorAll('.hist-item').forEach(item=>item.addEventListener('click',()=>startSeance(item.dataset.name)))}
+
+// ═══════════════════════════════════════════
+// PRESETS
+// ═══════════════════════════════════════════
+const PRESETS=['geocities.com/~coolpage','newgrounds.com','hamsterdance.com','zombo.com',
+  'angelfire.com/realm/shrine','neopets.com','homestarrunner.com','stickdeath.com',
+  'Space Jam Official Site','Sailor Moon Universe','Dragon Ball Z Arena','The Ultimate Pokémon Shrine',
+  'Bob\'s Encyclopædia of Encyclopædias','xXx_DaRk_AnGeL_xXx\'s LiveJournal','CyberMall 2000'];
+function renderPresets(){
+  let el=document.getElementById('presets');
+  el.innerHTML=PRESETS.slice(0,8).map(p=>`<span class="preset" data-name="${p}">${p}</span>`).join('');
+  el.querySelectorAll('.preset').forEach(pr=>pr.addEventListener('click',()=>{
+    document.getElementById('url').value=pr.dataset.name;startSeance(pr.dataset.name)}))}
+
+// ═══════════════════════════════════════════
+// SÉANCE FLOW
+// ═══════════════════════════════════════════
+function startSeance(name){
+  if(!name||!name.trim())return;
+  name=name.trim();initAudio();modemSound(3.2);addHistory(name);renderHistory();
+  let portal=document.getElementById('portal');
+  let ritual=document.getElementById('ritual');
+  let ritText=document.getElementById('ritual-text');
+  portal.classList.add('hidden');ritual.classList.add('active');
+  ritActive=true;ritFrame=0;drawRitual();
+  let msgs=[
+    'Initiating digital séance...',
+    `Searching the archives for "${name}"...`,
+    'Reconstructing from cultural memory...',
+    'Reassembling HTML fragments...',
+    'Recovering lost pixels...',
+    'Channeling the spirit of Web 1.0...',
+    '[ connection established ]'
+  ];
+  let i=0;
+  function nextMsg(){
+    if(i<msgs.length){ritText.textContent=msgs[i];i++;setTimeout(nextMsg,450+(i===2?800:0))}
+    else{setTimeout(()=>showSite(name),400)}}
+  nextMsg()}
+
+function showSite(name){
+  let ritual=document.getElementById('ritual');
+  let graveyard=document.getElementById('graveyard');
+  let frame=document.getElementById('site-frame');
+  ritActive=false;ritual.classList.remove('active');
+  chime();
+  frame.innerHTML=generateSite(name);
+  graveyard.classList.add('active');
+  requestAnimationFrame(()=>{paintFakeImages();animateFlashPlaceholders();startBlink()})}
+
+function closeSite(){
+  document.getElementById('graveyard').classList.remove('active');
+  document.getElementById('portal').classList.remove('hidden');
+  renderHistory()}
+
+// ═══════════════════════════════════════════
+// EVENT WIRING
+// ═══════════════════════════════════════════
+document.getElementById('summon').addEventListener('click',()=>startSeance(document.getElementById('url').value));
+document.getElementById('url').addEventListener('keydown',e=>{if(e.key==='Enter')startSeance(document.getElementById('url').value)});
+document.getElementById('back-btn').addEventListener('click',closeSite);
+renderHistory();renderPresets();
+</script>
+</body>
+</html>
