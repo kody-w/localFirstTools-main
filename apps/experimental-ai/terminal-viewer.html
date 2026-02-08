@@ -1,1668 +1,396 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Advanced Terminal Log Visualizer</title>
-    <link
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
-      rel="stylesheet"
-    />
-    <style>
-      :root {
-        --bg-color: #1e1e1e;
-        --panel-bg: #252526;
-        --text-color: #f0f0f0;
-        --header-bg: #323233;
-        --accent-color: #0078d7;
-        --success-color: #4caf50;
-        --warning-color: #ff9800;
-        --error-color: #f44336;
-        --border-color: #3e3e42;
-        --menu-hover: #3a3a3a;
-        --http-color: #2196f3;
-        --storage-color: #9c27b0;
-        --openai-color: #00bcd4;
-        --json-color: #ff79c6;
-        --separator-color: #444;
-        --hover-bg: #2d2d30;
-      }
-
-      body {
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        line-height: 1.6;
-        margin: 0;
-        padding: 0;
-        background-color: var(--bg-color);
-        color: var(--text-color);
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-      }
-
-      header {
-        background-color: var(--header-bg);
-        padding: 1rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid var(--border-color);
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-      }
-
-      .header-title {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .header-title h1 {
-        margin: 0;
-        font-size: 1.5rem;
-        font-weight: 400;
-      }
-
-      .header-title i {
-        font-size: 1.5rem;
-        color: var(--accent-color);
-      }
-
-      .controls {
-        display: flex;
-        gap: 1rem;
-        align-items: center;
-      }
-
-      .main-container {
-        display: flex;
-        flex: 1;
-        overflow: hidden;
-      }
-
-      .sidebar {
-        width: 250px;
-        background-color: var(--panel-bg);
-        display: flex;
-        flex-direction: column;
-        border-right: 1px solid var(--border-color);
-      }
-
-      .filter-group {
-        margin-bottom: 8px;
-      }
-
-      .filter-group-title {
-        padding: 10px 15px;
-        font-size: 0.9rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        background-color: var(--header-bg);
-        border-bottom: 1px solid var(--border-color);
-      }
-
-      .filter-item {
-        padding: 0.5rem 1rem;
-        cursor: pointer;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        transition: background-color 0.2s;
-      }
-
-      .filter-item:hover {
-        background-color: var(--menu-hover);
-      }
-
-      .filter-item.active {
-        background-color: var(--accent-color);
-      }
-
-      .filter-item-label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .workspace {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        overflow: hidden;
-      }
-
-      .input-panel {
-        padding: 15px;
-        background-color: var(--panel-bg);
-        border-bottom: 1px solid var(--border-color);
-      }
-
-      #log-textarea {
-        width: 100%;
-        height: 150px;
-        background-color: var(--bg-color);
-        color: var(--text-color);
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        padding: 10px;
-        font-family: "Consolas", "Courier New", monospace;
-        resize: vertical;
-        margin-bottom: 10px;
-      }
-
-      .btn-group {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-
-      .btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        background-color: var(--accent-color);
-        color: white;
-        border: none;
-        padding: 8px 12px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: background-color 0.2s, transform 0.1s;
-      }
-
-      .btn:hover {
-        background-color: #0066b5;
-      }
-
-      .btn:active {
-        transform: translateY(1px);
-      }
-
-      .btn-clear {
-        background-color: #555;
-      }
-
-      .btn-clear:hover {
-        background-color: #666;
-      }
-
-      .btn-success {
-        background-color: var(--success-color);
-      }
-
-      .btn-success:hover {
-        background-color: #388e3c;
-      }
-
-      .search-container {
-        display: flex;
-        align-items: center;
-        position: relative;
-        margin-top: 10px;
-      }
-
-      .search-box {
-        padding: 8px 12px 8px 36px;
-        border-radius: 20px;
-        border: 1px solid var(--border-color);
-        background-color: var(--bg-color);
-        color: var(--text-color);
-        width: 100%;
-        font-size: 0.9rem;
-      }
-
-      .search-icon {
-        position: absolute;
-        left: 12px;
-        color: #777;
-        font-size: 0.9rem;
-      }
-
-      /* Log visualization area */
-      .logs-panel {
-        flex: 1;
-        overflow: auto;
-        background-color: var(--bg-color);
-        padding: 0;
-        position: relative;
-      }
-
-      .log-categories {
-        display: flex;
-        border-bottom: 1px solid var(--border-color);
-        background-color: var(--panel-bg);
-        position: sticky;
-        top: 0;
-        z-index: 10;
-      }
-
-      .log-category {
-        padding: 8px 16px;
-        cursor: pointer;
-        border-right: 1px solid var(--border-color);
-        font-size: 0.9rem;
-        transition: background-color 0.2s;
-      }
-
-      .log-category:hover {
-        background-color: var(--menu-hover);
-      }
-
-      .log-category.active {
-        background-color: var(--accent-color);
-      }
-
-      .log-container {
-        padding: 0;
-      }
-
-      .log-entry {
-        margin-bottom: 1px;
-        display: flex;
-        flex-direction: column;
-        border-left: 3px solid transparent;
-        transition: background-color 0.15s;
-      }
-
-      .log-entry:hover {
-        background-color: var(--hover-bg);
-      }
-
-      .log-entry.http-entry {
-        border-left-color: var(--http-color);
-      }
-
-      .log-entry.success-entry {
-        border-left-color: var(--success-color);
-      }
-
-      .log-entry.error-entry {
-        border-left-color: var(--error-color);
-      }
-
-      .log-entry.warning-entry {
-        border-left-color: var(--warning-color);
-      }
-
-      .log-entry.storage-entry {
-        border-left-color: var(--storage-color);
-      }
-
-      .log-entry.openai-entry {
-        border-left-color: var(--openai-color);
-      }
-
-      .log-header {
-        padding: 6px 10px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        cursor: pointer;
-        border-bottom: 1px solid var(--separator-color);
-        position: relative;
-      }
-
-      .log-icon {
-        margin-right: 8px;
-        font-size: 14px;
-      }
-
-      .timestamp {
-        color: #888;
-        font-size: 13px;
-        margin-right: 10px;
-        white-space: nowrap;
-      }
-
-      .log-summary {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-family: "Consolas", "Courier New", monospace;
-        font-size: 13px;
-      }
-
-      .log-http {
-        color: var(--http-color);
-      }
-
-      .log-success {
-        color: var(--success-color);
-      }
-
-      .log-warning {
-        color: var(--warning-color);
-      }
-
-      .log-error {
-        color: var(--error-color);
-      }
-
-      .log-storage {
-        color: var(--storage-color);
-      }
-
-      .log-openai {
-        color: var(--openai-color);
-      }
-
-      .log-json {
-        color: var(--json-color);
-      }
-
-      .log-tools {
-        display: flex;
-        gap: 8px;
-      }
-
-      .log-tool {
-        color: #888;
-        cursor: pointer;
-        font-size: 14px;
-        transition: color 0.2s;
-      }
-
-      .log-tool:hover {
-        color: var(--text-color);
-      }
-
-      .log-details {
-        display: none;
-        padding: 10px;
-        background-color: var(--panel-bg);
-        border-bottom: 1px solid var(--separator-color);
-        font-family: "Consolas", "Courier New", monospace;
-        font-size: 13px;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-        position: relative;
-      }
-
-      .log-entry.expanded .log-details {
-        display: block;
-      }
-
-      .log-entry.expanded .fa-angle-down {
-        transform: rotate(180deg);
-      }
-
-      .log-property {
-        margin-bottom: 5px;
-      }
-
-      .property-name {
-        font-weight: bold;
-        color: #888;
-      }
-
-      .property-value {
-        margin-left: 20px;
-      }
-
-      .status-bar {
-        padding: 8px 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background-color: var(--header-bg);
-        border-top: 1px solid var(--border-color);
-        font-size: 0.9rem;
-      }
-
-      .theme-switch {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .switch {
-        position: relative;
-        display: inline-block;
-        width: 40px;
-        height: 20px;
-      }
-
-      .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
-
-      .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #555;
-        transition: 0.4s;
-        border-radius: 20px;
-      }
-
-      .slider:before {
-        position: absolute;
-        content: "";
-        height: 16px;
-        width: 16px;
-        left: 2px;
-        bottom: 2px;
-        background-color: white;
-        transition: 0.4s;
-        border-radius: 50%;
-      }
-
-      input:checked + .slider {
-        background-color: var(--accent-color);
-      }
-
-      input:checked + .slider:before {
-        transform: translateX(20px);
-      }
-
-      .badge {
-        font-size: 0.8rem;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-weight: normal;
-        min-width: 24px;
-        text-align: center;
-      }
-
-      .badge-http {
-        background-color: var(--http-color);
-        color: white;
-      }
-
-      .badge-success {
-        background-color: var(--success-color);
-        color: white;
-      }
-
-      .badge-error {
-        background-color: var(--error-color);
-        color: white;
-      }
-
-      .badge-warning {
-        background-color: var(--warning-color);
-        color: black;
-      }
-
-      .badge-storage {
-        background-color: var(--storage-color);
-        color: white;
-      }
-
-      .badge-openai {
-        background-color: var(--openai-color);
-        color: white;
-      }
-
-      .badge-json {
-        background-color: var(--json-color);
-        color: black;
-      }
-
-      .spinner {
-        border: 4px solid rgba(0, 0, 0, 0.1);
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        border-left-color: var(--accent-color);
-        animation: spin 1s linear infinite;
-        margin: 20px auto;
-        display: none;
-      }
-
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-
-      .highlighted {
-        background-color: rgba(255, 215, 0, 0.2);
-        border-radius: 2px;
-      }
-
-      .empty-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        padding: 20px;
-        text-align: center;
-        color: #888;
-      }
-
-      .empty-state i {
-        font-size: 48px;
-        margin-bottom: 20px;
-        color: #555;
-      }
-
-      .empty-state-title {
-        font-size: 20px;
-        margin-bottom: 10px;
-      }
-
-      .empty-state-message {
-        font-size: 14px;
-        max-width: 500px;
-      }
-
-      .copy-tooltip {
-        position: absolute;
-        background-color: var(--accent-color);
-        color: white;
-        padding: 5px 10px;
-        border-radius: 4px;
-        font-size: 12px;
-        bottom: -10px;
-        right: 10px;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s, transform 0.3s;
-        transform: translateY(10px);
-        z-index: 100;
-      }
-
-      .copy-tooltip.visible {
-        opacity: 1;
-        transform: translateY(0);
-      }
-
-      /* Light theme */
-      body.light-theme {
-        --bg-color: #f8f8f8;
-        --panel-bg: #f1f1f1;
-        --text-color: #333;
-        --header-bg: #e5e5e5;
-        --border-color: #ccc;
-        --menu-hover: #e0e0e0;
-        --separator-color: #ddd;
-        --hover-bg: #e8e8e8;
-      }
-
-      body.light-theme .log-details {
-        background-color: #fff;
-      }
-
-      /* Mobile Responsive */
-      @media (max-width: 768px) {
-        .main-container {
-          flex-direction: column;
-        }
-
-        .sidebar {
-          width: 100%;
-          max-height: 200px;
-          overflow-y: auto;
-        }
-
-        .log-header {
-          flex-wrap: wrap;
-        }
-
-        .log-tools {
-          margin-top: 5px;
-        }
-
-        .controls {
-          flex-wrap: wrap;
-        }
-      }
-
-      /* Collapse/Expand All Buttons */
-      .log-controls {
-        display: flex;
-        gap: 10px;
-        padding: 5px 10px;
-        background-color: var(--panel-bg);
-        border-bottom: 1px solid var(--border-color);
-        position: sticky;
-        top: 35px;
-        z-index: 5;
-      }
-
-      .log-controls button {
-        background-color: transparent;
-        border: 1px solid var(--border-color);
-        color: var(--text-color);
-        padding: 3px 8px;
-        font-size: 0.8rem;
-        border-radius: 3px;
-        cursor: pointer;
-      }
-
-      .log-controls button:hover {
-        background-color: var(--menu-hover);
-      }
-
-      /* Status indicators */
-      .status-indicators {
-        display: flex;
-        gap: 15px;
-      }
-
-      .status-indicator {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        font-size: 0.85rem;
-      }
-
-      .indicator-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background-color: #888;
-      }
-
-      .indicator-dot.http {
-        background-color: var(--http-color);
-      }
-
-      .indicator-dot.success {
-        background-color: var(--success-color);
-      }
-
-      .indicator-dot.error {
-        background-color: var(--error-color);
-      }
-
-      .indicator-dot.warning {
-        background-color: var(--warning-color);
-      }
-
-      .indicator-dot.storage {
-        background-color: var(--storage-color);
-      }
-
-      .indicator-dot.openai {
-        background-color: var(--openai-color);
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <div class="header-title">
-        <i class="fas fa-terminal"></i>
-        <h1>Advanced Terminal Log Visualizer</h1>
-      </div>
-      <div class="controls">
-        <div class="theme-switch">
-          <i class="fas fa-moon"></i>
-          <label class="switch">
-            <input type="checkbox" id="theme-toggle" />
-            <span class="slider"></span>
-          </label>
-          <i class="fas fa-sun"></i>
-        </div>
-      </div>
-    </header>
-
-    <div class="main-container">
-      <div class="sidebar">
-        <div class="filter-group">
-          <div class="filter-group-title">Log Types</div>
-          <div class="filter-item active" data-filter="all">
-            <div class="filter-item-label">
-              <i class="fas fa-list"></i>
-              All Logs
-            </div>
-            <span id="count-all" class="badge badge-http">0</span>
-          </div>
-          <div class="filter-item" data-filter="http">
-            <div class="filter-item-label">
-              <i class="fas fa-exchange-alt"></i>
-              HTTP Requests
-            </div>
-            <span id="count-http" class="badge badge-http">0</span>
-          </div>
-          <div class="filter-item" data-filter="success">
-            <div class="filter-item-label">
-              <i class="fas fa-check-circle"></i>
-              Success
-            </div>
-            <span id="count-success" class="badge badge-success">0</span>
-          </div>
-          <div class="filter-item" data-filter="error">
-            <div class="filter-item-label">
-              <i class="fas fa-exclamation-circle"></i>
-              Errors
-            </div>
-            <span id="count-error" class="badge badge-error">0</span>
-          </div>
-          <div class="filter-item" data-filter="warning">
-            <div class="filter-item-label">
-              <i class="fas fa-exclamation-triangle"></i>
-              Warnings
-            </div>
-            <span id="count-warning" class="badge badge-warning">0</span>
-          </div>
-        </div>
-
-        <div class="filter-group">
-          <div class="filter-group-title">Services</div>
-          <div class="filter-item" data-filter="storage">
-            <div class="filter-item-label">
-              <i class="fas fa-database"></i>
-              Storage
-            </div>
-            <span id="count-storage" class="badge badge-storage">0</span>
-          </div>
-          <div class="filter-item" data-filter="openai">
-            <div class="filter-item-label">
-              <i class="fas fa-brain"></i>
-              OpenAI API
-            </div>
-            <span id="count-openai" class="badge badge-openai">0</span>
-          </div>
-          <div class="filter-item" data-filter="json">
-            <div class="filter-item-label">
-              <i class="fas fa-code"></i>
-              JSON Data
-            </div>
-            <span id="count-json" class="badge badge-json">0</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="workspace">
-        <div class="input-panel">
-          <textarea
-            id="log-textarea"
-            placeholder="Paste your terminal logs here..."
-          ></textarea>
-          <div class="btn-group">
-            <button class="btn" id="parse-logs">
-              <i class="fas fa-play"></i>
-              Parse Logs
-            </button>
-            <button class="btn btn-clear" id="clear-logs">
-              <i class="fas fa-trash"></i>
-              Clear
-            </button>
-            <button class="btn btn-success" id="copy-all">
-              <i class="fas fa-copy"></i>
-              Copy All
-            </button>
-            <button class="btn" id="auto-fix">
-              <i class="fas fa-magic"></i>
-              Auto-Fix
-            </button>
-            <button class="btn" id="toggle-timestamp">
-              <i class="fas fa-clock"></i>
-              <span id="timestamp-text">Hide Timestamps</span>
-            </button>
-          </div>
-          <div class="search-container">
-            <i class="fas fa-search search-icon"></i>
-            <input
-              type="text"
-              class="search-box"
-              id="search-input"
-              placeholder="Search logs..."
-            />
-          </div>
-        </div>
-
-        <div class="logs-panel">
-          <div class="log-categories">
-            <div class="log-category active" data-view="grouped">Grouped</div>
-            <div class="log-category" data-view="timeline">Timeline</div>
-            <div class="log-category" data-view="raw">Raw</div>
-          </div>
-
-          <div class="log-controls">
-            <button id="expand-all">
-              <i class="fas fa-expand-alt"></i> Expand All
-            </button>
-            <button id="collapse-all">
-              <i class="fas fa-compress-alt"></i> Collapse All
-            </button>
-            <div class="status-indicators">
-              <div class="status-indicator">
-                <div class="indicator-dot http"></div>
-                <span>HTTP</span>
-              </div>
-              <div class="status-indicator">
-                <div class="indicator-dot success"></div>
-                <span>Success</span>
-              </div>
-              <div class="status-indicator">
-                <div class="indicator-dot error"></div>
-                <span>Error</span>
-              </div>
-              <div class="status-indicator">
-                <div class="indicator-dot warning"></div>
-                <span>Warning</span>
-              </div>
-            </div>
-          </div>
-
-          <div id="spinner" class="spinner"></div>
-
-          <div class="log-container" id="log-container">
-            <div class="empty-state">
-              <i class="fas fa-terminal"></i>
-              <div class="empty-state-title">No Logs to Display</div>
-              <div class="empty-state-message">
-                Paste your terminal logs in the text area above and click "Parse
-                Logs" to visualize them.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-bar">
-          <div id="status-text">Ready to parse logs</div>
-          <div id="line-count">Lines: 0</div>
-        </div>
-      </div>
-    </div>
-
-    <script>
-      document.addEventListener("DOMContentLoaded", function () {
-        // DOM Elements
-        const logTextarea = document.getElementById("log-textarea");
-        const logContainer = document.getElementById("log-container");
-        const parseLogsBtn = document.getElementById("parse-logs");
-        const clearLogsBtn = document.getElementById("clear-logs");
-        const copyAllBtn = document.getElementById("copy-all");
-        const autoFixBtn = document.getElementById("auto-fix");
-        const searchInput = document.getElementById("search-input");
-        const toggleTimestampBtn = document.getElementById("toggle-timestamp");
-        const timestampText = document.getElementById("timestamp-text");
-        const themeToggle = document.getElementById("theme-toggle");
-        const statusText = document.getElementById("status-text");
-        const lineCount = document.getElementById("line-count");
-        const spinner = document.getElementById("spinner");
-        const expandAllBtn = document.getElementById("expand-all");
-        const collapseAllBtn = document.getElementById("collapse-all");
-        const filterItems = document.querySelectorAll(".filter-item");
-        const logCategories = document.querySelectorAll(".log-category");
-
-        // Variables
-        let showTimestamps = true;
-        let currentView = "grouped";
-        let currentFilter = "all";
-        let logEntries = [];
-        let processedLogEntries = [];
-
-        // Count variables for different log types
-        let counts = {
-          all: 0,
-          http: 0,
-          success: 0,
-          error: 0,
-          warning: 0,
-          storage: 0,
-          openai: 0,
-          json: 0,
-        };
-
-        // Parse logs button click
-        parseLogsBtn.addEventListener("click", function () {
-          const logContent = logTextarea.value.trim();
-          if (!logContent) {
-            statusText.textContent = "No logs to parse.";
-            return;
-          }
-
-          spinner.style.display = "block";
-          logContainer.innerHTML = "";
-
-          // Reset counts
-          for (let key in counts) {
-            counts[key] = 0;
-          }
-
-          setTimeout(() => {
-            processLogs(logContent);
-            displayLogEntries();
-            updateCounts();
-            spinner.style.display = "none";
-          }, 100);
-        });
-
-        // Clear logs button click
-        clearLogsBtn.addEventListener("click", function () {
-          logTextarea.value = "";
-          logContainer.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-terminal"></i>
-                        <div class="empty-state-title">No Logs to Display</div>
-                        <div class="empty-state-message">
-                            Paste your terminal logs in the text area above and click "Parse Logs" to visualize them.
-                        </div>
-                    </div>
-                `;
-          statusText.textContent = "Logs cleared.";
-          lineCount.textContent = "Lines: 0";
-
-          // Reset counts
-          for (let key in counts) {
-            counts[key] = 0;
-            document.getElementById(`count-${key}`).textContent = "0";
-          }
-
-          logEntries = [];
-          processedLogEntries = [];
-        });
-
-        // Copy all button click
-        copyAllBtn.addEventListener("click", function () {
-          let textToCopy;
-
-          if (logEntries.length === 0) {
-            statusText.textContent = "No logs to copy.";
-            return;
-          }
-
-          if (currentView === "raw") {
-            // Copy raw log text
-            textToCopy = logEntries.map((entry) => entry.rawText).join("\n");
-          } else {
-            // Copy processed log content
-            textToCopy = logEntries
-              .map((entry) => {
-                return `[${entry.timestamp}] ${entry.summary}${
-                  entry.details ? "\n" + entry.details : ""
-                }`;
-              })
-              .join("\n\n");
-          }
-
-          navigator.clipboard
-            .writeText(textToCopy)
-            .then(() => {
-              statusText.textContent = "Logs copied to clipboard!";
-              setTimeout(() => {
-                statusText.textContent = "Ready";
-              }, 2000);
-            })
-            .catch((err) => {
-              statusText.textContent = "Failed to copy: " + err;
-            });
-        });
-
-        // Auto-fix button click
-        autoFixBtn.addEventListener("click", function () {
-          const content = logTextarea.value.trim();
-          if (!content) {
-            statusText.textContent = "No logs to fix.";
-            return;
-          }
-
-          // Try to fix truncated logs
-          const fixedContent = fixTruncatedLogs(content);
-          logTextarea.value = fixedContent;
-
-          // Re-parse with fixed logs
-          parseLogsBtn.click();
-          statusText.textContent = "Attempted to fix truncated logs.";
-        });
-
-        // Search input
-        searchInput.addEventListener("input", function () {
-          const searchTerm = this.value.toLowerCase();
-          filterLogEntries();
-        });
-
-        // Toggle timestamps
-        toggleTimestampBtn.addEventListener("click", function () {
-          showTimestamps = !showTimestamps;
-          timestampText.textContent = showTimestamps
-            ? "Hide Timestamps"
-            : "Show Timestamps";
-
-          const timestamps = document.querySelectorAll(".timestamp");
-          timestamps.forEach((ts) => {
-            ts.style.display = showTimestamps ? "inline-block" : "none";
-          });
-        });
-
-        // Theme toggle
-        themeToggle.addEventListener("change", function () {
-          document.body.classList.toggle("light-theme", this.checked);
-        });
-
-        // Expand all button
-        expandAllBtn.addEventListener("click", function () {
-          document.querySelectorAll(".log-entry").forEach((entry) => {
-            entry.classList.add("expanded");
-          });
-        });
-
-        // Collapse all button
-        collapseAllBtn.addEventListener("click", function () {
-          document.querySelectorAll(".log-entry").forEach((entry) => {
-            entry.classList.remove("expanded");
-          });
-        });
-
-        // Filter items click
-        filterItems.forEach((item) => {
-          item.addEventListener("click", function () {
-            filterItems.forEach((i) => i.classList.remove("active"));
-            this.classList.add("active");
-            currentFilter = this.getAttribute("data-filter");
-            filterLogEntries();
-          });
-        });
-
-        // Log categories click
-        logCategories.forEach((category) => {
-          category.addEventListener("click", function () {
-            logCategories.forEach((c) => c.classList.remove("active"));
-            this.classList.add("active");
-            currentView = this.getAttribute("data-view");
-            displayLogEntries();
-          });
-        });
-
-        // Function to process logs
-        function processLogs(content) {
-          // Reset variables
-          logEntries = [];
-
-          // First normalize line endings and split into lines
-          const lines = content.replace(/\r\n/g, "\n").split("\n");
-
-          let currentEntry = null;
-          let buffer = "";
-
-          lines.forEach((line, index) => {
-            // Check if this is a new log entry (has timestamp)
-            const timestampMatch = line.match(
-              /^\[(20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z)\]/
-            );
-
-            if (timestampMatch) {
-              // Save previous entry if exists
-              if (currentEntry !== null) {
-                if (buffer.trim()) {
-                  currentEntry.details = buffer.trim();
-                }
-                logEntries.push(currentEntry);
-              }
-
-              // Start a new entry
-              buffer = "";
-              const timestamp = timestampMatch[1];
-
-              // Remove timestamp from line for summary
-              const summaryText = line.replace(timestampMatch[0], "").trim();
-
-              // Determine entry type
-              let type = "info";
-
-              if (
-                line.includes("HTTP Request:") ||
-                line.includes("Status Code:") ||
-                line.includes("GET") ||
-                line.includes("POST") ||
-                line.includes("PUT") ||
-                line.includes("DELETE")
-              ) {
-                type = "http";
-                counts.http++;
-              } else if (
-                line.includes("Status Code: 200") ||
-                line.includes("success") ||
-                line.includes("Success")
-              ) {
-                type = "success";
-                counts.success++;
-              } else if (line.includes("warning") || line.includes("Warning")) {
-                type = "warning";
-                counts.warning++;
-              } else if (
-                line.includes("error") ||
-                line.includes("Error") ||
-                line.includes("Exception") ||
-                line.includes("Status Code: 4") ||
-                line.includes("Status Code: 5")
-              ) {
-                type = "error";
-                counts.error++;
-              }
-
-              // Determine service type
-              let service = "";
-
-              if (
-                line.includes("Storage") ||
-                line.includes("File/1.0") ||
-                line.includes("/azfbusinessbot3c92ab/")
-              ) {
-                service = "storage";
-                counts.storage++;
-              } else if (
-                line.includes("OpenAI") ||
-                line.includes("openai") ||
-                line.includes("/deployments/gpt")
-              ) {
-                service = "openai";
-                counts.openai++;
-              } else if (line.includes("JSON data") || line.includes('{"')) {
-                service = "json";
-                counts.json++;
-              }
-
-              currentEntry = {
-                timestamp,
-                summary: summaryText,
-                type,
-                service,
-                rawText: line,
-              };
-            } else {
-              // Add to current entry details
-              if (currentEntry !== null) {
-                buffer += line + "\n";
-                currentEntry.rawText += "\n" + line;
-              } else {
-                // This is a truncated log, create an entry for it
-                currentEntry = {
-                  timestamp: "",
-                  summary: line,
-                  type: detectLogType(line),
-                  service: detectServiceType(line),
-                  rawText: line,
-                };
-
-                // Count based on detected type
-                if (currentEntry.type) {
-                  counts[currentEntry.type]++;
-                }
-
-                // Count based on detected service
-                if (currentEntry.service) {
-                  counts[currentEntry.service]++;
-                }
-              }
-            }
-          });
-
-          // Add the last entry
-          if (currentEntry !== null) {
-            if (buffer.trim()) {
-              currentEntry.details = buffer.trim();
-            }
-            logEntries.push(currentEntry);
-          }
-
-          // Total count
-          counts.all = logEntries.length;
-
-          lineCount.textContent = `Lines: ${lines.length}`;
-          statusText.textContent = `Processed ${logEntries.length} log entries`;
-        }
-
-        // Function to detect log type from a line
-        function detectLogType(line) {
-          if (
-            line.includes("HTTP Request:") ||
-            line.includes("Status Code:") ||
-            line.includes("GET") ||
-            line.includes("POST") ||
-            line.includes("PUT") ||
-            line.includes("DELETE")
-          ) {
-            return "http";
-          } else if (
-            line.includes("Status Code: 200") ||
-            line.includes("success") ||
-            line.includes("Success")
-          ) {
-            return "success";
-          } else if (line.includes("warning") || line.includes("Warning")) {
-            return "warning";
-          } else if (
-            line.includes("error") ||
-            line.includes("Error") ||
-            line.includes("Exception") ||
-            line.includes("Status Code: 4") ||
-            line.includes("Status Code: 5")
-          ) {
-            return "error";
-          }
-          return "info";
-        }
-
-        // Function to detect service type from a line
-        function detectServiceType(line) {
-          if (
-            line.includes("Storage") ||
-            line.includes("File/1.0") ||
-            line.includes("/azfbusinessbot3c92ab/")
-          ) {
-            return "storage";
-          } else if (
-            line.includes("OpenAI") ||
-            line.includes("openai") ||
-            line.includes("/deployments/gpt")
-          ) {
-            return "openai";
-          } else if (line.includes("JSON data") || line.includes('{"')) {
-            return "json";
-          }
-          return "";
-        }
-
-        // Function to update the counter badges
-        function updateCounts() {
-          for (let key in counts) {
-            document.getElementById(`count-${key}`).textContent = counts[key];
-          }
-        }
-
-        // Function to display log entries based on current view
-        function displayLogEntries() {
-          logContainer.innerHTML = "";
-
-          if (logEntries.length === 0) {
-            logContainer.innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-terminal"></i>
-                            <div class="empty-state-title">No Logs to Display</div>
-                            <div class="empty-state-message">
-                                Paste your terminal logs in the text area above and click "Parse Logs" to visualize them.
-                            </div>
-                        </div>
-                    `;
-            return;
-          }
-
-          // Filter entries based on current filter
-          const filteredEntries =
-            currentFilter === "all"
-              ? logEntries
-              : logEntries.filter(
-                  (entry) =>
-                    entry.type === currentFilter ||
-                    entry.service === currentFilter
-                );
-
-          // Filter by search term if present
-          const searchTerm = searchInput.value.toLowerCase();
-          const searchFilteredEntries = searchTerm
-            ? filteredEntries.filter(
-                (entry) =>
-                  entry.summary.toLowerCase().includes(searchTerm) ||
-                  (entry.details &&
-                    entry.details.toLowerCase().includes(searchTerm))
-              )
-            : filteredEntries;
-
-          if (searchFilteredEntries.length === 0) {
-            logContainer.innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-search"></i>
-                            <div class="empty-state-title">No Matching Logs</div>
-                            <div class="empty-state-message">
-                                No logs match your current filter and search criteria.
-                            </div>
-                        </div>
-                    `;
-            return;
-          }
-
-          // Process entries based on current view
-          switch (currentView) {
-            case "grouped":
-              displayGroupedView(searchFilteredEntries);
-              break;
-            case "timeline":
-              displayTimelineView(searchFilteredEntries);
-              break;
-            case "raw":
-              displayRawView(searchFilteredEntries);
-              break;
-          }
-        }
-
-        // Display logs in grouped view
-        function displayGroupedView(entries) {
-          // Group entries by type
-          const groupedEntries = {
-            error: entries.filter((entry) => entry.type === "error"),
-            warning: entries.filter((entry) => entry.type === "warning"),
-            http: entries.filter((entry) => entry.type === "http"),
-            success: entries.filter((entry) => entry.type === "success"),
-            other: entries.filter(
-              (entry) =>
-                !["error", "warning", "http", "success"].includes(entry.type)
-            ),
-          };
-
-          // Start with errors
-          if (groupedEntries.error.length > 0) {
-            appendGroupHeader("Errors", "error", groupedEntries.error.length);
-            groupedEntries.error.forEach((entry) => appendLogEntry(entry));
-          }
-
-          // Then warnings
-          if (groupedEntries.warning.length > 0) {
-            appendGroupHeader(
-              "Warnings",
-              "warning",
-              groupedEntries.warning.length
-            );
-            groupedEntries.warning.forEach((entry) => appendLogEntry(entry));
-          }
-
-          // Then HTTP requests
-          if (groupedEntries.http.length > 0) {
-            appendGroupHeader(
-              "HTTP Requests",
-              "http",
-              groupedEntries.http.length
-            );
-            groupedEntries.http.forEach((entry) => appendLogEntry(entry));
-          }
-
-          // Then success messages
-          if (groupedEntries.success.length > 0) {
-            appendGroupHeader(
-              "Success",
-              "success",
-              groupedEntries.success.length
-            );
-            groupedEntries.success.forEach((entry) => appendLogEntry(entry));
-          }
-
-          // Then everything else
-          if (groupedEntries.other.length > 0) {
-            appendGroupHeader("Other", "info", groupedEntries.other.length);
-            groupedEntries.other.forEach((entry) => appendLogEntry(entry));
-          }
-        }
-
-        // Display logs in timeline view
-        function displayTimelineView(entries) {
-          // Sort entries by timestamp
-          const sortedEntries = [...entries].sort((a, b) => {
-            if (!a.timestamp) return -1;
-            if (!b.timestamp) return 1;
-            return new Date(a.timestamp) - new Date(b.timestamp);
-          });
-
-          sortedEntries.forEach((entry) => appendLogEntry(entry));
-        }
-
-        // Display logs in raw view
-        function displayRawView(entries) {
-          const rawContainer = document.createElement("pre");
-          rawContainer.className = "raw-logs";
-          rawContainer.style.padding = "10px";
-          rawContainer.style.fontFamily = "Consolas, monospace";
-
-          entries.forEach((entry) => {
-            const line = document.createElement("div");
-
-            if (entry.type) {
-              line.className = `log-${entry.type}`;
-            }
-
-            line.textContent = entry.rawText;
-            rawContainer.appendChild(line);
-          });
-
-          logContainer.appendChild(rawContainer);
-        }
-
-        // Append a group header to the log container
-        function appendGroupHeader(title, type, count) {
-          const header = document.createElement("div");
-          header.className = "filter-group-title";
-          header.innerHTML = `${title} <span class="badge badge-${type}">${count}</span>`;
-          logContainer.appendChild(header);
-        }
-
-        // Append a log entry to the log container
-        function appendLogEntry(entry) {
-          const logEntry = document.createElement("div");
-          logEntry.className = `log-entry ${entry.type}-entry`;
-
-          // Determine icon based on type
-          let icon = "fa-info-circle";
-
-          if (entry.type === "http") {
-            icon = "fa-exchange-alt";
-          } else if (entry.type === "success") {
-            icon = "fa-check-circle";
-          } else if (entry.type === "warning") {
-            icon = "fa-exclamation-triangle";
-          } else if (entry.type === "error") {
-            icon = "fa-exclamation-circle";
-          }
-
-          // Create header
-          const logHeader = document.createElement("div");
-          logHeader.className = "log-header";
-
-          let timestamp = "";
-          if (entry.timestamp) {
-            timestamp = `<span class="timestamp" style="${
-              showTimestamps ? "" : "display:none;"
-            }">[${entry.timestamp}]</span>`;
-          }
-
-          logHeader.innerHTML = `
-                    <div>
-                        <i class="fas ${icon} log-icon log-${entry.type}"></i>
-                        ${timestamp}
-                        <span class="log-summary">${highlightSearchText(
-                          entry.summary
-                        )}</span>
-                    </div>
-                    <div class="log-tools">
-                        <i class="fas fa-copy log-tool copy-log" title="Copy log entry"></i>
-                        <i class="fas fa-angle-down log-tool"></i>
-                    </div>
-                `;
-          logEntry.appendChild(logHeader);
-
-          // Create details section if entry has details
-          if (entry.details) {
-            const logDetails = document.createElement("div");
-            logDetails.className = "log-details";
-
-            // Attempt to parse JSON in details
-            if (entry.details.includes("{") && entry.details.includes("}")) {
-              try {
-                // Find JSON objects in the text
-                const jsonRegex = /(\{[\s\S]*?\})/g;
-                const matches = entry.details.match(jsonRegex);
-
-                if (matches) {
-                  let processedDetails = entry.details;
-
-                  matches.forEach((match) => {
-                    try {
-                      const formatted = JSON.stringify(
-                        JSON.parse(match),
-                        null,
-                        2
-                      );
-                      processedDetails = processedDetails.replace(
-                        match,
-                        formatted
-                      );
-                    } catch (e) {
-                      // Not valid JSON, ignore
-                    }
-                  });
-
-                  logDetails.innerHTML = highlightSearchText(processedDetails);
-                } else {
-                  logDetails.innerHTML = highlightSearchText(entry.details);
-                }
-              } catch (e) {
-                logDetails.innerHTML = highlightSearchText(entry.details);
-              }
-            } else {
-              logDetails.innerHTML = highlightSearchText(entry.details);
-            }
-
-            // Create copy tooltip
-            const copyTooltip = document.createElement("div");
-            copyTooltip.className = "copy-tooltip";
-            copyTooltip.textContent = "Copied!";
-            logDetails.appendChild(copyTooltip);
-
-            logEntry.appendChild(logDetails);
-          }
-
-          logContainer.appendChild(logEntry);
-        }
-
-        // Function to highlight search text
-        function highlightSearchText(text) {
-          const searchTerm = searchInput.value.toLowerCase();
-          if (!searchTerm || !text) return text;
-
-          // Escape regex special chars
-          const escapedSearchTerm = searchTerm.replace(
-            /[.*+?^${}()|[\]\\]/g,
-            "\\$&"
-          );
-          const regex = new RegExp(`(${escapedSearchTerm})`, "gi");
-
-          return text.replace(regex, '<span class="highlighted">$1</span>');
-        }
-
-        // Function to filter log entries based on current filter
-        function filterLogEntries() {
-          displayLogEntries();
-        }
-
-        // Function to attempt fixing truncated logs
-        function fixTruncatedLogs(content) {
-          let lines = content.replace(/\r\n/g, "\n").split("\n");
-          let fixedLines = [];
-          let currentLine = "";
-
-          // Check first line for truncation
-          const firstLine = lines[0];
-          if (
-            !firstLine.match(
-              /^\[(20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z)\]/
-            )
-          ) {
-            // First line is truncated, mark it as a comment
-            fixedLines.push(`// TRUNCATED: ${firstLine}`);
-          } else {
-            fixedLines.push(firstLine);
-          }
-
-          // Process remaining lines
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Check if this is a new log entry or continuation
-            if (
-              line.match(/^\[(20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z)\]/)
-            ) {
-              // This is a new log entry
-              fixedLines.push(line);
-            } else if (line.trim() === "") {
-              // Empty line, preserve it
-              fixedLines.push(line);
-            } else if (line.includes("Headers={") && !line.includes("}")) {
-              // This is a headers line that's truncated or spans multiple lines
-              currentLine = line;
-
-              // Keep consuming lines until we find the end of headers
-              let j = i + 1;
-              while (
-                j < lines.length &&
-                !lines[j].match(
-                  /^\[(20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z)\]/
-                )
-              ) {
-                currentLine += " " + lines[j].trim();
-                j++;
-              }
-
-              fixedLines.push(currentLine);
-              i = j - 1; // Skip consumed lines
-            } else {
-              // Regular continuation line or unknown format
-              fixedLines.push(line);
-            }
-          }
-
-          return fixedLines.join("\n");
-        }
-
-        // Event delegation for log entry clicks
-        logContainer.addEventListener("click", function (e) {
-          // Toggle expand/collapse
-          if (
-            e.target.classList.contains("log-header") ||
-            e.target.closest(".log-header")
-          ) {
-            const logEntry = e.target.closest(".log-entry");
-            if (logEntry) {
-              logEntry.classList.toggle("expanded");
-            }
-          }
-
-          // Copy log entry
-          if (
-            e.target.classList.contains("copy-log") ||
-            e.target.closest(".copy-log")
-          ) {
-            const logEntry = e.target.closest(".log-entry");
-            if (logEntry) {
-              // Get text content to copy
-              const summaryEl = logEntry.querySelector(".log-summary");
-              const detailsEl = logEntry.querySelector(".log-details");
-
-              let textToCopy = summaryEl.textContent;
-
-              if (detailsEl) {
-                textToCopy += "\n\n" + detailsEl.textContent;
-              }
-
-              navigator.clipboard
-                .writeText(textToCopy)
-                .then(() => {
-                  // Show tooltip
-                  const tooltip = logEntry.querySelector(".copy-tooltip");
-                  if (tooltip) {
-                    tooltip.classList.add("visible");
-                    setTimeout(() => {
-                      tooltip.classList.remove("visible");
-                    }, 2000);
-                  }
-                })
-                .catch((err) => {
-                  console.error("Failed to copy: ", err);
-                  statusText.textContent = "Failed to copy log entry";
-                });
-            }
-          }
-        });
-
-        // Auto-parse logs when pasted
-        logTextarea.addEventListener("paste", function () {
-          setTimeout(() => {
-            parseLogsBtn.click();
-          }, 100);
-        });
-      });
-    </script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terminal Hacker</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="canvas,game,hacking,terminal,audio,typing">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="2">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0c0c0c;color:#00ff41;font-family:'Courier New',monospace;overflow:hidden;height:100vh}
+canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;top:0;left:0;right:0;padding:6px 14px;display:flex;justify-content:space-between;font-size:12px;background:linear-gradient(180deg,rgba(12,12,12,0.95),transparent);pointer-events:none;z-index:5}
+.hg{color:#00ff41;font-weight:bold}.hr{color:#ff3333}.hy{color:#ffaa00}.hb{color:#33aaff}
+#ov{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(12,12,12,0.96);z-index:20;transition:opacity 0.3s}
+#ov.hide{opacity:0;pointer-events:none}
+#ov h1{font-size:2rem;color:#00ff41;text-shadow:0 0 20px rgba(0,255,65,0.5);margin-bottom:6px;letter-spacing:4px}
+#ov h2{font-size:0.9rem;color:#00aa2a;margin-bottom:16px;font-weight:normal}
+.mb{background:#0a0a0a;border:1px solid #00ff4144;color:#00ff41;padding:10px 24px;margin:4px;font-size:0.85rem;border-radius:4px;cursor:pointer;transition:all 0.2s;font-family:'Courier New',monospace}
+.mb:hover{border-color:#00ff41;box-shadow:0 0 12px rgba(0,255,65,0.2);transform:scale(1.03)}
+.mb.sel{border-color:#00ff41;box-shadow:0 0 10px rgba(0,255,65,0.3)}
+#si{font-size:0.75rem;color:#006620;margin-top:10px;text-align:center;line-height:1.7}
+#si span{color:#00ff41}
+.hh{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);font-size:0.68rem;color:#003310;z-index:5;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="hud">
+<div>LEVEL <span class="hg" id="h-lv">1</span> | WPM <span class="hg" id="h-wpm">0</span></div>
+<div>SCORE <span class="hy" id="h-sc">0</span> | COMBO <span class="hb" id="h-co">x1</span></div>
+<div>FIREWALL <span class="hg" id="h-fw">100</span>% | ACCESS <span class="hr" id="h-ac">0</span>/5</div>
+</div>
+<canvas id="c"></canvas>
+<div id="ov">
+<h1>TERMINAL HACKER</h1>
+<h2>Type commands to breach firewalls and hack the mainframe</h2>
+<div>
+<button class="mb sel" onclick="sd(0)">Easy</button>
+<button class="mb" onclick="sd(1)">Normal</button>
+<button class="mb" onclick="sd(2)">Hard</button>
+</div>
+<button class="mb" style="margin-top:10px;min-width:160px" onclick="sg()">INITIATE HACK</button>
+<div id="si"></div>
+</div>
+<div class="hh">TYPE the commands as they appear | ENTER to submit | ESC pause | R restart</div>
+<script>
+const cv=document.getElementById('c'),cx=cv.getContext('2d');
+let W,H;function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight}
+addEventListener('resize',rs);rs();
+
+// Audio
+const AC=window.AudioContext||window.webkitAudioContext;let ac=null;
+function ia(){if(!ac)ac=new AC()}
+function sn(f,d,t='sine',v=0.08){
+  if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();
+  o.type=t;o.frequency.value=f;g.gain.setValueAtTime(v,ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+d);
+  o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d);
+}
+function sfxKey(){sn(800+Math.random()*400,0.03,'square',0.02)}
+function sfxCorrect(){sn(880,0.1);sn(1100,0.08,'triangle',0.06)}
+function sfxWrong(){sn(200,0.15,'sawtooth',0.08)}
+function sfxBreach(){sn(440,0.2);setTimeout(()=>sn(554,0.15),80);setTimeout(()=>sn(660,0.15),160);setTimeout(()=>sn(880,0.2),240)}
+function sfxFail(){sn(150,0.4,'sawtooth',0.12);sn(100,0.3,'square',0.1)}
+function sfxCombo(){sn(1200,0.1);sn(1500,0.08,'triangle',0.06)}
+function sfxLevel(){sn(330,0.2);setTimeout(()=>sn(440,0.15),100);setTimeout(()=>sn(660,0.2),200)}
+
+// Commands database
+const commands=[
+  'sudo rm -rf /firewall','nmap -sV target','ssh root@mainframe',
+  'chmod 777 /etc/shadow','curl -X POST exploit','python3 inject.py',
+  'cat /etc/passwd','grep -r "password"','iptables -F',
+  'openssl enc -aes-256','tcpdump -i eth0','netstat -tlnp',
+  'dig @dns.target mx','hydra -l admin -P','john --wordlist',
+  'msfconsole -q','aircrack-ng capture','nikto -h target',
+  'sqlmap -u "http://t"','gobuster dir -u t','wfuzz -z file',
+  'hashcat -m 0 hash','wireshark -k','burpsuite --proxy',
+  'metasploit exploit','scp data@target:~','rsync --progress',
+  'docker exec -it sh','kubectl get pods','terraform apply',
+  'ansible-playbook x','git clone exploit','npm audit fix --force',
+  'pip install pwntools','nc -lvp 4444','socat TCP-L:8080',
+  'strace -p 1234','ltrace ./binary','objdump -d target',
+  'radare2 firmware.bin','gdb ./vulnerable'
+];
+
+// State
+let diff=1,state='menu',score=0,combo=1,ct=0,level=1;
+let firewall=100,accessGained=0,accessReq=5,fn=0;
+let currentCmd='',typedCmd='',cmdQueue=[];
+let wpm=0,charsTyped=0,startTime=0,errors=0;
+let particles=[],matrixChars=[];
+let shX=0,shY=0,shD=0;
+let termLines=[],maxTermLines=20;
+let hs=parseInt(localStorage.getItem('th_hs')||'0');
+let bl=parseInt(localStorage.getItem('th_bl')||'0');
+let bwpm=parseInt(localStorage.getItem('th_bwpm')||'0');
+
+// Matrix rain effect
+function initMatrix(){
+  matrixChars=[];
+  const cols=Math.floor(W/14);
+  for(let i=0;i<cols;i++){
+    matrixChars.push({x:i*14,y:Math.random()*H,speed:30+Math.random()*80,
+      char:String.fromCharCode(33+Math.floor(Math.random()*94)),life:Math.random()});
+  }
+}
+
+function nextCommand(){
+  if(cmdQueue.length===0){
+    // Generate queue
+    let pool=[...commands].sort(()=>Math.random()-0.5);
+    // Trim by difficulty
+    for(let cmd of pool){
+      let trimmed=diff===0?cmd.slice(0,Math.min(cmd.length,12)):
+                  diff===1?cmd.slice(0,Math.min(cmd.length,18)):cmd;
+      cmdQueue.push(trimmed);
+    }
+  }
+  currentCmd=cmdQueue.shift();
+  typedCmd='';
+  startTime=Date.now();
+}
+
+function addTermLine(text,color){
+  termLines.push({text,color,time:fn});
+  if(termLines.length>maxTermLines)termLines.shift();
+}
+
+function submitCommand(){
+  if(typedCmd===currentCmd){
+    // Correct!
+    const elapsed=(Date.now()-startTime)/1000;
+    const words=currentCmd.length/5;
+    const curWpm=Math.round(words/(elapsed/60));
+    wpm=Math.round((wpm*0.7+curWpm*0.3));
+    if(wpm>bwpm){bwpm=wpm;localStorage.setItem('th_bwpm',bwpm)}
+
+    accessGained++;score+=100*combo*(diff+1);combo++;ct=4;
+    charsTyped+=currentCmd.length;
+    if(combo>2)sfxCombo();
+    sfxCorrect();
+    addTermLine('$ '+currentCmd,'#00ff41');
+    addTermLine('[OK] Access point breached. '+accessGained+'/'+accessReq,'#33aaff');
+    spawnP(W/2,H/2,10,'#00ff41');
+    shake(2,0.1);
+
+    if(accessGained>=accessReq){
+      level++;score+=1000*level;accessGained=0;firewall=100;
+      accessReq=3+level*2+diff*2;
+      if(level>bl){bl=level;localStorage.setItem('th_bl',bl)}
+      sfxBreach();addTermLine('[BREACH] Level '+level+' mainframe compromised!','#ffaa00');
+      shake(5,0.2);spawnP(W/2,H/2,25,'#ffaa00');
+    }
+    nextCommand();
+  }else{
+    // Wrong
+    errors++;combo=1;firewall=Math.max(0,firewall-(5+diff*3));
+    sfxWrong();addTermLine('$ '+typedCmd,'#ff3333');
+    addTermLine('[ERR] Command rejected. Firewall integrity: '+firewall+'%','#ff3333');
+    shake(4,0.15);spawnP(W/2,H/2,8,'#ff3333');
+    typedCmd='';
+
+    if(firewall<=0){
+      state='gameover';
+      if(score>hs){hs=score;localStorage.setItem('th_hs',hs)}
+      showOv('gameover');
+    }
+  }
+}
+
+// Particles
+function spawnP(x,y,n,col){for(let i=0;i<n;i++){
+  let a=Math.random()*Math.PI*2,s=40+Math.random()*120;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.4+Math.random()*0.4,ml:0.6,size:1+Math.random()*3,color:col});
+}}
+function shake(a,d){shX=a;shY=a;shD=d}
+
+// Input
+document.addEventListener('keydown',e=>{
+  if(state==='playing'){
+    if(e.key==='Enter'){e.preventDefault();submitCommand();return}
+    if(e.key==='Backspace'){e.preventDefault();typedCmd=typedCmd.slice(0,-1);sfxKey();return}
+    if(e.key==='Escape'){state='paused';showOv('pause');return}
+    if(e.key.length===1&&!e.ctrlKey&&!e.metaKey){
+      e.preventDefault();ia();typedCmd+=e.key;sfxKey();
+      // Auto-submit if complete
+      if(typedCmd===currentCmd)submitCommand();
+    }
+  }else{
+    if(e.key==='Escape'&&state==='paused'){state='playing';document.getElementById('ov').classList.add('hide')}
+    if((e.key==='r'||e.key==='R')&&state==='gameover')sg();
+  }
+});
+
+// Touch - simple tap to type next char
+cv.addEventListener('touchstart',e=>{
+  e.preventDefault();ia();
+  if(state==='playing'&&currentCmd){
+    const nextChar=currentCmd[typedCmd.length];
+    if(nextChar){typedCmd+=nextChar;sfxKey();if(typedCmd===currentCmd)submitCommand()}
+  }
+},{passive:false});
+
+// Game loop
+let lt=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  let dt=Math.min(0.05,(t-lt)/1000);lt=t;
+  if(state!=='playing'){draw();return}
+  fn++;
+  ct-=dt;if(ct<=0){combo=1;ct=0}
+  if(shD>0){shD-=dt;shX*=0.9;shY*=0.9}else{shX=0;shY=0}
+
+  // Firewall slowly degrades
+  firewall=Math.max(0,firewall-dt*(0.5+level*0.1+diff*0.3));
+  if(firewall<=0){
+    state='gameover';
+    if(score>hs){hs=score;localStorage.setItem('th_hs',hs)}
+    sfxFail();showOv('gameover');
+  }
+
+  // Update matrix
+  for(let m of matrixChars){
+    m.y+=m.speed*dt;m.life-=dt*0.5;
+    if(m.y>H){m.y=-20;m.char=String.fromCharCode(33+Math.floor(Math.random()*94))}
+    if(m.life<=0){m.life=1;m.char=String.fromCharCode(33+Math.floor(Math.random()*94))}
+  }
+
+  // Update particles
+  for(let i=particles.length-1;i>=0;i--){
+    let p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;p.vx*=0.95;p.vy*=0.95;
+    if(p.life<=0)particles.splice(i,1);
+  }
+
+  // HUD
+  document.getElementById('h-lv').textContent=level;
+  document.getElementById('h-wpm').textContent=wpm;
+  document.getElementById('h-sc').textContent=score.toLocaleString();
+  document.getElementById('h-co').textContent='x'+combo;
+  document.getElementById('h-fw').textContent=Math.ceil(firewall);
+  document.getElementById('h-fw').className=firewall<30?'hr':'hg';
+  document.getElementById('h-ac').textContent=accessGained;
+
+  draw();
+}
+
+function draw(){
+  cx.save();
+  cx.translate(shX*(Math.random()-0.5)*2,shY*(Math.random()-0.5)*2);
+
+  cx.fillStyle='#0c0c0c';cx.fillRect(0,0,W,H);
+
+  // Matrix rain
+  cx.font='12px monospace';
+  for(let m of matrixChars){
+    cx.fillStyle='#00ff41';cx.globalAlpha=0.06;
+    cx.fillText(m.char,m.x,m.y);
+  }
+  cx.globalAlpha=1;
+
+  // Scanlines
+  cx.fillStyle='rgba(0,0,0,0.03)';
+  for(let y=0;y<H;y+=3)cx.fillRect(0,y,W,1);
+
+  // Terminal area
+  const tx=40,ty=60,tw=W-80,th=H-180;
+  cx.fillStyle='#0a0a0a88';cx.fillRect(tx-2,ty-2,tw+4,th+4);
+  cx.strokeStyle='#00ff4133';cx.lineWidth=1;cx.strokeRect(tx-2,ty-2,tw+4,th+4);
+
+  // Terminal lines
+  cx.font='13px monospace';cx.textAlign='left';
+  const lineH=20;
+  for(let i=0;i<termLines.length;i++){
+    let l=termLines[i];
+    cx.fillStyle=l.color;cx.globalAlpha=Math.min(1,(fn-l.time)/10+0.5);
+    cx.fillText(l.text.slice(0,Math.floor(tw/8)),tx+5,ty+20+i*lineH);
+  }
+  cx.globalAlpha=1;
+
+  // Current command prompt
+  const promptY=ty+th-60;
+  cx.fillStyle='#00aa2a';cx.font='11px monospace';
+  cx.fillText('TARGET COMMAND:',tx+5,promptY);
+  cx.fillStyle='#00ff41';cx.font='bold 16px monospace';
+  // Draw target with highlighting
+  for(let i=0;i<currentCmd.length;i++){
+    let ch=currentCmd[i];
+    if(i<typedCmd.length){
+      cx.fillStyle=typedCmd[i]===ch?'#00ff41':'#ff3333';
+    }else if(i===typedCmd.length){
+      cx.fillStyle='#ffffff';
+    }else{
+      cx.fillStyle='#004400';
+    }
+    cx.fillText(ch,tx+5+i*10,promptY+22);
+  }
+
+  // Typed command
+  cx.fillStyle='#33aaff';cx.font='11px monospace';
+  cx.fillText('YOUR INPUT:',tx+5,promptY+42);
+  cx.fillStyle='#00ff41';cx.font='bold 16px monospace';
+  cx.fillText(typedCmd+'_',tx+5,promptY+60);
+
+  // Progress bar
+  const pw=tw-10,ph=4,px=tx+5,py=promptY+72;
+  cx.fillStyle='#1a1a1a';cx.fillRect(px,py,pw,ph);
+  cx.fillStyle=typedCmd.length>0&&currentCmd.startsWith(typedCmd)?'#00ff41':'#ff3333';
+  cx.fillRect(px,py,pw*(typedCmd.length/Math.max(1,currentCmd.length)),ph);
+
+  // Firewall bar
+  const fwY=H-40,fwW=200,fwH=8,fwX=W/2-fwW/2;
+  cx.fillStyle='#1a1a1a';cx.fillRect(fwX,fwY,fwW,fwH);
+  cx.fillStyle=firewall>50?'#00ff41':firewall>25?'#ffaa00':'#ff3333';
+  cx.fillRect(fwX,fwY,fwW*(firewall/100),fwH);
+  cx.fillStyle='#006620';cx.font='9px monospace';cx.textAlign='center';
+  cx.fillText('FIREWALL INTEGRITY',W/2,fwY-3);
+
+  // Combo
+  if(combo>1){
+    cx.fillStyle='#ffaa00';cx.font='bold 20px monospace';cx.textAlign='center';
+    cx.globalAlpha=Math.min(1,ct/2);
+    cx.fillText('COMBO x'+combo,W/2,45);cx.globalAlpha=1;
+  }
+
+  // Access progress
+  cx.textAlign='center';cx.font='10px monospace';cx.fillStyle='#33aaff';
+  cx.fillText('ACCESS: '+accessGained+'/'+accessReq,W/2,fwY+20);
+
+  // WPM display
+  cx.textAlign='right';cx.fillStyle='#006620';cx.font='11px monospace';
+  cx.fillText(wpm+' WPM',W-50,H-10);
+
+  // Boss level indicator
+  if(level%5===0){
+    cx.textAlign='center';cx.fillStyle='#ff3333';cx.font='bold 12px monospace';
+    cx.globalAlpha=0.5+Math.sin(fn*0.1)*0.3;
+    cx.fillText('ENCRYPTED MAINFRAME',W/2,fwY+35);cx.globalAlpha=1;
+  }
+
+  // Particles
+  for(let p of particles){
+    cx.fillStyle=p.color;cx.globalAlpha=p.life/p.ml;
+    cx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  cx.globalAlpha=1;
+
+  cx.restore();
+}
+
+function showOv(mode){
+  const ov=document.getElementById('ov');ov.classList.remove('hide');
+  const h1=ov.querySelector('h1'),h2=ov.querySelector('h2'),si=document.getElementById('si');
+  if(mode==='gameover'){
+    h1.textContent='DISCONNECTED';h1.style.color='#ff3333';
+    h2.textContent='The firewall locked you out';
+    let end='';
+    if(level>=10)end='ENDING: Root Access -- You cracked the deepest layers of the mainframe.';
+    else if(level>=5)end='ENDING: System Admin -- Your keystrokes echoed through the network.';
+    else if(level>=3)end='ENDING: Script Runner -- A few systems fell before the lockout.';
+    else end='ENDING: Access Denied -- The firewall barely noticed your attempt.';
+    si.innerHTML='Score: <span>'+score.toLocaleString()+'</span> | Level: <span>'+level+'</span> | WPM: <span>'+wpm+'</span><br>'+
+      'High Score: <span>'+hs.toLocaleString()+'</span> | Best Level: <span>'+bl+'</span> | Best WPM: <span>'+bwpm+'</span><br>'+
+      '<span style="color:#ffaa00">'+end+'</span>';
+  }else if(mode==='pause'){
+    h1.textContent='PAUSED';h1.style.color='#00ff41';h2.textContent='ESC to resume';
+    si.innerHTML='Level: <span>'+level+'</span> | Score: <span>'+score.toLocaleString()+'</span>';
+  }else{
+    h1.textContent='TERMINAL HACKER';h1.style.color='#00ff41';
+    h2.textContent='Type commands to breach firewalls and hack the mainframe';
+    si.innerHTML='High Score: <span>'+hs.toLocaleString()+'</span> | Best Level: <span>'+bl+'</span> | Best WPM: <span>'+bwpm+'</span>';
+  }
+}
+
+function sd(d){diff=d;document.querySelectorAll('.mb').forEach((b,i)=>{if(i<3)b.classList.toggle('sel',i===d)})}
+function sg(){
+  ia();state='playing';score=0;combo=1;ct=0;level=1;firewall=100;
+  accessGained=0;accessReq=5+diff*2;wpm=0;charsTyped=0;errors=0;
+  termLines=[];cmdQueue=[];particles=[];
+  initMatrix();
+  addTermLine('[SYS] Connected to target mainframe...','#33aaff');
+  addTermLine('[SYS] Firewall detected. Begin typing to breach.','#ffaa00');
+  nextCommand();
+  document.getElementById('ov').classList.add('hide');
+}
+
+showOv('menu');initMatrix();
+requestAnimationFrame(loop);
+</script>
+</body>
 </html>
