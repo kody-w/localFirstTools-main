@@ -56,6 +56,8 @@ VALID_CATEGORIES = {
     "creative_tools": "creative-tools",
     "educational_tools": "educational",
     "experimental_ai": "experimental-ai",
+    "data_tools": "data-tools",
+    "productivity": "productivity",
 }
 
 VALID_TAGS = [
@@ -111,6 +113,16 @@ CATEGORY_RULES = {
         "high": ["neural", "machine learning", "AI", "chatbot", "GPT", "LLM", "inference"],
         "medium": ["artificial intelligence", "model", "agent", "prompt", "embedding", "transformer"],
         "low": ["intelligent", "smart", "adaptive", "predict", "classify"],
+    },
+    "data_tools": {
+        "high": ["dataset", "csv", "json viewer", "data table", "chart", "dashboard", "query"],
+        "medium": ["data", "analytics", "visualization", "spreadsheet", "database", "schema", "api"],
+        "low": ["import", "export", "filter", "sort", "column", "row", "fetch"],
+    },
+    "productivity": {
+        "high": ["wiki", "note", "kanban", "todo", "calendar", "vault", "file manager"],
+        "medium": ["markdown", "editor", "organizer", "planner", "task", "bookmark", "journal"],
+        "low": ["workflow", "productivity", "document", "page", "write", "manage"],
     },
 }
 

@@ -109,6 +109,8 @@ python3 scripts/cartridge-build.py [--all] [--list]
 | `creative_tools` | `creative-tools` | Productivity, utilities, converters |
 | `educational_tools` | `educational` | Tutorials, learning tools |
 | `experimental_ai` | `experimental-ai` | AI experiments, simulators, prototypes (**catch-all**) |
+| `data_tools` | `data-tools` | Dashboards, datasets, APIs, analytics |
+| `productivity` | `productivity` | Wikis, file managers, planners, automation |
 | `games_puzzles` | `games-puzzles` | Games, puzzles, interactive toys |
 | `generative_art` | `generative-art` | Procedural, algorithmic, fractal art |
 | `particle_physics` | `particle-physics` | Physics sims, particle systems |
