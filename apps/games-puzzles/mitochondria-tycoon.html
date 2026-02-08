@@ -4,312 +4,707 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mitochondria Tycoon</title>
-    <meta name="description" content="Manage cellular respiration factories by routing glucose through metabolic pathways to generate ATP energy">
+    <meta name="rappterzoo:author" content="molter-engine">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="games_puzzles">
+    <meta name="rappterzoo:tags" content="canvas,game,audio,idle,strategy,particles,science">
+    <meta name="rappterzoo:type" content="game">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="2">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: linear-gradient(180deg, #0a1520 0%, #051015 100%); min-height: 100vh; font-family: monospace; color: #80c0a0; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; }
-        #controls {
-            position: fixed; top: 20px; left: 20px; background: rgba(10,30,40,0.95);
-            padding: 20px; border-radius: 10px; border: 1px solid rgba(100,200,150,0.3);
-            z-index: 100; min-width: 180px;
-        }
-        h3 { margin-bottom: 15px; color: #a0e0c0; }
-        .stat { margin: 8px 0; display: flex; justify-content: space-between; }
-        .stat-value { color: #60ff90; font-weight: bold; }
-        button {
-            display: block; width: 100%; padding: 10px; margin: 8px 0;
-            background: rgba(40,100,80,0.5); border: 1px solid rgba(100,200,150,0.4);
-            color: #80c0a0; cursor: pointer; border-radius: 6px;
-        }
-        button:hover { background: rgba(60,120,100,0.6); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        #upgrades {
-            position: fixed; top: 20px; right: 20px; background: rgba(10,30,40,0.95);
-            padding: 20px; border-radius: 10px; border: 1px solid rgba(100,200,150,0.3);
-            z-index: 100;
-        }
-        .upgrade { padding: 8px; margin: 5px 0; background: rgba(40,80,60,0.3); border-radius: 5px; cursor: pointer; }
-        .upgrade:hover { background: rgba(60,100,80,0.4); }
-        .upgrade-cost { color: #ffcc00; font-size: 11px; }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.5; z-index: 100; }
+        body { background: #051015; overflow: hidden; font-family: monospace; color: #80c0a0; }
+        canvas { display: block; }
+        #hud { position: fixed; top: 10px; left: 10px; background: rgba(8,25,35,0.9); padding: 14px 18px; border-radius: 10px; border: 1px solid rgba(80,200,140,0.25); font-size: 13px; z-index: 20; min-width: 200px; }
+        #hud .row { display: flex; justify-content: space-between; gap: 14px; margin: 4px 0; }
+        #hud .label { opacity: 0.55; }
+        #hud .val { color: #60ff90; font-weight: bold; }
+        .bar-wrap { width: 100%; height: 6px; background: rgba(60,160,100,0.15); border-radius: 3px; margin: 3px 0; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        #upgrades { position: fixed; top: 10px; right: 10px; background: rgba(8,25,35,0.9); padding: 14px 18px; border-radius: 10px; border: 1px solid rgba(80,200,140,0.25); font-size: 12px; z-index: 20; max-width: 230px; max-height: 70vh; overflow-y: auto; }
+        #upgrades h3 { color: #a0e0c0; margin-bottom: 10px; }
+        .upgrade { padding: 8px 10px; margin: 4px 0; background: rgba(30,80,60,0.25); border: 1px solid rgba(80,200,140,0.15); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+        .upgrade:hover { background: rgba(40,100,80,0.4); border-color: rgba(80,200,140,0.4); }
+        .upgrade.locked { opacity: 0.4; cursor: not-allowed; }
+        .upgrade .name { color: #a0e0c0; font-weight: bold; }
+        .upgrade .desc { font-size: 11px; opacity: 0.6; margin: 2px 0; }
+        .upgrade .cost { color: #ffcc00; font-size: 11px; }
+        .upgrade .level { color: #60ff90; font-size: 11px; float: right; }
+        #events { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(8,25,35,0.9); padding: 10px 16px; border-radius: 8px; border: 1px solid rgba(80,200,140,0.2); font-size: 12px; z-index: 20; max-width: 400px; text-align: center; opacity: 0; transition: opacity 0.3s; }
+        #actions { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 20; }
+        .action-btn { padding: 10px 18px; background: rgba(30,80,60,0.6); border: 1px solid rgba(80,200,140,0.35); color: #80c0a0; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 13px; transition: all 0.2s; }
+        .action-btn:hover { background: rgba(50,120,90,0.7); box-shadow: 0 0 12px rgba(80,255,140,0.2); }
+        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        #menu-screen, #gameover-screen, #pause-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; background: rgba(3,10,12,0.97); }
+        #menu-screen h1, #gameover-screen h1, #pause-screen h1 { font-size: 36px; color: #60ff90; margin-bottom: 8px; text-shadow: 0 0 30px rgba(80,255,140,0.4); }
+        #menu-screen p, #gameover-screen p, #pause-screen p { color: rgba(120,200,160,0.6); margin-bottom: 22px; font-size: 14px; max-width: 500px; text-align: center; line-height: 1.5; }
+        .menu-btn { padding: 12px 36px; margin: 5px; background: rgba(20,80,60,0.5); border: 1px solid rgba(80,200,140,0.35); color: #80c0a0; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 15px; transition: all 0.25s; }
+        .menu-btn:hover { background: rgba(40,120,90,0.6); transform: scale(1.04); }
+        .diff-row { display: flex; gap: 8px; margin: 10px 0; }
+        .diff-btn { padding: 8px 18px; background: rgba(15,50,40,0.5); border: 1px solid rgba(80,200,140,0.2); color: #60aa80; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 13px; transition: all 0.2s; }
+        .diff-btn:hover, .diff-btn.sel { background: rgba(40,100,80,0.6); color: #60ff90; border-color: #60ff90; }
+        .hidden { display: none !important; }
+        #combo-pop { position: fixed; top: 40%; left: 50%; transform: translate(-50%,-50%); font-size: 40px; color: #60ff90; text-shadow: 0 0 25px rgba(80,255,140,0.6); pointer-events: none; z-index: 50; opacity: 0; transition: opacity 0.3s; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="controls">
-        <h3>Cell Status</h3>
-        <div class="stat"><span>ATP:</span><span class="stat-value" id="atp">0</span></div>
-        <div class="stat"><span>Glucose:</span><span class="stat-value" id="glucose">10</span></div>
-        <div class="stat"><span>Oxygen:</span><span class="stat-value" id="oxygen">100</span></div>
-        <div class="stat"><span>Efficiency:</span><span class="stat-value" id="efficiency">100%</span></div>
-        <button id="inject-btn">Inject Glucose (Free)</button>
-        <button id="boost-btn">Boost Oxygen</button>
+    <canvas id="c"></canvas>
+    <div id="hud">
+        <div class="row"><span class="label">ATP:</span><span class="val" id="h-atp">0</span></div>
+        <div class="row"><span class="label">ATP/s:</span><span class="val" id="h-atps">0</span></div>
+        <div class="row"><span class="label">Glucose:</span><span class="val" id="h-glu">10</span></div>
+        <div class="bar-wrap"><div class="bar-fill" id="glu-bar" style="width:100%;background:#ffcc00;"></div></div>
+        <div class="row"><span class="label">Oxygen:</span><span class="val" id="h-oxy">100</span></div>
+        <div class="bar-wrap"><div class="bar-fill" id="oxy-bar" style="width:100%;background:#60aaff;"></div></div>
+        <div class="row"><span class="label">Efficiency:</span><span class="val" id="h-eff">100%</span></div>
+        <div class="row"><span class="label">Cell Health:</span><span class="val" id="h-hp">100%</span></div>
+        <div class="bar-wrap"><div class="bar-fill" id="hp-bar" style="width:100%;background:#60ff90;"></div></div>
+        <div class="row"><span class="label">Level:</span><span class="val" id="h-level">1</span></div>
+        <div class="row"><span class="label">Score:</span><span class="val" id="h-score">0</span></div>
     </div>
     <div id="upgrades">
         <h3>Upgrades</h3>
-        <div class="upgrade" id="upgrade-glycolysis">
-            <div>Glycolysis II</div>
-            <div class="upgrade-cost">Cost: 50 ATP</div>
-        </div>
-        <div class="upgrade" id="upgrade-krebs">
-            <div>Krebs Cycle II</div>
-            <div class="upgrade-cost">Cost: 100 ATP</div>
-        </div>
-        <div class="upgrade" id="upgrade-etc">
-            <div>ETC Boost</div>
-            <div class="upgrade-cost">Cost: 200 ATP</div>
-        </div>
+        <div id="upgrade-list"></div>
     </div>
-    <div id="info">Watch glucose transform into ATP energy | The powerhouse of the cell</div>
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let W, H;
-        function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
-        resize(); window.onresize = resize;
-        
-        let atp = 0;
-        let glucose = 10;
-        let oxygen = 100;
-        let glycolysisLevel = 1;
-        let krebsLevel = 1;
-        let etcLevel = 1;
-        
-        let molecules = [];
-        let particles = [];
-        
-        const STAGES = {
-            CYTOPLASM: { x: 0.2, y: 0.5, name: 'Cytoplasm' },
-            GLYCOLYSIS: { x: 0.35, y: 0.5, name: 'Glycolysis' },
-            MATRIX: { x: 0.55, y: 0.5, name: 'Matrix' },
-            KREBS: { x: 0.7, y: 0.5, name: 'Krebs Cycle' },
-            ETC: { x: 0.85, y: 0.5, name: 'Electron Transport' }
-        };
-        
-        class Molecule {
-            constructor(type, x, y) {
-                this.type = type;
-                this.x = x;
-                this.y = y;
-                this.targetX = x;
-                this.targetY = y;
-                this.stage = 'CYTOPLASM';
-                this.progress = 0;
-                this.size = type === 'glucose' ? 12 : type === 'pyruvate' ? 8 : 5;
-                this.color = type === 'glucose' ? '#ffcc00' : type === 'pyruvate' ? '#ff9900' : '#00ff88';
-            }
-            update() {
-                this.x += (this.targetX - this.x) * 0.05;
-                this.y += (this.targetY - this.y) * 0.05;
-                this.y += Math.sin(Date.now() * 0.005 + this.x) * 0.3;
-                this.progress += 0.01 * (this.type === 'glucose' ? glycolysisLevel : krebsLevel);
-                
-                if (this.stage === 'CYTOPLASM' && this.progress > 0.5) {
-                    this.stage = 'GLYCOLYSIS';
-                    this.targetX = W * STAGES.GLYCOLYSIS.x;
-                }
-                else if (this.stage === 'GLYCOLYSIS' && this.progress > 1) {
-                    if (this.type === 'glucose') {
-                        this.type = 'pyruvate';
-                        this.size = 8;
-                        this.color = '#ff9900';
-                        atp += 2 * glycolysisLevel;
-                        spawnParticles(this.x, this.y, '#ffff00', 3);
-                    }
-                    this.stage = 'MATRIX';
-                    this.targetX = W * STAGES.MATRIX.x;
-                    this.progress = 0;
-                }
-                else if (this.stage === 'MATRIX' && this.progress > 0.5) {
-                    this.stage = 'KREBS';
-                    this.targetX = W * STAGES.KREBS.x;
-                }
-                else if (this.stage === 'KREBS' && this.progress > 1) {
-                    this.type = 'electron';
-                    this.size = 5;
-                    this.color = '#00ff88';
-                    atp += 2 * krebsLevel;
-                    spawnParticles(this.x, this.y, '#88ff88', 4);
-                    this.stage = 'ETC';
-                    this.targetX = W * STAGES.ETC.x;
-                    this.progress = 0;
-                }
-                else if (this.stage === 'ETC' && this.progress > 1) {
-                    if (oxygen > 0) {
-                        atp += 32 * etcLevel;
-                        oxygen -= 1;
-                        spawnParticles(this.x, this.y, '#00ffff', 8);
-                    }
-                    return false;
-                }
-                return true;
-            }
-            draw() {
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
-                grad.addColorStop(0, this.color);
-                grad.addColorStop(1, 'rgba(0,0,0,0.5)');
-                ctx.fillStyle = grad;
-                ctx.fill();
-            }
+    <div id="events"></div>
+    <div id="actions">
+        <button class="action-btn" id="btn-inject">Inject Glucose</button>
+        <button class="action-btn" id="btn-oxygen">Boost O2</button>
+        <button class="action-btn" id="btn-repair">Repair Cell</button>
+    </div>
+    <div id="combo-pop"></div>
+    <div id="menu-screen">
+        <h1>Mitochondria Tycoon</h1>
+        <p>You are a mitochondrion -- the powerhouse of the cell. Route glucose through metabolic pathways, generate ATP energy, upgrade your organelles, and keep the cell alive. Manage resources carefully: too little oxygen or glucose and production halts. Too many free radicals and the cell dies.</p>
+        <div class="diff-row">
+            <button class="diff-btn sel" data-diff="0">Normal Cell</button>
+            <button class="diff-btn" data-diff="1">Cancer Cell</button>
+            <button class="diff-btn" data-diff="2">Extreme</button>
+        </div>
+        <button class="menu-btn" id="start-btn">Start Producing</button>
+    </div>
+    <div id="gameover-screen" class="hidden">
+        <h1 id="go-title">Cell Death</h1>
+        <p id="go-msg"></p>
+        <button class="menu-btn" id="restart-btn">Try Again (R)</button>
+        <button class="menu-btn" id="menu-btn2">Main Menu</button>
+    </div>
+    <div id="pause-screen" class="hidden">
+        <h1>Paused</h1>
+        <p>Press ESC to resume</p>
+        <button class="menu-btn" id="resume-btn">Resume</button>
+    </div>
+<script>
+// === AUDIO ===
+const SFX = {
+    ctx: null,
+    init() { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+    play(type, freq, dur, vol) {
+        if (!this.ctx) return;
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = type; o.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        g.gain.setValueAtTime(vol || 0.06, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+        o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + dur);
+    },
+    atp() { this.play('sine', 500 + Math.random()*200, 0.08, 0.04); },
+    upgrade() { this.play('sine', 600, 0.1, 0.08); setTimeout(() => this.play('sine', 800, 0.12, 0.08), 60); },
+    inject() { this.play('triangle', 300, 0.15, 0.06); },
+    oxygen() { this.play('sine', 440, 0.2, 0.05); },
+    warning() { this.play('square', 100, 0.2, 0.08); },
+    levelUp() { [440,554,659,880].forEach((f,i) => setTimeout(() => this.play('sine', f, 0.25, 0.08), i*100)); },
+    event() { this.play('triangle', 350, 0.3, 0.06); },
+    death() { [300,250,200,150].forEach((f,i) => setTimeout(() => this.play('sawtooth', f, 0.4, 0.06), i*150)); },
+    repair() { this.play('sine', 500, 0.15, 0.06); this.play('sine', 700, 0.2, 0.06); },
+    combo() { [523,659,784].forEach((f,i) => setTimeout(() => this.play('sine', f, 0.12, 0.07), i*50)); }
+};
+
+// === CONFIG ===
+const DIFFS = [
+    { name: 'Normal', glucoseRate: 0.08, oxygenRate: 0.15, decayRate: 0.02, radicalRate: 0.005 },
+    { name: 'Cancer', glucoseRate: 0.15, oxygenRate: 0.08, decayRate: 0.04, radicalRate: 0.01 },
+    { name: 'Extreme', glucoseRate: 0.05, oxygenRate: 0.05, decayRate: 0.06, radicalRate: 0.02 }
+];
+
+// === UPGRADES ===
+const UPGRADE_DEFS = [
+    { id: 'glycolysis', name: 'Glycolysis Boost', desc: '+50% glycolysis ATP', baseCost: 30, costScale: 1.5, maxLevel: 10 },
+    { id: 'krebs', name: 'Krebs Cycle II', desc: '+50% Krebs ATP', baseCost: 60, costScale: 1.6, maxLevel: 10 },
+    { id: 'etc', name: 'ETC Amplifier', desc: '+25% electron transport', baseCost: 100, costScale: 1.7, maxLevel: 8 },
+    { id: 'membrane', name: 'Membrane Integrity', desc: '+20% cell health regen', baseCost: 80, costScale: 1.5, maxLevel: 5 },
+    { id: 'antioxidant', name: 'Antioxidant Defense', desc: 'Reduce radical damage', baseCost: 120, costScale: 1.8, maxLevel: 5 },
+    { id: 'glucose_pump', name: 'Glucose Pump', desc: '+30% passive glucose intake', baseCost: 50, costScale: 1.4, maxLevel: 8 },
+    { id: 'o2_carrier', name: 'O2 Carrier Protein', desc: '+30% passive oxygen', baseCost: 70, costScale: 1.5, maxLevel: 8 },
+    { id: 'autophagy', name: 'Autophagy', desc: 'Auto-repair damaged parts', baseCost: 200, costScale: 2, maxLevel: 3 },
+    { id: 'cristae', name: 'Cristae Folding', desc: '+100% surface area', baseCost: 300, costScale: 2.5, maxLevel: 3 },
+    { id: 'atp_synthase', name: 'ATP Synthase II', desc: 'Unlock turbo mode', baseCost: 500, costScale: 3, maxLevel: 1 }
+];
+
+// === STATE ===
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+const S = {
+    screen: 'menu', difficulty: 0,
+    atp: 0, atpPerSec: 0, totalAtp: 0,
+    glucose: 10, maxGlucose: 50,
+    oxygen: 100, maxOxygen: 100,
+    health: 100, maxHealth: 100,
+    score: 0, highScore: 0,
+    level: 1, combo: 1, comboTimer: 0,
+    upgrades: {},
+    molecules: [],
+    particles: [],
+    events: [],
+    shakeX: 0, shakeY: 0, shakeTimer: 0,
+    lastAtpCheck: 0, atpInLastSec: 0,
+    turboMode: false
+};
+
+// === MOLECULES ===
+class Molecule {
+    constructor(type, x, y) {
+        this.type = type;
+        this.x = x; this.y = y;
+        this.vx = (Math.random() - 0.5) * 0.5;
+        this.vy = (Math.random() - 0.5) * 0.5;
+        this.stage = 0; // 0=cyto, 1=glycolysis, 2=matrix, 3=krebs, 4=etc, 5=done
+        this.progress = 0;
+        this.size = type === 'glucose' ? 8 : type === 'pyruvate' ? 6 : type === 'electron' ? 4 : 3;
+        this.color = type === 'glucose' ? '#ffcc00' : type === 'pyruvate' ? '#ff9900' : type === 'electron' ? '#00ff88' : '#ff4444';
+        this.alive = true;
+    }
+
+    update(dt) {
+        const speed = 1 + (getUpgradeLevel('etc') * 0.25);
+        this.progress += dt * 0.5 * speed;
+
+        // Move through stages
+        const stagePositions = [
+            { x: W * 0.15, y: H * 0.5 },  // cytoplasm
+            { x: W * 0.3, y: H * 0.5 },   // glycolysis
+            { x: W * 0.5, y: H * 0.5 },   // matrix
+            { x: W * 0.65, y: H * 0.5 },  // krebs
+            { x: W * 0.8, y: H * 0.5 }    // etc
+        ];
+
+        if (this.stage < 5) {
+            const target = stagePositions[Math.min(this.stage, 4)];
+            this.x += (target.x - this.x) * 0.03;
+            this.y += (target.y - this.y) * 0.03;
+            this.y += Math.sin(performance.now() * 0.003 + this.x * 0.01) * 0.5;
         }
-        
-        function spawnParticles(x, y, color, count) {
-            for (let i = 0; i < count; i++) {
-                particles.push({
-                    x, y,
-                    vx: (Math.random() - 0.5) * 3,
-                    vy: (Math.random() - 0.5) * 3,
-                    life: 1,
-                    color
-                });
-            }
+
+        if (this.progress > 1 && this.stage === 0) {
+            this.stage = 1; this.progress = 0;
         }
-        
-        function drawMitochondria() {
-            const cx = W * 0.6;
-            const cy = H * 0.5;
-            const width = W * 0.5;
-            const height = H * 0.4;
-            
+        if (this.progress > 1 && this.stage === 1) {
+            // Glycolysis: glucose -> pyruvate + 2 ATP
+            if (this.type === 'glucose') {
+                this.type = 'pyruvate';
+                this.size = 6; this.color = '#ff9900';
+                const bonus = 1 + getUpgradeLevel('glycolysis') * 0.5;
+                const cristae = 1 + getUpgradeLevel('cristae') * 1;
+                const atpGained = Math.floor(2 * bonus * cristae);
+                gainATP(atpGained);
+                spawnParticles(this.x, this.y, '#ffff00', 4);
+            }
+            this.stage = 2; this.progress = 0;
+        }
+        if (this.progress > 1 && this.stage === 2) {
+            this.stage = 3; this.progress = 0;
+        }
+        if (this.progress > 1 && this.stage === 3) {
+            // Krebs: pyruvate -> electron + 2 ATP
+            this.type = 'electron';
+            this.size = 4; this.color = '#00ff88';
+            const bonus = 1 + getUpgradeLevel('krebs') * 0.5;
+            const cristae = 1 + getUpgradeLevel('cristae') * 1;
+            const atpGained = Math.floor(2 * bonus * cristae);
+            gainATP(atpGained);
+            spawnParticles(this.x, this.y, '#88ff88', 5);
+            this.stage = 4; this.progress = 0;
+        }
+        if (this.progress > 1 && this.stage === 4) {
+            // ETC: electron -> 32 ATP (needs oxygen)
+            if (S.oxygen > 1) {
+                S.oxygen -= 1;
+                const bonus = 1 + getUpgradeLevel('etc') * 0.25;
+                const cristae = 1 + getUpgradeLevel('cristae') * 1;
+                const turbo = S.turboMode ? 2 : 1;
+                const atpGained = Math.floor(32 * bonus * cristae * turbo);
+                gainATP(atpGained);
+                spawnParticles(this.x, this.y, '#00ffff', 8);
+            } else {
+                // Anaerobic: produce less, generate radical
+                gainATP(2);
+                S.health -= 0.5;
+                spawnParticles(this.x, this.y, '#ff4444', 3);
+            }
+            this.alive = false;
+        }
+        return this.alive;
+    }
+
+    draw(ctx) {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+        grad.addColorStop(0, this.color);
+        grad.addColorStop(1, 'rgba(0,0,0,0.3)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+}
+
+function gainATP(amount) {
+    S.atp += amount;
+    S.totalAtp += amount;
+    S.score += amount;
+    S.atpInLastSec += amount;
+    S.comboTimer = 60;
+    SFX.atp();
+}
+
+function spawnParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+        S.particles.push({
+            x, y,
+            vx: (Math.random() - 0.5) * 3,
+            vy: (Math.random() - 0.5) * 3,
+            life: 1, color, size: 2 + Math.random() * 2
+        });
+    }
+}
+
+function getUpgradeLevel(id) { return S.upgrades[id] || 0; }
+function getUpgradeCost(def) {
+    const level = getUpgradeLevel(def.id);
+    return Math.floor(def.baseCost * Math.pow(def.costScale, level));
+}
+
+// === EVENTS ===
+const EVENT_LIST = [
+    { name: 'Glucose Surge!', desc: '+20 glucose', apply: () => { S.glucose = Math.min(S.maxGlucose, S.glucose + 20); } },
+    { name: 'Oxygen Rush!', desc: 'O2 restored', apply: () => { S.oxygen = S.maxOxygen; } },
+    { name: 'Free Radical Attack!', desc: '-10 health', apply: () => { S.health = Math.max(0, S.health - 10 * (1 - getUpgradeLevel('antioxidant') * 0.15)); } },
+    { name: 'Mitosis Signal!', desc: '+50% ATP for 10s', apply: () => { S.turboMode = true; setTimeout(() => S.turboMode = false, 10000); } },
+    { name: 'pH Imbalance!', desc: '-20% efficiency for 5s', apply: () => { /* handled visually */ } },
+    { name: 'Nutrient Boost!', desc: '+10 glucose, +30 O2', apply: () => { S.glucose = Math.min(S.maxGlucose, S.glucose + 10); S.oxygen = Math.min(S.maxOxygen, S.oxygen + 30); } }
+];
+
+function triggerEvent() {
+    const evt = EVENT_LIST[Math.floor(Math.random() * EVENT_LIST.length)];
+    evt.apply();
+    showEvent(evt.name + ' ' + evt.desc);
+    SFX.event();
+    addShake(4);
+}
+
+function showEvent(text) {
+    const el = document.getElementById('events');
+    el.textContent = text;
+    el.style.opacity = '1';
+    setTimeout(() => el.style.opacity = '0', 3000);
+}
+
+// === GAME ===
+function startGame() {
+    SFX.init();
+    S.screen = 'playing';
+    S.atp = 0; S.totalAtp = 0; S.atpPerSec = 0; S.atpInLastSec = 0;
+    S.glucose = 10; S.maxGlucose = 50;
+    S.oxygen = 100; S.maxOxygen = 100;
+    S.health = 100; S.maxHealth = 100;
+    S.score = 0; S.level = 1;
+    S.combo = 1; S.comboTimer = 0;
+    S.upgrades = {};
+    S.molecules = [];
+    S.particles = [];
+    S.turboMode = false;
+    S.shakeTimer = 0;
+    S.lastAtpCheck = performance.now();
+    loadHigh();
+    renderUpgrades();
+    showScreen('');
+}
+
+function addShake(a) { S.shakeTimer = 6; S.shakeX = (Math.random()-0.5)*a; S.shakeY = (Math.random()-0.5)*a; }
+
+function loadHigh() { try { S.highScore = parseInt(localStorage.getItem('mito-high') || '0'); } catch(e) {} }
+function saveHigh() { try { localStorage.setItem('mito-high', S.highScore.toString()); } catch(e) {} }
+function saveBest() { try { localStorage.setItem('mito-best-atp', S.totalAtp.toString()); } catch(e) {} }
+
+function gameOver(reason) {
+    S.screen = 'gameover';
+    if (S.score > S.highScore) { S.highScore = S.score; saveHigh(); }
+    saveBest();
+    document.getElementById('go-title').textContent = reason === 'win' ? 'Cell Division!' : 'Cell Death';
+    document.getElementById('go-msg').textContent = reason === 'win'
+        ? 'Amazing! You produced enough ATP for cell division! Total ATP: ' + S.totalAtp + ' | Level: ' + S.level + ' | High: ' + S.highScore
+        : 'The cell could not sustain itself. Total ATP: ' + S.totalAtp + ' | Level: ' + S.level + ' | Score: ' + S.score;
+    if (reason === 'win') SFX.levelUp(); else SFX.death();
+    showScreen('gameover');
+}
+
+// === UPGRADE RENDERING ===
+function renderUpgrades() {
+    const list = document.getElementById('upgrade-list');
+    list.innerHTML = '';
+    for (const def of UPGRADE_DEFS) {
+        const level = getUpgradeLevel(def.id);
+        const cost = getUpgradeCost(def);
+        const maxed = level >= def.maxLevel;
+        const canBuy = S.atp >= cost && !maxed;
+        const div = document.createElement('div');
+        div.className = 'upgrade' + (canBuy ? '' : ' locked');
+        div.innerHTML = '<span class="name">' + def.name + '</span><span class="level">Lv.' + level + '/' + def.maxLevel + '</span><div class="desc">' + def.desc + '</div><div class="cost">' + (maxed ? 'MAX' : 'Cost: ' + cost + ' ATP') + '</div>';
+        div.addEventListener('click', () => {
+            if (S.atp >= cost && level < def.maxLevel) {
+                S.atp -= cost;
+                S.upgrades[def.id] = (S.upgrades[def.id] || 0) + 1;
+                SFX.upgrade();
+                addShake(3);
+                spawnParticles(W - 120, 100, '#60ff90', 10);
+                S.combo++;
+                S.comboTimer = 120;
+                if (S.combo >= 3) { SFX.combo(); showCombo(); }
+                renderUpgrades();
+                // Upgrade effects
+                if (def.id === 'glucose_pump') S.maxGlucose += 10;
+                if (def.id === 'o2_carrier') S.maxOxygen += 15;
+                if (def.id === 'membrane') S.maxHealth += 10;
+            }
+        });
+        list.appendChild(div);
+    }
+}
+
+function showCombo() {
+    const el = document.getElementById('combo-pop');
+    el.textContent = 'x' + S.combo + ' Combo!';
+    el.style.opacity = '1';
+    setTimeout(() => el.style.opacity = '0', 700);
+}
+
+// === INPUT ===
+document.getElementById('btn-inject').addEventListener('click', () => {
+    if (S.screen !== 'playing') return;
+    S.glucose = Math.min(S.maxGlucose, S.glucose + 5);
+    SFX.inject();
+    spawnParticles(W * 0.15, H * 0.5, '#ffcc00', 6);
+});
+document.getElementById('btn-oxygen').addEventListener('click', () => {
+    if (S.screen !== 'playing') return;
+    if (S.atp >= 10) {
+        S.atp -= 10;
+        S.oxygen = Math.min(S.maxOxygen, S.oxygen + 30);
+        SFX.oxygen();
+        spawnParticles(W * 0.8, H * 0.5, '#60aaff', 8);
+    }
+});
+document.getElementById('btn-repair').addEventListener('click', () => {
+    if (S.screen !== 'playing') return;
+    if (S.atp >= 20) {
+        S.atp -= 20;
+        const heal = 15 + getUpgradeLevel('membrane') * 5;
+        S.health = Math.min(S.maxHealth, S.health + heal);
+        SFX.repair();
+        spawnParticles(W * 0.5, H * 0.3, '#60ff90', 10);
+    }
+});
+
+window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        if (S.screen === 'playing') { S.screen = 'paused'; showScreen('pause'); }
+        else if (S.screen === 'paused') { S.screen = 'playing'; showScreen(''); }
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        if (S.screen === 'gameover') startGame();
+    }
+    if (S.screen === 'playing') {
+        if (e.key === 'g' || e.key === 'G') document.getElementById('btn-inject').click();
+        if (e.key === 'o' || e.key === 'O') document.getElementById('btn-oxygen').click();
+    }
+});
+
+// === SCREENS ===
+function showScreen(name) {
+    document.getElementById('menu-screen').classList.toggle('hidden', name !== 'menu');
+    document.getElementById('gameover-screen').classList.toggle('hidden', name !== 'gameover');
+    document.getElementById('pause-screen').classList.toggle('hidden', name !== 'pause');
+    const gv = name === '';
+    document.getElementById('hud').style.display = gv ? 'block' : 'none';
+    document.getElementById('upgrades').style.display = gv ? 'block' : 'none';
+    document.getElementById('actions').style.display = gv ? 'flex' : 'none';
+}
+
+function updateHUD() {
+    document.getElementById('h-atp').textContent = Math.floor(S.atp);
+    document.getElementById('h-atps').textContent = S.atpPerSec + '/s';
+    document.getElementById('h-glu').textContent = Math.floor(S.glucose) + '/' + S.maxGlucose;
+    document.getElementById('glu-bar').style.width = (S.glucose / S.maxGlucose * 100) + '%';
+    document.getElementById('h-oxy').textContent = Math.floor(S.oxygen) + '/' + S.maxOxygen;
+    document.getElementById('oxy-bar').style.width = (S.oxygen / S.maxOxygen * 100) + '%';
+    document.getElementById('oxy-bar').style.background = S.oxygen < 20 ? '#ff4444' : '#60aaff';
+    const eff = Math.floor(getEfficiency() * 100);
+    document.getElementById('h-eff').textContent = eff + '%';
+    document.getElementById('h-hp').textContent = Math.floor(S.health) + '%';
+    document.getElementById('hp-bar').style.width = (S.health / S.maxHealth * 100) + '%';
+    document.getElementById('hp-bar').style.background = S.health < 30 ? '#ff4444' : '#60ff90';
+    document.getElementById('h-level').textContent = S.level;
+    document.getElementById('h-score').textContent = S.score;
+}
+
+function getEfficiency() {
+    let eff = 1;
+    if (S.oxygen < 20) eff *= 0.5;
+    if (S.glucose <= 0) eff *= 0.1;
+    return eff;
+}
+
+// === BUTTONS ===
+document.querySelectorAll('.diff-btn').forEach(b => {
+    b.addEventListener('click', () => {
+        document.querySelectorAll('.diff-btn').forEach(d => d.classList.remove('sel'));
+        b.classList.add('sel');
+        S.difficulty = parseInt(b.dataset.diff);
+    });
+});
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('restart-btn').addEventListener('click', startGame);
+document.getElementById('menu-btn2').addEventListener('click', () => { S.screen = 'menu'; showScreen('menu'); });
+document.getElementById('resume-btn').addEventListener('click', () => { S.screen = 'playing'; showScreen(''); });
+
+// === RENDER ===
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+
+function drawMitochondria() {
+    const cx = W * 0.5, cy = H * 0.5;
+    const mw = W * 0.55, mh = H * 0.35;
+
+    // Outer membrane
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, mw/2, mh/2, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(40,100,70,0.2)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(80,180,120,0.5)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Inner membrane
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, mw/2 - 15, mh/2 - 15, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(60,140,100,0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Cristae folds
+    const foldCount = 6 + getUpgradeLevel('cristae') * 3;
+    const t = performance.now() * 0.001;
+    for (let i = 0; i < foldCount; i++) {
+        const angle = (i / foldCount) * Math.PI * 2;
+        const fx = cx + Math.cos(angle) * (mw * 0.3);
+        const fy = cy + Math.sin(angle) * (mh * 0.3);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        const waveX = Math.cos(angle + 0.5 + Math.sin(t + i) * 0.2) * 25;
+        const waveY = Math.sin(angle + 0.5 + Math.cos(t + i) * 0.2) * 25;
+        ctx.quadraticCurveTo(fx + waveX, fy + waveY, fx, fy);
+        ctx.strokeStyle = 'rgba(80,200,140,0.15)';
+        ctx.lineWidth = 6 + getUpgradeLevel('cristae') * 2;
+        ctx.stroke();
+    }
+
+    // Stage labels
+    const stages = [
+        { x: W * 0.15, label: 'Cytoplasm' },
+        { x: W * 0.3, label: 'Glycolysis' },
+        { x: W * 0.5, label: 'Matrix' },
+        { x: W * 0.65, label: 'Krebs' },
+        { x: W * 0.8, label: 'ETC' }
+    ];
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    for (const s of stages) {
+        ctx.fillStyle = 'rgba(128,200,160,0.5)';
+        ctx.fillText(s.label, s.x, H * 0.5 - mh/2 - 10);
+    }
+
+    // Turbo indicator
+    if (S.turboMode) {
+        ctx.save();
+        ctx.globalAlpha = 0.3 + 0.2 * Math.sin(t * 5);
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, mw/2 + 10, mh/2 + 10, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+function drawBackground() {
+    const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.6);
+    grad.addColorStop(0, '#0a2018');
+    grad.addColorStop(1, '#040c0a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+}
+
+// === MAIN LOOP ===
+let lastTime = 0;
+let eventTimer = 0;
+let glucoseSpawnTimer = 0;
+
+function loop(timestamp) {
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+
+    if (S.screen === 'playing') {
+        const diff = DIFFS[S.difficulty];
+
+        // Passive glucose regeneration
+        const gluRate = diff.glucoseRate * (1 + getUpgradeLevel('glucose_pump') * 0.3);
+        S.glucose = Math.min(S.maxGlucose, S.glucose + gluRate * dt);
+
+        // Passive oxygen regeneration
+        const oxyRate = diff.oxygenRate * (1 + getUpgradeLevel('o2_carrier') * 0.3);
+        S.oxygen = Math.min(S.maxOxygen, S.oxygen + oxyRate * dt);
+
+        // Spawn glucose molecules
+        glucoseSpawnTimer += dt;
+        if (glucoseSpawnTimer > 0.8 && S.glucose > 0) {
+            glucoseSpawnTimer = 0;
+            S.glucose -= 1;
+            S.molecules.push(new Molecule('glucose', W * 0.1, H * 0.5 + (Math.random() - 0.5) * 80));
+        }
+
+        // Update molecules
+        S.molecules = S.molecules.filter(m => m.update(dt));
+
+        // Free radical damage
+        if (Math.random() < diff.radicalRate) {
+            const dmg = 2 * (1 - getUpgradeLevel('antioxidant') * 0.15);
+            S.health -= Math.max(0.5, dmg);
+            if (S.health < 30 && Math.random() < 0.1) SFX.warning();
+        }
+
+        // Autophagy healing
+        if (getUpgradeLevel('autophagy') > 0 && S.health < S.maxHealth) {
+            S.health = Math.min(S.maxHealth, S.health + getUpgradeLevel('autophagy') * 0.05 * dt);
+        }
+
+        // Cell health decay when starved
+        if (S.glucose <= 0 && S.molecules.length === 0) {
+            S.health -= diff.decayRate;
+        }
+
+        // Check death
+        if (S.health <= 0) {
+            S.health = 0;
+            gameOver('death');
+        }
+
+        // Check win (enough ATP for cell division)
+        if (S.totalAtp >= 10000) {
+            gameOver('win');
+        }
+
+        // Level up every 500 ATP
+        const newLevel = Math.floor(S.totalAtp / 500) + 1;
+        if (newLevel > S.level) {
+            S.level = newLevel;
+            SFX.levelUp();
+            addShake(5);
+            spawnParticles(W/2, H/2, '#60ff90', 20);
+        }
+
+        // Random events
+        eventTimer += dt;
+        if (eventTimer > 15 + Math.random() * 10) {
+            eventTimer = 0;
+            triggerEvent();
+        }
+
+        // ATP/s calculation
+        if (timestamp - S.lastAtpCheck > 1000) {
+            S.atpPerSec = S.atpInLastSec;
+            S.atpInLastSec = 0;
+            S.lastAtpCheck = timestamp;
+        }
+
+        // Combo decay
+        if (S.comboTimer > 0) {
+            S.comboTimer--;
+            if (S.comboTimer <= 0) S.combo = 1;
+        }
+
+        // Particles
+        S.particles = S.particles.filter(p => {
+            p.x += p.vx; p.y += p.vy;
+            p.vx *= 0.96; p.vy *= 0.96;
+            p.life -= 0.02;
+            return p.life > 0;
+        });
+
+        // Shake decay
+        if (S.shakeTimer > 0) { S.shakeTimer--; S.shakeX *= 0.8; S.shakeY *= 0.8; }
+        else { S.shakeX = 0; S.shakeY = 0; }
+
+        updateHUD();
+        // Refresh upgrade list periodically
+        if (Math.random() < 0.05) renderUpgrades();
+    }
+
+    // Draw
+    ctx.save();
+    if (S.shakeTimer > 0) ctx.translate(S.shakeX, S.shakeY);
+
+    drawBackground();
+    if (S.screen === 'playing' || S.screen === 'paused') {
+        drawMitochondria();
+        for (const m of S.molecules) m.draw(ctx);
+        // Particles
+        for (const p of S.particles) {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
             ctx.beginPath();
-            ctx.ellipse(cx, cy, width / 2, height / 2, 0, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(60, 100, 80, 0.3)';
+            ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = 'rgba(100, 180, 140, 0.6)';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+
+    // Menu ambient
+    if (S.screen === 'menu' || S.screen === 'gameover') {
+        if (Math.random() < 0.1) {
+            S.particles.push({ x: Math.random()*W, y: Math.random()*H, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5, life: 1, color: '#60ff90', size: 2 });
+        }
+        S.particles = S.particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.01; return p.life > 0; });
+        for (const p of S.particles) {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
             ctx.beginPath();
-            ctx.ellipse(cx, cy, width / 2 - 20, height / 2 - 20, 0, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(80, 150, 120, 0.4)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            
-            for (let i = 0; i < 8; i++) {
-                const angle = (i / 8) * Math.PI * 2;
-                const foldX = cx + Math.cos(angle) * (width * 0.3);
-                const foldY = cy + Math.sin(angle) * (height * 0.3);
-                ctx.beginPath();
-                ctx.moveTo(cx, cy);
-                ctx.quadraticCurveTo(foldX + Math.cos(angle + 0.5) * 30, foldY + Math.sin(angle + 0.5) * 30, foldX, foldY);
-                ctx.strokeStyle = 'rgba(100, 200, 150, 0.3)';
-                ctx.lineWidth = 8;
-                ctx.stroke();
-            }
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
         }
-        
-        function drawStages() {
-            Object.entries(STAGES).forEach(([key, stage]) => {
-                const x = W * stage.x;
-                const y = H * stage.y - 120;
-                
-                ctx.fillStyle = 'rgba(100, 200, 150, 0.1)';
-                ctx.fillRect(x - 40, y - 20, 80, 40);
-                ctx.strokeStyle = 'rgba(100, 200, 150, 0.3)';
-                ctx.strokeRect(x - 40, y - 20, 80, 40);
-                
-                ctx.fillStyle = '#80c0a0';
-                ctx.font = '10px monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText(stage.name, x, y);
-                
-                if (key === 'GLYCOLYSIS') {
-                    ctx.fillText('+2 ATP', x, y + 12);
-                } else if (key === 'KREBS') {
-                    ctx.fillText('+2 ATP', x, y + 12);
-                } else if (key === 'ETC') {
-                    ctx.fillText('+32 ATP', x, y + 12);
-                }
-            });
-        }
-        
-        function update() {
-            if (glucose > 0 && Math.random() < 0.02) {
-                glucose--;
-                molecules.push(new Molecule('glucose', W * 0.15, H * 0.5 + (Math.random() - 0.5) * 100));
-            }
-            
-            oxygen = Math.min(100, oxygen + 0.05);
-            
-            molecules = molecules.filter(m => m.update());
-            
-            particles = particles.filter(p => {
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life -= 0.03;
-                return p.life > 0;
-            });
-        }
-        
-        function draw() {
-            ctx.fillStyle = '#051015';
-            ctx.fillRect(0, 0, W, H);
-            
-            drawMitochondria();
-            drawStages();
-            
-            molecules.forEach(m => m.draw());
-            
-            particles.forEach(p => {
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 3 * p.life, 0, Math.PI * 2);
-                ctx.fillStyle = p.color.replace(')', ', ' + p.life + ')').replace('rgb', 'rgba').replace('#', '');
-                ctx.fillStyle = p.color;
-                ctx.globalAlpha = p.life;
-                ctx.fill();
-                ctx.globalAlpha = 1;
-            });
-        }
-        
-        function updateUI() {
-            document.getElementById('atp').textContent = Math.floor(atp);
-            document.getElementById('glucose').textContent = glucose;
-            document.getElementById('oxygen').textContent = Math.floor(oxygen);
-            const eff = Math.floor((glycolysisLevel + krebsLevel + etcLevel) / 3 * 100);
-            document.getElementById('efficiency').textContent = eff + '%';
-        }
-        
-        function animate() {
-            update();
-            draw();
-            updateUI();
-            requestAnimationFrame(animate);
-        }
-        
-        document.getElementById('inject-btn').onclick = () => {
-            glucose += 5;
-        };
-        
-        document.getElementById('boost-btn').onclick = () => {
-            oxygen = 100;
-            spawnParticles(W * 0.85, H * 0.5, '#00aaff', 10);
-        };
-        
-        document.getElementById('upgrade-glycolysis').onclick = () => {
-            if (atp >= 50) {
-                atp -= 50;
-                glycolysisLevel++;
-            }
-        };
-        
-        document.getElementById('upgrade-krebs').onclick = () => {
-            if (atp >= 100) {
-                atp -= 100;
-                krebsLevel++;
-            }
-        };
-        
-        document.getElementById('upgrade-etc').onclick = () => {
-            if (atp >= 200) {
-                atp -= 200;
-                etcLevel++;
-            }
-        };
-        
-        animate();
-    </script>
+        ctx.globalAlpha = 1;
+    }
+
+    requestAnimationFrame(loop);
+}
+
+// === BOOT ===
+resize();
+window.addEventListener('resize', resize);
+loadHigh();
+showScreen('menu');
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
