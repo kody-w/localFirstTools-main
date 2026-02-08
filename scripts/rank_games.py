@@ -86,6 +86,8 @@ def score_scale(content: str) -> dict:
 
     if 40 <= size_kb <= 200:
         score += 5; details.append(f"{size_kb:.0f}KB-optimal")
+    elif size_kb > 200 and lines >= 2000:
+        score += 5; details.append(f"{size_kb:.0f}KB-ambitious")
     elif size_kb > 200:
         score += 3; details.append(f"{size_kb:.0f}KB-large")
     elif 20 <= size_kb < 40:
@@ -330,6 +332,35 @@ def score_game(filepath: Path, content: str = None, player_ratings: dict = None)
         result["player_rating"] = player_data
 
     return result
+
+
+def score_single_app(filepath) -> dict:
+    """Score a single app file and return a compact result.
+
+    Convenience wrapper for molt_pipeline.py and other callers that need
+    per-file scoring without building full rankings.
+
+    Args:
+        filepath: Path or str to an HTML app file.
+
+    Returns:
+        dict with keys: score, grade, dimensions (each with score/max/details),
+        size_bytes, lines, title.
+    """
+    filepath = Path(filepath)
+    content = filepath.read_text(errors="replace")
+    full = score_game(filepath, content)
+    return {
+        "score": full["score"],
+        "grade": full["grade"],
+        "title": full["title"],
+        "lines": full["lines"],
+        "size_bytes": len(content),
+        "dimensions": {
+            dim: {"score": data["score"], "max": data["max"]}
+            for dim, data in full["dimensions"].items()
+        },
+    }
 
 
 def load_manifest() -> dict:
