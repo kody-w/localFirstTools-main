@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Full-Stack Simulator</title>
+<meta name="rappterzoo:category" content="educational_tools">
+<meta name="rappterzoo:type" content="interface">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:author" content="RappterZoo">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:tags" content="ide,fullstack,server,client,educational">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a28;--border:#1e1e2e;
+  --accent:#ff6b35;--accent2:#ff8f65;--text:#e0e0e0;--text2:#888;
+  --green:#4ade80;--blue:#60a5fa;--orange:#fb923c;--red:#f87171;
+  --purple:#c084fc;--cyan:#22d3ee;--yellow:#fde047;
+  --font-mono:'Menlo','Consolas','Monaco','Courier New',monospace;
+  --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+.light{
+  --bg:#f5f5f0;--surface:#ffffff;--surface2:#eeeee8;--border:#d0d0c8;
+  --text:#1a1a1a;--text2:#666;
+}
+html,body{height:100%;font-family:var(--font-ui);background:var(--bg);color:var(--text);overflow:hidden}
+#toolbar{
+  display:flex;align-items:center;gap:10px;padding:6px 12px;
+  background:var(--surface);border-bottom:1px solid var(--border);height:44px;z-index:100;
+}
+#toolbar .brand{font-weight:700;font-size:15px;color:var(--accent);white-space:nowrap}
+#toolbar .brand span{color:var(--text2);font-weight:400;font-size:12px;margin-left:6px}
+.btn{
+  padding:6px 14px;border:1px solid var(--border);border-radius:6px;
+  background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px;
+  font-family:var(--font-ui);transition:all .15s;white-space:nowrap;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn-deploy{
+  background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;
+  font-size:14px;padding:6px 20px;
+}
+.btn-deploy:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn-deploy.deploying{animation:pulse .6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+select{
+  padding:5px 8px;border:1px solid var(--border);border-radius:6px;
+  background:var(--surface2);color:var(--text);font-size:13px;
+  font-family:var(--font-ui);cursor:pointer;
+}
+select:focus{outline:none;border-color:var(--accent)}
+.toolbar-spacer{flex:1}
+.latency-control{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+.latency-control input[type=range]{width:80px;accent-color:var(--accent)}
+
+#main{display:flex;height:calc(100% - 44px);overflow:hidden}
+.pane{display:flex;flex-direction:column;min-width:180px;overflow:hidden}
+.pane-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);
+  font-size:13px;font-weight:600;white-space:nowrap;
+}
+.pane-header .status-dot{
+  width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;
+}
+.status-running{background:var(--green);box-shadow:0 0 6px var(--green)}
+.status-error{background:var(--red);box-shadow:0 0 6px var(--red)}
+.status-stopped{background:#555}
+.editor-wrap{flex:1;position:relative;overflow:hidden;display:flex}
+.line-numbers{
+  width:40px;padding:10px 6px 10px 0;text-align:right;font-family:var(--font-mono);
+  font-size:13px;line-height:1.5;color:var(--text2);background:var(--surface);
+  border-right:1px solid var(--border);overflow:hidden;user-select:none;
+  flex-shrink:0;
+}
+.code-editor{
+  flex:1;width:100%;padding:10px;font-family:var(--font-mono);font-size:13px;
+  line-height:1.5;color:var(--text);background:var(--surface);border:none;
+  resize:none;outline:none;tab-size:2;white-space:pre;overflow:auto;
+}
+.code-editor::selection{background:rgba(255,107,53,.25)}
+.console-panel{
+  height:140px;min-height:60px;border-top:1px solid var(--border);
+  background:var(--bg);overflow-y:auto;font-family:var(--font-mono);
+  font-size:12px;padding:8px;flex-shrink:0;
+}
+.console-panel .log-line{padding:2px 0;word-break:break-all}
+.console-panel .log-info{color:var(--cyan)}
+.console-panel .log-req{color:var(--yellow)}
+.console-panel .log-res{color:var(--green)}
+.console-panel .log-err{color:var(--red)}
+.console-panel .log-warn{color:var(--orange)}
+.console-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:4px 10px;background:var(--surface);border-top:1px solid var(--border);
+  font-size:11px;color:var(--text2);flex-shrink:0;
+}
+.console-header button{
+  background:none;border:none;color:var(--text2);cursor:pointer;font-size:11px;
+  font-family:var(--font-ui);
+}
+.console-header button:hover{color:var(--accent)}
+
+.resize-handle{
+  width:5px;cursor:col-resize;background:var(--border);flex-shrink:0;
+  transition:background .15s;position:relative;z-index:10;
+}
+.resize-handle:hover,.resize-handle.active{background:var(--accent)}
+
+/* Network pane */
+.network-list{flex:1;overflow-y:auto;padding:4px}
+.net-entry{
+  padding:6px 8px;margin:2px 0;border-radius:4px;background:var(--surface2);
+  cursor:pointer;font-size:12px;border:1px solid transparent;transition:all .15s;
+}
+.net-entry:hover{border-color:var(--border)}
+.net-entry.expanded{border-color:var(--accent)}
+.net-entry-head{display:flex;align-items:center;gap:8px}
+.method-badge{
+  padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;
+  font-family:var(--font-mono);color:#fff;
+}
+.method-GET{background:#16a34a}.method-POST{background:#2563eb}
+.method-PUT{background:#d97706}.method-DELETE{background:#dc2626}
+.method-PATCH{background:#7c3aed}
+.net-path{flex:1;font-family:var(--font-mono);color:var(--text)}
+.net-status{font-family:var(--font-mono);font-weight:600}
+.net-status.s2xx{color:var(--green)}.net-status.s4xx{color:var(--orange)}.net-status.s5xx{color:var(--red)}
+.net-time{color:var(--text2);font-size:11px}
+.net-detail{
+  margin-top:6px;padding:8px;background:var(--bg);border-radius:4px;
+  font-family:var(--font-mono);font-size:11px;line-height:1.4;
+  white-space:pre-wrap;word-break:break-all;display:none;
+}
+.net-entry.expanded .net-detail{display:block}
+.net-detail-label{color:var(--accent);font-weight:600;margin-bottom:2px}
+
+/* Client preview */
+.preview-frame{flex:1;border:none;background:#fff;width:100%}
+
+/* Mobile */
+@media(max-width:768px){
+  #main{flex-direction:column}
+  .pane{min-width:unset;min-height:200px}
+  .resize-handle{width:100%;height:5px;cursor:row-resize}
+}
+/* Scrollbar */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+
+.error-overlay{
+  position:absolute;bottom:0;left:0;right:0;max-height:50%;overflow:auto;
+  background:rgba(220,38,38,.12);border-top:2px solid var(--red);
+  padding:10px;font-family:var(--font-mono);font-size:12px;color:var(--red);
+  z-index:5;white-space:pre-wrap;word-break:break-all;
+}
+.error-overlay .close-err{
+  position:absolute;top:4px;right:8px;background:none;border:none;
+  color:var(--red);cursor:pointer;font-size:16px;
+}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="brand">⚡ Full-Stack Simulator<span>v1.0</span></div>
+  <button class="btn btn-deploy" id="deployBtn" onclick="deploy()">▶ Deploy</button>
+  <select id="presetSelect" onchange="loadPreset(this.value)">
+    <option value="">📦 Load Preset...</option>
+    <option value="hello">Hello World</option>
+    <option value="rest">REST API (Todos)</option>
+    <option value="chat">Chat Simulator</option>
+    <option value="jsonplaceholder">JSON Placeholder</option>
+  </select>
+  <div class="toolbar-spacer"></div>
+  <div class="latency-control">
+    <span>Latency:</span>
+    <input type="range" id="latencySlider" min="0" max="2000" value="100" step="50"
+      oninput="latencyVal.textContent=this.value+'ms'">
+    <span id="latencyVal">100ms</span>
+  </div>
+  <label style="font-size:12px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:4px">
+    <input type="checkbox" id="soundToggle" style="accent-color:var(--accent)"> 🔊
+  </label>
+  <button class="btn" onclick="toggleTheme()">🌙</button>
+  <button class="btn" onclick="saveToStorage()">💾</button>
+</div>
+
+<div id="main">
+  <!-- Server Pane -->
+  <div class="pane" id="serverPane" style="flex:1">
+    <div class="pane-header">
+      <div><span class="status-dot status-stopped" id="serverStatus"></span>🖥 Server (Express-like)</div>
+      <span id="serverInfo" style="font-size:11px;color:var(--text2)"></span>
+    </div>
+    <div class="editor-wrap">
+      <div class="line-numbers" id="serverLines"></div>
+      <textarea class="code-editor" id="serverEditor" spellcheck="false"
+        oninput="onEditorInput('server')" onscroll="syncScroll('server')"
+        onkeydown="handleTab(event)" onkeypress="typeSound()"></textarea>
+      <div id="serverError" style="display:none"></div>
+    </div>
+    <div class="console-header">
+      <span>Console</span>
+      <button onclick="clearConsole('server')">Clear</button>
+    </div>
+    <div class="console-panel" id="serverConsole"></div>
+  </div>
+
+  <div class="resize-handle" id="handle1"></div>
+
+  <!-- Network Pane -->
+  <div class="pane" id="networkPane" style="flex:0 0 260px;min-width:200px">
+    <div class="pane-header">
+      <div>📡 Network</div>
+      <span style="font-size:11px;color:var(--text2)"><span id="reqCount">0</span> requests</span>
+    </div>
+    <div style="padding:4px 8px;border-bottom:1px solid var(--border);display:flex;gap:4px">
+      <button class="btn" style="padding:2px 8px;font-size:11px" onclick="clearNetwork()">Clear</button>
+    </div>
+    <div class="network-list" id="networkList"></div>
+  </div>
+
+  <div class="resize-handle" id="handle2"></div>
+
+  <!-- Client Pane -->
+  <div class="pane" id="clientPane" style="flex:1">
+    <div class="pane-header">
+      <div>🌐 Client (Browser)</div>
+      <span id="clientInfo" style="font-size:11px;color:var(--text2)"></span>
+    </div>
+    <div class="editor-wrap">
+      <div class="line-numbers" id="clientLines"></div>
+      <textarea class="code-editor" id="clientEditor" spellcheck="false"
+        oninput="onEditorInput('client')" onscroll="syncScroll('client')"
+        onkeydown="handleTab(event)" onkeypress="typeSound()"></textarea>
+      <div id="clientError" style="display:none"></div>
+    </div>
+    <div class="console-header">
+      <span>Preview</span>
+      <button onclick="clearConsole('client')">Clear</button>
+    </div>
+    <div class="console-panel" id="clientPreview" style="height:200px;padding:0;overflow:hidden">
+      <iframe class="preview-frame" id="clientFrame" sandbox="allow-scripts"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let worker = null;
+let requestCounter = 0;
+let saveTimer = null;
+let audioCtx = null;
+let deployGeneration = 0;
+
+const serverEditor = document.getElementById('serverEditor');
+const clientEditor = document.getElementById('clientEditor');
+const serverConsole = document.getElementById('serverConsole');
+const networkList = document.getElementById('networkList');
+const clientFrame = document.getElementById('clientFrame');
+const serverStatus = document.getElementById('serverStatus');
+const reqCountEl = document.getElementById('reqCount');
+const deployBtn = document.getElementById('deployBtn');
+
+// ============================================================
+// PRESETS
+// ============================================================
+const PRESETS = {
+hello: {
+server: `// Hello World Server
+app.get('/api/hello', (req, res) => {
+  console.log('Someone said hello!');
+  res.json({ message: 'Hello from the server! 🚀' });
+});
+
+app.get('/api/time', (req, res) => {
+  res.json({ time: new Date().toISOString() });
+});`,
+client: `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; padding: 30px; background: #1a1a2e; color: #eee; text-align: center; }
+    h1 { color: #ff6b35; }
+    .card { background: #16213e; padding: 20px; border-radius: 12px; margin: 20px auto; max-width: 400px; }
+    button { background: #ff6b35; color: #fff; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; margin: 8px; }
+    button:hover { background: #ff8f65; }
+    #result { margin-top: 16px; font-size: 18px; min-height: 30px; }
+  </style>
+</head>
+<body>
+  <h1>⚡ Hello World Client</h1>
+  <div class="card">
+    <button onclick="sayHello()">Say Hello</button>
+    <button onclick="getTime()">Get Time</button>
+    <div id="result">Click a button to call the server!</div>
+  </div>
+  <script>
+    async function sayHello() {
+      const r = await fetch('/api/hello');
+      const d = await r.json();
+      document.getElementById('result').textContent = d.message;
+    }
+    async function getTime() {
+      const r = await fetch('/api/time');
+      const d = await r.json();
+      document.getElementById('result').textContent = '🕐 ' + d.time;
+    }
+  <\\/script>
+</body>
+</html>`
+},
+
+rest: {
+server: `// REST API — Todo List
+let todos = [
+  { id: 1, text: 'Learn full-stack development', done: false },
+  { id: 2, text: 'Build something amazing', done: false }
+];
+let nextId = 3;
+
+app.get('/api/todos', (req, res) => {
+  res.json(todos);
+});
+
+app.post('/api/todos', (req, res) => {
+  const todo = { id: nextId++, text: req.body.text, done: false };
+  todos.push(todo);
+  console.log('Created todo:', todo.text);
+  res.status(201).json(todo);
+});
+
+app.put('/api/todos/:id', (req, res) => {
+  const todo = todos.find(t => t.id === parseInt(req.params.id));
+  if (!todo) return res.status(404).json({ error: 'Not found' });
+  Object.assign(todo, req.body);
+  res.json(todo);
+});
+
+app.delete('/api/todos/:id', (req, res) => {
+  const idx = todos.findIndex(t => t.id === parseInt(req.params.id));
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  todos.splice(idx, 1);
+  console.log('Deleted todo #' + req.params.id);
+  res.json({ success: true });
+});`,
+client: `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #0f0f1a; color: #eee; }
+    h2 { color: #ff6b35; margin-bottom: 16px; }
+    .add-form { display: flex; gap: 8px; margin-bottom: 20px; }
+    input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #1a1a2e; color: #eee; font-size: 14px; }
+    button { background: #ff6b35; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
+    button:hover { background: #ff8f65; }
+    .todo { display: flex; align-items: center; gap: 10px; padding: 10px; margin: 4px 0; background: #16213e; border-radius: 8px; }
+    .todo.done span { text-decoration: line-through; opacity: .5; }
+    .todo span { flex: 1; }
+    .todo .del { background: #dc2626; padding: 4px 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h2>📝 Todo App</h2>
+  <div class="add-form">
+    <input id="inp" placeholder="What needs doing?" onkeydown="if(event.key==='Enter')addTodo()">
+    <button onclick="addTodo()">Add</button>
+  </div>
+  <div id="list"></div>
+  <script>
+    async function loadTodos() {
+      const r = await fetch('/api/todos');
+      const todos = await r.json();
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      todos.forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'todo' + (t.done ? ' done' : '');
+        div.innerHTML = '<input type="checkbox" ' + (t.done?'checked':'') +
+          ' onchange="toggleTodo('+t.id+',this.checked)">' +
+          '<span>' + t.text + '</span>' +
+          '<button class="del" onclick="delTodo('+t.id+')">✕</button>';
+        list.appendChild(div);
+      });
+    }
+    async function addTodo() {
+      const inp = document.getElementById('inp');
+      if (!inp.value.trim()) return;
+      await fetch('/api/todos', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ text: inp.value })
+      });
+      inp.value = '';
+      loadTodos();
+    }
+    async function toggleTodo(id, done) {
+      await fetch('/api/todos/'+id, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ done })
+      });
+      loadTodos();
+    }
+    async function delTodo(id) {
+      await fetch('/api/todos/'+id, { method: 'DELETE' });
+      loadTodos();
+    }
+    loadTodos();
+  <\\/script>
+</body>
+</html>`
+},
+
+chat: {
+server: `// Chat Simulator Server
+let messages = [
+  { id: 1, user: 'System', text: 'Welcome to the chat room!', ts: Date.now() }
+];
+let nextMsgId = 2;
+
+app.get('/api/messages', (req, res) => {
+  res.json(messages.slice(-50));
+});
+
+app.post('/api/messages', (req, res) => {
+  const msg = {
+    id: nextMsgId++,
+    user: req.body.user || 'Anonymous',
+    text: req.body.text,
+    ts: Date.now()
+  };
+  messages.push(msg);
+  console.log(msg.user + ': ' + msg.text);
+
+  // Bot auto-reply
+  if (msg.text.toLowerCase().includes('hello')) {
+    setTimeout(() => {
+      messages.push({
+        id: nextMsgId++, user: '🤖 Bot',
+        text: 'Hey there, ' + msg.user + '! 👋',
+        ts: Date.now()
+      });
+    }, 500);
+  }
+  res.status(201).json(msg);
+});`,
+client: `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #0f0f1a; color: #eee; display: flex; flex-direction: column; height: 100vh; }
+    #header { padding: 12px 16px; background: #16213e; font-weight: 700; color: #ff6b35; border-bottom: 1px solid #333; }
+    #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .msg { padding: 8px 12px; border-radius: 12px; max-width: 80%; background: #1a1a2e; }
+    .msg .user { font-size: 11px; color: #ff6b35; font-weight: 600; }
+    .msg .text { margin-top: 2px; }
+    .msg.mine { align-self: flex-end; background: #1e3a5f; }
+    #bar { display: flex; gap: 8px; padding: 10px; background: #16213e; border-top: 1px solid #333; }
+    #bar input { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid #333; background: #0f0f1a; color: #eee; }
+    #bar button { background: #ff6b35; color: #fff; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="header">💬 Chat Room</div>
+  <div id="chat"></div>
+  <div id="bar">
+    <input id="msgInput" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg()">
+    <button onclick="sendMsg()">Send</button>
+  </div>
+  <script>
+    const MY_NAME = 'User_' + Math.floor(Math.random()*1000);
+    let lastCount = 0;
+
+    async function loadMessages() {
+      const r = await fetch('/api/messages');
+      const msgs = await r.json();
+      if (msgs.length === lastCount) return;
+      lastCount = msgs.length;
+      const chat = document.getElementById('chat');
+      chat.innerHTML = '';
+      msgs.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'msg' + (m.user === MY_NAME ? ' mine' : '');
+        div.innerHTML = '<div class="user">' + m.user + '</div><div class="text">' + m.text + '</div>';
+        chat.appendChild(div);
+      });
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function sendMsg() {
+      const inp = document.getElementById('msgInput');
+      if (!inp.value.trim()) return;
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ user: MY_NAME, text: inp.value })
+      });
+      inp.value = '';
+      loadMessages();
+    }
+
+    loadMessages();
+    setInterval(loadMessages, 2000);
+  <\\/script>
+</body>
+</html>`
+},
+
+jsonplaceholder: {
+server: `// JSON Placeholder Mock API
+const users = [
+  { id: 1, name: 'Leanne Graham', username: 'Bret', email: 'leanne@example.com', company: { name: 'Romaguera-Crona' } },
+  { id: 2, name: 'Ervin Howell', username: 'Antonette', email: 'ervin@example.com', company: { name: 'Deckow-Crist' } },
+  { id: 3, name: 'Clementine Bauch', username: 'Samantha', email: 'clem@example.com', company: { name: 'Hoeger LLC' } }
+];
+
+const posts = [
+  { id: 1, userId: 1, title: 'Introduction to APIs', body: 'APIs are the backbone of modern web development. They allow different systems to communicate...' },
+  { id: 2, userId: 1, title: 'REST Best Practices', body: 'When designing REST APIs, use proper HTTP methods, status codes, and resource naming...' },
+  { id: 3, userId: 2, title: 'JavaScript Tips', body: 'Use const and let instead of var. Embrace async/await over raw promises...' },
+  { id: 4, userId: 3, title: 'CSS Grid Mastery', body: 'CSS Grid is incredibly powerful for two-dimensional layouts. Start with grid-template-columns...' }
+];
+
+const comments = [
+  { id: 1, postId: 1, name: 'Great intro!', email: 'user@test.com', body: 'Really helped me understand the basics.' },
+  { id: 2, postId: 1, name: 'Thanks!', email: 'dev@test.com', body: 'Clear and concise explanation.' },
+  { id: 3, postId: 2, name: 'Useful tips', email: 'coder@test.com', body: 'I always forget about proper status codes.' },
+  { id: 4, postId: 3, name: 'Agree!', email: 'js@test.com', body: 'Async/await changed my life.' }
+];
+
+app.get('/api/users', (req, res) => { res.json(users); });
+app.get('/api/users/:id', (req, res) => {
+  const u = users.find(u => u.id === parseInt(req.params.id));
+  u ? res.json(u) : res.status(404).json({ error: 'User not found' });
+});
+app.get('/api/posts', (req, res) => {
+  const userId = req.query.userId;
+  res.json(userId ? posts.filter(p => p.userId === parseInt(userId)) : posts);
+});
+app.get('/api/posts/:id', (req, res) => {
+  const p = posts.find(p => p.id === parseInt(req.params.id));
+  p ? res.json(p) : res.status(404).json({ error: 'Post not found' });
+});
+app.get('/api/posts/:id/comments', (req, res) => {
+  res.json(comments.filter(c => c.postId === parseInt(req.params.id)));
+});
+app.get('/api/comments', (req, res) => { res.json(comments); });`,
+client: `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #0f0f1a; color: #eee; max-width: 600px; margin: 0 auto; }
+    h2 { color: #ff6b35; }
+    .tabs { display: flex; gap: 4px; margin: 16px 0; }
+    .tab { padding: 8px 16px; border-radius: 8px 8px 0 0; background: #1a1a2e; cursor: pointer; border: 1px solid #333; border-bottom: none; }
+    .tab.active { background: #16213e; color: #ff6b35; }
+    .panel { background: #16213e; border-radius: 0 8px 8px 8px; padding: 16px; border: 1px solid #333; }
+    .user-card, .post-card { padding: 12px; margin: 8px 0; background: #1a1a2e; border-radius: 8px; }
+    .user-card h3, .post-card h3 { margin: 0 0 4px 0; color: #60a5fa; font-size: 14px; }
+    .comment { padding: 8px; margin: 4px 0 4px 16px; background: #0f0f1a; border-radius: 6px; border-left: 3px solid #ff6b35; font-size: 13px; }
+    .small { font-size: 12px; color: #888; }
+  </style>
+</head>
+<body>
+  <h2>🌐 JSON Placeholder Explorer</h2>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('users')">Users</div>
+    <div class="tab" onclick="showTab('posts')">Posts</div>
+    <div class="tab" onclick="showTab('comments')">Comments</div>
+  </div>
+  <div class="panel" id="content">Loading...</div>
+  <script>
+    let currentTab = 'users';
+    async function showTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.tab').forEach((t,i) => t.className = 'tab' + (['users','posts','comments'][i]===tab?' active':''));
+      const el = document.getElementById('content');
+      el.innerHTML = 'Loading...';
+      if (tab === 'users') {
+        const r = await fetch('/api/users');
+        const users = await r.json();
+        el.innerHTML = users.map(u =>
+          '<div class="user-card"><h3>' + u.name + ' (@' + u.username + ')</h3>' +
+          '<div class="small">' + u.email + ' · ' + u.company.name + '</div></div>'
+        ).join('');
+      } else if (tab === 'posts') {
+        const r = await fetch('/api/posts');
+        const posts = await r.json();
+        el.innerHTML = '';
+        for (const p of posts) {
+          const cr = await fetch('/api/posts/' + p.id + '/comments');
+          const cmts = await cr.json();
+          el.innerHTML += '<div class="post-card"><h3>' + p.title + '</h3><p>' + p.body.slice(0,100) + '...</p>' +
+            cmts.map(c => '<div class="comment"><strong>' + c.name + '</strong> ' + c.body + '</div>').join('') +
+            '</div>';
+        }
+      } else {
+        const r = await fetch('/api/comments');
+        const cmts = await r.json();
+        el.innerHTML = cmts.map(c =>
+          '<div class="comment"><strong>' + c.name + '</strong> (post #' + c.postId + ')<br>' + c.body + '</div>'
+        ).join('');
+      }
+    }
+    showTab('users');
+  <\\/script>
+</body>
+</html>`
+}
+};
+
+// ============================================================
+// LINE NUMBERS
+// ============================================================
+function updateLineNumbers(which) {
+  const editor = which === 'server' ? serverEditor : clientEditor;
+  const gutter = document.getElementById(which + 'Lines');
+  const lines = editor.value.split('\n').length;
+  let html = '';
+  for (let i = 1; i <= lines; i++) html += i + '\n';
+  gutter.textContent = html;
+}
+
+function syncScroll(which) {
+  const editor = which === 'server' ? serverEditor : clientEditor;
+  const gutter = document.getElementById(which + 'Lines');
+  gutter.scrollTop = editor.scrollTop;
+}
+
+// ============================================================
+// EDITOR INPUT
+// ============================================================
+function onEditorInput(which) {
+  updateLineNumbers(which);
+  scheduleSave();
+}
+
+function handleTab(e) {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target;
+    const start = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = start + 2;
+    ta.dispatchEvent(new Event('input'));
+  }
+}
+
+// ============================================================
+// TYPE SOUND
+// ============================================================
+function typeSound() {
+  if (!document.getElementById('soundToggle').checked) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(800 + Math.random() * 400, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.05);
+}
+
+// ============================================================
+// THEME
+// ============================================================
+function toggleTheme() {
+  document.body.classList.toggle('light');
+}
+
+// ============================================================
+// CONSOLE LOGGING
+// ============================================================
+function logToConsole(which, text, cls) {
+  const panel = which === 'server' ? serverConsole : document.getElementById('clientPreview');
+  if (which === 'client') return; // client has iframe preview
+  const div = document.createElement('div');
+  div.className = 'log-line ' + (cls || 'log-info');
+  div.textContent = text;
+  panel.appendChild(div);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function clearConsole(which) {
+  if (which === 'server') serverConsole.innerHTML = '';
+}
+
+// ============================================================
+// NETWORK INSPECTOR
+// ============================================================
+function addNetworkEntry(method, path, status, reqBody, resBody, duration) {
+  requestCounter++;
+  reqCountEl.textContent = requestCounter;
+
+  const entry = document.createElement('div');
+  entry.className = 'net-entry';
+  entry.onclick = () => entry.classList.toggle('expanded');
+
+  const statusCls = status < 300 ? 's2xx' : status < 500 ? 's4xx' : 's5xx';
+  const now = new Date();
+  const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+
+  let detailHtml = '';
+  if (reqBody) {
+    detailHtml += '<div class="net-detail-label">Request Body</div>' +
+      formatJSON(reqBody) + '\n\n';
+  }
+  detailHtml += '<div class="net-detail-label">Response (' + status + ')</div>' +
+    formatJSON(resBody);
+
+  entry.innerHTML =
+    '<div class="net-entry-head">' +
+      '<span class="method-badge method-' + method + '">' + method + '</span>' +
+      '<span class="net-path">' + escapeHtml(path) + '</span>' +
+      '<span class="net-status ' + statusCls + '">' + status + '</span>' +
+      '<span class="net-time">' + duration + 'ms</span>' +
+    '</div>' +
+    '<div class="net-detail">' + detailHtml + '</div>';
+
+  networkList.prepend(entry);
+
+  logToConsole('server', '← ' + method + ' ' + path + ' → ' + status + ' (' + duration + 'ms)', 'log-req');
+}
+
+function formatJSON(data) {
+  try {
+    if (typeof data === 'string') data = JSON.parse(data);
+    return escapeHtml(JSON.stringify(data, null, 2));
+  } catch(e) {
+    return escapeHtml(String(data));
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function clearNetwork() {
+  networkList.innerHTML = '';
+  requestCounter = 0;
+  reqCountEl.textContent = '0';
+}
+
+// ============================================================
+// DEPLOY — THE CORE ENGINE
+// ============================================================
+function deploy() {
+  const gen = ++deployGeneration;
+  deployBtn.classList.add('deploying');
+  deployBtn.textContent = '⏳ Deploying...';
+
+  // Tear down old worker
+  if (worker) { try { worker.terminate(); } catch(e){} worker = null; }
+
+  // Clear state
+  serverConsole.innerHTML = '';
+  clearNetwork();
+  hideError('server');
+  hideError('client');
+  setServerStatus('stopped');
+
+  setTimeout(() => {
+    if (gen !== deployGeneration) return;
+    try {
+      createWorker(gen);
+      setServerStatus('running');
+      logToConsole('server', '✓ Server running on simulated port 3000', 'log-info');
+      document.getElementById('serverInfo').textContent = ':3000';
+    } catch(e) {
+      setServerStatus('error');
+      showError('server', e.message || String(e));
+      logToConsole('server', '✗ Server failed to start: ' + e.message, 'log-err');
+    }
+
+    try {
+      createClientIframe(gen);
+    } catch(e) {
+      showError('client', e.message || String(e));
+    }
+
+    deployBtn.classList.remove('deploying');
+    deployBtn.textContent = '▶ Deploy';
+  }, 400);
+}
+
+// ============================================================
+// WEB WORKER — SIMULATED SERVER
+// ============================================================
+function createWorker(gen) {
+  const userCode = serverEditor.value;
+
+  const workerCode = `
+'use strict';
+
+// Mini Express-like framework
+const routes = { GET:{}, POST:{}, PUT:{}, DELETE:{}, PATCH:{} };
+
+function matchRoute(method, path) {
+  const bucket = routes[method] || {};
+  // Try exact match first
+  if (bucket[path]) return { handler: bucket[path], params: {} };
+  // Try pattern match
+  for (const pattern in bucket) {
+    if (!pattern.includes(':')) continue;
+    const patternParts = pattern.split('/');
+    const pathParts = path.split('/');
+    if (patternParts.length !== pathParts.length) continue;
+    const params = {};
+    let match = true;
+    for (let i = 0; i < patternParts.length; i++) {
+      if (patternParts[i].startsWith(':')) {
+        params[patternParts[i].slice(1)] = pathParts[i];
+      } else if (patternParts[i] !== pathParts[i]) {
+        match = false; break;
+      }
+    }
+    if (match) return { handler: bucket[pattern], params };
+  }
+  return null;
+}
+
+function parseQuery(url) {
+  const idx = url.indexOf('?');
+  if (idx === -1) return { path: url, query: {} };
+  const path = url.substring(0, idx);
+  const qs = url.substring(idx + 1);
+  const query = {};
+  qs.split('&').forEach(pair => {
+    const [k,v] = pair.split('=');
+    if (k) query[decodeURIComponent(k)] = decodeURIComponent(v || '');
+  });
+  return { path, query };
+}
+
+const app = {
+  get(path, handler) { routes.GET[path] = handler; },
+  post(path, handler) { routes.POST[path] = handler; },
+  put(path, handler) { routes.PUT[path] = handler; },
+  delete(path, handler) { routes.DELETE[path] = handler; },
+  patch(path, handler) { routes.PATCH[path] = handler; }
+};
+
+// Override console.log to send to main thread
+const origLog = console.log;
+console.log = function(...args) {
+  postMessage({ type: 'log', text: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
+};
+
+// Run user server code
+try {
+  ${userCode}
+  postMessage({ type: 'ready' });
+} catch(e) {
+  postMessage({ type: 'error', message: e.message, stack: e.stack });
+}
+
+// Handle incoming requests
+self.onmessage = function(e) {
+  const { id, method, url, body, headers } = e.data;
+  if (e.data.type !== 'request') return;
+
+  const parsed = parseQuery(url);
+  const route = matchRoute(method, parsed.path);
+
+  if (!route) {
+    postMessage({ type: 'response', id, status: 404, body: JSON.stringify({ error: 'Not Found: ' + method + ' ' + parsed.path }), headers: { 'content-type': 'application/json' } });
+    return;
+  }
+
+  const req = {
+    method,
+    url: parsed.path,
+    path: parsed.path,
+    query: parsed.query,
+    params: route.params,
+    headers: headers || {},
+    body: body
+  };
+
+  let responded = false;
+  const res = {
+    statusCode: 200,
+    _headers: { 'content-type': 'application/json' },
+    status(code) { this.statusCode = code; return this; },
+    set(k,v) { this._headers[k.toLowerCase()] = v; return this; },
+    json(data) {
+      if (responded) return;
+      responded = true;
+      postMessage({ type: 'response', id, status: this.statusCode, body: JSON.stringify(data), headers: this._headers });
+    },
+    send(data) {
+      if (responded) return;
+      responded = true;
+      const isObj = typeof data === 'object';
+      postMessage({ type: 'response', id, status: this.statusCode, body: isObj ? JSON.stringify(data) : String(data), headers: isObj ? { 'content-type': 'application/json' } : { 'content-type': 'text/plain' } });
+    },
+    end(data) { this.send(data || ''); }
+  };
+
+  try {
+    route.handler(req, res);
+  } catch(err) {
+    if (!responded) {
+      postMessage({ type: 'response', id, status: 500, body: JSON.stringify({ error: err.message }), headers: { 'content-type': 'application/json' } });
+    }
+    postMessage({ type: 'log', text: 'ERROR: ' + err.message });
+  }
+};
+`;
+
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  worker = new Worker(url);
+  URL.revokeObjectURL(url);
+
+  worker.onmessage = (e) => {
+    if (gen !== deployGeneration) return;
+    const msg = e.data;
+    if (msg.type === 'ready') {
+      logToConsole('server', '✓ Routes registered successfully', 'log-res');
+    } else if (msg.type === 'log') {
+      logToConsole('server', '[log] ' + msg.text, 'log-info');
+    } else if (msg.type === 'error') {
+      setServerStatus('error');
+      showError('server', msg.message + '\n' + (msg.stack || ''));
+      logToConsole('server', '✗ ' + msg.message, 'log-err');
+    } else if (msg.type === 'response') {
+      // Route response back to iframe
+      if (pendingRequests[msg.id]) {
+        const { resolve, method, url, body, startTime } = pendingRequests[msg.id];
+        const duration = Date.now() - startTime;
+        addNetworkEntry(method, url, msg.status, body, msg.body, duration);
+        resolve(msg);
+        delete pendingRequests[msg.id];
+      }
+    }
+  };
+
+  worker.onerror = (e) => {
+    if (gen !== deployGeneration) return;
+    setServerStatus('error');
+    showError('server', e.message);
+    logToConsole('server', '✗ Worker error: ' + e.message, 'log-err');
+  };
+}
+
+// ============================================================
+// PENDING REQUEST TRACKING
+// ============================================================
+const pendingRequests = {};
+let nextReqId = 1;
+
+function sendToWorker(method, url, body, headers) {
+  return new Promise((resolve, reject) => {
+    if (!worker) {
+      reject(new Error('Server not running. Click Deploy first.'));
+      return;
+    }
+    const id = nextReqId++;
+    const latency = parseInt(document.getElementById('latencySlider').value) || 0;
+    const jitter = Math.floor(Math.random() * Math.min(latency, 100));
+    const startTime = Date.now();
+
+    pendingRequests[id] = { resolve, method, url, body, startTime };
+
+    setTimeout(() => {
+      worker.postMessage({ type: 'request', id, method, url, body, headers });
+    }, latency + jitter);
+
+    // Timeout after 10s
+    setTimeout(() => {
+      if (pendingRequests[id]) {
+        delete pendingRequests[id];
+        reject(new Error('Request timed out'));
+      }
+    }, 10000);
+  });
+}
+
+// ============================================================
+// CLIENT IFRAME
+// ============================================================
+function createClientIframe(gen) {
+  const userCode = clientEditor.value;
+
+  // Build the iframe content with injected mock fetch
+  const iframeContent = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+// Mock fetch — communicates with parent via postMessage
+window.fetch = function(url, options) {
+  options = options || {};
+  var method = (options.method || 'GET').toUpperCase();
+  var body = options.body;
+  var headers = options.headers || {};
+
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch(e) {}
+  }
+
+  return new Promise(function(resolve, reject) {
+    var msgId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+
+    function handler(event) {
+      if (event.data && event.data._fssReqId === msgId) {
+        window.removeEventListener('message', handler);
+        var resp = {
+          ok: event.data.status >= 200 && event.data.status < 300,
+          status: event.data.status,
+          statusText: event.data.status < 300 ? 'OK' : 'Error',
+          headers: new Map(Object.entries(event.data.headers || {})),
+          json: function() { return Promise.resolve(JSON.parse(event.data.body)); },
+          text: function() { return Promise.resolve(event.data.body); },
+          clone: function() { return Object.assign({}, this); }
+        };
+        resolve(resp);
+      }
+    }
+    window.addEventListener('message', handler);
+
+    parent.postMessage({
+      _fssType: 'fetch',
+      _fssReqId: msgId,
+      method: method,
+      url: url,
+      body: body,
+      headers: headers
+    }, '*');
+
+    // Timeout
+    setTimeout(function() {
+      window.removeEventListener('message', handler);
+      reject(new Error('Fetch timeout for ' + url));
+    }, 15000);
+  });
+};
+
+// Forward console to parent
+var origConsole = { log: console.log, error: console.error, warn: console.warn };
+console.log = function() {
+  origConsole.log.apply(console, arguments);
+  parent.postMessage({ _fssType: 'console', level: 'log', args: Array.from(arguments).map(String) }, '*');
+};
+console.error = function() {
+  origConsole.error.apply(console, arguments);
+  parent.postMessage({ _fssType: 'console', level: 'error', args: Array.from(arguments).map(String) }, '*');
+};
+
+// Catch errors
+window.onerror = function(msg, src, line) {
+  parent.postMessage({ _fssType: 'clientError', message: msg + ' (line ' + line + ')' }, '*');
+};
+<\/script>
+</head>
+<body>
+` + escapeForSrcdoc(userCode) + `
+</body>
+</html>`;
+
+  clientFrame.srcdoc = iframeContent;
+}
+
+function escapeForSrcdoc(html) {
+  // Fix the escaped closing script tags from presets
+  return html.replace(/<\\\/script>/g, '<\/script>');
+}
+
+// Listen for messages from the iframe
+window.addEventListener('message', (e) => {
+  if (!e.data) return;
+
+  if (e.data._fssType === 'fetch') {
+    // Route fetch request to worker
+    const { _fssReqId, method, url, body, headers } = e.data;
+    sendToWorker(method, url, body, headers).then(response => {
+      clientFrame.contentWindow.postMessage({
+        _fssReqId,
+        status: response.status,
+        body: response.body,
+        headers: response.headers
+      }, '*');
+    }).catch(err => {
+      clientFrame.contentWindow.postMessage({
+        _fssReqId,
+        status: 500,
+        body: JSON.stringify({ error: err.message }),
+        headers: { 'content-type': 'application/json' }
+      }, '*');
+      logToConsole('server', '✗ ' + err.message, 'log-err');
+    });
+  } else if (e.data._fssType === 'console') {
+    // show client console output in server log for now
+    logToConsole('server', '[client] ' + e.data.args.join(' '), 'log-info');
+  } else if (e.data._fssType === 'clientError') {
+    showError('client', e.data.message);
+  }
+});
+
+// ============================================================
+// ERROR OVERLAYS
+// ============================================================
+function showError(which, msg) {
+  const el = document.getElementById(which + 'Error');
+  el.className = 'error-overlay';
+  el.style.display = 'block';
+  el.innerHTML = '<button class="close-err" onclick="hideError(\'' + which + '\')">✕</button>' + escapeHtml(msg);
+}
+
+function hideError(which) {
+  const el = document.getElementById(which + 'Error');
+  el.style.display = 'none';
+}
+
+function setServerStatus(state) {
+  serverStatus.className = 'status-dot status-' + state;
+}
+
+// ============================================================
+// RESIZE HANDLES
+// ============================================================
+function initResize() {
+  const handle1 = document.getElementById('handle1');
+  const handle2 = document.getElementById('handle2');
+  const main = document.getElementById('main');
+  const serverPane = document.getElementById('serverPane');
+  const networkPane = document.getElementById('networkPane');
+  const clientPane = document.getElementById('clientPane');
+
+  let dragging = null;
+  let startX = 0;
+  let startWidths = {};
+
+  function onMouseDown(e, which) {
+    e.preventDefault();
+    dragging = which;
+    startX = e.clientX;
+    startWidths = {
+      server: serverPane.getBoundingClientRect().width,
+      network: networkPane.getBoundingClientRect().width,
+      client: clientPane.getBoundingClientRect().width
+    };
+    which === 'h1' ? handle1.classList.add('active') : handle2.classList.add('active');
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  function onMouseMove(e) {
+    const dx = e.clientX - startX;
+    if (dragging === 'h1') {
+      const newServer = Math.max(180, startWidths.server + dx);
+      const newNetwork = Math.max(180, startWidths.network - dx);
+      serverPane.style.flex = '0 0 ' + newServer + 'px';
+      networkPane.style.flex = '0 0 ' + newNetwork + 'px';
+    } else if (dragging === 'h2') {
+      const newNetwork = Math.max(180, startWidths.network + dx);
+      const newClient = Math.max(180, startWidths.client - dx);
+      networkPane.style.flex = '0 0 ' + newNetwork + 'px';
+      clientPane.style.flex = '0 0 ' + newClient + 'px';
+    }
+  }
+
+  function onMouseUp() {
+    handle1.classList.remove('active');
+    handle2.classList.remove('active');
+    dragging = null;
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  }
+
+  handle1.addEventListener('mousedown', (e) => onMouseDown(e, 'h1'));
+  handle2.addEventListener('mousedown', (e) => onMouseDown(e, 'h2'));
+}
+
+// ============================================================
+// PERSISTENCE
+// ============================================================
+const STORAGE_KEY = 'fss_state';
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveToStorage, 1000);
+}
+
+function saveToStorage() {
+  const state = {
+    server: serverEditor.value,
+    client: clientEditor.value,
+    latency: document.getElementById('latencySlider').value,
+    sound: document.getElementById('soundToggle').checked,
+    theme: document.body.classList.contains('light') ? 'light' : 'dark'
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch(e) {}
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw);
+    if (state.server) serverEditor.value = state.server;
+    if (state.client) clientEditor.value = state.client;
+    if (state.latency) {
+      document.getElementById('latencySlider').value = state.latency;
+      document.getElementById('latencyVal').textContent = state.latency + 'ms';
+    }
+    if (state.sound) document.getElementById('soundToggle').checked = true;
+    if (state.theme === 'light') document.body.classList.add('light');
+    return true;
+  } catch(e) { return false; }
+}
+
+// ============================================================
+// PRESETS
+// ============================================================
+function loadPreset(name) {
+  if (!name) return;
+  const preset = PRESETS[name];
+  if (!preset) return;
+  serverEditor.value = preset.server;
+  clientEditor.value = preset.client;
+  updateLineNumbers('server');
+  updateLineNumbers('client');
+  scheduleSave();
+  document.getElementById('presetSelect').value = '';
+  deploy();
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  const loaded = loadFromStorage();
+  if (!loaded) {
+    // Default to Hello World
+    serverEditor.value = PRESETS.hello.server;
+    clientEditor.value = PRESETS.hello.client;
+  }
+  updateLineNumbers('server');
+  updateLineNumbers('client');
+  initResize();
+
+  // Keyboard shortcut: Ctrl+Enter to deploy
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      deploy();
+    }
+  });
+
+  // Auto-deploy on load
+  setTimeout(deploy, 300);
+}
+
+init();
+</script>
+</body>
+</html>
