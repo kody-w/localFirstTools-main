@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Infinite Circus</title>
+<meta name="rappterzoo:author" content="RappterZoo">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games-puzzles">
+<meta name="rappterzoo:tags" content="circus,procedural,physics,ragdoll,simulation,comedy,generative,infinite">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a0a0a;overflow:hidden;font-family:Georgia,serif}
+canvas{display:block}
+#announce{position:fixed;top:7%;left:50%;transform:translateX(-50%);color:#ffd700;
+  font-size:min(4.5vw,34px);font-weight:bold;text-align:center;pointer-events:none;z-index:10;
+  text-shadow:0 0 30px rgba(255,215,0,0.7),0 2px 4px #000;opacity:0;transition:opacity 0.5s;white-space:nowrap}
+#announce.show{opacity:1}
+#hint{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+  color:rgba(255,215,0,0.35);font-size:12px;pointer-events:none;z-index:10}
+#acts{position:fixed;top:10px;right:14px;color:rgba(255,215,0,0.3);font-size:13px;pointer-events:none;z-index:10}
+</style>
+</head>
+<body>
+<div id="announce"></div>
+<div id="hint">click for sound 🔊</div>
+<div id="acts"></div>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), C=$('c'), X=C.getContext('2d');
+let W,H,ringY,netY,tentTop;
+function resize(){W=C.width=innerWidth;H=C.height=innerHeight;ringY=H*0.73;netY=H*0.56;tentTop=H*0.04}
+resize(); addEventListener('resize',resize);
+
+// ══════════════════════════════════════════
+// AUDIO
+// ══════════════════════════════════════════
+let AC=null;
+function initAudio(){if(AC)return;AC=new(AudioContext||webkitAudioContext)();AC.resume()}
+document.addEventListener('click',()=>{initAudio();$('hint').style.opacity='0'},{ once:false });
+document.addEventListener('touchstart',()=>{initAudio();$('hint').style.opacity='0'},{ once:false });
+
+function noise(dur,freq,Q,gain,type='bandpass'){
+  if(!AC)return;let n=AC.createBufferSource(),buf=AC.createBuffer(1,AC.sampleRate*dur,AC.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;n.buffer=buf;
+  let f=AC.createBiquadFilter();f.type=type;f.frequency.value=freq;f.Q.value=Q;
+  let g=AC.createGain();g.gain.setValueAtTime(gain,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+dur);
+  n.connect(f).connect(g).connect(AC.destination);n.start()}
+function tone(freq,dur,gain=0.12,type='sine'){
+  if(!AC)return;let o=AC.createOscillator(),g=AC.createGain();
+  o.type=type;o.frequency.value=freq;
+  g.gain.setValueAtTime(gain,AC.currentTime);g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+dur);
+  o.connect(g).connect(AC.destination);o.start();o.stop(AC.currentTime+dur)}
+const SFX={
+  drumroll(){noise(2.5,300,1,0.1)},
+  boom(){tone(55,0.5,0.25,'sawtooth');noise(0.3,180,0.5,0.15,'lowpass')},
+  gasp(){noise(0.35,900,2,0.07,'highpass')},
+  cheer(){noise(1.8,2200,0.4,0.08,'highpass')},
+  crash(){noise(0.4,350,0.5,0.12,'lowpass');tone(70,0.25,0.15,'sawtooth')},
+  fanfare(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,0.25,0.08,'square'),i*90))},
+  honk(){tone(220,0.12,0.12,'sawtooth');setTimeout(()=>tone(160,0.15,0.12,'sawtooth'),130)},
+  tada(){tone(523,0.18,0.09,'square');setTimeout(()=>tone(784,0.35,0.1,'square'),180)},
+  splat(){noise(0.25,250,1,0.1,'lowpass')},
+  whistle(){tone(1200,0.08,0.06);setTimeout(()=>tone(1600,0.15,0.06),80)},
+  boing(){tone(300,0.15,0.08,'sine');setTimeout(()=>tone(500,0.1,0.06,'sine'),50)},
+};
+
+// ══════════════════════════════════════════
+// PARTICLES
+// ══════════════════════════════════════════
+let particles=[];
+function emit(x,y,count,colors,spread=3,life=60){
+  for(let i=0;i<count;i++)particles.push({x,y,
+    vx:(Math.random()-0.5)*spread*2,vy:(Math.random()-1)*spread,
+    life:life*(0.5+Math.random()*0.5),mx:life,
+    color:Array.isArray(colors)?colors[Math.random()*colors.length|0]:colors,
+    size:2+Math.random()*3})}
+function updateParticles(){
+  for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.06;p.life--;if(p.life<=0)particles.splice(i,1)}}
+function drawParticles(){
+  for(let p of particles){X.globalAlpha=p.life/p.mx;X.fillStyle=p.color;
+    X.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size)}X.globalAlpha=1}
+
+// ══════════════════════════════════════════
+// VERLET PHYSICS
+// ══════════════════════════════════════════
+const GRV=0.14, DMP=0.993, ITR=7;
+class Pt{
+  constructor(x,y){this.x=x;this.y=y;this.px=x;this.py=y;this.pin=false}
+  update(floor){
+    if(this.pin)return;
+    let vx=(this.x-this.px)*DMP,vy=(this.y-this.py)*DMP;
+    this.px=this.x;this.py=this.y;this.x+=vx;this.y+=vy+GRV;
+    if(floor&&this.y>floor){this.y=floor;this.py=this.y+vy*0.35;this.px=this.x-vx*0.7}
+    if(this.x<15){this.x=15;this.px=this.x+vx*0.4}
+    if(this.x>W-15){this.x=W-15;this.px=this.x+vx*0.4}
+    if(this.y<tentTop){this.y=tentTop;this.py=this.y+vy*0.3}}
+  impulse(vx,vy){this.px=this.x-vx;this.py=this.y-vy}
+  vel(){return{x:this.x-this.px,y:this.y-this.py}}
+}
+class Stick{
+  constructor(a,b,len){this.a=a;this.b=b;this.len=len??Math.hypot(b.x-a.x,b.y-a.y)}
+  solve(){let dx=this.b.x-this.a.x,dy=this.b.y-this.a.y,d=Math.hypot(dx,dy)||.0001,
+    f=(this.len-d)/d*0.5;
+    if(!this.a.pin){this.a.x-=dx*f;this.a.y-=dy*f}
+    if(!this.b.pin){this.b.x+=dx*f;this.b.y+=dy*f}}
+}
+
+// ══════════════════════════════════════════
+// RAGDOLL  [0head 1chest 2lHand 3rHand 4hip 5lKnee 6rKnee 7lFoot 8rFoot]
+// ══════════════════════════════════════════
+function makeRag(x,y,s=1){
+  let p=[new Pt(x,y-30*s),new Pt(x,y-17*s),
+    new Pt(x-18*s,y-11*s),new Pt(x+18*s,y-11*s),
+    new Pt(x,y+3*s),new Pt(x-8*s,y+18*s),new Pt(x+8*s,y+18*s),
+    new Pt(x-10*s,y+34*s),new Pt(x+10*s,y+34*s)];
+  let st=[new Stick(p[0],p[1]),new Stick(p[1],p[2]),new Stick(p[1],p[3]),
+    new Stick(p[1],p[4]),new Stick(p[4],p[5]),new Stick(p[4],p[6]),
+    new Stick(p[5],p[7]),new Stick(p[6],p[8]),
+    new Stick(p[0],p[4]),new Stick(p[2],p[3],36*s),new Stick(p[7],p[8],20*s)];
+  return{p,st,s}}
+function updateRag(r,floor){for(let pt of r.p)pt.update(floor);for(let i=0;i<ITR;i++)for(let s of r.st)s.solve()}
+function drawRag(r,col='#e74c3c',skin='#ffe0bd'){
+  let p=r.p;X.lineCap='round';X.strokeStyle=col;X.lineWidth=4;
+  X.beginPath();X.moveTo(p[1].x,p[1].y);X.lineTo(p[4].x,p[4].y);X.stroke();
+  X.lineWidth=3;
+  X.beginPath();X.moveTo(p[2].x,p[2].y);X.lineTo(p[1].x,p[1].y);X.lineTo(p[3].x,p[3].y);X.stroke();
+  X.beginPath();X.moveTo(p[7].x,p[7].y);X.lineTo(p[5].x,p[5].y);X.lineTo(p[4].x,p[4].y);
+  X.lineTo(p[6].x,p[6].y);X.lineTo(p[8].x,p[8].y);X.stroke();
+  X.fillStyle=skin;X.beginPath();X.arc(p[0].x,p[0].y,7*r.s,0,Math.PI*2);X.fill();
+  X.fillStyle=col;X.fillRect(p[0].x-8*r.s,p[0].y-11*r.s,16*r.s,4*r.s)}
+function ragImpulse(r,vx,vy){for(let pt of r.p)pt.impulse(vx,vy)}
+function ragCenter(r){let cx=0,cy=0;for(let pt of r.p){cx+=pt.x;cy+=pt.y}return{x:cx/r.p.length,y:cy/r.p.length}}
+
+// ══════════════════════════════════════════
+// CROWD
+// ══════════════════════════════════════════
+let crowd=[];
+function initCrowd(){
+  crowd=[];let y0=ringY+12;
+  for(let i=0;i<45;i++){let x=(W/47)*(i+1);
+    crowd.push({x,y:y0+Math.random()*22,phase:Math.random()*6.28,
+      state:'idle',timer:0,jumpY:0,armAng:0,
+      color:`hsl(${Math.random()*360},${25+Math.random()*30}%,${18+Math.random()*14}%)`,
+      sz:7+Math.random()*4})}}
+initCrowd();
+function setCrowd(state){for(let c of crowd){c.state=state;c.timer=0}}
+function updateCrowd(){
+  for(let c of crowd){c.timer++;c.phase+=0.02;
+    if(c.state==='idle'){c.jumpY*=0.92;c.armAng*=0.9}
+    else if(c.state==='tense'){c.jumpY*=0.92;c.armAng*=0.9}
+    else if(c.state==='gasp'){c.jumpY=-3;c.armAng=-0.7+Math.sin(c.phase*3)*0.08}
+    else if(c.state==='cheer'){c.jumpY=Math.sin(c.timer*0.3+c.phase)*7;c.armAng=-2.4+Math.sin(c.timer*0.2+c.phase)*0.3}
+    else if(c.state==='laugh'){c.jumpY=Math.abs(Math.sin(c.timer*0.4+c.phase))*4;c.armAng=Math.sin(c.timer*0.5+c.phase)*0.5}
+    if(c.timer>160&&c.state!=='idle'&&c.state!=='tense')c.state='idle'}}
+function drawCrowd(){
+  for(let c of crowd){let by=Math.sin(c.phase)*1.5+c.jumpY,cx=c.x,cy=c.y+by,s=c.sz;
+    X.fillStyle=c.color;X.fillRect(cx-s*.5,cy,s,s*1.5);
+    X.fillStyle='#1e120a';X.beginPath();X.arc(cx,cy-s*0.25,s*0.45,0,Math.PI*2);X.fill();
+    if(Math.abs(c.armAng)>0.12){X.strokeStyle=c.color;X.lineWidth=2;X.beginPath();
+      X.moveTo(cx-s*.4,cy+s*.3);X.lineTo(cx-s*.4+Math.cos(c.armAng)*s,cy+s*.3+Math.sin(c.armAng)*s);
+      X.moveTo(cx+s*.4,cy+s*.3);X.lineTo(cx+s*.4-Math.cos(c.armAng)*s,cy+s*.3+Math.sin(c.armAng)*s);
+      X.stroke()}}}
+
+// ══════════════════════════════════════════
+// ENVIRONMENT
+// ══════════════════════════════════════════
+function drawTent(){
+  let g=X.createRadialGradient(W/2,H*0.3,0,W/2,H*0.3,H);
+  g.addColorStop(0,'#3a1010');g.addColorStop(1,'#150404');X.fillStyle=g;X.fillRect(0,0,W,H);
+  X.fillStyle='#7a1515';
+  for(let i=0;i<14;i++){let lx=(W/14)*i,lw=W/14;
+    X.beginPath();X.moveTo(lx,0);X.lineTo(lx+lw,0);X.quadraticCurveTo(lx+lw/2,H*0.055,lx,0);X.fill()}
+  X.strokeStyle='#ffd700';X.lineWidth=2;
+  X.beginPath();X.moveTo(0,tentTop);
+  for(let i=0;i<=28;i++){X.lineTo((W/28)*i,tentTop+Math.sin(i*Math.PI)*4)}X.stroke()}
+function drawRing(){
+  let g=X.createLinearGradient(0,ringY-15,0,ringY+2);
+  g.addColorStop(0,'#b8892e');g.addColorStop(1,'#7a5812');X.fillStyle=g;X.fillRect(W*0.04,ringY-2,W*0.92,5);
+  X.strokeStyle='#ffd700';X.lineWidth=2;X.beginPath();X.moveTo(W*0.04,ringY);X.lineTo(W*0.96,ringY);X.stroke()}
+function drawSpotlight(sx,sy,r){
+  let g=X.createRadialGradient(sx,sy-r*0.3,0,sx,sy,r);
+  g.addColorStop(0,'rgba(255,250,210,0.07)');g.addColorStop(0.6,'rgba(255,250,210,0.02)');g.addColorStop(1,'rgba(255,250,210,0)');
+  X.fillStyle=g;X.fillRect(sx-r,sy-r,r*2,r*2)}
+function drawNet(ny,x1,x2){
+  X.strokeStyle='rgba(190,190,190,0.2)';X.lineWidth=1;
+  for(let i=0;i<3;i++){X.beginPath();X.moveTo(x1,ny+i*7);X.lineTo(x2,ny+i*7);X.stroke()}
+  for(let x=x1;x<=x2;x+=18){X.beginPath();X.moveTo(x,ny);X.lineTo(x,ny+14);X.stroke()}}
+
+// ══════════════════════════════════════════
+// ANNOUNCER + NAMES
+// ══════════════════════════════════════════
+const annEl=$('announce');let annTimer=0;
+function announce(txt,dur=130){annEl.textContent=txt;annEl.classList.add('show');annTimer=dur}
+function updateAnnounce(){if(annTimer>0){annTimer--;if(annTimer===0)annEl.classList.remove('show')}}
+
+const FIRST=['Amazing','Daring','Incredible','Fearless','Magnificent','Spectacular','Great','Mighty',
+  'Flying','Fantastic','Brave','Bold','Marvelous','Legendary','Blazing','Gravity-Defying','Death-Defying'];
+const NAMES=['Zephyr','Nova','Rex','Luna','Phoenix','Stella','Atlas','Cosmo','Blaze','Pixel',
+  'Volt','Echo','Jazz','Reno','Ace','Dash','Flex','Jinx','Onyx','Vega','Bruno','Sasha','Marco'];
+const DUOS=['Sky Sisters','Thunder Twins','Star Brothers','Flame Duo','Storm Riders','Neon Knights','Cloud Walkers'];
+function pick(a){return a[Math.random()*a.length|0]}
+function rName(){return'THE '+pick(FIRST)+' '+pick(NAMES)}
+function rDuo(){return'THE '+pick(FIRST)+' '+pick(DUOS)}
+
+// ══════════════════════════════════════════
+// ACT 1: TRAPEZE
+// ══════════════════════════════════════════
+function trapezeAct(){
+  let name=rDuo(),pL={x:W*0.28,y:tentTop+5},pR={x:W*0.72,y:tentTop+5},rLen=H*0.28;
+  let ang=0,amp=0,phase='swing',t=0,ok=false,confetti=false;
+  let rag=makeRag(pL.x,pL.y+rLen+10);rag.p[0].pin=true;
+  let barRA=0;
+  announce('\u{1F3AA} '+name+' \u{1F3AA}');SFX.fanfare();
+  return{
+    update(){t++;
+      if(phase==='swing'){
+        amp=Math.min(amp+0.0028,0.82);ang+=0.033;
+        let a=Math.sin(ang)*amp,bx=pL.x+Math.sin(a)*rLen,by=pL.y+Math.cos(a)*rLen;
+        rag.p[0].x=bx;rag.p[0].y=by;
+        barRA=Math.sin(ang+2.5)*0.35;
+        updateRag(rag,ringY);
+        if(t>150&&Math.sin(ang)>0.72&&amp>0.65){
+          phase='flight';rag.p[0].pin=false;
+          let spd=amp*0.033*rLen*0.038;ragImpulse(rag,spd*1.3,-spd*0.6);
+          SFX.gasp();setCrowd('tense');t=0}}
+      if(phase==='flight'){
+        barRA=Math.sin((t*0.033)+2.5)*0.35;
+        let cx=pR.x+Math.sin(barRA)*rLen,cy=pR.y+Math.cos(barRA)*rLen;
+        updateRag(rag,ringY);
+        let hd=rag.p[0];
+        if(Math.hypot(hd.x-cx,hd.y-cy)<40&&t>12&&t<75&&Math.random()>0.32){
+          ok=true;hd.pin=true;hd.x=cx;hd.y=cy;phase='result';
+          SFX.tada();SFX.cheer();setCrowd('cheer');announce('\u2728 INCREDIBLE CATCH! \u2728');
+          emit(cx,cy,35,['#ffd700','#ff6b6b','#4ecdc4','#fff'],5,80);t=0}
+        let ctr=ragCenter(rag);
+        if(ctr.y>netY&&!ok){phase='result';SFX.splat();setTimeout(()=>SFX.honk(),350);
+          setCrowd('laugh');announce(pick(['\u{1F605} ALMOST!','\u{1F4AB} SO CLOSE!','\u{1F923} OOPS!']));t=0}
+        if(t>110&&!ok){phase='result';setCrowd('laugh');t=0}}
+      if(phase==='result'){
+        if(ok){barRA=Math.sin(t*0.028)*0.3;
+          let bx=pR.x+Math.sin(barRA)*rLen,by=pR.y+Math.cos(barRA)*rLen;
+          rag.p[0].x=bx;rag.p[0].y=by}
+        updateRag(rag,ringY);
+        if(!confetti&&ok&&t>25){confetti=true;
+          for(let i=0;i<4;i++)emit(W*0.2+Math.random()*W*0.6,ringY-15,18,['#ffd700','#ff4444','#44ff44','#4444ff'],4,90)}}
+      return t>170&&phase==='result'?'done':'playing'},
+    draw(){
+      X.strokeStyle='#8B7355';X.lineWidth=2;
+      let aL=Math.sin(phase==='swing'?ang:0)*(phase==='swing'?amp:0);
+      let bLx=pL.x+Math.sin(aL)*rLen,bLy=pL.y+Math.cos(aL)*rLen;
+      X.beginPath();X.moveTo(pL.x-14,pL.y);X.lineTo(bLx-11,bLy);X.moveTo(pL.x+14,pL.y);X.lineTo(bLx+11,bLy);X.stroke();
+      X.strokeStyle='#CD853F';X.lineWidth=4;X.beginPath();X.moveTo(bLx-11,bLy);X.lineTo(bLx+11,bLy);X.stroke();
+      let bRx=pR.x+Math.sin(barRA)*rLen,bRy=pR.y+Math.cos(barRA)*rLen;
+      X.strokeStyle='#8B7355';X.lineWidth=2;
+      X.beginPath();X.moveTo(pR.x-14,pR.y);X.lineTo(bRx-11,bRy);X.moveTo(pR.x+14,pR.y);X.lineTo(bRx+11,bRy);X.stroke();
+      X.strokeStyle='#CD853F';X.lineWidth=4;X.beginPath();X.moveTo(bRx-11,bRy);X.lineTo(bRx+11,bRy);X.stroke();
+      drawNet(netY,W*0.12,W*0.88);
+      drawSpotlight(ragCenter(rag).x,ragCenter(rag).y,130);
+      drawRag(rag,'#e74c3c')}}
+}
+
+// ══════════════════════════════════════════
+// ACT 2: HUMAN CANNONBALL
+// ══════════════════════════════════════════
+function cannonAct(){
+  let name=rName(),phase='load',t=0,ok=false;
+  let cx=W*0.13,cy=ringY-22,cAng=-0.62,tx=W*0.8,ty=ringY-35;
+  let rag=makeRag(cx+40,cy-10,0.8);
+  let launched=false;
+  for(let pt of rag.p){pt.x=cx+55+Math.random()*4;pt.y=cy-12+Math.random()*4;pt.px=pt.x;pt.py=pt.y;pt.pin=true}
+  announce('\u{1F3AA} '+name+' \u2014 HUMAN CANNONBALL! \u{1F3AA}');SFX.fanfare();
+  return{
+    update(){t++;
+      if(phase==='load'&&t>70){phase='drum';t=0;SFX.drumroll();setCrowd('tense');announce('\u{1F941} DRUMROLL... \u{1F941}')}
+      if(phase==='drum'&&t>95){
+        phase='fire';t=0;for(let pt of rag.p)pt.pin=false;
+        let pw=11+Math.random()*4;
+        for(let i=0;i<rag.p.length;i++){let pt=rag.p[i];
+          let spin=(i<4?1.08:0.92);pt.impulse(Math.cos(cAng)*pw*spin,Math.sin(cAng)*pw*spin)}
+        SFX.boom();launched=true;
+        emit(cx+65,cy-18,45,['#888','#aaa','#666','#fff'],4,45);
+        emit(cx+65,cy-18,25,['#ff4400','#ff8800','#ffcc00'],3,22)}
+      if(phase==='fire'){
+        updateRag(rag,ringY);let ctr=ragCenter(rag);
+        if(t%3===0&&t<35)emit(ctr.x,ctr.y,2,['#ff8800','#ffcc00'],1,18);
+        if(t>18){
+          if(Math.abs(ctr.x-tx)<55&&ctr.y>ty-35&&ctr.y<ringY&&Math.random()>0.38){
+            ok=true;phase='result';SFX.tada();SFX.cheer();setCrowd('cheer');
+            announce('\u{1F3AF} PERFECT LANDING! \u{1F3AF}');emit(ctr.x,ctr.y,40,['#ffd700','#ff6b6b','#4ecdc4'],5,75);t=0}
+          if(!ok&&(ctr.y>ringY-8||ctr.x>W-25||t>95)){
+            phase='result';SFX.crash();setTimeout(()=>SFX.honk(),450);
+            setCrowd(Math.random()>0.5?'gasp':'laugh');
+            announce(pick(['\u{1F4A5} SPECTACULAR MISS!','\u{1F631} OH NO!','\u{1F4AB} THAT\'LL LEAVE A MARK!']));
+            if(ctr.y>=ringY-12)emit(ctr.x,ringY-4,18,['#c4973c','#8b6914'],3,28);t=0}}}
+      if(phase==='result')updateRag(rag,ringY);
+      return t>155&&phase==='result'?'done':'playing'},
+    draw(){
+      X.fillStyle='#c0392b';X.fillRect(tx-28,ty,56,ringY-ty);
+      X.fillStyle='#fff';X.fillRect(tx-22,ty+3,44,3);
+      X.fillStyle='#ffd700';X.font='bold 16px Georgia';X.textAlign='center';X.fillText('\u2605',tx,ty+22);
+      X.save();X.translate(cx+30,cy-12);X.rotate(cAng);
+      X.fillStyle='#2c3e50';X.fillRect(-8,-14,75,28);X.fillStyle='#34495e';X.fillRect(58,-17,14,34);
+      X.fillStyle='#ffd700';X.fillRect(18,-14,4,28);X.fillRect(36,-14,4,28);X.restore();
+      X.fillStyle='#2c3e50';X.beginPath();X.arc(cx+14,cy+6,14,0,Math.PI*2);X.fill();
+      X.beginPath();X.arc(cx+42,cy+6,14,0,Math.PI*2);X.fill();
+      X.strokeStyle='#5a4a32';X.lineWidth=2;
+      [cx+14,cx+42].forEach(wx=>{for(let a=0;a<6.28;a+=1.05){X.beginPath();X.moveTo(wx,cy+6);
+        X.lineTo(wx+Math.cos(a)*11,cy+6+Math.sin(a)*11);X.stroke()}});
+      if(phase==='drum'){X.save();X.translate((Math.random()-.5)*3,(Math.random()-.5)*3);X.restore()}
+      let ctr=launched?ragCenter(rag):{x:cx+40,y:cy};drawSpotlight(ctr.x,ctr.y,140);
+      if(launched)drawRag(rag,'#3498db')}}
+}
+
+// ══════════════════════════════════════════
+// ACT 3: TIGHTROPE
+// ══════════════════════════════════════════
+function tightropeAct(){
+  let name=rName(),wireY=H*0.22,wL=W*0.13,wR=W*0.87;
+  let phase='walk',t=0,ok=false,walkerX=wL+25,wobble=0,wSpd=0,wPh=0;
+  let rag=null,nearMiss=0;
+  announce('\u{1F3AA} '+name+' \u2014 TIGHTROPE! \u{1F3AA}');SFX.fanfare();setCrowd('tense');
+  return{
+    update(){t++;
+      if(phase==='walk'){
+        walkerX+=0.55;wPh+=0.07;
+        if(t%Math.floor(70+Math.random()*60)===0)wSpd+=(Math.random()-0.5)*0.28;
+        if(t%190>175)wSpd+=(Math.random()>0.5?1:-1)*0.4;
+        wobble+=wSpd;wSpd*=0.985;wobble*=0.975;
+        if(Math.abs(wobble)>2.8&&nearMiss<t-80){nearMiss=t;SFX.gasp();setCrowd('gasp')}
+        if(Math.abs(wobble)>4){
+          phase='fall';rag=makeRag(walkerX+wobble*5,wireY-18,0.9);ragImpulse(rag,wobble*0.7,-0.5);
+          SFX.gasp();setCrowd('gasp');t=0}
+        if(walkerX>wR-20){ok=true;phase='result';SFX.tada();SFX.cheer();setCrowd('cheer');
+          announce('\u{1F31F} MAGNIFICENT! \u{1F31F}');emit(walkerX,wireY,30,['#ffd700','#ff6b6b','#4ecdc4','#fff'],4,70);t=0}}
+      if(phase==='fall'){updateRag(rag,ringY);let c=ragCenter(rag);
+        if(c.y>ringY-15){phase='result';SFX.crash();setTimeout(()=>SFX.honk(),400);setCrowd('laugh');
+          announce(pick(['\u{1F605} SO CLOSE!','\u{1F4AB} DOWN THEY GO!','\u{1F938} GRACEFUL...ISH!']));
+          emit(c.x,ringY-4,14,['#c4973c','#8b6914'],3,28);t=0}}
+      if(phase==='result'&&rag)updateRag(rag,ringY);
+      return t>155&&phase==='result'?'done':'playing'},
+    draw(){
+      X.strokeStyle='#999';X.lineWidth=2;X.beginPath();X.moveTo(wL,wireY);X.lineTo(wR,wireY);X.stroke();
+      X.strokeStyle='#8B7355';X.lineWidth=4;
+      X.beginPath();X.moveTo(wL,wireY);X.lineTo(wL,ringY);X.moveTo(wR,wireY);X.lineTo(wR,ringY);X.stroke();
+      drawNet(netY,W*0.08,W*0.92);
+      if(phase==='walk'){drawWalker(walkerX,wireY,wobble,wPh)}
+      else if(rag){drawSpotlight(ragCenter(rag).x,ragCenter(rag).y,110);drawRag(rag,'#9b59b6')}
+      if(phase==='walk')drawSpotlight(walkerX,wireY,110)}}
+}
+function drawWalker(x,y,lean,ph){
+  let l=lean*4;X.strokeStyle='#9b59b6';X.lineWidth=3;X.lineCap='round';
+  let fy=y,ky=y-16,hy=y-26,cy=y-39,hdy=y-50;
+  let hx=x+l*0.9,chx=x+l*0.65,hipx=x+l*0.3;
+  X.beginPath();X.moveTo(x-5+Math.sin(ph)*3,fy);X.lineTo(x-3+l*0.1,ky);X.lineTo(hipx,hy);
+  X.lineTo(x+3+l*0.1,ky);X.lineTo(x+5-Math.sin(ph)*3,fy);X.stroke();
+  X.beginPath();X.moveTo(hipx,hy);X.lineTo(chx,cy);X.stroke();
+  let lhx=x-32-l*1.8,rhx=x+32+l*1.8,ahY=cy+2+Math.abs(l)*1.2;
+  X.beginPath();X.moveTo(lhx,ahY);X.lineTo(chx,cy);X.lineTo(rhx,ahY);X.stroke();
+  X.strokeStyle='#CD853F';X.lineWidth=3;
+  X.beginPath();X.moveTo(lhx-18,ahY+l*1.5);X.lineTo(rhx+18,ahY-l*1.5);X.stroke();
+  X.fillStyle='#ffe0bd';X.beginPath();X.arc(hx,hdy,6.5,0,Math.PI*2);X.fill();
+  X.fillStyle='#9b59b6';X.fillRect(hx-7.5,hdy-9,15,3.5)}
+
+// ══════════════════════════════════════════
+// ACT 4: STRONGMAN
+// ══════════════════════════════════════════
+function strongmanAct(){
+  let name=rName(),phase='lift',t=0,ok=false,cx=W*0.5;
+  let rag=makeRag(cx,ringY-42,1.3);
+  let barbY=ringY-28,barbTgt=ringY-105,strain=0,collapsed=false;
+  rag.p[7].pin=true;rag.p[8].pin=true;rag.p[7].y=ringY;rag.p[8].y=ringY;
+  rag.p[7].x=cx-18;rag.p[8].x=cx+18;
+  rag.p[2].pin=true;rag.p[3].pin=true;
+  announce('\u{1F3AA} '+name+' \u2014 FEATS OF STRENGTH! \u{1F3AA}');SFX.fanfare();
+  return{
+    update(){t++;
+      if(phase==='lift'){
+        strain=Math.min(t/160,1);barbY=ringY-28-strain*77;
+        rag.p[2].x=cx-42;rag.p[2].y=barbY;rag.p[3].x=cx+42;rag.p[3].y=barbY;
+        if(strain>0.4){rag.p[0].x+=((Math.random()-.5)*strain*2.5);rag.p[1].x+=((Math.random()-.5)*strain*1.5)}
+        updateRag(rag,ringY);setCrowd('tense');
+        if(t===85)SFX.drumroll();
+        if(strain>=1){ok=Math.random()>0.38;
+          if(ok){phase='hold';SFX.tada();SFX.cheer();setCrowd('cheer');announce('\u{1F4AA} INCREDIBLE POWER! \u{1F4AA}');
+            emit(cx,barbY,22,['#ffd700','#fff'],3,55);t=0}
+          else{phase='result';collapsed=true;for(let p of rag.p)p.pin=false;ragImpulse(rag,0,2);
+            SFX.crash();setTimeout(()=>SFX.honk(),300);setCrowd('gasp');
+            announce(pick(['\u{1F4A5} TOO HEAVY!','\u{1F631} LOOK OUT!','\u{1F3CB}\uFE0F NEXT TIME!']));t=0}}}
+      if(phase==='hold'){
+        rag.p[2].y=barbY+Math.sin(t*0.1)*2;rag.p[3].y=barbY+Math.sin(t*0.1)*2;
+        updateRag(rag,ringY);
+        if(t>110){phase='result';t=0}}
+      if(phase==='result'){
+        if(collapsed){for(let p of rag.p)p.pin=false;updateRag(rag,ringY);barbY+=(ringY-barbY)*0.08}
+        if(t===25&&!collapsed){
+          emit(cx-40,ringY-18,16,['#ffd700','#ff4444','#4ecdc4'],3,50);
+          emit(cx+40,ringY-18,16,['#ffd700','#ff4444','#4ecdc4'],3,50)}}
+      return t>150&&phase==='result'?'done':'playing'},
+    draw(){
+      drawSpotlight(cx,ringY-55,130);drawRag(rag,'#e67e22','#d4a574');
+      X.strokeStyle='#777';X.lineWidth=5;X.beginPath();X.moveTo(cx-58,barbY);X.lineTo(cx+58,barbY);X.stroke();
+      X.fillStyle='#444';X.fillRect(cx-68,barbY-14,14,28);X.fillRect(cx+54,barbY-14,14,28);
+      X.fillStyle='#333';X.fillRect(cx-78,barbY-11,12,22);X.fillRect(cx+66,barbY-11,12,22);
+      if(phase==='lift'&&strain>0.5){X.fillStyle='rgba(255,100,100,'+(strain*0.15)+')';
+        X.beginPath();X.arc(rag.p[0].x,rag.p[0].y,9*rag.s,0,Math.PI*2);X.fill()}}}
+}
+
+// ══════════════════════════════════════════
+// ACT 5: JUGGLER
+// ══════════════════════════════════════════
+function jugglerAct(){
+  let name=rName(),phase='jug',t=0,ok=false,cx=W*0.5,hY=ringY-52;
+  let balls=[],nB=3,maxB=6+Math.floor(Math.random()*4),addT=0;
+  for(let i=0;i<nB;i++)balls.push({ang:(i/nB)*Math.PI*2,
+    col:`hsl(${(i/maxB)*360},80%,58%)`,x:cx,y:hY-35,vx:0,vy:0,free:false,r:7});
+  announce('\u{1F3AA} '+name+' \u2014 MASTER JUGGLER! \u{1F3AA}');SFX.fanfare();
+  return{
+    update(){t++;addT++;
+      if(phase==='jug'){
+        let spd=0.042+nB*0.006;
+        for(let b of balls){if(b.free)continue;b.ang+=spd;
+          b.x=cx+Math.sin(b.ang)*32;b.y=hY-38-Math.abs(Math.sin(b.ang*0.5))*(45+nB*6)}
+        if(addT>110&&nB<maxB){nB++;addT=0;
+          balls.push({ang:Math.random()*6.28,col:`hsl(${(balls.length/maxB)*360},80%,58%)`,
+            x:cx,y:hY,vx:0,vy:0,free:false,r:7});
+          SFX.whistle();announce(nB+' BALLS! \u{1F939}')}
+        if(nB>=maxB&&t>50){let dc=(nB-4)*0.0035;
+          if(Math.random()<dc){phase='drop';t=0;
+            for(let b of balls){b.free=true;b.vx=(Math.random()-.5)*6;b.vy=-Math.random()*5}
+            SFX.crash();setCrowd('laugh');announce(pick(['\u{1F939} WHOOPS!','\u{1F602} THERE THEY GO!','\u{1F3BE} BALL EXPLOSION!']))}}
+        if(nB>=maxB&&addT>210){ok=true;phase='result';SFX.tada();SFX.cheer();setCrowd('cheer');
+          announce('\u{1F31F} '+maxB+' BALLS! UNBELIEVABLE! \u{1F31F}');emit(cx,hY-55,30,['#ffd700','#ff6b6b','#4ecdc4'],4,65);t=0}}
+      if(phase==='drop'){
+        for(let b of balls){if(!b.free)continue;b.vy+=0.18;b.x+=b.vx;b.y+=b.vy;
+          if(b.y>ringY-b.r){b.y=ringY-b.r;b.vy*=-0.45;b.vx*=0.8;if(Math.abs(b.vy)>1)SFX.boing()}
+          if(b.x<20||b.x>W-20)b.vx*=-0.7}
+        if(t>115){phase='result';t=0}}
+      if(phase==='result'){for(let b of balls){if(!b.free)continue;
+        b.vy+=0.1;b.x+=b.vx;b.y+=b.vy;if(b.y>ringY-b.r){b.y=ringY-b.r;b.vy*=-0.25;b.vx*=0.85}}}
+      return t>140&&phase==='result'?'done':'playing'},
+    draw(){
+      drawSpotlight(cx,hY-25,115);
+      X.strokeStyle='#2ecc71';X.lineWidth=3;X.lineCap='round';
+      X.beginPath();X.moveTo(cx,hY+6);X.lineTo(cx,ringY-4);X.stroke();
+      let aw=Math.sin(t*0.15)*0.3;
+      X.beginPath();X.moveTo(cx-18,hY+Math.sin(t*0.15+1)*4);X.lineTo(cx,hY+6);
+      X.lineTo(cx+18,hY+Math.sin(t*0.15)*4);X.stroke();
+      X.beginPath();X.moveTo(cx-11,ringY);X.lineTo(cx,ringY-18);X.lineTo(cx+11,ringY);X.stroke();
+      X.fillStyle='#ffe0bd';X.beginPath();X.arc(cx,hY-4,7.5,0,Math.PI*2);X.fill();
+      X.fillStyle='#2ecc71';X.fillRect(cx-9,hY-14,18,4.5);
+      for(let b of balls){X.fillStyle=b.col;X.beginPath();X.arc(b.x,b.y,b.r,0,Math.PI*2);X.fill();
+        X.fillStyle='rgba(255,255,255,0.25)';X.beginPath();X.arc(b.x-2,b.y-2,2.5,0,Math.PI*2);X.fill()}}}
+}
+
+// ══════════════════════════════════════════
+// ACT 6: CLOWN CAR
+// ══════════════════════════════════════════
+function clownCarAct(){
+  let phase='enter',t=0,carX=-60,carSpeed=2.5,clowns=[],maxClowns=8+Math.floor(Math.random()*5);
+  let popTimer=0,popIdx=0,pileUp=false;
+  const cColors=['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#e91e63','#00bcd4','#ff5722',
+    '#8bc34a','#ff9800','#673ab7','#4caf50','#f44336'];
+  announce('\u{1F3AA} THE CLOWN CAR! \u{1F3AA}');SFX.fanfare();
+  return{
+    update(){t++;
+      if(phase==='enter'){carX+=carSpeed;if(carX>W*0.45){carX=W*0.45;phase='pop';t=0;popTimer=0;SFX.honk()}}
+      if(phase==='pop'){popTimer++;
+        if(popTimer%28===20&&popIdx<maxClowns){
+          let c={x:carX+15,y:ringY-20,vx:(Math.random()-.5)*4+1.5,vy:-3-Math.random()*3,
+            col:cColors[popIdx%cColors.length],grounded:false,walkDir:Math.random()>.5?1:-1,
+            walkSpd:0.8+Math.random()*1.5,phase:0,fallen:false,sz:0.7+Math.random()*0.3};
+          clowns.push(c);popIdx++;SFX.honk();
+          announce(popIdx+' CLOWNS! \u{1F921}');}
+        for(let c of clowns){
+          if(!c.grounded){c.vy+=0.15;c.x+=c.vx;c.y+=c.vy;
+            if(c.y>ringY-5){c.y=ringY-5;c.grounded=true;c.vy=0;SFX.boing()}}
+          else if(!c.fallen){c.phase+=0.12;c.x+=c.walkDir*c.walkSpd;
+            if(c.x<W*0.1||c.x>W*0.9)c.walkDir*=-1;
+            for(let o of clowns){if(o===c||o.fallen)continue;
+              if(Math.abs(o.x-c.x)<12&&o.grounded&&Math.random()<0.008){
+                c.fallen=true;o.fallen=true;SFX.splat();SFX.honk();
+                emit(c.x,c.y-10,8,['#ffd700','#ff69b4'],2,30)}}}}
+        if(popIdx>=maxClowns&&popTimer>maxClowns*28+80){phase='result';t=0;
+          let fallen=clowns.filter(c=>c.fallen).length;
+          if(fallen>maxClowns*0.4){setCrowd('laugh');announce(pick(['\u{1F923} TOTAL CHAOS!','\u{1F921} CLOWN PILE-UP!']))}
+          else{setCrowd('cheer');announce('\u{1F389} '+maxClowns+' CLOWNS! ONE CAR! \u{1F389}')}
+          SFX.cheer();emit(W*0.5,ringY-30,35,['#ffd700','#ff69b4','#4ecdc4','#fff'],5,70)}}
+      if(phase==='result'){for(let c of clowns){if(!c.fallen&&c.grounded){c.phase+=0.12;c.x+=c.walkDir*c.walkSpd;
+        if(c.x<W*0.1||c.x>W*0.9)c.walkDir*=-1}}}
+      return t>160&&phase==='result'?'done':'playing'},
+    draw(){
+      drawSpotlight(carX+20,ringY-30,130);
+      X.fillStyle='#f1c40f';X.fillRect(carX-25,ringY-28,50,22);
+      X.fillStyle='#e74c3c';X.fillRect(carX-22,ringY-38,44,12);
+      X.fillStyle='#333';X.beginPath();X.arc(carX-12,ringY-3,8,0,Math.PI*2);X.fill();
+      X.beginPath();X.arc(carX+12,ringY-3,8,0,Math.PI*2);X.fill();
+      X.fillStyle='#888';X.beginPath();X.arc(carX-12,ringY-3,3,0,Math.PI*2);X.fill();
+      X.beginPath();X.arc(carX+12,ringY-3,3,0,Math.PI*2);X.fill();
+      for(let c of clowns){
+        let bob=c.grounded&&!c.fallen?Math.sin(c.phase)*3:0;
+        let cy=c.y+bob,s=c.sz;
+        if(c.fallen){
+          X.fillStyle=c.col;X.fillRect(c.x-8*s,ringY-8*s,16*s,8*s);
+          X.fillStyle='#ffe0bd';X.beginPath();X.arc(c.x-10*s,ringY-4*s,5*s,0,Math.PI*2);X.fill();
+          X.fillStyle='#e74c3c';X.beginPath();X.arc(c.x-10*s,ringY-4*s,2*s,0,Math.PI*2);X.fill()}
+        else{
+          X.strokeStyle=c.col;X.lineWidth=2.5;X.lineCap='round';
+          X.beginPath();X.moveTo(c.x,cy);X.lineTo(c.x,cy-15*s);X.stroke();
+          X.beginPath();X.moveTo(c.x-7*s,ringY);X.lineTo(c.x,cy);X.lineTo(c.x+7*s,ringY);X.stroke();
+          let armY=cy-12*s,armSwing=Math.sin(c.phase*2)*6*s;
+          X.beginPath();X.moveTo(c.x-10*s+armSwing,armY);X.lineTo(c.x,armY+2*s);
+          X.lineTo(c.x+10*s-armSwing,armY);X.stroke();
+          X.fillStyle='#ffe0bd';X.beginPath();X.arc(c.x,cy-20*s,5.5*s,0,Math.PI*2);X.fill();
+          X.fillStyle='#e74c3c';X.beginPath();X.arc(c.x,cy-18*s,2*s,0,Math.PI*2);X.fill();
+          X.fillStyle=c.col;X.beginPath();X.arc(c.x,cy-25*s,4*s,Math.PI,0);X.fill()}}}}
+}
+
+// ══════════════════════════════════════════
+// DIRECTOR + MAIN LOOP
+// ══════════════════════════════════════════
+const ACTS=[trapezeAct,cannonAct,tightropeAct,strongmanAct,jugglerAct,clownCarAct];
+let curAct=null,lastIdx=-1,intermission=0,titleTimer=170,actCount=0;
+function nextAct(){let i;do{i=Math.random()*ACTS.length|0}while(i===lastIdx);lastIdx=i;curAct=ACTS[i]();actCount++;
+  $('acts').textContent='Act #'+actCount}
+let frame=0;
+function loop(){
+  frame++;X.clearRect(0,0,W,H);drawTent();drawRing();
+  if(titleTimer>0){titleTimer--;
+    if(titleTimer===168){announce('\u{1F3AA} THE INFINITE CIRCUS \u{1F3AA}',155);SFX.fanfare()}
+    drawSpotlight(W/2,H*0.38,220);updateCrowd();drawCrowd();drawParticles();updateAnnounce();
+    requestAnimationFrame(loop);return}
+  if(intermission>0){intermission--;if(intermission===0)nextAct();
+    updateCrowd();updateParticles();drawParticles();drawCrowd();updateAnnounce();
+    requestAnimationFrame(loop);return}
+  if(!curAct)nextAct();
+  let st=curAct.update();curAct.draw();
+  if(st==='done'){curAct=null;intermission=55;setCrowd('idle')}
+  updateParticles();updateCrowd();updateAnnounce();drawParticles();drawCrowd();
+  requestAnimationFrame(loop)}
+addEventListener('resize',()=>{initCrowd()});
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
