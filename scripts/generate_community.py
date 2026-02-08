@@ -9,7 +9,8 @@ Real players join by "taking over" an NPC slot — seamlessly inheriting
 the NPC's history and becoming part of the living community.
 
 Usage:
-    python3 scripts/generate_community.py              # Generate community.json
+    python3 scripts/generate_community.py              # Generate (template fallback)
+    python3 scripts/generate_community.py --llm         # Use Copilot CLI for comments
     python3 scripts/generate_community.py --verbose     # Show generation details
     python3 scripts/generate_community.py --push        # Generate + commit + push
 
@@ -20,6 +21,7 @@ import json
 import hashlib
 import random
 import sys
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -946,6 +948,187 @@ def generate_players(n=250):
     return players
 
 
+# ─── LLM-Powered Comment Generation ─────────────────────────────────────────
+
+LLM_COMMENT_CACHE_PATH = APPS_DIR / "community-llm-cache.json"
+
+
+def _load_llm_cache():
+    """Load cached LLM-generated comments."""
+    if LLM_COMMENT_CACHE_PATH.exists():
+        try:
+            return json.loads(LLM_COMMENT_CACHE_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_llm_cache(cache):
+    """Write LLM comment cache."""
+    LLM_COMMENT_CACHE_PATH.write_text(json.dumps(cache, indent=2))
+
+
+def _build_batch_prompt(batch):
+    """Build a prompt for generating comments for a batch of apps."""
+    apps_data = []
+    for app_info in batch:
+        app = app_info["app"]
+        apps_data.append({
+            "file": app["file"],
+            "title": app.get("title", ""),
+            "description": app.get("description", ""),
+            "tags": app.get("tags", []),
+            "complexity": app.get("complexity", "intermediate"),
+            "type": app.get("type", "interactive"),
+            "category": app_info["catTitle"],
+            "generation": app.get("generation", 0),
+        })
+
+    return f"""You are generating realistic community discussion comments for a browser game arcade called RappterZoo.
+
+For each app below, generate 6-8 unique comments that a real player community would write. Comments must:
+- React to the SPECIFIC app's actual content, tags, mechanics, and type
+- Sound like real forum/reddit posts — casual, varied tone, some short some long
+- Include 1-2 constructive criticisms or suggestions (not everything positive)
+- Include 1-2 replies that respond to a previous comment in the thread
+- NEVER repeat the full app title in every comment — use "it", "this", or a short name
+- Vary between technical observations, emotional reactions, comparisons, and casual chat
+- Be lowercase informal style (like reddit/discord)
+
+Return a JSON object mapping each app's "file" to an array of comment objects:
+{{
+  "filename.html": [
+    {{"text": "comment text", "reply_to": null}},
+    {{"text": "reply text", "reply_to": 0}},
+    ...
+  ],
+  ...
+}}
+
+"reply_to" is the 0-based index of the comment being replied to, or null for top-level.
+
+Apps to generate comments for:
+{json.dumps(apps_data, indent=2)}
+
+Return ONLY the JSON. No explanation."""
+
+
+def generate_comments_llm(apps_list, players, rng, verbose=False):
+    """Generate comments using Copilot CLI intelligence in batches.
+
+    Falls back to template generation for apps where LLM fails.
+    """
+    from copilot_utils import detect_backend, copilot_call, parse_llm_json
+
+    backend = detect_backend()
+    if backend != "copilot-cli":
+        if verbose:
+            print("  Copilot CLI unavailable — falling back to template generation")
+        return None  # Signal caller to use template fallback
+
+    cache = _load_llm_cache()
+    all_llm_comments = {}
+    batch_size = 5
+    total = len(apps_list)
+
+    for batch_start in range(0, total, batch_size):
+        batch = apps_list[batch_start:batch_start + batch_size]
+
+        # Check cache first — skip apps that already have LLM comments
+        uncached = []
+        for app_info in batch:
+            stem = app_info["app"]["file"].replace(".html", "")
+            if stem in cache:
+                all_llm_comments[stem] = cache[stem]
+            else:
+                uncached.append(app_info)
+
+        if not uncached:
+            if verbose:
+                print(f"  [{batch_start + len(batch)}/{total}] All cached")
+            continue
+
+        prompt = _build_batch_prompt(uncached)
+        if verbose:
+            print(f"  [{batch_start + len(batch)}/{total}] Calling Copilot CLI for {len(uncached)} apps...")
+
+        raw = copilot_call(prompt, timeout=60)
+        parsed = parse_llm_json(raw) if raw else None
+
+        if parsed and isinstance(parsed, dict):
+            for app_info in uncached:
+                filename = app_info["app"]["file"]
+                stem = filename.replace(".html", "")
+                if filename in parsed:
+                    all_llm_comments[stem] = parsed[filename]
+                    cache[stem] = parsed[filename]
+                elif stem in parsed:
+                    all_llm_comments[stem] = parsed[stem]
+                    cache[stem] = parsed[stem]
+        else:
+            if verbose:
+                print(f"    LLM returned unparseable response — batch will use templates")
+
+        # Rate limit
+        time.sleep(2)
+
+    # Save cache for future runs
+    _save_llm_cache(cache)
+
+    if verbose:
+        print(f"  LLM generated comments for {len(all_llm_comments)} apps, cached for reuse")
+
+    return all_llm_comments
+
+
+def _assemble_llm_thread(llm_comments, app, players, rng, rankings_data):
+    """Convert raw LLM comment texts into full comment objects with metadata."""
+    gen = app.get("generation", 0)
+    used_players = rng.sample(players, min(len(llm_comments) * 2, len(players)))
+    base_time = datetime.now() - timedelta(days=rng.randint(1, 60))
+    comments = []
+    player_idx = 0
+
+    # Build index of top-level comments for reply threading
+    top_level = []
+
+    for i, item in enumerate(llm_comments):
+        if player_idx >= len(used_players):
+            break
+
+        text = item.get("text", item) if isinstance(item, dict) else str(item)
+        reply_to = item.get("reply_to") if isinstance(item, dict) else None
+
+        player = used_players[player_idx]
+        player_idx += 1
+        comment_time = base_time + timedelta(hours=rng.randint(0, 48 * (i + 1)))
+
+        comment = {
+            "id": "c" + hashlib.md5((app["file"] + "-llm-" + str(i)).encode()).hexdigest()[:8],
+            "author": player["username"],
+            "authorId": player["id"],
+            "authorColor": player["color"],
+            "text": text,
+            "timestamp": comment_time.isoformat(),
+            "upvotes": rng.randint(1, 50),
+            "downvotes": rng.randint(0, 5),
+            "version": max(1, gen) if gen > 0 else 1,
+            "parentId": None,
+            "children": [],
+        }
+
+        if reply_to is not None and isinstance(reply_to, int) and 0 <= reply_to < len(top_level):
+            parent = top_level[reply_to]
+            comment["parentId"] = parent["id"]
+            comment["upvotes"] = rng.randint(1, 20)
+            parent["children"].append(comment)
+        else:
+            comments.append(comment)
+            top_level.append(comment)
+
+    return comments
+
+
 def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
     """Generate a thread of enriching comments for one app.
 
@@ -1051,6 +1234,14 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
         comments.append(comment)
 
     # Add moderator comment — ArcadeKeeper uses actual game data
+    comments.append(_build_moderator_comment(app, rng, rankings_data))
+
+    return comments
+
+
+def _build_moderator_comment(app, rng, rankings_data=None):
+    """Build the ArcadeKeeper moderator comment for an app."""
+    gen = app.get("generation", 0)
     score = 0
     if rankings_data:
         for r in rankings_data.get("rankings", []):
@@ -1096,8 +1287,9 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
         changes=rng.choice(["improved responsive layout", "added touch controls", "enhanced audio feedback", "optimized render loop", "refined difficulty curve"]),
     )
 
+    base_time = datetime.now() - timedelta(days=rng.randint(1, 60))
     mod_time = base_time + timedelta(days=rng.randint(1, 30))
-    mod_comment = {
+    return {
         "id": "mod-" + hashlib.md5(app["file"].encode()).hexdigest()[:8],
         "author": "ArcadeKeeper",
         "authorId": "mod-001",
@@ -1111,9 +1303,6 @@ def generate_comments_for_app(app, cat_key, players, rng, rankings_data=None):
         "children": [],
         "isModerator": True,
     }
-    comments.append(mod_comment)
-
-    return comments
 
 
 def generate_ratings(apps_list, players, rng):
@@ -1208,6 +1397,8 @@ def generate_online_schedule():
 def main():
     verbose = "--verbose" in sys.argv
     push = "--push" in sys.argv
+    use_llm = "--llm" in sys.argv
+    no_llm = "--no-llm" in sys.argv
 
     # Load manifest
     with open(MANIFEST) as f:
@@ -1238,20 +1429,46 @@ def main():
     players = generate_players(250)
     print(f"  Created {len(players)} player profiles")
 
+    # ── LLM-powered comment generation ──
+    llm_comments = None
+    if use_llm and not no_llm:
+        print("  Using Copilot CLI for comment generation...")
+        llm_comments = generate_comments_llm(apps_list, players,
+                                              random.Random("llm-comments-v1"),
+                                              verbose=verbose)
+        if llm_comments:
+            print(f"  LLM provided comments for {len(llm_comments)}/{len(apps_list)} apps")
+
     # Generate comments for each app
     all_comments = {}
     rng = random.Random("community-comments-v1")
     total_comments = 0
+    llm_used = 0
     for i, app_info in enumerate(apps_list):
         app = app_info["app"]
         stem = app["file"].replace(".html", "")
-        comments = generate_comments_for_app(app, app_info["catKey"], players, rng, rankings_data)
+
+        # Use LLM comments if available for this app
+        if llm_comments and stem in llm_comments:
+            comments = _assemble_llm_thread(
+                llm_comments[stem], app, players, rng, rankings_data
+            )
+            # Still append the ArcadeKeeper moderator comment
+            comments.append(_build_moderator_comment(app, rng, rankings_data))
+            llm_used += 1
+        else:
+            comments = generate_comments_for_app(
+                app, app_info["catKey"], players, rng, rankings_data
+            )
+
         all_comments[stem] = comments
         total_comments += len(comments)
         if verbose and (i + 1) % 50 == 0:
             print(f"  [{i+1}/{len(apps_list)}] Generated comments...")
 
     print(f"  Generated {total_comments} comments across {len(all_comments)} apps")
+    if llm_used:
+        print(f"  ({llm_used} via Copilot CLI, {len(all_comments) - llm_used} via templates)")
 
     # Generate ratings
     ratings = generate_ratings(apps_list, players, rng)
