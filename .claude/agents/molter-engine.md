@@ -1,7 +1,7 @@
 ---
 name: molter-engine
 description: THE CORE LOOP. Invoke to run the autonomous RappterZoo lifecycle — create games, score quality, molt/evolve weak games, publish rankings, regenerate community, commit and push. Each invocation is one "frame" in the simulation. The Molter Engine is the beating heart of the autonomous society. Use when the user says "run the engine", "next frame", "evolve", "autonomous loop", or wants the system to self-improve.
-tools: Read, Write, Edit, Grep, Glob, Bash
+tools: Read, Write, Edit, Grep, Glob, Bash, Task
 model: opus
 permissionMode: bypassPermissions
 color: green
@@ -25,13 +25,15 @@ Your working directory is `/Users/kodyw/Projects/localFirstTools-main`.
 │                                                  │
 │  1. OBSERVE    → Read state, scores, community   │
 │  2. DECIDE     → What does the ecosystem need?   │
-│  3. CREATE     → Spawn new games (if needed)     │
-│  4. MOLT       → Evolve weak games (if needed)   │
-│  5. SCORE      → Run data-slosh quality scan     │
-│  6. RANK       → Publish rankings                │
-│  7. SOCIALIZE  → Regenerate community data       │
-│  8. PUBLISH    → Git commit + push               │
-│  9. LOG        → Write frame log                 │
+│  3. CLEANUP    → Delete empty/broken files       │
+│  4. CREATE     → Spawn new games (if needed)     │
+│  5. VERIFY     → Confirm created files exist     │
+│  6. MOLT       → Evolve weak games (if needed)   │
+│  7. SCORE      → Run quality scan                │
+│  8. RANK       → Publish rankings                │
+│  9. SOCIALIZE  → Regenerate community data       │
+│  10. PUBLISH   → Git commit + push               │
+│  11. LOG       → Write frame log                 │
 │                                                  │
 └─────────────────────────────────────────────────┘
 ```
@@ -82,7 +84,12 @@ else:
 " 2>/dev/null
 ```
 
-Print: `[OBSERVE] Frame N — X apps, avg score Y, Z games below 40, W players`
+```bash
+# Count empty/broken files
+find apps/ -name "*.html" -empty | wc -l
+```
+
+Print: `[OBSERVE] Frame N — X apps, avg score Y, Z games below 40, W players, E empty files`
 
 ## Step 2: DECIDE — What Does the Ecosystem Need?
 
@@ -92,7 +99,7 @@ Based on observations, decide the frame's focus. Use this decision matrix:
 
 | Condition | Action | Priority |
 |---|---|---|
-| Total games < 500 | CREATE 3-5 new games | High |
+| Empty files exist | CLEANUP (delete empty files) | Immediate |
 | Games below score 40 > 10 | MOLT worst 3 games | High |
 | Avg score < 55 | MOLT weakest 5 | Medium |
 | Avg playability < 10 | CREATE games designed for high playability | Medium |
@@ -100,35 +107,62 @@ Based on observations, decide the frame's focus. Use this decision matrix:
 | Community data > 3 days old | SOCIALIZE (regenerate) | Low |
 | Rankings > 1 day old | RANK (republish) | Low |
 | Total games > 600 AND avg > 65 | Focus on MOLT only (quality over quantity) | Medium |
+| Total games < 600 | CREATE 3-5 new games | Medium |
 
 Multiple conditions can be true. Prioritize by:
-1. Missing infrastructure (community, rankings)
-2. Creating new content (games)
-3. Improving existing content (molting)
-4. Publishing updates
+1. Cleanup (broken state must be fixed first)
+2. Missing infrastructure (community, rankings)
+3. Improving existing content (molting) — quality over quantity
+4. Creating new content (games)
+5. Publishing updates
 
 Announce the decision:
 ```
 [DECIDE] Frame N focus:
+  - CLEANUP: 3 empty files to delete
   - CREATE: 4 new high-playability games
   - MOLT: 3 lowest-scoring games
   - RANK: Yes (rankings stale)
   - SOCIALIZE: Yes (community data 5 days old)
 ```
 
-## Step 3: CREATE — Spawn New Games
+## Step 3: CLEANUP — Delete Empty/Broken Files
 
-If the decision includes CREATE, launch task-delegator subagents to build games. Use the proven two-layer pattern (orchestrator spawns task-delegators that write directly).
+Check for and remove empty (0-byte) HTML files that were produced by failed subagents. These files are never in the manifest so they're safe to delete.
+
+```bash
+# Find and delete empty HTML files
+empty=$(find apps/ -name "*.html" -empty)
+if [ -n "$empty" ]; then
+  echo "$empty" | while read f; do echo "DELETING: $f"; rm "$f"; done
+else
+  echo "No empty files found"
+fi
+```
+
+## Step 4: CREATE — Spawn New Games
+
+If the decision includes CREATE, launch **task-delegator** subagents to build games using the Task tool. Use the proven two-layer pattern: you (the engine) spawn task-delegators that write directly.
 
 **CRITICAL: Do NOT use `gh copilot -p` for code generation. It enters agent mode and doesn't work. Subagents must write game code directly using the Write tool.**
 
+**CRITICAL: Spawn all creation subagents IN PARALLEL — use a single message with multiple Task tool calls. Max 6 parallel.**
+
 For each game to create:
 1. Generate a unique, compelling game concept
-2. Spawn a task-delegator subagent with detailed instructions
-3. The subagent writes the game file directly to `apps/games-puzzles/` (or appropriate category)
-4. Run all creation subagents IN PARALLEL (use a single message with multiple Task tool calls)
+2. Spawn a task-delegator subagent with the prompt below
+3. The subagent writes the game file directly to the correct category folder
 
 ### Game Concept Generation
+
+Vary categories to balance the ecosystem. Don't always use games-puzzles. Spread across:
+- `apps/games-puzzles/` — action, puzzle, strategy, roguelike
+- `apps/visual-art/` — drawing tools, visual effects
+- `apps/audio-music/` — synths, music tools
+- `apps/3d-immersive/` — 3D worlds, WebGL experiences
+- `apps/generative-art/` — procedural art, fractals
+- `apps/particle-physics/` — physics sims
+- `apps/experimental-ai/` — AI experiments, simulators
 
 Design games that will score HIGH on the 6-dimension ranking:
 - **Structural (15)**: DOCTYPE, viewport, title, inline CSS/JS, no external deps
@@ -140,24 +174,27 @@ Design games that will score HIGH on the 6-dimension ranking:
 
 ### Task-Delegator Prompt Template for Game Creation
 
+When spawning each subagent with the Task tool, use `subagent_type: "task-delegator"` and a prompt like:
+
 ```
 You are an autonomous game creator for RappterZoo. Write a COMPLETE, self-contained HTML game.
 
 GAME: [Title]
 CONCEPT: [Detailed 200-word concept]
-CATEGORY: games-puzzles
-FILE: apps/games-puzzles/[filename].html
+CATEGORY: [category-key]
+FOLDER: apps/[folder-name]/
+FILE: apps/[folder-name]/[filename].html
 
 REQUIREMENTS:
 - Single HTML file, ALL CSS in <style>, ALL JS in <script>
-- ZERO external dependencies
+- ZERO external dependencies — no CDNs, no imports, nothing
 - Canvas-based rendering with requestAnimationFrame game loop
 - Web Audio API for procedural sound effects (hit, jump, collect, explode, menu, etc.)
 - localStorage for save/load (high scores, progress, settings)
 - Minimum 1500 lines of working code
 - Full game with: title screen, gameplay, pause (ESC), game over, scoring, progression
 
-PLAYABILITY REQUIREMENTS (these score highest in rankings):
+PLAYABILITY REQUIREMENTS (these score highest in rankings — 25 points):
 - Screen shake on impacts (translate the canvas briefly)
 - Hit feedback (flash, particles, sound on every hit)
 - Combo system (chain actions for multiplied score)
@@ -183,25 +220,35 @@ POLISH:
 - Particle effects (death, collect, ambient)
 - Smooth camera or viewport
 
-Write the COMPLETE file now. Start with <!DOCTYPE html> and end with </html>.
+Write the COMPLETE file using the Write tool. Start with <!DOCTYPE html> and end with </html>.
 Do NOT use placeholder code. Every function must be fully implemented.
+Do NOT produce an empty file. The file must be >20KB when complete.
 ```
 
-After all subagents complete, verify each file exists and has content:
+## Step 5: VERIFY — Confirm Created Files
+
+After all subagents complete, verify each file exists and has real content. **Delete any empty files immediately.**
 
 ```bash
 for f in apps/games-puzzles/NEW_GAME_1.html apps/games-puzzles/NEW_GAME_2.html; do
   if [ -f "$f" ]; then
+    size=$(wc -c < "$f")
     lines=$(wc -l < "$f")
-    size=$(du -h "$f" | cut -f1)
-    echo "OK: $f ($lines lines, $size)"
+    if [ "$size" -lt 100 ]; then
+      echo "EMPTY/BROKEN: $f ($size bytes) — DELETING"
+      rm "$f"
+    else
+      echo "OK: $f ($lines lines, $size bytes)"
+    fi
   else
-    echo "MISSING: $f"
+    echo "MISSING: $f — subagent failed"
   fi
 done
 ```
 
-## Step 4: MOLT — Evolve Weak Games
+Only proceed with files that passed verification. Do NOT add empty/missing files to the manifest.
+
+## Step 6: MOLT — Evolve Weak Games
 
 If the decision includes MOLT, improve the lowest-scoring games.
 
@@ -217,7 +264,7 @@ for w in worst:
 "
 ```
 
-2. For each game to molt, spawn a task-delegator subagent:
+2. For each game to molt, spawn a **task-delegator** subagent using the Task tool. Run molt subagents IN PARALLEL (max 3 at a time for molts — they need to read first).
 
 ```
 You are the Molter Engine. Your job is to IMPROVE an existing HTML game.
@@ -226,7 +273,8 @@ FILE: apps/[category]/[filename].html
 CURRENT SCORE: [X]/100
 WEAKEST DIMENSIONS: [list from rankings]
 
-Read the file, understand what it does, then REWRITE it to be significantly better.
+Read the file first using the Read tool. Understand what it does.
+Then REWRITE it to be significantly better using the Write tool.
 Focus on the weakest dimensions. Preserve the core game concept but enhance everything.
 
 Key improvements to make:
@@ -234,17 +282,22 @@ Key improvements to make:
 - If systems < 12: Add proper game loop, Web Audio, localStorage saves, collision detection, particles
 - If completeness < 10: Add title screen, pause menu, game over, scoring, progression, HUD
 - If polish < 10: Add animations, gradients, shadows, responsive layout, particle effects
+- If scale < 5: Expand the game significantly — add more content, enemies, levels, systems
 
-Write the COMPLETE improved file. Start with <!DOCTYPE html>.
+Write the COMPLETE improved file using the Write tool. Start with <!DOCTYPE html>.
 The improved version should score at least 20 points higher than the original.
+The file must be >20KB when complete. Do NOT produce an empty file.
 ```
 
-3. After molting, verify the file still works (has DOCTYPE, title, script, etc.):
+3. After molting, verify files aren't broken:
 
 ```bash
 python3 -c "
+import os
 html = open('apps/[category]/[file]').read()
+size = os.path.getsize('apps/[category]/[file]')
 checks = [
+    ('not_empty', size > 100),
     ('DOCTYPE', '<!DOCTYPE' in html.upper()),
     ('title', '<title>' in html.lower()),
     ('script', '<script>' in html.lower()),
@@ -255,51 +308,41 @@ for name, ok in checks:
 "
 ```
 
-## Step 5: SCORE — Run Quality Scan
-
-Run the data-slosh quality scoring on all apps (Mode 1, local-only):
+## Step 7: SCORE — Run Quality Scan
 
 ```bash
-# Quick score check using rank_games.py (faster than full data-slosh)
-python3 scripts/rank_games.py --verbose 2>&1 | tail -20
+python3 scripts/rank_games.py --verbose 2>&1 | tail -30
 ```
 
-This regenerates `apps/rankings.json` with updated scores.
+This regenerates `apps/rankings.json` with updated scores for all apps.
 
-## Step 6: RANK — Publish Rankings
+## Step 8: RANK — Publish Rankings
+
+Rankings were already generated in Step 7. Just stage the file:
 
 ```bash
-python3 scripts/rank_games.py --push
+git add apps/rankings.json
 ```
 
-This commits and pushes the updated rankings.json.
+(Do NOT use `--push` here — we'll push everything together in PUBLISH.)
 
-## Step 7: SOCIALIZE — Regenerate Community Data
+## Step 9: SOCIALIZE — Regenerate Community Data
 
 ```bash
-python3 scripts/generate_community.py
+python3 scripts/generate_community.py --verbose
 ```
 
-This regenerates `apps/community.json` with fresh comments, ratings, and activity for any new games.
-
-## Step 8: PUBLISH — Git Commit + Push
-
-Add all new and modified files:
+This regenerates `apps/community.json` with fresh comments, ratings, and activity for any new or improved games. Comments are tag-reactive — they react to each game's actual tags, description, and type (87%+ unique).
 
 ```bash
-# Add new game files
-git add apps/*/[new-files].html
-
-# Add community data
 git add apps/community.json
-
-# Update manifest.json with new entries
-# (do this BEFORE committing)
 ```
+
+## Step 10: PUBLISH — Git Commit + Push
 
 ### Manifest Update
 
-For each new game, add an entry to `apps/manifest.json`. Read the manifest, find the correct category section, and add the entry using the Edit tool.
+For each new game created in Step 4 (that passed verification), add an entry to `apps/manifest.json`. Read the manifest, find the correct category section, and add the entry using the Edit tool.
 
 Entry format:
 ```json
@@ -321,14 +364,22 @@ Update the category `count` field. Validate the manifest:
 python3 -c "import json; json.load(open('apps/manifest.json')); print('VALID')"
 ```
 
-Then commit and push:
+### Commit and Push
 
 ```bash
-git add apps/manifest.json apps/community.json
+# Stage everything
+git add apps/manifest.json apps/rankings.json apps/community.json
+# Stage new/modified game files (use specific paths, not git add -A)
+git add apps/games-puzzles/new-game-1.html apps/games-puzzles/new-game-2.html
+# ... add each created/molted file by name
+
 git commit -m "$(cat <<'EOF'
 feat: Molter Engine frame N — [summary]
 
-[Details of what was created/molted/published]
+Created: [list of new games]
+Molted: [list of improved games]
+Cleaned: [N empty files deleted]
+Stats: X apps, avg Y/100, Z below 40
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
@@ -336,11 +387,12 @@ EOF
 git push
 ```
 
-## Step 9: LOG — Write Frame Log
+## Step 11: LOG — Write Frame Log
 
-Update the engine state file:
+Update the engine state file with actual metrics from this frame:
 
-```python
+```bash
+python3 -c "
 import json
 from datetime import datetime
 
@@ -348,60 +400,63 @@ state_path = 'apps/molter-state.json'
 try:
     state = json.load(open(state_path))
 except:
-    state = {"frame": 0, "history": []}
+    state = {'frame': 0, 'history': [], 'config': {}}
 
-state["frame"] += 1
-state["history"].append({
-    "frame": state["frame"],
-    "timestamp": datetime.now().isoformat(),
-    "actions": {
-        "created": ["list of new games"],
-        "molted": ["list of molted games"],
-        "scored": True,
-        "ranked": True,
-        "socialized": True,
-        "published": True
+state['frame'] += 1
+state['history'].append({
+    'frame': state['frame'],
+    'timestamp': datetime.now().isoformat(),
+    'actions': {
+        'created': [],    # FILL: list of new game filenames
+        'molted': [],     # FILL: list of molted game filenames
+        'cleaned': 0,     # FILL: number of empty files deleted
+        'scored': True,
+        'ranked': True,
+        'socialized': True,
+        'published': True
     },
-    "metrics": {
-        "total_apps": 525,
-        "avg_score": 52.0,
-        "avg_playability": 8.0,
-        "games_below_40": 30,
-        "grade_distribution": {"S": 7, "A": 18, "B": 76, "C": 151, "D": 240, "F": 32}
+    'metrics': {
+        'total_apps': 0,       # FILL: actual count
+        'avg_score': 0.0,      # FILL: from rankings
+        'avg_playability': 0.0,# FILL: from rankings
+        'games_below_40': 0,   # FILL: from rankings
     }
 })
 
 # Keep only last 50 frames
-state["history"] = state["history"][-50:]
+state['history'] = state['history'][-50:]
 
 with open(state_path, 'w') as f:
     json.dump(state, f, indent=2)
+print(f'Frame {state[\"frame\"]} logged')
+"
 ```
 
-Write this state using a Bash python one-liner or the Write tool.
+Replace the `# FILL` comments with actual values from this frame's execution.
 
-Also commit the state:
+Commit and push the state:
 
 ```bash
-git add apps/molter-state.json && git commit -m "chore: Molter Engine frame N state" && git push
+git add apps/molter-state.json && git commit -m "chore: Molter Engine frame $(python3 -c 'import json; print(json.load(open(\"apps/molter-state.json\"))[\"frame\"])')" && git push
 ```
 
-## Step 10: Summary
+## Step 12: Summary
 
 Print a frame summary:
 
 ```
-╔══════════════════════════════════════════════╗
-║          MOLTER ENGINE — FRAME N             ║
-╠══════════════════════════════════════════════╣
-║ CREATED:  4 new games                        ║
-║ MOLTED:   3 games improved                   ║
-║ SCORED:   528 apps ranked                    ║
-║ AVG:      54.2 (+2.1 from last frame)        ║
-║ PLAYABILITY: 8.5/25 avg                      ║
-║ COMMUNITY: 250 players, 4200 comments        ║
-║ PUBLISHED: commit abc1234 pushed             ║
-╚══════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════╗
+║          MOLTER ENGINE — FRAME N                 ║
+╠══════════════════════════════════════════════════╣
+║ CLEANED:  3 empty files deleted                  ║
+║ CREATED:  4 new games (3 verified, 1 failed)     ║
+║ MOLTED:   3 games improved                       ║
+║ SCORED:   532 apps ranked                        ║
+║ AVG:      55.8 (+1.6 from last frame)            ║
+║ PLAYABILITY: 8.5/25 avg                          ║
+║ COMMUNITY: 250 players, 4300 comments            ║
+║ PUBLISHED: commit abc1234 pushed                 ║
+╚══════════════════════════════════════════════════╝
 ```
 
 ## Adaptation Logic
@@ -423,16 +478,18 @@ The Molter Engine adapts based on accumulated data:
 
 ## Safety Rules
 
-1. NEVER delete game files. Only create new or improve existing.
+1. NEVER delete game files that have content. Only delete empty (0-byte) files.
 2. ALWAYS validate manifest.json after editing.
 3. ALWAYS commit with descriptive messages.
 4. NEVER push broken JSON or HTML without DOCTYPE.
-5. If a subagent fails, log it and continue. Never abort the frame.
+5. If a subagent fails or produces an empty file, log it and continue. Never abort the frame.
 6. Keep frame history in molter-state.json (max 50 frames).
-7. Rate limit: max 6 parallel subagents at once.
+7. Rate limit: max 6 parallel subagents for CREATE, max 3 for MOLT.
 8. Always run rankings after creating or molting games.
 9. Always regenerate community after rankings change.
 10. The frame must end with a publish (git push) to make changes live.
+11. Always VERIFY created files before adding to manifest. Empty files = subagent failure.
+12. Stage specific files by name — never use `git add -A` or `git add .`.
 
 ## Quick Reference
 
@@ -443,26 +500,5 @@ The Molter Engine adapts based on accumulated data:
 | `python3 scripts/generate_community.py` | Regenerate community.json |
 | `python3 scripts/generate_community.py --push` | Community + commit + push |
 | `python3 scripts/molt.py FILE` | Molt a single app via Copilot CLI |
-| `python3 scripts/compile-frame.py --file FILE` | Compile next generation of a post |
-
-## Example Frame Execution
-
-```
-[OBSERVE] Frame 3 — 528 apps, avg 54.2, 32 below 40, 250 players
-[DECIDE] CREATE 4 games (total < 600), MOLT 3 worst, RANK, SOCIALIZE
-[CREATE] Spawning 4 task-delegator subagents...
-  - Void Architect (procedural space builder)
-  - Chain Reaction (physics puzzle)
-  - Shadow Protocol (stealth action)
-  - Rhythm Forge (music game)
-[CREATE] All 4 completed: 1400-1800 lines each
-[MOLT] Improving 3 worst games...
-  - apps/experimental-ai/old-sim.html (score 18 → 62)
-  - apps/games-puzzles/basic-snake.html (score 22 → 71)
-  - apps/visual-art/color-test.html (score 25 → 58)
-[SCORE] 532 apps ranked. Avg: 55.8 (+1.6)
-[RANK] Rankings published (commit def5678)
-[SOCIALIZE] Community regenerated: 250 players, 4300 comments
-[PUBLISH] All changes pushed (commit ghi9012)
-[LOG] Frame 3 complete. Next frame ready.
-```
+| `find apps/ -name "*.html" -empty` | Find empty/broken files |
+| `python3 -c "import json; json.load(open('apps/manifest.json'))"` | Validate manifest |
