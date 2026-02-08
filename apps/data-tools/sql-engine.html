@@ -206,7 +206,8 @@ class Tokenizer {
       if (c >= '0' && c <= '9') { this.readNum(); continue; }
       if (this.isAlpha(c) || c === '_') { this.readId(); continue; }
       if (c === '`') { this.readQuotedId(); continue; }
-      if (c === '.' && this.p+1 < this.s.length && this.isAlpha(this.s[this.p+1])) { this.readDotCmd(); continue; }
+      if (c === '.' && this.p+1 < this.s.length && this.isAlpha(this.s[this.p+1]) &&
+          (this.tokens.length === 0 || this.tokens[this.tokens.length-1].value === ';')) { this.readDotCmd(); continue; }
       if ('<>=!'.includes(c)) { this.readOp(); continue; }
       if ('(),;'.includes(c)) { this.push(TT.PUNC, c); this.p++; continue; }
       if (c === '*') { this.push(TT.PUNC, '*'); this.p++; continue; }
@@ -382,6 +383,17 @@ class Parser {
   }
 
   parseTableRef() {
+    // Derived table: (SELECT ...) AS alias
+    if (this.at(TT.PUNC, '(')) {
+      this.advance();
+      const sub = this.parseSelect();
+      this.expect(TT.PUNC, ')');
+      let alias = null;
+      if (this.matchKW('AS')) alias = this.parseIdent();
+      else if (this.peek().type === TT.ID) alias = this.parseIdent();
+      if (!alias) throw new Error('Derived tables require an alias');
+      return { table: null, subquery: sub, alias };
+    }
     const name = this.parseIdent();
     let alias = null;
     if (this.matchKW('AS')) alias = this.parseIdent();
@@ -431,6 +443,11 @@ class Parser {
       do { columns.push(this.parseIdent()); } while (this.match(TT.PUNC, ','));
       this.expect(TT.PUNC, ')');
     }
+    // INSERT...SELECT
+    if (this.atKW('SELECT')) {
+      const select = this.parseSelect();
+      return { type:'INSERT', table, columns, rows: null, select };
+    }
     this.expect(TT.KW, 'VALUES');
     const rows = [];
     do {
@@ -440,7 +457,7 @@ class Parser {
       this.expect(TT.PUNC, ')');
       rows.push(vals);
     } while (this.match(TT.PUNC, ','));
-    return { type:'INSERT', table, columns, rows };
+    return { type:'INSERT', table, columns, rows, select: null };
   }
 
   parseUpdate() {
@@ -588,9 +605,17 @@ class Parser {
 
   parseMultiplication() {
     let left = this.parseUnary();
-    while (this.peek().type === TT.OP && (this.peek().value === '*' || this.peek().value === '/' || this.peek().value === '%'))
+    while ((this.peek().type === TT.OP && (this.peek().value === '/' || this.peek().value === '%')) ||
+           (this.peek().type === TT.PUNC && this.peek().value === '*' && !this.isStarContext()))
       left = { type:'binary', op: this.advance().value, left, right: this.parseUnary() };
     return left;
+  }
+
+  isStarContext() {
+    // Star is multiplication if preceded by a value-like token; it's SELECT * if preceded by keyword/comma
+    if (this.p === 0) return true;
+    const prev = this.t[this.p - 1];
+    return prev.type === TT.KW || prev.type === TT.PUNC && (prev.value === ',' || prev.value === '(');
   }
 
   parseUnary() {
@@ -627,8 +652,12 @@ class Parser {
     }
     // CASE expression
     if (this.atKW('CASE')) { return this.parseCase(); }
-    // Parenthesized expression
-    if (this.at(TT.PUNC,'(')) { this.advance(); const e = this.parseExpr(); this.expect(TT.PUNC,')'); return e; }
+    // Parenthesized expression or scalar subquery
+    if (this.at(TT.PUNC,'(')) {
+      this.advance();
+      if (this.atKW('SELECT')) { const sub = this.parseSelect(); this.expect(TT.PUNC,')'); return { type:'subquery', statement: sub }; }
+      const e = this.parseExpr(); this.expect(TT.PUNC,')'); return e;
+    }
     // Star
     if (this.at(TT.PUNC,'*')) { this.advance(); return { type:'star' }; }
     // Identifier or qualified column (table.column)
@@ -755,6 +784,27 @@ class Database {
     const tblData = this.tables[tbl.name];
     const colNames = stmt.columns || tblData.columns.map(c => c.name);
     let inserted = 0;
+
+    // INSERT...SELECT
+    if (stmt.select) {
+      const result = this.execSelect(stmt.select);
+      for (const srcRow of result.rows) {
+        const vals = result.columns.map(c => srcRow[c]);
+        if (vals.length !== colNames.length) throw new Error(`SELECT returns ${vals.length} columns, expected ${colNames.length}`);
+        const row = {};
+        for (const cd of tblData.columns) row[cd.name] = cd.default !== null && cd.default !== undefined ? cd.default : null;
+        for (let i = 0; i < colNames.length; i++) row[colNames[i]] = vals[i];
+        for (const cd of tblData.columns) {
+          if (cd.notNull && (row[cd.name] === null || row[cd.name] === undefined))
+            throw new Error(`NOT NULL constraint failed: column '${cd.name}'`);
+        }
+        tblData.rows.push(row);
+        inserted++;
+      }
+      this.save();
+      return { message: `${inserted} row(s) inserted`, columns:[], rows:[] };
+    }
+
     for (const valExprs of stmt.rows) {
       if (valExprs.length !== colNames.length) throw new Error(`Expected ${colNames.length} values, got ${valExprs.length}`);
       const row = {};
@@ -824,33 +874,61 @@ class Database {
     const aliases = {};
 
     if (stmt.from) {
-      const tbl = this.getTable(stmt.from.table);
-      const tblData = this.tables[tbl.name];
-      const alias = stmt.from.alias || tbl.name;
-      aliases[alias.toUpperCase()] = tbl.name;
-      colDefs = tblData.columns.map(c => ({ table: tbl.name, name: c.name }));
-      rows = tblData.rows.map(r => this.qualifyRow(r, tbl.name));
+      if (stmt.from.subquery) {
+        // Derived table in FROM
+        const sub = this.execSelect(stmt.from.subquery);
+        const alias = stmt.from.alias;
+        aliases[alias.toUpperCase()] = alias;
+        colDefs = sub.columns.map(c => ({ table: alias, name: c }));
+        rows = sub.rows.map(r => {
+          const qr = {};
+          for (const c of sub.columns) { qr[alias + '.' + c] = r[c]; qr[c] = r[c]; }
+          return qr;
+        });
+      } else {
+        const tbl = this.getTable(stmt.from.table);
+        const tblData = this.tables[tbl.name];
+        const alias = stmt.from.alias || tbl.name;
+        aliases[alias.toUpperCase()] = tbl.name;
+        colDefs = tblData.columns.map(c => ({ table: tbl.name, name: c.name }));
+        rows = tblData.rows.map(r => this.qualifyRow(r, tbl.name));
+      }
 
       // 2. JOINs
       for (const join of stmt.joins) {
-        const jtbl = this.getTable(join.table);
-        const jdata = this.tables[jtbl.name];
-        const jalias = join.alias || jtbl.name;
-        aliases[jalias.toUpperCase()] = jtbl.name;
-        const jColDefs = jdata.columns.map(c => ({ table: jtbl.name, name: c.name }));
-        const newRows = [];
+        let jrows, jColDefs, jtableName;
 
+        if (join.subquery) {
+          // Derived table join
+          const sub = this.execSelect(join.subquery);
+          jtableName = join.alias;
+          aliases[join.alias.toUpperCase()] = join.alias;
+          jColDefs = sub.columns.map(c => ({ table: join.alias, name: c }));
+          jrows = sub.rows.map(r => {
+            const qr = {};
+            for (const c of sub.columns) { qr[join.alias + '.' + c] = r[c]; qr[c] = r[c]; }
+            return qr;
+          });
+        } else {
+          const jtbl = this.getTable(join.table);
+          const jdata = this.tables[jtbl.name];
+          jtableName = jtbl.name;
+          const jalias = join.alias || jtbl.name;
+          aliases[jalias.toUpperCase()] = jtbl.name;
+          jColDefs = jdata.columns.map(c => ({ table: jtbl.name, name: c.name }));
+          jrows = jdata.rows.map(r => this.qualifyRow(r, jtbl.name));
+        }
+
+        const newRows = [];
         if (join.joinType === 'CROSS') {
           for (const lr of rows) {
-            for (const rr of jdata.rows) {
-              newRows.push({ ...lr, ...this.qualifyRow(rr, jtbl.name) });
-            }
+            for (const rr of jrows) newRows.push({ ...lr, ...rr });
           }
         } else {
           for (const lr of rows) {
             let matched = false;
-            for (const rr of jdata.rows) {
-              const combined = { ...lr, ...this.qualifyRow(rr, jtbl.name) };
+            for (const rr of jrows) {
+              const combined = { ...lr, ...rr };
               if (!join.on || this.evalExpr(join.on, combined, aliases)) {
                 newRows.push(combined);
                 matched = true;
@@ -858,7 +936,7 @@ class Database {
             }
             if (!matched && join.joinType === 'LEFT') {
               const nullRight = {};
-              for (const c of jdata.columns) nullRight[jtbl.name + '.' + c.name] = null;
+              for (const cd of jColDefs) nullRight[cd.table + '.' + cd.name] = null;
               newRows.push({ ...lr, ...nullRight });
             }
           }
@@ -867,6 +945,9 @@ class Database {
         colDefs = colDefs.concat(jColDefs);
       }
     }
+
+    // If no FROM clause, provide a single empty row for evaluation (e.g., SELECT with scalar subqueries)
+    if (!stmt.from) rows = [{}];
 
     // 3. WHERE
     if (stmt.where) rows = rows.filter(r => this.evalExpr(stmt.where, r, aliases));
@@ -997,6 +1078,7 @@ class Database {
     if (expr.type === 'number' || expr.type === 'string' || expr.type === 'boolean') return String(expr.value);
     if (expr.type === 'null') return 'NULL';
     if (expr.type === 'binary') return this.exprLabel(expr.left) + ' ' + expr.op + ' ' + this.exprLabel(expr.right);
+    if (expr.type === 'subquery') return '(SELECT...)';
     return '?';
   }
 
@@ -1077,6 +1159,13 @@ class Database {
       }
 
       case 'function': return this.evalFunction(expr, row, aliases, group);
+
+      case 'subquery': {
+        const result = this.execSelect(expr.statement);
+        if (result.rows.length === 0) return null;
+        const firstCol = result.columns[0];
+        return result.rows[0][firstCol];
+      }
 
       case 'case': {
         for (const w of expr.whens) {
@@ -1288,7 +1377,27 @@ const SHOWCASE = [
   { title: '9. Self-Join', desc: 'Users who joined the same month',
     sql: `SELECT a.username AS user_a, b.username AS user_b, SUBSTR(a.created_at, 1, 7) AS month\nFROM users a\nINNER JOIN users b ON SUBSTR(a.created_at, 1, 7) = SUBSTR(b.created_at, 1, 7)\nWHERE a.id < b.id\nORDER BY month;` },
   { title: '10. The Everything Query', desc: '7 SQL features in one statement',
-    sql: `SELECT DISTINCT\n  u.username,\n  UPPER(SUBSTR(u.username, 1, 1)) || LOWER(SUBSTR(u.username, 2, LENGTH(u.username))) AS display_name,\n  COUNT(DISTINCT p.id) AS posts,\n  COUNT(DISTINCT c.id) AS comments_received,\n  COALESCE(SUM(p.views), 0) AS total_views,\n  CASE WHEN COUNT(p.id) > 3 THEN '\u{1F525} Prolific' WHEN COUNT(p.id) > 0 THEN '\u{270D}\u{FE0F} Active' ELSE '\u{1F440} Reader' END AS role,\n  ROUND(COALESCE(SUM(p.views), 0) / CASE WHEN COUNT(p.id) = 0 THEN 1 ELSE COUNT(p.id) END) AS avg_views\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nLEFT JOIN comments c ON c.post_id = p.id\nWHERE u.created_at BETWEEN '2025-01-01' AND '2025-12-31'\nGROUP BY u.username\nHAVING total_views >= 0\nORDER BY total_views DESC\nLIMIT 8 OFFSET 0;` }
+    sql: `SELECT DISTINCT\n  u.username,\n  UPPER(SUBSTR(u.username, 1, 1)) || LOWER(SUBSTR(u.username, 2, LENGTH(u.username))) AS display_name,\n  COUNT(DISTINCT p.id) AS posts,\n  COUNT(DISTINCT c.id) AS comments_received,\n  COALESCE(SUM(p.views), 0) AS total_views,\n  CASE WHEN COUNT(p.id) > 3 THEN '\u{1F525} Prolific' WHEN COUNT(p.id) > 0 THEN '\u{270D}\u{FE0F} Active' ELSE '\u{1F440} Reader' END AS role,\n  ROUND(COALESCE(SUM(p.views), 0) / CASE WHEN COUNT(p.id) = 0 THEN 1 ELSE COUNT(p.id) END) AS avg_views\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nLEFT JOIN comments c ON c.post_id = p.id\nWHERE u.created_at BETWEEN '2025-01-01' AND '2025-12-31'\nGROUP BY u.username\nHAVING total_views >= 0\nORDER BY total_views DESC\nLIMIT 8 OFFSET 0;` },
+  { title: '11. Influence Score', desc: 'Recursive social rank via posts × engagement',
+    sql: `SELECT u.username,\n  COUNT(DISTINCT p.id) AS posts,\n  COUNT(DISTINCT c.id) AS comments_on_their_work,\n  COUNT(DISTINCT p.id) * COUNT(DISTINCT c.id) AS influence_score,\n  CASE\n    WHEN COUNT(DISTINCT p.id) * COUNT(DISTINCT c.id) > 50 THEN '\u{1F451} Thought Leader'\n    WHEN COUNT(DISTINCT p.id) * COUNT(DISTINCT c.id) > 20 THEN '\u{2B50} Rising Star'\n    WHEN COUNT(DISTINCT p.id) > 0 THEN '\u{1F331} Contributor'\n    ELSE '\u{1F47B} Ghost'\n  END AS rank\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nLEFT JOIN comments c ON c.post_id = p.id AND c.user_id != u.id\nGROUP BY u.username\nORDER BY influence_score DESC;` },
+  { title: '12. Conversation Heatmap', desc: 'Which posts spark the most back-and-forth?',
+    sql: `SELECT p.title,\n  COUNT(DISTINCT c.user_id) AS unique_voices,\n  COUNT(c.id) AS total_replies,\n  ROUND(COUNT(c.id) * 100 / COUNT(DISTINCT c.user_id)) AS avg_replies_per_person,\n  SUBSTR('\u{1F525}\u{1F525}\u{1F525}\u{1F525}\u{1F525}\u{1F525}\u{1F525}\u{1F525}\u{1F525}\u{1F525}', 1, COUNT(DISTINCT c.user_id)) AS heat\nFROM posts p\nINNER JOIN comments c ON c.post_id = p.id\nGROUP BY p.title\nHAVING unique_voices > 1\nORDER BY unique_voices DESC, total_replies DESC;` },
+  { title: '13. Ghost Network', desc: 'Who co-comments on the same threads?',
+    sql: `SELECT u1.username AS user_a, u2.username AS user_b,\n  COUNT(*) AS mutual_threads\nFROM comments c1\nINNER JOIN comments c2 ON c1.post_id = c2.post_id AND c1.user_id < c2.user_id\nINNER JOIN users u1 ON c1.user_id = u1.id\nINNER JOIN users u2 ON c2.user_id = u2.id\nGROUP BY u1.username, u2.username\nORDER BY mutual_threads DESC\nLIMIT 10;` },
+  { title: '14. Time Machine', desc: 'Cohort analysis by join month',
+    sql: `SELECT SUBSTR(u.created_at, 1, 7) AS cohort,\n  COUNT(DISTINCT u.id) AS users_joined,\n  COUNT(DISTINCT p.id) AS posts_written,\n  COUNT(DISTINCT c.id) AS comments_made,\n  ROUND(COUNT(DISTINCT p.id) * 100 / COUNT(DISTINCT u.id)) AS posts_per_user_pct,\n  CASE\n    WHEN COUNT(DISTINCT p.id) > COUNT(DISTINCT u.id) * 2 THEN '\u{1F680} Hyperactive'\n    WHEN COUNT(DISTINCT p.id) >= COUNT(DISTINCT u.id) THEN '\u{2705} Healthy'\n    ELSE '\u{1F634} Quiet'\n  END AS cohort_health\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id\nLEFT JOIN comments c ON u.id = c.user_id\nGROUP BY cohort\nORDER BY cohort;` },
+  { title: '15. Content Genome', desc: 'Category DNA per author with bar chart',
+    sql: `SELECT u.username,\n  cat.name AS category,\n  COUNT(*) AS posts_in_cat,\n  SUBSTR('\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}', 1, COUNT(*) * 4) AS distribution\nFROM users u\nINNER JOIN posts p ON u.id = p.user_id\nINNER JOIN post_categories pc ON p.id = pc.post_id\nINNER JOIN categories cat ON pc.category_id = cat.id\nGROUP BY u.username, cat.name\nORDER BY u.username, posts_in_cat DESC;` },
+  { title: '16. Engagement Decay', desc: 'Do newer posts get fewer comments?',
+    sql: `SELECT p.title,\n  p.created_at,\n  p.views,\n  COUNT(c.id) AS comments,\n  CASE\n    WHEN p.created_at < '2025-04-01' THEN '\u{1F3DB}\u{FE0F} Ancient'\n    WHEN p.created_at < '2025-07-01' THEN '\u{1F4C5} Mid-era'\n    ELSE '\u{1F195} Recent'\n  END AS era,\n  ROUND(p.views / CASE WHEN COUNT(c.id) = 0 THEN 1 ELSE COUNT(c.id) END) AS views_per_comment\nFROM posts p\nLEFT JOIN comments c ON c.post_id = p.id\nGROUP BY p.id, p.title, p.created_at, p.views\nORDER BY p.created_at;` },
+  { title: '17. SQL Inception', desc: 'DDL that builds a stats table from live query',
+    sql: `DROP TABLE IF EXISTS user_stats;\nCREATE TABLE user_stats (\n  username TEXT NOT NULL,\n  total_posts INTEGER DEFAULT 0,\n  total_comments INTEGER DEFAULT 0,\n  total_views INTEGER DEFAULT 0,\n  ratio REAL DEFAULT 0,\n  tier TEXT DEFAULT 'unknown'\n);\nINSERT INTO user_stats\n  SELECT u.username,\n    COUNT(DISTINCT p.id),\n    COUNT(DISTINCT c.id),\n    COALESCE(SUM(p.views), 0),\n    ROUND(COALESCE(SUM(p.views), 0) / CASE WHEN COUNT(DISTINCT p.id) = 0 THEN 1 ELSE COUNT(DISTINCT p.id) END),\n    CASE WHEN COUNT(DISTINCT p.id) > 3 THEN 'platinum' WHEN COUNT(DISTINCT p.id) > 1 THEN 'gold' ELSE 'silver' END\n  FROM users u\n  LEFT JOIN posts p ON u.id = p.user_id\n  LEFT JOIN comments c ON c.user_id = u.id\n  GROUP BY u.username;\nSELECT * FROM user_stats ORDER BY total_views DESC;` },
+  { title: '18. Orphan Detector', desc: 'Posts missing from the category system',
+    sql: `SELECT p.title, u.username, p.views,\n  CASE WHEN pc.post_id IS NULL THEN '\u{274C} ORPHAN' ELSE '\u{2705} Tagged' END AS status\nFROM posts p\nINNER JOIN users u ON p.user_id = u.id\nLEFT JOIN post_categories pc ON p.id = pc.post_id\nORDER BY status DESC, p.views DESC;` },
+  { title: '19. The Paradox', desc: 'Users whose taste exceeds their output',
+    sql: `SELECT commenter.username,\n  COALESCE(own_views.avg_post_views, 0) AS avg_own_post_views,\n  ROUND(AVG(target.views)) AS avg_commented_post_views,\n  CASE\n    WHEN COALESCE(own_views.avg_post_views, 0) < AVG(target.views)\n    THEN '\u{1F3AF} Taste > Output'\n    ELSE '\u{1F4AA} Walks the Talk'\n  END AS paradox\nFROM comments c\nINNER JOIN users commenter ON c.user_id = commenter.id\nINNER JOIN posts target ON c.post_id = target.id\nLEFT JOIN (\n  SELECT user_id, ROUND(AVG(views)) AS avg_post_views\n  FROM posts GROUP BY user_id\n) own_views ON own_views.user_id = commenter.id\nGROUP BY commenter.username, own_views.avg_post_views\nORDER BY avg_commented_post_views DESC;` },
+  { title: '20. Full Census', desc: 'Scalar subqueries — one query to rule them all',
+    sql: `SELECT\n  (SELECT COUNT(*) FROM users) AS total_users,\n  (SELECT COUNT(*) FROM posts) AS total_posts,\n  (SELECT COUNT(*) FROM comments) AS total_comments,\n  (SELECT COUNT(*) FROM categories) AS total_categories,\n  (SELECT ROUND(AVG(views)) FROM posts) AS avg_views,\n  (SELECT username FROM users u INNER JOIN posts p ON u.id = p.user_id GROUP BY u.username ORDER BY COUNT(*) DESC LIMIT 1) AS top_poster,\n  (SELECT title FROM posts ORDER BY views DESC LIMIT 1) AS most_viewed,\n  (SELECT name FROM categories cat INNER JOIN post_categories pc ON cat.id = pc.category_id GROUP BY cat.name ORDER BY COUNT(*) DESC LIMIT 1) AS hottest_category;` }
 ];
 
 const UI = {
