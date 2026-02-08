@@ -35,6 +35,12 @@ from copilot_utils import (
     save_manifest,
 )
 
+# Adaptive content identity (optional -- graceful if missing)
+try:
+    from content_identity import analyze as _analyze_content
+except ImportError:
+    _analyze_content = None
+
 MAX_INPUT_SIZE = 100_000  # 100KB
 DEFAULT_MAX_GEN = 5
 SIZE_RATIO_MIN = 0.3
@@ -164,6 +170,59 @@ BUG PREVENTION (critical -- violating these causes the molt to be rejected):
 - Ensure every {{ has a matching }} -- unbalanced braces crash the app
 - Ensure every try has a catch or finally
 - Use double quotes for strings containing apostrophes: "There's" not 'There's'
+
+Filename: {filename}
+
+HTML content:
+---
+{html}
+---
+
+Return ONLY the complete rewritten HTML."""
+
+
+def build_adaptive_molt_prompt(html, filename, identity):
+    """Build a content-aware improvement prompt using Content Identity.
+
+    THE MEDIUM IS THE MESSAGE: instead of fixed generation focuses,
+    the improvement direction comes from what the content actually IS.
+    """
+    medium = identity.get("medium", "HTML application")
+    purpose = identity.get("purpose", "unknown purpose")
+    strengths = ", ".join(identity.get("strengths", []))
+    weaknesses = ", ".join(identity.get("weaknesses", []))
+    vectors = identity.get("improvement_vectors", [])
+    target = vectors[0] if vectors else "general quality improvement"
+
+    return f"""You are an expert developer improving a self-contained HTML application.
+
+THIS IS A: {medium}
+IT DOES: {purpose}
+
+STRENGTHS (preserve these): {strengths}
+WEAKNESSES (address these): {weaknesses}
+
+YOUR TASK: {target}
+
+This is not a generic improvement. You are making this {medium} better at being
+a {medium}. The improvement should be specific to what this content IS.
+
+HARD RULES:
+1. Return ONLY the complete rewritten HTML file -- no explanation, no markdown
+2. Must remain a single self-contained .html file
+3. No external dependencies (no CDN links, no external JS/CSS files)
+4. Must have <!DOCTYPE html>, <title>, <meta name="viewport">
+5. Preserve all existing user-facing behavior exactly
+6. If the app uses localStorage, keep that working identically
+7. Do not remove any user-facing UI elements
+8. Focus your changes on the specific improvement target above
+
+BUG PREVENTION (critical -- violating these causes the molt to be rejected):
+- Never use CSS var() without quotes in JavaScript
+- Never comment out closing braces
+- Escape </script> inside JS string literals as <\\/script>
+- Ensure every {{ has a matching }}
+- Ensure every try has a catch or finally
 
 Filename: {filename}
 
@@ -363,6 +422,7 @@ def molt_app(
     verbose=False,
     max_gen=DEFAULT_MAX_GEN,
     max_size=MAX_INPUT_SIZE,
+    adaptive=True,
     _manifest=None,
     _apps_dir=None,
 ):
@@ -411,13 +471,31 @@ def molt_app(
             print(f"  SKIP: {reason}")
         return {"status": "skipped", "reason": reason}
 
-    focus = get_generation_focus(next_gen)
-    if verbose:
-        print(f"  Focus: {focus}")
-        print(f"  Original size: {original_size} bytes")
+    # Determine molt mode: adaptive (content-aware) or classic (generation-based)
+    identity = None
+    if adaptive and _analyze_content is not None:
+        try:
+            identity = _analyze_content(path, content=html)
+        except Exception:
+            pass
 
-    # Build prompt and call LLM
-    prompt = build_molt_prompt(html, filename, next_gen)
+    if identity:
+        focus = identity.get("improvement_vectors", ["general improvement"])[0]
+        if verbose:
+            print(f"  Mode: ADAPTIVE (medium: {identity.get('medium', '?')})")
+            print(f"  Focus: {focus}")
+            print(f"  Original size: {original_size} bytes")
+        prompt = build_adaptive_molt_prompt(html, filename, identity)
+    else:
+        focus = get_generation_focus(next_gen)
+        if verbose:
+            if adaptive:
+                print(f"  Mode: CLASSIC (adaptive unavailable)")
+            else:
+                print(f"  Mode: CLASSIC")
+            print(f"  Focus: {focus}")
+            print(f"  Original size: {original_size} bytes")
+        prompt = build_molt_prompt(html, filename, next_gen)
 
     if dry_run:
         if verbose:
@@ -642,6 +720,11 @@ def main():
 
     print(f"molt: backend = {backend}")
     print(f"molt: max generations = {max_gen}")
+    adaptive = "--classic" not in flags
+    if adaptive:
+        print("molt: ADAPTIVE MODE (content-aware)")
+    else:
+        print("molt: CLASSIC MODE (generation-based)")
     if dry_run:
         print("molt: DRY RUN MODE")
 
@@ -665,6 +748,7 @@ def main():
                 verbose=verbose,
                 max_gen=max_gen,
                 max_size=max_size,
+                adaptive=adaptive,
                 _manifest=manifest,
             )
             results[result["status"]] = results.get(result["status"], 0) + 1
@@ -678,10 +762,13 @@ def main():
 
     # ── Single app mode ──
     if not positional:
-        print("Usage: molt.py <app-file> [--dry-run] [--verbose] [--max-gen N] [--max-size N]")
-        print("       molt.py --category <category_key>")
+        print("Usage: molt.py <app-file> [--dry-run] [--verbose] [--max-gen N] [--max-size N] [--classic]")
+        print("       molt.py --category <category_key> [--classic]")
         print("       molt.py --status")
         print("       molt.py --rollback <app-name> <generation>")
+        print("")
+        print("  Default: adaptive mode (LLM discovers what to improve)")
+        print("  --classic: use fixed 5-generation cycle instead")
         return 1
 
     app_file = positional[0]
@@ -693,6 +780,7 @@ def main():
         verbose=verbose,
         max_gen=max_gen,
         max_size=max_size,
+        adaptive=adaptive,
         _manifest=manifest,
     )
 

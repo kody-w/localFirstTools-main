@@ -158,7 +158,11 @@ All scripts that need LLM judgment share `scripts/copilot_utils.py`:
 
 ## Molting Generations Pipeline
 
-Apps evolve through up to 5 generations, each focusing on a quality dimension:
+Two modes:
+
+**Adaptive mode** (default): The Content Identity Engine analyzes the file, discovers what it IS, and determines the most impactful improvement. Each molt addresses the top improvement vector. A synth gets better synth controls. A drawing tool gets better undo/redo. The medium IS the message.
+
+**Classic mode** (`--classic`): Fixed 5-generation cycle:
 1. Structural (DOCTYPE, viewport, inline CSS/JS)
 2. Accessibility
 3. Performance
@@ -175,7 +179,23 @@ The autonomous heart of RappterZoo. Each invocation runs one **frame** via the `
 
 State tracked in `apps/molter-state.json`. The engine adapts each frame based on game count, average scores, playability metrics, community freshness, and category balance.
 
-## Ranking System (6 Dimensions + Runtime Health, 100 points)
+## Ranking System (Adaptive + Legacy, 100 points)
+
+**THE MEDIUM IS THE MESSAGE.** The ranking system adapts to whatever content it's scoring.
+
+### Adaptive Mode (default, LLM-required)
+
+| Dimension | Points | What it measures |
+|-----------|--------|-----------------|
+| Structural | 15 | DOCTYPE, viewport, title, inline CSS/JS (universal, regex) |
+| Scale | 10 | Line count, file size (universal, regex) |
+| Craft | 20 | How sophisticated are the techniques for what this IS (LLM-assessed) |
+| Completeness | 15 | Does this feel finished for what it's trying to be (LLM-assessed) |
+| Engagement | 25 | Would someone spend 10+ minutes with this (LLM-assessed) |
+| Polish | 15 | Animations, gradients, shadows, responsive, colors (universal, regex) |
+| Runtime Health | modifier | Broken apps get -5 to -15 penalty, healthy apps get +1 to +3 bonus |
+
+### Legacy Mode (`--legacy` flag, no LLM needed)
 
 | Dimension | Points | What it measures |
 |-----------|--------|-----------------|
@@ -185,7 +205,20 @@ State tracked in `apps/molter-state.json`. The engine adapts each frame based on
 | Completeness | 15 | Pause, game over, scoring, progression, title screen, HUD |
 | Playability | 25 | Feedback, difficulty, variety, controls, replayability |
 | Polish | 15 | Animations, gradients, shadows, responsive, colors, effects |
-| Runtime Health | modifier | Broken apps get -5 to -15 penalty, healthy apps get +1 to +3 bonus |
+
+## Content Identity Engine
+
+`scripts/content_identity.py` — the adaptive foundation. Given any HTML file, discovers what it IS and how to improve it.
+
+```bash
+python3 scripts/content_identity.py apps/audio-music/fm-synth.html          # Analyze one file
+python3 scripts/content_identity.py apps/games-puzzles/ --verbose            # Analyze a directory
+python3 scripts/content_identity.py apps/visual-art/fractal.html --json      # JSON output
+```
+
+**LLM-only.** If Copilot CLI is unavailable, returns None. No data is better than bad data.
+
+Returns: medium, purpose, techniques, strengths, weaknesses, improvement_vectors, craft/completeness/engagement scores. Cached in `apps/content-identities.json` (fingerprint-invalidated).
 
 ## Runtime Verification Engine
 
@@ -254,6 +287,39 @@ Push to `main`. GitHub Pages auto-deploys from root. `.github/workflows/autosort
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file and vice versa.
 - **No build process.** Everything is hand-editable static files.
 - **No static content.** All community comments, broadcast dialogue, NPC names, and generated text must come from Copilot CLI (Claude Opus 4.6) calls — never from hardcoded template pools. Every run produces 100% fresh, unique content. No caching between runs.
+
+## Universal Data Molt Engine
+
+`scripts/data_molt.py` can molt ANY content file in the ecosystem — not just HTML. It auto-discovers data files, analyzes staleness via LLM, and either routes to an existing generation script or rewrites content inline.
+
+```bash
+# Analyze all data files (dry run)
+python3 scripts/data_molt.py
+
+# Molt stale files
+python3 scripts/data_molt.py --molt --verbose
+
+# Molt a specific file
+python3 scripts/data_molt.py --file community.json --molt
+
+# Check data molt state
+python3 scripts/data_molt.py --status
+
+# Molt + commit + push
+python3 scripts/data_molt.py --molt --push
+```
+
+**How it works:**
+1. `discover()` — finds all non-HTML content files under `apps/`, skipping archives
+2. `analyze_staleness()` — sends file sample + ecosystem context to Copilot CLI, gets back `{stale, score, strategy, issues}`
+3. `route_strategy()` — known files (community.json, feed.json, rankings.json) route to their generation scripts; unknown files get LLM inline rewrite
+4. `validate_data_output()` — ensures schema preserved, no drastic size changes
+5. `archive_data_file()` — saves old version to `apps/archive/data/<stem>-v<N>.json`
+6. `track_data_molt()` — writes generation + history to `apps/data-molt-state.json`
+
+**Adaptive by design:** The engine doesn't need to know about new content types in advance. Drop any data file in `apps/` and the LLM will analyze and refresh it.
+
+**Tests:** `python3 -m pytest scripts/tests/test_data_molt.py -v` (19 tests, all mocked)
 
 ## Known Pitfalls
 

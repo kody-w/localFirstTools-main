@@ -1,23 +1,6 @@
 #!/usr/bin/env python3
-"""
-_write_evomon.py -- Autonomous EvoMon franchise molter.
-
-Scans all evomon-* apps, scores them on 6 quality dimensions,
-identifies the weakest, and triggers evolution via the evomon-molter
-Claude Code subagent.
-
-Usage:
-    python3 scripts/_write_evomon.py              # scan + report
-    python3 scripts/_write_evomon.py --molt       # scan + molt weakest
-    python3 scripts/_write_evomon.py --status      # show franchise health
-    python3 scripts/_write_evomon.py --dry-run     # preview without changes
-"""
-
-import argparse
-import json
+"""Write the EvoMon: 3D World Generator HTML game to apps/3d-immersive/."""
 import os
-import re
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

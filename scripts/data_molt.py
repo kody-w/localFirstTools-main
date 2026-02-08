@@ -18,7 +18,6 @@ Output: Refreshed data files + apps/data-molt-state.json
 """
 
 import json
-import hashlib
 import subprocess
 import sys
 import shutil
@@ -356,6 +355,10 @@ def molt_data_file(file_path, apps_dir, ecosystem_context=None, dry_run=False):
     apps_dir = Path(apps_dir)
     rel_name = file_path.name
 
+    # Use paths relative to apps_dir for portability (tests use temp dirs)
+    archive_dir = apps_dir / "archive" / "data"
+    state_file = apps_dir / "data-molt-state.json"
+
     log(f"Processing {rel_name}")
 
     # 1. Analyze staleness
@@ -421,9 +424,11 @@ def molt_data_file(file_path, apps_dir, ecosystem_context=None, dry_run=False):
                         "reason": validation["reason"]}
 
         # Archive
-        state = _load_state()
+        state = {}
+        if state_file.exists():
+            state = json.loads(state_file.read_text())
         gen = state.get("files", {}).get(rel_name, {}).get("generation", 0) + 1
-        archive_data_file(file_path, ARCHIVE_DIR, generation=gen)
+        archive_data_file(file_path, archive_dir, generation=gen)
 
         # Write refreshed content
         file_path.write_text(json.dumps(refreshed, indent=2) if isinstance(refreshed, (dict, list)) else str(refreshed))
@@ -435,9 +440,11 @@ def molt_data_file(file_path, apps_dir, ecosystem_context=None, dry_run=False):
         return {"action": "skipped", "file": rel_name, "reason": "Unknown method"}
 
     # 4. Track
-    state = _load_state()
+    state = {}
+    if state_file.exists():
+        state = json.loads(state_file.read_text())
     gen = state.get("files", {}).get(rel_name, {}).get("generation", 0) + 1
-    track_data_molt(STATE_FILE, rel_name, generation=gen,
+    track_data_molt(state_file, rel_name, generation=gen,
                     strategy=route["method"], issues=analysis.get("issues", []))
 
     return {"action": action, "file": rel_name, "analysis": analysis, "route": route}

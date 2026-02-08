@@ -6,10 +6,8 @@ and generation tracking for ANY content type in the ecosystem.
 """
 
 import json
-import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from datetime import datetime
@@ -185,7 +183,8 @@ class TestStalenessAnalysis:
             "stale": True, "score": 30, "strategy": "regenerate",
             "issues": ["Duplicate comments", "Missing apps"]
         })
-        with patch("data_molt.copilot_call", return_value=mock_response):
+        with patch("copilot_utils.copilot_call", return_value=mock_response), \
+             patch("copilot_utils.parse_llm_json", return_value=json.loads(mock_response)):
             result = analyze_staleness(
                 temp_ecosystem / "apps" / "community.json",
                 ecosystem_context={"total_apps": 2, "frame": 10}
@@ -201,7 +200,8 @@ class TestStalenessAnalysis:
             "stale": False, "score": 90, "strategy": "skip",
             "issues": []
         })
-        with patch("data_molt.copilot_call", return_value=mock_response):
+        with patch("copilot_utils.copilot_call", return_value=mock_response), \
+             patch("copilot_utils.parse_llm_json", return_value=json.loads(mock_response)):
             result = analyze_staleness(
                 temp_ecosystem / "apps" / "rankings.json",
                 ecosystem_context={"total_apps": 2, "frame": 10}
@@ -212,7 +212,7 @@ class TestStalenessAnalysis:
     def test_analysis_handles_llm_failure(self, temp_ecosystem):
         """If LLM fails, analysis should return conservative defaults."""
         from data_molt import analyze_staleness
-        with patch("data_molt.copilot_call", return_value=None):
+        with patch("copilot_utils.copilot_call", return_value=None):
             result = analyze_staleness(
                 temp_ecosystem / "apps" / "community.json",
                 ecosystem_context={"total_apps": 2, "frame": 10}
@@ -386,15 +386,17 @@ class TestIntegration:
         from data_molt import molt_data_file
         analysis = {"stale": True, "score": 20, "strategy": "molt",
                     "issues": ["Only 1 entry, outdated"]}
-        refreshed = json.dumps({
+        refreshed_data = {
             "format": "leaderboard-v1",
             "entries": [
                 {"player": "NeonWolf", "score": 1500},
                 {"player": "PixelStorm", "score": 1200},
             ]
-        })
+        }
+        refreshed_json = json.dumps(refreshed_data)
         with patch("data_molt.analyze_staleness", return_value=analysis), \
-             patch("data_molt.copilot_call", return_value=refreshed):
+             patch("copilot_utils.copilot_call", return_value=refreshed_json), \
+             patch("copilot_utils.parse_llm_json", return_value=refreshed_data):
             result = molt_data_file(
                 temp_ecosystem / "apps" / "leaderboard.json",
                 temp_ecosystem / "apps",

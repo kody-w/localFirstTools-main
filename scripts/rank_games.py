@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""Game Rankings Generator.
+"""App Rankings Generator.
 
-Scores all HTML apps on 6 quality dimensions + player ratings,
-and publishes rankings.json for the public leaderboard.
+Scores all HTML apps on universal + adaptive quality dimensions.
 
-Dimensions (120 raw points, normalized to 100):
+Universal dimensions (regex, fast, always available):
   - Structural (15): DOCTYPE, viewport, title, inline CSS/JS, no ext deps
   - Scale (10): Line count, file size
-  - Systems (20): Canvas, game loop, audio, saves, procedural, input, collision, particles, state machine, classes
-  - Completeness (15): Pause, game over, scoring, progression, title screen, HUD, endings, tutorial
-  - Playability (25): Feedback, difficulty, variety, controls, replayability, session design, juice
-  - Polish (15): Animations, gradients, shadows, responsive, colors, effects, smooth, accessibility
+  - Polish (15): Animations, gradients, shadows, responsive, colors, effects
 
-Player ratings loaded from apps/player-ratings.json if it exists (0-5 stars, crowd-sourced).
+Adaptive dimensions (LLM-assessed, content-aware):
+  - Craft (20): How sophisticated are the techniques for what this IS
+  - Completeness (15): Does this feel finished for what it's trying to be
+  - Engagement (25): Would someone spend 10+ minutes with this
+
+THE MEDIUM IS THE MESSAGE: a synth is scored on synth quality, a game on
+game quality, a drawing tool on drawing quality. The LLM figures out what
+quality means for each piece of content.
+
+If LLM is unavailable, only universal dimensions are scored (40/100 max).
+Legacy regex-based game dimensions (systems/completeness/playability) are
+kept as fallback when LLM is unavailable, labeled as "legacy" in output.
 
 Usage:
     python3 scripts/rank_games.py              # Generate rankings.json
-    python3 scripts/rank_games.py --verbose     # Show per-game breakdown
+    python3 scripts/rank_games.py --verbose     # Show per-app breakdown
     python3 scripts/rank_games.py --push        # Generate + commit + push
-
-Output: apps/rankings.json (served via GitHub Pages as CDN)
+    python3 scripts/rank_games.py --legacy      # Force legacy game-only scoring
 """
 
 import json
@@ -38,6 +44,15 @@ except ImportError:
         from runtime_verify import verify_app as _verify_app
     except ImportError:
         _verify_app = None
+
+try:
+    from content_identity import get_adaptive_scores as _get_adaptive_scores
+except ImportError:
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from content_identity import get_adaptive_scores as _get_adaptive_scores
+    except ImportError:
+        _get_adaptive_scores = None
 
 ROOT = Path(__file__).resolve().parent.parent
 APPS_DIR = ROOT / "apps"
@@ -277,27 +292,64 @@ def grade_from_score(score: int) -> str:
     else: return "F"
 
 
-def score_game(filepath: Path, content: str = None, player_ratings: dict = None) -> dict:
-    """Score a single game file across all 6 dimensions + player rating."""
+def score_game(filepath: Path, content: str = None, player_ratings: dict = None, legacy: bool = False) -> dict:
+    """Score a single app file across universal + adaptive dimensions.
+
+    When LLM is available and legacy=False, uses content_identity for
+    adaptive scoring (craft/completeness/engagement). Falls back to
+    legacy regex-based game dimensions when LLM is unavailable.
+    """
     if content is None:
         content = filepath.read_text(errors="replace")
 
     structural = score_structural(content)
     scale = score_scale(content)
-    systems = score_systems(content)
-    completeness = score_completeness(content)
-    playability = score_playability(content)
     polish = score_polish(content)
 
-    # Raw total out of 100 (15+10+20+15+25+15 = 100)
-    raw_total = (
-        structural["score"]
-        + scale["score"]
-        + systems["score"]
-        + completeness["score"]
-        + playability["score"]
-        + polish["score"]
-    )
+    # Adaptive scoring: LLM-assessed, content-aware dimensions
+    adaptive = None
+    if not legacy and _get_adaptive_scores is not None:
+        try:
+            adaptive = _get_adaptive_scores(filepath, content)
+        except Exception:
+            pass
+
+    if adaptive:
+        # Adaptive mode: universal (40) + LLM-assessed (60) = 100
+        craft = {"score": adaptive["craft_score"], "max": 20, "details": [f"medium:{adaptive.get('medium', 'unknown')}"]}
+        completeness = {"score": adaptive["completeness_score"], "max": 15, "details": ["llm-assessed"]}
+        engagement = {"score": adaptive["engagement_score"], "max": 25, "details": ["llm-assessed"]}
+        raw_total = (
+            structural["score"] + scale["score"] + polish["score"]
+            + craft["score"] + completeness["score"] + engagement["score"]
+        )
+        dimensions = {
+            "structural": structural,
+            "scale": scale,
+            "craft": craft,
+            "completeness": completeness,
+            "engagement": engagement,
+            "polish": polish,
+        }
+        scoring_mode = "adaptive"
+    else:
+        # Legacy mode: regex-based game dimensions
+        systems = score_systems(content)
+        completeness = score_completeness(content)
+        playability = score_playability(content)
+        raw_total = (
+            structural["score"] + scale["score"] + systems["score"]
+            + completeness["score"] + playability["score"] + polish["score"]
+        )
+        dimensions = {
+            "structural": structural,
+            "scale": scale,
+            "systems": systems,
+            "completeness": completeness,
+            "playability": playability,
+            "polish": polish,
+        }
+        scoring_mode = "legacy"
 
     # Runtime health modifier: penalize broken apps, reward verified-healthy ones
     # This catches games that score well on feature detection but crash on load
@@ -357,17 +409,11 @@ def score_game(filepath: Path, content: str = None, player_ratings: dict = None)
         "score": total,
         "algo_score": raw_total,
         "grade": grade_from_score(total),
+        "scoring_mode": scoring_mode,
         "lines": lines,
         "size_kb": round(size_kb, 1),
         "fingerprint": compute_fingerprint(content),
-        "dimensions": {
-            "structural": structural,
-            "scale": scale,
-            "systems": systems,
-            "completeness": completeness,
-            "playability": playability,
-            "polish": polish,
-        },
+        "dimensions": dimensions,
     }
     if player_data:
         result["player_rating"] = player_data
@@ -412,11 +458,15 @@ def load_manifest() -> dict:
     return {"categories": {}}
 
 
-def build_rankings(verbose: bool = False) -> dict:
+def build_rankings(verbose: bool = False, legacy: bool = False) -> dict:
     manifest = load_manifest()
     player_ratings = load_player_ratings()
     all_games = []
     category_stats = {}
+
+    if verbose:
+        mode_label = "legacy (regex)" if legacy else "adaptive (LLM + regex)"
+        print(f"  Scoring mode: {mode_label}\n")
 
     for cat_key, folder in ALL_CATEGORIES.items():
         cat_dir = APPS_DIR / folder
@@ -432,7 +482,7 @@ def build_rankings(verbose: bool = False) -> dict:
                 if len(content) < 500:
                     continue
 
-                result = score_game(f, content, player_ratings)
+                result = score_game(f, content, player_ratings, legacy=legacy)
                 result["category"] = cat_key
                 result["category_folder"] = folder
                 result["path"] = f"apps/{folder}/{f.name}"
@@ -442,28 +492,44 @@ def build_rankings(verbose: bool = False) -> dict:
                     dims = result["dimensions"]
                     pr = result.get("player_rating")
                     pr_str = f" R:{pr['avg']:.1f}({pr['count']})" if pr else ""
-                    print(
-                        f"  [{result['grade']}] {result['score']:3d}/100  "
-                        f"St:{dims['structural']['score']}/{dims['structural']['max']} "
-                        f"Sc:{dims['scale']['score']}/{dims['scale']['max']} "
-                        f"Sy:{dims['systems']['score']}/{dims['systems']['max']} "
-                        f"Co:{dims['completeness']['score']}/{dims['completeness']['max']} "
-                        f"Pl:{dims['playability']['score']}/{dims['playability']['max']} "
-                        f"Po:{dims['polish']['score']}/{dims['polish']['max']}"
-                        f"{pr_str}  "
-                        f"{result['title'][:35]}"
-                    )
+                    mode_tag = "A" if result.get("scoring_mode") == "adaptive" else "L"
+                    if "craft" in dims:
+                        print(
+                            f"  [{result['grade']}][{mode_tag}] {result['score']:3d}/100  "
+                            f"St:{dims['structural']['score']}/{dims['structural']['max']} "
+                            f"Sc:{dims['scale']['score']}/{dims['scale']['max']} "
+                            f"Cr:{dims['craft']['score']}/{dims['craft']['max']} "
+                            f"Co:{dims['completeness']['score']}/{dims['completeness']['max']} "
+                            f"En:{dims['engagement']['score']}/{dims['engagement']['max']} "
+                            f"Po:{dims['polish']['score']}/{dims['polish']['max']}"
+                            f"{pr_str}  "
+                            f"{result['title'][:35]}"
+                        )
+                    else:
+                        print(
+                            f"  [{result['grade']}][{mode_tag}] {result['score']:3d}/100  "
+                            f"St:{dims['structural']['score']}/{dims['structural']['max']} "
+                            f"Sc:{dims['scale']['score']}/{dims['scale']['max']} "
+                            f"Sy:{dims['systems']['score']}/{dims['systems']['max']} "
+                            f"Co:{dims['completeness']['score']}/{dims['completeness']['max']} "
+                            f"Pl:{dims['playability']['score']}/{dims['playability']['max']} "
+                            f"Po:{dims['polish']['score']}/{dims['polish']['max']}"
+                            f"{pr_str}  "
+                            f"{result['title'][:35]}"
+                        )
             except Exception as e:
                 if verbose:
                     print(f"  [ERR] {f.name}: {e}")
 
         if cat_games:
             scores = [g["score"] for g in cat_games]
-            play_scores = [g["dimensions"]["playability"]["score"] for g in cat_games]
+            # Engagement score (adaptive) or playability (legacy)
+            engage_key = "engagement" if "engagement" in cat_games[0].get("dimensions", {}) else "playability"
+            engage_scores = [g["dimensions"].get(engage_key, {}).get("score", 0) for g in cat_games]
             category_stats[cat_key] = {
                 "count": len(cat_games),
                 "avg_score": round(sum(scores) / len(scores), 1),
-                "avg_playability": round(sum(play_scores) / len(play_scores), 1),
+                "avg_engagement": round(sum(engage_scores) / len(engage_scores), 1),
                 "top_score": max(scores),
                 "folder": folder,
                 "title": manifest.get("categories", {}).get(cat_key, {}).get("title", cat_key),
@@ -490,8 +556,9 @@ def build_rankings(verbose: bool = False) -> dict:
         label = f"{bucket}-{bucket+9}"
         histogram[label] = histogram.get(label, 0) + 1
 
-    scores = [g["score"] for g in all_games]
-    play_scores = [g["dimensions"]["playability"]["score"] for g in all_games]
+    # Engagement scores (adaptive) or playability (legacy)
+    engage_key = "engagement" if all_games and "engagement" in all_games[0].get("dimensions", {}) else "playability"
+    engage_scores = [g["dimensions"].get(engage_key, {}).get("score", 0) for g in all_games]
 
     # Runtime health summary
     health_verdicts = {}
@@ -501,29 +568,40 @@ def build_rankings(verbose: bool = False) -> dict:
             v = rh["verdict"]
             health_verdicts[v] = health_verdicts.get(v, 0) + 1
 
-    # Top playability (best games to actually play)
-    by_playability = sorted(all_games, key=lambda g: g["dimensions"]["playability"]["score"], reverse=True)
-    top_playable = [
-        {"rank": i+1, "file": g["file"], "title": g["title"], "playability": g["dimensions"]["playability"]["score"],
+    # Scoring mode summary
+    mode_counts = {}
+    for g in all_games:
+        m = g.get("scoring_mode", "legacy")
+        mode_counts[m] = mode_counts.get(m, 0) + 1
+
+    # Top engagement (most compelling apps regardless of type)
+    by_engagement = sorted(all_games, key=lambda g: g["dimensions"].get(engage_key, {}).get("score", 0), reverse=True)
+    top_engaging = [
+        {"rank": i+1, "file": g["file"], "title": g["title"],
+         "engagement": g["dimensions"].get(engage_key, {}).get("score", 0),
+         "medium": g["dimensions"].get("craft", {}).get("details", ["unknown"])[0] if "craft" in g["dimensions"] else "legacy",
          "score": g["score"], "grade": g["grade"], "path": g["path"]}
-        for i, g in enumerate(by_playability[:20])
+        for i, g in enumerate(by_engagement[:20])
     ]
 
     rankings = {
         "generated": datetime.now().isoformat(),
         "total_apps": len(all_games),
         "has_player_ratings": bool(player_ratings),
+        "scoring_modes": mode_counts,
         "summary": {
             "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
             "median_score": sorted(scores)[len(scores) // 2] if scores else 0,
             "top_10_avg": round(sum(scores[:10]) / min(10, len(scores)), 1) if scores else 0,
-            "avg_playability": round(sum(play_scores) / len(play_scores), 1) if play_scores else 0,
+            "avg_engagement": round(sum(engage_scores) / len(engage_scores), 1) if engage_scores else 0,
             "grade_distribution": grade_dist,
             "score_histogram": histogram,
             "runtime_health": health_verdicts,
         },
         "categories": category_stats,
-        "top_playable": top_playable,
+        "top_engaging": top_engaging,
+        # Keep legacy key for backward compat
+        "top_playable": top_engaging,
         "rankings": all_games,
     }
 
@@ -533,28 +611,32 @@ def build_rankings(verbose: bool = False) -> dict:
 def main():
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
     push = "--push" in sys.argv
+    legacy = "--legacy" in sys.argv
 
     if verbose:
-        print("Scanning all app categories (6 dimensions + player ratings)...\n")
+        print("Scanning all app categories...\n")
 
-    rankings = build_rankings(verbose=verbose)
+    rankings = build_rankings(verbose=verbose, legacy=legacy)
 
     OUTPUT.write_text(json.dumps(rankings, indent=2))
-    print(f"\nWrote {OUTPUT} ({rankings['total_apps']} apps ranked)")
+    modes = rankings.get("scoring_modes", {})
+    mode_str = ", ".join(f"{k}:{v}" for k, v in modes.items())
+    print(f"\nWrote {OUTPUT} ({rankings['total_apps']} apps ranked, modes: {mode_str})")
     print(f"  Avg: {rankings['summary']['avg_score']} | "
           f"Median: {rankings['summary']['median_score']} | "
           f"Top 10 avg: {rankings['summary']['top_10_avg']}")
-    print(f"  Avg Playability: {rankings['summary']['avg_playability']}/25")
+    print(f"  Avg Engagement: {rankings['summary']['avg_engagement']}/25")
     print(f"  Grades: {rankings['summary']['grade_distribution']}")
-    print(f"  Player ratings: {'loaded' if rankings['has_player_ratings'] else 'none (create apps/player-ratings.json)'}")
+    print(f"  Player ratings: {'loaded' if rankings['has_player_ratings'] else 'none'}")
     rh = rankings['summary'].get('runtime_health', {})
     if rh:
         print(f"  Runtime Health: healthy:{rh.get('healthy',0)} fragile:{rh.get('fragile',0)} broken:{rh.get('broken',0)}")
 
-    if rankings["top_playable"]:
-        print(f"\n  Most Playable:")
-        for g in rankings["top_playable"][:5]:
-            print(f"    [{g['grade']}] Play:{g['playability']}/25  {g['title'][:45]}")
+    if rankings.get("top_engaging"):
+        print(f"\n  Most Engaging:")
+        for g in rankings["top_engaging"][:5]:
+            medium = g.get("medium", "")
+            print(f"    [{g['grade']}] Engage:{g['engagement']}/25  {g['title'][:35]}  ({medium})")
 
     if push:
         import subprocess
@@ -562,7 +644,7 @@ def main():
         msg = (
             f"chore: update rankings.json ({rankings['total_apps']} apps scored)\n\n"
             f"Avg: {rankings['summary']['avg_score']} | "
-            f"Playability: {rankings['summary']['avg_playability']}/25 | "
+            f"Engagement: {rankings['summary']['avg_engagement']}/25 | "
             f"Top 10: {rankings['summary']['top_10_avg']}\n"
             f"Grades: S:{dist.get('S',0)} A:{dist.get('A',0)} "
             f"B:{dist.get('B',0)} C:{dist.get('C',0)} "

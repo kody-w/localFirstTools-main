@@ -3,31 +3,416 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fabric Sculptor</title>
-    <meta name="description" content="Interactive cloth physics simulator with wind, gravity, and real-time manipulation">
+    <title>Fabric Sculptor: Challenge Mode</title>
+    <meta name="description" content="A cloth physics challenge game with verlet integration, 15+ levels, 5 cloth types, hazards, abilities, and sandbox mode">
+    <meta name="rappterzoo:author" content="RappterZoo">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="particle-physics">
+    <meta name="rappterzoo:tags" content="physics,cloth,simulation,canvas,interactive,game,audio,particles">
+    <meta name="rappterzoo:type" content="game">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="2">
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: linear-gradient(180deg, #1a1520 0%, #0a0810 100%); min-height: 100vh; font-family: monospace; color: #c0a0d0; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; cursor: grab; }
-        #canvas:active { cursor: grabbing; }
-        #controls {
-            position: fixed; top: 20px; left: 20px; background: rgba(30,20,40,0.95);
-            padding: 20px; border-radius: 10px; border: 1px solid rgba(180,120,220,0.3);
-            z-index: 100;
+        body {
+            background: linear-gradient(180deg, #1a1028 0%, #0a0610 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            color: #d0b8e8;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
         }
-        h3 { margin-bottom: 15px; color: #e0c0ff; }
-        .control-row { margin: 10px 0; }
-        label { display: block; font-size: 11px; margin-bottom: 5px; opacity: 0.8; }
-        input[type="range"] { width: 140px; }
-        .value { float: right; color: #d0a0f0; font-size: 12px; }
-        button {
-            display: block; width: 100%; padding: 8px; margin: 8px 0;
-            background: rgba(100,60,140,0.5); border: 1px solid rgba(180,120,220,0.4);
-            color: #c0a0d0; cursor: pointer; border-radius: 6px;
+        #gameCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            cursor: crosshair;
+            z-index: 1;
         }
-        button:hover { background: rgba(120,80,160,0.6); }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.5; z-index: 100; }
+        .overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            background: rgba(8, 4, 16, 0.92);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+        .overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .panel {
+            background: linear-gradient(135deg, rgba(40, 20, 70, 0.97) 0%, rgba(20, 10, 40, 0.98) 100%);
+            border: 2px solid rgba(180, 130, 255, 0.4);
+            border-radius: 20px;
+            padding: 40px 50px;
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 0 60px rgba(120, 60, 200, 0.3), inset 0 0 30px rgba(100, 50, 180, 0.1);
+            animation: panelGlow 3s ease-in-out infinite;
+        }
+        @keyframes panelGlow {
+            0%, 100% { box-shadow: 0 0 60px rgba(120, 60, 200, 0.3), inset 0 0 30px rgba(100, 50, 180, 0.1); }
+            50% { box-shadow: 0 0 80px rgba(140, 80, 220, 0.4), inset 0 0 40px rgba(120, 60, 200, 0.15); }
+        }
+        .panel h1 {
+            font-size: 42px;
+            background: linear-gradient(135deg, #e0b0ff, #ffd700, #e0b0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            text-shadow: none;
+            animation: titleShimmer 4s ease-in-out infinite;
+            background-size: 200% 200%;
+        }
+        @keyframes titleShimmer {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        .panel h2 {
+            font-size: 28px;
+            color: #e0c0ff;
+            margin-bottom: 15px;
+        }
+        .panel h3 {
+            font-size: 18px;
+            color: #c8a8e0;
+            margin-bottom: 10px;
+        }
+        .panel p {
+            color: #b0a0c8;
+            font-size: 15px;
+            margin: 10px 0;
+            line-height: 1.5;
+        }
+        .subtitle {
+            font-size: 16px;
+            color: #c8a0e0;
+            margin-bottom: 25px;
+            font-style: italic;
+        }
+        .btn {
+            display: inline-block;
+            padding: 14px 36px;
+            margin: 8px;
+            background: linear-gradient(135deg, rgba(120, 60, 200, 0.6) 0%, rgba(80, 40, 160, 0.6) 100%);
+            border: 1px solid rgba(180, 130, 255, 0.5);
+            color: #e8d0ff;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            border-radius: 12px;
+            transition: all 0.25s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        .btn:hover {
+            background: linear-gradient(135deg, rgba(140, 80, 220, 0.8) 0%, rgba(100, 50, 180, 0.8) 100%);
+            border-color: rgba(200, 150, 255, 0.7);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(120, 60, 200, 0.4);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        .btn-gold {
+            background: linear-gradient(135deg, rgba(200, 160, 40, 0.7) 0%, rgba(160, 120, 20, 0.7) 100%);
+            border-color: rgba(255, 215, 0, 0.6);
+            color: #fff8e0;
+        }
+        .btn-gold:hover {
+            background: linear-gradient(135deg, rgba(220, 180, 60, 0.9) 0%, rgba(180, 140, 40, 0.9) 100%);
+            box-shadow: 0 6px 20px rgba(200, 160, 40, 0.4);
+        }
+        .btn-red {
+            background: linear-gradient(135deg, rgba(200, 40, 40, 0.6) 0%, rgba(160, 20, 20, 0.6) 100%);
+            border-color: rgba(255, 100, 100, 0.5);
+        }
+        .btn-red:hover {
+            background: linear-gradient(135deg, rgba(220, 60, 60, 0.8) 0%, rgba(180, 40, 40, 0.8) 100%);
+        }
+        .btn-small {
+            padding: 8px 20px;
+            font-size: 13px;
+        }
+        .difficulty-selector {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin: 15px 0;
+        }
+        .diff-btn {
+            padding: 10px 24px;
+            border-radius: 10px;
+            border: 2px solid rgba(180, 130, 255, 0.3);
+            background: rgba(40, 20, 70, 0.5);
+            color: #c0a0e0;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .diff-btn.selected {
+            border-color: #ffd700;
+            background: rgba(200, 160, 40, 0.3);
+            color: #ffd700;
+            box-shadow: 0 0 15px rgba(200, 160, 40, 0.2);
+        }
+        .diff-btn:hover { border-color: rgba(200, 160, 255, 0.6); }
+        .stars {
+            font-size: 28px;
+            margin: 10px 0;
+            letter-spacing: 4px;
+        }
+        .star-filled { color: #ffd700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        .star-empty { color: rgba(100, 80, 130, 0.5); }
+        .score-display {
+            font-size: 32px;
+            color: #ffd700;
+            font-weight: bold;
+            margin: 10px 0;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 15px 0;
+            text-align: left;
+        }
+        .stat-label { color: #a090b8; font-size: 13px; }
+        .stat-value { color: #e0c0ff; font-size: 13px; text-align: right; }
+        .hud {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 500;
+            background: linear-gradient(180deg, rgba(10, 5, 20, 0.85) 0%, transparent 100%);
+            pointer-events: none;
+        }
+        .hud-section {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .hud-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .hud-label {
+            font-size: 10px;
+            color: #8070a0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .hud-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #e0c0ff;
+        }
+        .hud-value.gold { color: #ffd700; }
+        .hud-value.red { color: #ff6060; }
+        .hud-value.green { color: #60ff80; }
+        .combo-display {
+            font-size: 14px;
+            color: #ffd700;
+            animation: comboPulse 0.5s ease;
+        }
+        @keyframes comboPulse {
+            0% { transform: scale(1.5); opacity: 0.5; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .ability-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 500;
+            pointer-events: none;
+        }
+        .ability-slot {
+            width: 60px;
+            height: 60px;
+            border: 2px solid rgba(180, 130, 255, 0.4);
+            border-radius: 12px;
+            background: rgba(20, 10, 40, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .ability-icon { font-size: 22px; }
+        .ability-key {
+            font-size: 9px;
+            color: #8070a0;
+            margin-top: 2px;
+        }
+        .ability-cooldown {
+            position: absolute;
+            bottom: 0; left: 0;
+            width: 100%;
+            background: rgba(120, 60, 200, 0.4);
+            transition: height 0.1s linear;
+        }
+        .ability-slot.ready { border-color: #ffd700; box-shadow: 0 0 10px rgba(255, 215, 0, 0.2); }
+        .ability-slot.on-cooldown { opacity: 0.5; }
+        .integrity-bar {
+            width: 120px;
+            height: 8px;
+            background: rgba(40, 20, 70, 0.6);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .integrity-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff4040, #ffaa00, #40ff60);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .tutorial-step {
+            margin: 15px 0;
+            padding: 15px;
+            background: rgba(60, 30, 100, 0.3);
+            border-radius: 10px;
+            border-left: 3px solid #ffd700;
+        }
+        .tutorial-step h4 {
+            color: #ffd700;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .tutorial-step p {
+            font-size: 13px;
+            margin: 0;
+        }
+        .level-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin: 15px 0;
+        }
+        .level-cell {
+            padding: 8px;
+            border: 1px solid rgba(120, 80, 180, 0.3);
+            border-radius: 8px;
+            background: rgba(30, 15, 50, 0.5);
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .level-cell:hover { border-color: rgba(180, 130, 255, 0.6); background: rgba(50, 25, 80, 0.5); }
+        .level-cell.locked { opacity: 0.3; cursor: default; }
+        .level-cell.completed { border-color: #ffd700; }
+        .level-cell .level-num { font-weight: bold; color: #e0c0ff; }
+        .level-cell .level-stars { font-size: 10px; }
+        .env-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-bottom: 4px;
+        }
+        .env-wind { background: rgba(100, 200, 255, 0.2); color: #80d0ff; }
+        .env-rain { background: rgba(80, 120, 255, 0.2); color: #90a0ff; }
+        .env-zero { background: rgba(200, 100, 255, 0.2); color: #d080ff; }
+        .env-water { background: rgba(40, 180, 200, 0.2); color: #60d0e0; }
+        .env-fire { background: rgba(255, 100, 40, 0.2); color: #ff8040; }
+        .cloth-preview {
+            display: inline-block;
+            width: 12px; height: 12px;
+            border-radius: 3px;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        .sandbox-controls {
+            position: fixed;
+            top: 60px; left: 15px;
+            z-index: 500;
+            background: rgba(20, 10, 40, 0.9);
+            border: 1px solid rgba(120, 80, 180, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            width: 200px;
+            pointer-events: all;
+        }
+        .sandbox-controls h4 {
+            color: #e0c0ff;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .sandbox-row {
+            margin: 8px 0;
+        }
+        .sandbox-row label {
+            display: block;
+            font-size: 11px;
+            color: #a090b8;
+            margin-bottom: 3px;
+        }
+        .sandbox-row input[type="range"] {
+            width: 100%;
+            accent-color: #a060e0;
+        }
+        .sandbox-row select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(40, 20, 70, 0.8);
+            border: 1px solid rgba(120, 80, 180, 0.4);
+            color: #d0b8e8;
+            border-radius: 6px;
+            font-family: inherit;
+        }
+        @keyframes screenShake {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(-4px, 2px); }
+            50% { transform: translate(3px, -3px); }
+            75% { transform: translate(-2px, 4px); }
+        }
+        .shaking { animation: screenShake 0.15s ease-in-out; }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in { animation: fadeInUp 0.5s ease-out; }
+        @keyframes floatScore {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-60px) scale(1.4); }
+        }
+        @media (max-width: 768px) {
+            .panel { padding: 25px 20px; }
+            .panel h1 { font-size: 28px; }
+            .btn { padding: 12px 24px; font-size: 14px; }
+            .level-grid { grid-template-columns: repeat(3, 1fr); }
+            .hud { padding: 8px 12px; }
+            .hud-value { font-size: 16px; }
+            .ability-slot { width: 48px; height: 48px; }
+            .ability-icon { font-size: 18px; }
+        }
+        @media (max-width: 480px) {
+            .panel h1 { font-size: 22px; }
+            .level-grid { grid-template-columns: repeat(3, 1fr); }
+            .sandbox-controls { width: 160px; padding: 10px; }
+        }
     </style>
 </head>
 <body>

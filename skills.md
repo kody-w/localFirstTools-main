@@ -552,3 +552,218 @@ Posts can embed identity via `rappterzoo:*` meta tags. The canonical post templa
 **Portals** link posts together — set `rappterzoo:portals` to comma-separated filenames. The feed renders portal links on cards.
 
 **Seed** enables deterministic randomness — the frame compiler uses `rappterzoo:seed` to produce reproducible output across generations.
+
+---
+
+## Skill 12: Autonomous Cron Agent — The Self-Running Ecosystem
+
+This skill defines a **fully autonomous agent** that can be invoked on a schedule (cron, GitHub Actions, systemd timer, or any scheduler). Each invocation is self-contained — it reads current state, decides what to do, executes, and publishes results without human input.
+
+### Invocation
+
+The agent runs by executing a single entry point that orchestrates everything:
+
+```bash
+# One autonomous frame (the core loop)
+python3 scripts/data_molt.py --molt --push && \
+python3 scripts/autonomous_frame.py
+```
+
+Or via Claude Code CLI:
+```bash
+claude --agent molter-engine --allowedTools "Read,Write,Edit,Bash,Grep,Glob,Task" \
+  --message "Run one frame of the Molter Engine" \
+  --model claude-opus-4.6 \
+  --yes
+```
+
+### Cron Schedule Examples
+
+```bash
+# Run every 6 hours
+0 */6 * * * cd /path/to/localFirstTools-main && python3 scripts/autonomous_frame.py >> /var/log/rappterzoo-cron.log 2>&1
+
+# Run daily at 3am
+0 3 * * * cd /path/to/localFirstTools-main && python3 scripts/autonomous_frame.py >> /var/log/rappterzoo-cron.log 2>&1
+
+# GitHub Actions (preferred — no local machine required)
+# See .github/workflows/autonomous-frame.yml
+```
+
+### GitHub Actions Workflow
+
+```yaml
+# .github/workflows/autonomous-frame.yml
+name: Autonomous Frame
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch: {}       # Manual trigger
+
+jobs:
+  frame:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: python3 scripts/autonomous_frame.py
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Frame Lifecycle (autonomous_frame.py)
+
+The autonomous frame script runs this pipeline in order. Each step is resilient — if one fails, the frame continues with the rest.
+
+```
+Phase 1: OBSERVE
+  ├── Read apps/molter-state.json (frame counter, history)
+  ├── Read apps/manifest.json (app inventory)
+  ├── Read apps/rankings.json (quality scores)
+  ├── Read apps/community.json (social data)
+  └── Count HTML files on disk, detect empty/broken files
+
+Phase 2: DECIDE
+  ├── Score staleness of each data file (timestamps vs now)
+  ├── Check category balance (any category < 10% of total?)
+  ├── Check quality floor (how many apps below score 40?)
+  ├── Check community freshness (days since last regeneration)
+  └── Build action plan: {cleanup, create, molt, score, socialize, broadcast, data_molt}
+
+Phase 3: CLEANUP
+  └── Delete 0-byte HTML files (safe — they're never in manifest)
+
+Phase 4: DATA MOLT (the universal content refresher)
+  ├── python3 scripts/data_molt.py --molt --verbose
+  ├── Analyzes ALL data files for staleness via LLM
+  ├── Routes known files to generation scripts
+  ├── Routes unknown files to LLM inline rewrite
+  └── Archives old versions, tracks generations
+
+Phase 5: HTML MOLT (improve weak apps)
+  ├── Read rankings, find apps with lowest scores
+  ├── Prioritize: unmolted apps first, then stalest, then lowest quality
+  ├── python3 scripts/molt.py <app> --verbose  (up to 3 apps per frame)
+  └── Validate each molt (DOCTYPE, JS syntax, size ratio)
+
+Phase 6: SCORE
+  └── python3 scripts/rank_games.py --verbose
+
+Phase 7: SOCIALIZE
+  └── python3 scripts/generate_community.py --verbose
+
+Phase 8: BROADCAST
+  ├── python3 scripts/generate_broadcast.py --frame $FRAME --verbose
+  └── python3 scripts/generate_broadcast_audio.py --episode latest
+
+Phase 9: PUBLISH
+  ├── git add (specific files only — never git add -A)
+  ├── git commit -m "feat: Molter Engine frame N — [summary]"
+  └── git push
+
+Phase 10: LOG
+  └── Update apps/molter-state.json with frame results
+```
+
+### Decision Matrix
+
+The agent uses these rules to decide what to do each frame. All conditions are evaluated — multiple actions can fire in one frame.
+
+| Condition | Action | Max per frame |
+|---|---|---|
+| 0-byte HTML files exist | DELETE them | Unlimited |
+| Any data file stale (>3 days old) | DATA MOLT that file | All stale files |
+| Apps with score < 40 | MOLT worst 3 | 3 |
+| Apps never molted (generation 0) | MOLT oldest unmolted | 2 |
+| Average ecosystem score < 55 | MOLT weakest 5 | 5 |
+| Rankings > 24h old | RESCORE all apps | 1 |
+| Community > 48h old | REGENERATE community | 1 |
+| No broadcast for this frame | GENERATE episode | 1 |
+| Total apps < 600 | CREATE new apps (via subagents) | 5 |
+
+### Script Inventory (what the agent can invoke)
+
+**Data Pipeline (deterministic, safe to run anytime):**
+| Script | Purpose | Side Effects |
+|---|---|---|
+| `rank_games.py` | Score all apps → `rankings.json` | Overwrites rankings |
+| `compile_graph.py` | Build app relationship graph → `content-graph.json` | Overwrites graph |
+| `sync-manifest.py` | Sync HTML meta tags → `manifest.json` | Overwrites manifest |
+| `data_slosh_scan.py` | Quality scan → `data-slosh-report.md` | Overwrites report |
+| `runtime_verify.py` | Static + browser validation → stdout | None |
+
+**Content Generation (requires Copilot CLI / LLM):**
+| Script | Purpose | Side Effects |
+|---|---|---|
+| `generate_community.py` | Fresh community data → `community.json` | Overwrites community |
+| `generate_broadcast.py` | Podcast episode → `feed.json` + `lore.json` | Appends episode |
+| `generate_broadcast_audio.py` | Episode audio → WAV files | Creates audio files |
+| `data_molt.py --molt` | Refresh ALL stale data files | Overwrites + archives |
+
+**Evolution (requires Copilot CLI / LLM):**
+| Script | Purpose | Side Effects |
+|---|---|---|
+| `molt.py <file>` | Improve one HTML app | Overwrites + archives |
+| `compile-frame.py --file <path>` | Next generation of a post | Overwrites + archives |
+| `recombine.py` | Breed new apps from top performers | Creates new files |
+
+**State:**
+| File | Purpose | Updated by |
+|---|---|---|
+| `apps/molter-state.json` | Frame counter + history | autonomous_frame.py |
+| `apps/data-molt-state.json` | Data molt generations | data_molt.py |
+| `apps/manifest.json` | App registry | molt.py, autosort.py, sync-manifest.py |
+| `apps/rankings.json` | Quality scores | rank_games.py |
+| `apps/community.json` | Social data | generate_community.py |
+| `apps/broadcasts/feed.json` | Podcast episodes | generate_broadcast.py |
+| `apps/broadcasts/lore.json` | Episode continuity | generate_broadcast.py |
+
+### Safety Rules for Autonomous Operation
+
+1. **Never `git add -A`** — always stage specific files by path
+2. **Never delete non-empty files** — only delete 0-byte HTML stubs
+3. **Always validate JSON** after writing (`python3 -c "import json; json.load(open(...))"`)
+4. **Always validate HTML** after molting (DOCTYPE, `<title>`, no external deps, JS syntax check)
+5. **Archive before overwrite** — every molt archives the previous version
+6. **Rate limit LLM calls** — max 3 concurrent molt subagents, max 5 concurrent create subagents
+7. **Fail gracefully** — if one step fails, log it and continue to the next phase
+8. **Push only on success** — if critical steps (SCORE, MANIFEST) fail, don't push
+9. **Max 50 frame history** — trim `molter-state.json` to prevent unbounded growth
+10. **Idempotent** — running the same frame twice should not corrupt state
+
+### Content Freshness Principle
+
+> **Every run is a new data slosh.** No content is reused. No caching between runs. All community comments, broadcast dialogue, and generated text come fresh from Copilot CLI (Claude Opus 4.6) every invocation. The LLM receives actual current app data (scores, tags, descriptions) and generates unique, contextual content.
+
+### Monitoring
+
+Check the state of the autonomous system:
+
+```bash
+# Current frame and history
+python3 scripts/data_molt.py --status
+
+# Last frame details
+python3 -c "
+import json
+s = json.load(open('apps/molter-state.json'))
+print(f'Frame: {s[\"frame\"]}')
+h = s['history'][-1] if s['history'] else {}
+print(f'Last: {h.get(\"timestamp\", \"never\")}')
+print(f'Actions: {h.get(\"actions\", {})}')
+print(f'Metrics: {h.get(\"metrics\", {})}')
+"
+
+# Rankings summary
+python3 -c "
+import json
+r = json.load(open('apps/rankings.json'))
+print(f'Apps: {r[\"meta\"][\"total_apps\"]}')
+print(f'Avg: {r[\"meta\"][\"avg_score\"]}')
+g = r['meta']['grade_distribution']
+print(f'S:{g.get(\"S\",0)} A:{g.get(\"A\",0)} B:{g.get(\"B\",0)} C:{g.get(\"C\",0)} D:{g.get(\"D\",0)} F:{g.get(\"F\",0)}')
+"
+```
