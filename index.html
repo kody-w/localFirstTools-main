@@ -85,6 +85,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
 .ghost-poke .gp-from{color:var(--text2);font-weight:600}
 .ghost-empty{font-size:.58rem;color:var(--text3);font-style:italic;padding:.15rem 0}
 
+/* Ghost Is Here Badge */
+.ghost-here-badge{display:inline-flex;align-items:center;gap:.3rem;background:linear-gradient(135deg,#ff4500,#ff6a00);color:#fff;font-size:.55rem;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:.15rem .5rem;border-radius:10px;animation:ghost-glow 2s ease-in-out infinite;margin-left:.4rem;vertical-align:middle}
+@keyframes ghost-glow{0%,100%{box-shadow:0 0 4px rgba(255,69,0,.4),0 0 8px rgba(255,69,0,.2)}50%{box-shadow:0 0 8px rgba(255,69,0,.7),0 0 20px rgba(255,69,0,.3)}}
+.ghost-here-badge .ghb-dot{width:5px;height:5px;border-radius:50%;background:#fff;animation:ghost-pulse 1.5s infinite}
+.post.ghost-spotlight{border-color:var(--accent)!important;box-shadow:0 0 12px rgba(255,69,0,.15),0 0 4px rgba(255,69,0,.1)}
+
 /* ===== SORT TABS ===== */
 .sort-bar{width:100%;max-width:var(--card-max);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:0;margin-bottom:.75rem;overflow:hidden}
 .sort-tab{padding:.6rem 1rem;font-size:.75rem;font-weight:700;color:var(--text2);cursor:pointer;border:none;background:none;display:flex;align-items:center;gap:.3rem;transition:color .1s}
@@ -487,10 +493,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
   }
 
   /* GHOST TRACKER */
-  var ghostState=null;
+  var ghostState=null, ghostAppTitle=null;
   function fetchGhostState(){
     fetch('apps/ghost-state.json').then(function(r){return r.json()}).then(function(gs){
       ghostState=gs;renderGhostTracker(gs);
+      var newTitle=null;
+      if(gs.creature&&gs.creature.status==='active'){
+        var hist=gs.history||[];
+        for(var i=hist.length-1;i>=0;i--){
+          if(hist[i].action==='open'){newTitle=hist[i].detail;break}
+        }
+      }
+      if(newTitle!==ghostAppTitle){ghostAppTitle=newTitle;run()}
     }).catch(function(){});
   }
   function renderGhostTracker(gs){
@@ -630,15 +644,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
     var g=document.getElementById('feed'),e=document.getElementById('empty');
     if(!filtered.length){g.innerHTML='';e.style.display='';return}
     e.style.display='none';
+    // Ghost spectator: find the app the ghost is currently viewing
+    var ghostIdx=-1;
+    if(ghostAppTitle){
+      for(var gi=0;gi<filtered.length;gi++){
+        if(filtered[gi].t===ghostAppTitle){ghostIdx=gi;break}
+      }
+    }
     var frag=document.createDocumentFragment();
+    // If ghost is viewing an app, render it first
+    if(ghostIdx>0){renderPost(frag,filtered[ghostIdx],ghostIdx,true)}
     for(var i=0;i<filtered.length;i++){
-      var a=filtered[i];
-      var el=document.createElement('div');el.className='post';el.dataset.idx=String(i);
+      if(i===ghostIdx&&ghostIdx>0)continue;
+      renderPost(frag,filtered[i],i,i===ghostIdx&&ghostIdx===0);
+    }
+    g.innerHTML='';g.appendChild(frag);
+  }
+
+  function renderPost(frag,a,i,isGhostHere){
+      var el=document.createElement('div');el.className='post'+(isGhostHere?' ghost-spotlight':'');el.dataset.idx=String(i);
       var votes=Math.max(1,a.gen*10+(a.ft?25:0)+(a.archiveCount||0)*5+Math.floor(a.avgRating*8)+a.commentCount*2);
       var isHot=a.gen>0||a.ft||a.avgRating>=4;
       var tagsHtml='';for(var t=0;t<Math.min(a.tags.length,4);t++)tagsHtml+='<span>'+esc(a.tags[t])+'</span>';
       var flairColor=FLAIR_COLORS[a.cat]||'#666';
       var genHtml=a.gen?'<span class="gen-badge">Gen '+a.gen+'</span>':'';
+      var ghostBadge=isGhostHere?'<span class="ghost-here-badge"><span class="ghb-dot"></span>GHOST IS HERE</span>':'';
       var timeAgo=a.lastMolted?'evolved '+a.lastMolted:a.cr?'created '+a.cr:'';
       var authorName=getPlayerForApp(a.stem);
       var starHtml=a.avgRating?'<span class="star-inline">\u2605 '+a.avgRating.toFixed(1)+'</span>':'';
@@ -646,15 +676,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
       el.innerHTML=
         '<div class="vote-col"><button class="vote-btn" title="Upvote">\u25B2</button><span class="vote-count'+(isHot?' hot':'')+'">'+votes+'</span><button class="vote-btn" title="Downvote">\u25BC</button></div>'+
         '<div class="post-body">'+
-          '<div class="post-meta"><span class="post-flair" style="background:'+flairColor+'">'+esc(a.catTitle)+'</span> <span>by <span class="comment-author" data-author="'+esc(authorName)+'">'+esc(authorName)+'</span></span>'+(timeAgo?' \u00B7 <span>'+esc(timeAgo)+'</span>':'')+' '+genHtml+'</div>'+
+          '<div class="post-meta"><span class="post-flair" style="background:'+flairColor+'">'+esc(a.catTitle)+'</span> <span>by <span class="comment-author" data-author="'+esc(authorName)+'">'+esc(authorName)+'</span></span>'+(timeAgo?' \u00B7 <span>'+esc(timeAgo)+'</span>':'')+' '+genHtml+ghostBadge+'</div>'+
           '<a class="post-title" href="#" data-idx="'+i+'">'+esc(a.t)+'</a>'+
           '<p class="post-desc">'+esc(a.d)+'</p>'+
           '<div class="post-tags">'+tagsHtml+'</div>'+
           '<div class="post-footer"><button data-action="open" data-idx="'+i+'">\u25B6 Play</button><button data-action="detail" data-idx="'+i+'">\uD83D\uDCAC Comments</button>'+starHtml+cmtHtml+'<span>'+esc(a.cx)+'</span></div>'+
         '</div>';
       frag.appendChild(el);
-    }
-    g.innerHTML='';g.appendChild(frag);
   }
 
   function getPlayerForApp(stem){
