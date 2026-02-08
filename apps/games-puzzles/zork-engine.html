@@ -3,493 +3,1240 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zork Engine - Text Adventure</title>
+    <title>Zork Engine - The Sunken Archive</title>
+    <meta name="rappterzoo:author" content="molter-engine">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="games_puzzles">
+    <meta name="rappterzoo:tags" content="text-adventure,game,audio,rpg,puzzle">
+    <meta name="rappterzoo:type" content="game">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="2">
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background-color: #1a1a1a;
+            background: #0c0c0c;
             color: #33ff33;
             font-family: 'Courier New', Courier, monospace;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
             height: 100vh;
-            box-sizing: border-box;
-        }
-        #game-container {
-            width: 800px;
-            max-width: 100%;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            overflow: hidden;
+        }
+        /* CRT scanline overlay */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.15) 2px,
+                rgba(0,0,0,0.15) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+        /* CRT glow */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.4) 100%);
+            pointer-events: none;
+            z-index: 999;
+        }
+        #header {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: rgba(20,60,20,0.5);
+            border-bottom: 1px solid rgba(51,255,51,0.2);
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+        #header .stat { color: #88ff88; }
+        #header .label { color: #66aa66; }
+        #game-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 900px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 20px;
+            overflow: hidden;
         }
         #output {
-            flex-grow: 1;
+            flex: 1;
             overflow-y: auto;
-            white-space: pre-wrap;
-            padding-bottom: 20px;
+            padding: 15px 0;
             scrollbar-width: thin;
-            scrollbar-color: #33ff33 #1a1a1a;
+            scrollbar-color: #33ff33 #0c0c0c;
+            line-height: 1.5;
         }
+        #output::-webkit-scrollbar { width: 6px; }
+        #output::-webkit-scrollbar-track { background: #0c0c0c; }
+        #output::-webkit-scrollbar-thumb { background: #33ff33; border-radius: 3px; }
+        .room-title { color: #ffffff; font-weight: bold; font-size: 1.2em; margin-top: 15px; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+        .description { color: #33ff33; margin: 5px 0; }
+        .items { color: #ffff33; margin: 3px 0; }
+        .exits { color: #33ffff; margin: 3px 0; }
+        .error { color: #ff4444; }
+        .success { color: #44ff44; }
+        .combat { color: #ff8844; }
+        .lore { color: #cc88ff; font-style: italic; }
+        .system { color: #888888; }
+        .prompt-echo { color: #66aa66; margin-top: 10px; }
+        .achievement { color: #ffdd44; font-weight: bold; }
+        .health-bar { color: #ff4444; }
         #input-area {
             display: flex;
-            border-top: 1px solid #33ff33;
-            padding-top: 10px;
+            border-top: 1px solid rgba(51,255,51,0.3);
+            padding: 12px 0;
+            flex-shrink: 0;
         }
-        #prompt {
-            margin-right: 10px;
-            font-weight: bold;
-        }
-        #command-input {
-            flex-grow: 1;
+        #prompt { margin-right: 8px; font-weight: bold; color: #44ff44; }
+        #cmd {
+            flex: 1;
             background: transparent;
             border: none;
             color: #33ff33;
             font-family: inherit;
             font-size: 16px;
             outline: none;
+            caret-color: #33ff33;
         }
-        .room-title {
-            font-weight: bold;
-            color: #fff;
-            margin-top: 20px;
-            margin-bottom: 5px;
-            font-size: 1.2em;
+        #cmd::placeholder { color: rgba(51,255,51,0.3); }
+        /* Map overlay */
+        #map-overlay {
+            display: none;
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%,-50%);
+            background: rgba(10,10,10,0.95);
+            border: 1px solid #33ff33;
+            border-radius: 8px;
+            padding: 20px;
+            z-index: 500;
+            min-width: 400px;
+            min-height: 300px;
         }
-        .description {
-            margin-bottom: 10px;
-            line-height: 1.4;
+        #map-overlay h2 { color: #fff; margin-bottom: 15px; text-align: center; }
+        #map-canvas { display: block; margin: 0 auto; }
+        #map-close { position: absolute; top: 8px; right: 12px; color: #ff4444; cursor: pointer; font-size: 20px; }
+        /* Menu screens */
+        #menu-screen, #gameover-screen {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(5,5,5,0.97);
+            z-index: 800;
         }
-        .items {
-            color: #ffff33;
-            margin-bottom: 10px;
-        }
-        .exits {
-            color: #33ffff;
-            margin-bottom: 10px;
-        }
-        .error {
-            color: #ff3333;
-        }
-        .success {
-            color: #33ff33;
-        }
-        /* CRT Effect */
-        body::before {
-            content: " ";
-            display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            z-index: 2;
-            background-size: 100% 2px, 3px 100%;
-            pointer-events: none;
+        #menu-screen h1 { font-size: 36px; color: #33ff33; margin-bottom: 5px; text-shadow: 0 0 30px rgba(51,255,51,0.5); }
+        #menu-screen .subtitle { color: #22aa22; margin-bottom: 25px; font-size: 14px; }
+        .menu-btn { padding: 12px 35px; margin: 5px; background: rgba(20,60,20,0.5); border: 1px solid rgba(51,255,51,0.4); color: #33ff33; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 15px; transition: all 0.2s; }
+        .menu-btn:hover { background: rgba(40,100,40,0.6); box-shadow: 0 0 15px rgba(51,255,51,0.3); }
+        .diff-row { display: flex; gap: 8px; margin: 12px 0; }
+        .diff-btn { padding: 8px 18px; background: rgba(20,40,20,0.5); border: 1px solid rgba(51,255,51,0.25); color: #44aa44; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 13px; transition: all 0.2s; }
+        .diff-btn:hover, .diff-btn.sel { background: rgba(40,100,40,0.6); color: #33ff33; border-color: #33ff33; }
+        #gameover-screen h1 { font-size: 32px; color: #ff4444; margin-bottom: 10px; }
+        #gameover-screen p { color: #88ff88; margin-bottom: 20px; max-width: 500px; text-align: center; line-height: 1.5; }
+        .hidden { display: none !important; }
+        /* Responsive */
+        @media (max-width: 600px) {
+            #game-container { padding: 0 10px; }
+            #menu-screen h1 { font-size: 28px; }
+            .menu-btn { padding: 10px 25px; font-size: 14px; }
         }
     </style>
 </head>
 <body>
+    <div id="header">
+        <span><span class="label">HP: </span><span class="stat" id="hud-hp">20/20</span></span>
+        <span><span class="label">ATK: </span><span class="stat" id="hud-atk">3</span></span>
+        <span><span class="label">DEF: </span><span class="stat" id="hud-def">0</span></span>
+        <span><span class="label">Score: </span><span class="stat" id="hud-score">0</span></span>
+        <span><span class="label">Turns: </span><span class="stat" id="hud-turns">0</span></span>
+        <span><span class="label">Room: </span><span class="stat" id="hud-room">--</span></span>
+    </div>
     <div id="game-container">
         <div id="output"></div>
         <div id="input-area">
-            <span id="prompt">></span>
-            <input type="text" id="command-input" autofocus autocomplete="off">
+            <span id="prompt">&gt;</span>
+            <input type="text" id="cmd" autofocus autocomplete="off" placeholder="Type a command...">
         </div>
     </div>
-
+    <div id="map-overlay">
+        <span id="map-close" onclick="toggleMap()">[X]</span>
+        <h2>Map</h2>
+        <canvas id="map-canvas" width="360" height="280"></canvas>
+    </div>
+    <div id="menu-screen">
+        <h1>The Sunken Archive</h1>
+        <div class="subtitle">A Text Adventure by Zork Engine v2</div>
+        <p style="color:#44aa44;max-width:450px;text-align:center;line-height:1.5;margin-bottom:15px;font-size:13px;">
+            You are a scholar exploring the fabled Sunken Archive beneath the Verdant Mountains.
+            Legends speak of the Codex Eternum -- a book that rewrites reality. But the Archive
+            is guarded by ancient constructs and deadly traps. Find the Codex. Escape alive.
+        </p>
+        <div class="diff-row">
+            <button class="diff-btn" data-diff="0">Easy</button>
+            <button class="diff-btn sel" data-diff="1">Normal</button>
+            <button class="diff-btn" data-diff="2">Hard</button>
+        </div>
+        <button class="menu-btn" id="btn-new">New Adventure</button>
+        <button class="menu-btn" id="btn-load">Continue Saved</button>
+        <button class="menu-btn" id="btn-help-menu">Commands</button>
+    </div>
+    <div id="gameover-screen" class="hidden">
+        <h1 id="go-title">Game Over</h1>
+        <p id="go-msg"></p>
+        <button class="menu-btn" id="btn-restart">Try Again</button>
+        <button class="menu-btn" id="btn-menu">Main Menu</button>
+    </div>
 <script>
-/**
- * ZORK ENGINE
- * A simple text adventure engine with NLP parsing and state management.
- */
-
-// --- Game State ---
-const state = {
-    currentRoom: 'start',
-    inventory: [],
-    flags: {}, // For tracking game events (e.g., 'door_unlocked': true)
-    history: []
+// === AUDIO ENGINE ===
+const Audio = {
+    ctx: null,
+    init() { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+    tone(type, freq, dur, vol) {
+        if (!this.ctx) return;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type; o.frequency.value = freq;
+        g.gain.setValueAtTime(vol || 0.1, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+        o.connect(g); g.connect(this.ctx.destination);
+        o.start(); o.stop(this.ctx.currentTime + dur);
+    },
+    step() { this.tone('sine', 200 + Math.random()*100, 0.08, 0.05); },
+    pickup() { this.tone('sine', 600, 0.1, 0.1); setTimeout(() => this.tone('sine', 800, 0.15, 0.1), 80); },
+    hit() { this.tone('sawtooth', 150, 0.15, 0.12); },
+    playerHit() { this.tone('square', 100, 0.2, 0.1); },
+    unlock() { this.tone('sine', 440, 0.1, 0.08); setTimeout(() => this.tone('sine', 660, 0.15, 0.1), 100); setTimeout(() => this.tone('sine', 880, 0.2, 0.1), 200); },
+    death() { [300,250,200,150].forEach((f,i) => setTimeout(() => this.tone('sawtooth', f, 0.3, 0.1), i*150)); },
+    victory() { [523,659,784,1047].forEach((f,i) => setTimeout(() => this.tone('sine', f, 0.3, 0.12), i*120)); },
+    error() { this.tone('square', 80, 0.15, 0.08); },
+    ambient() { this.tone('sine', 60, 2, 0.02); },
+    trap() { this.tone('sawtooth', 200, 0.3, 0.1); setTimeout(() => this.tone('square', 100, 0.3, 0.1), 150); },
+    magic() { [440,554,659].forEach((f,i) => setTimeout(() => this.tone('sine', f, 0.4, 0.08), i*100)); },
+    save() { this.tone('sine', 500, 0.1, 0.06); this.tone('sine', 700, 0.15, 0.06); },
+    boss() { this.tone('sawtooth', 80, 0.5, 0.15); setTimeout(() => this.tone('square', 60, 0.5, 0.15), 250); }
 };
 
-// --- World Definition ---
-const world = {
-    'start': {
-        title: "Damp Cellar",
-        description: "You are in a dark, damp cellar. The air smells of mildew. Stone walls surround you.",
-        exits: { north: 'hallway' },
-        items: ['rusty_key', 'lantern'],
-        interactables: {
-            'walls': "They are made of cold, rough stone. Scratch marks are visible near the floor.",
-            'floor': "It's dirt, packed hard by years of use."
-        }
+// === DIFFICULTY ===
+const DIFF = [
+    { name: 'Easy', hpMul: 1.5, dmgMul: 0.7, trapMul: 0.5, healMul: 1.5 },
+    { name: 'Normal', hpMul: 1, dmgMul: 1, trapMul: 1, healMul: 1 },
+    { name: 'Hard', hpMul: 0.7, dmgMul: 1.5, trapMul: 1.5, healMul: 0.7 }
+];
+let difficulty = 1;
+
+// === GAME STATE ===
+let S = {};
+function newState() {
+    const d = DIFF[difficulty];
+    return {
+        room: 'entrance',
+        inv: [],
+        flags: {},
+        hp: Math.floor(20 * d.hpMul),
+        maxHp: Math.floor(20 * d.hpMul),
+        atk: 3,
+        def: 0,
+        score: 0,
+        turns: 0,
+        visited: ['entrance'],
+        combatTarget: null,
+        achievements: [],
+        difficulty: difficulty,
+        commandHistory: [],
+        historyIdx: -1
+    };
+}
+
+// === ITEMS ===
+const ITEMS = {
+    rusty_key: { name: 'rusty key', aliases: ['key','rusty key'], desc: 'A heavy iron key coated in rust. It might fit an old lock.', type: 'key' },
+    lantern: { name: 'oil lantern', aliases: ['lantern','lamp','light'], desc: 'A brass lantern that casts a warm golden glow. Essential for dark places.', type: 'tool', lit: false },
+    sword: { name: 'steel sword', aliases: ['sword','blade','weapon'], desc: 'A well-balanced steel sword. The edge is still sharp.', type: 'weapon', atk: 5 },
+    shield: { name: 'iron shield', aliases: ['shield','buckler'], desc: 'A round iron shield with a faded crest.', type: 'armor', def: 3 },
+    scroll_fire: { name: 'scroll of fire', aliases: ['fire scroll','scroll'], desc: 'A parchment crackling with arcane energy. Speak the words to unleash fire.', type: 'scroll', spell: 'fire', uses: 3 },
+    potion: { name: 'healing potion', aliases: ['potion','elixir','heal'], desc: 'A glass vial filled with glowing green liquid.', type: 'consumable', heal: 10 },
+    potion2: { name: 'greater potion', aliases: ['greater potion','big potion'], desc: 'A larger vial of concentrated healing magic.', type: 'consumable', heal: 20 },
+    crystal: { name: 'resonance crystal', aliases: ['crystal','gem','resonance'], desc: 'A violet crystal that hums with energy. It might open sealed doors.', type: 'key' },
+    codex: { name: 'Codex Eternum', aliases: ['codex','book','codex eternum'], desc: 'The legendary book of reality. Its pages shimmer with infinite possibilities.', type: 'treasure' },
+    amulet: { name: 'warding amulet', aliases: ['amulet','ward','necklace'], desc: 'An ancient amulet that provides magical protection.', type: 'armor', def: 2 },
+    bomb: { name: 'fire bomb', aliases: ['bomb','firebomb'], desc: 'A clay pot filled with alchemical fire. Throw it at enemies.', type: 'weapon', atk: 15, consumable: true },
+    rope: { name: 'climbing rope', aliases: ['rope','cord'], desc: 'A sturdy coil of rope, 30 feet long.', type: 'tool' },
+    mirror: { name: 'silver mirror', aliases: ['mirror','looking glass'], desc: 'A small silver mirror. Its surface ripples like water.', type: 'tool' },
+    crown: { name: 'jade crown', aliases: ['crown','jade','tiara'], desc: 'A crown of carved jade. It radiates calm authority.', type: 'treasure' }
+};
+
+// === ENEMIES ===
+const ENEMIES = {
+    skeleton: { name: 'Skeleton Guard', hp: 12, atk: 4, def: 1, xp: 15, desc: 'A rattling skeleton in rusted armor, sword raised.', loot: 'potion' },
+    spider: { name: 'Giant Spider', hp: 8, atk: 3, def: 0, xp: 10, desc: 'A spider the size of a dog, venom dripping from its fangs.', loot: null },
+    golem: { name: 'Stone Golem', hp: 25, atk: 6, def: 4, xp: 30, desc: 'A massive construct of living stone. Its eyes glow red.', loot: 'crystal' },
+    wraith: { name: 'Archive Wraith', hp: 15, atk: 5, def: 2, xp: 20, desc: 'A shadowy figure drifting through the air. It was once a scholar.', loot: 'scroll_fire' },
+    guardian: { name: 'The Eternal Guardian', hp: 40, atk: 8, def: 5, xp: 100, desc: 'A towering construct of gold and obsidian. The final protector of the Codex.', loot: 'codex', boss: true },
+    rat: { name: 'Tunnel Rat', hp: 5, atk: 2, def: 0, xp: 5, desc: 'A large rat with glowing eyes.', loot: null },
+    mimic: { name: 'Chest Mimic', hp: 18, atk: 7, def: 2, xp: 25, desc: 'What looked like a treasure chest suddenly sprouts teeth and legs!', loot: 'potion2' }
+};
+
+// === WORLD ===
+const WORLD = {
+    entrance: {
+        title: 'Archive Entrance',
+        desc: 'You stand at the mouth of a vast underground chamber. Crumbling stone stairs descend into darkness. The air is cold and smells of ancient paper. Faded glyphs cover the archway above.',
+        exits: { down: 'vestibule' },
+        items: ['lantern'],
+        scenery: { glyphs: 'The glyphs read: "Knowledge is the key. Flame is the path."', stairs: 'Stone stairs carved into the bedrock, worn smooth by countless feet.', archway: 'A grand stone archway, surprisingly intact.' },
+        onEnter: null
     },
-    'hallway': {
-        title: "Long Hallway",
-        description: "A long, narrow hallway stretching north and south. Torches flicker on the walls, casting dancing shadows.",
-        exits: { south: 'start', north: 'armory', east: 'library' },
-        items: [],
-        interactables: {
-            'torches': "They burn with a magical blue flame. You can't take them."
-        }
+    vestibule: {
+        title: 'The Vestibule',
+        desc: 'A wide chamber with four pillars supporting a domed ceiling. Dusty bookshelves line the walls, their contents long decayed. A stone desk sits in the center.',
+        exits: { up: 'entrance', north: 'reading_hall', east: 'armory', west: 'storage' },
+        items: ['rusty_key'],
+        scenery: { desk: 'The desk has a deep drawer, but it is stuck shut.', pillars: 'Carved with spiraling text in a dead language.', bookshelves: 'Rows of rotting leather spines. Nothing legible remains.' },
+        enemies: ['rat']
     },
-    'armory': {
-        title: "Abandoned Armory",
-        description: "Racks of rusted weapons line the walls. Most are useless, but one looks serviceable.",
-        exits: { south: 'hallway' },
+    reading_hall: {
+        title: 'Reading Hall',
+        desc: 'A cavernous hall with rows of stone reading desks. Spectral candlelight flickers from sconces that need no oil. The ceiling vanishes into darkness above.',
+        exits: { south: 'vestibule', north: 'restricted', east: 'scriptorium' },
+        items: ['scroll_fire'],
+        scenery: { candles: 'Spectral flames that cast light but no warmth.', desks: 'Heavy stone desks with built-in inkwells.' },
+        enemies: ['spider']
+    },
+    armory: {
+        title: 'Archive Armory',
+        desc: 'This room once housed the guards of the Archive. Weapon racks line the walls, mostly empty. A suit of armor stands in the corner like a silent sentinel.',
+        exits: { west: 'vestibule' },
         items: ['sword', 'shield'],
-        interactables: {
-            'racks': "Empty or filled with rust dust."
-        }
+        scenery: { armor: 'The suit of armor is too rusted to wear, but the shield beside it is serviceable.', racks: 'Empty weapon racks. Someone took most of the weapons long ago.' },
+        enemies: ['skeleton']
     },
-    'library': {
-        title: "Dusty Library",
-        description: "Rows of rotting bookshelves fill this room. A large oak door stands to the north.",
-        exits: { west: 'hallway', north: 'treasure_room' },
-        items: ['scroll'],
-        interactables: {
-            'bookshelves': "Most books crumble at your touch.",
-            'door': "It's a sturdy oak door with a heavy iron lock."
-        },
-        // Custom logic for exits
-        exitConstraints: {
-            'north': {
-                check: () => state.flags['library_door_unlocked'],
-                message: "The door is locked tight. You need a key."
-            }
-        }
+    storage: {
+        title: 'Storage Vault',
+        desc: 'Shelves of supplies: dried provisions (inedible), ink pots (dry), and strange mechanical devices. A locked iron door stands to the north.',
+        exits: { east: 'vestibule', north: 'vault' },
+        items: ['potion', 'rope'],
+        scenery: { devices: 'Clockwork mechanisms of unknown purpose. They no longer function.', door: 'A heavy iron door with an old lock. It requires a key.' },
+        exitConstraints: { north: { flag: 'vault_unlocked', fail: 'The iron door is locked. You need a key.', key: 'rusty_key', unlockMsg: 'The rusty key fits! The iron door groans open.' } }
     },
-    'treasure_room': {
-        title: "Treasure Chamber",
-        description: "A small room glittering with gold! In the center stands a pedestal.",
-        exits: { south: 'library' },
-        items: ['gem'],
-        interactables: {
-            'pedestal': "An ornate stone pedestal. It looks like it once held something even more valuable."
-        }
+    vault: {
+        title: 'Hidden Vault',
+        desc: 'A small chamber with a single ornate chest in the center, surrounded by faded protective runes on the floor.',
+        exits: { south: 'storage' },
+        items: ['amulet', 'bomb'],
+        scenery: { chest: 'An ancient chest made of dark wood and brass fittings.', runes: 'Protective wards, their power long faded.' },
+        enemies: ['mimic'],
+        trap: { type: 'rune', dmg: 5, msg: 'The faded runes suddenly flare! Arcane energy burns you!', disarm: 'mirror', disarmMsg: 'You hold up the mirror. The rune energy reflects harmlessly away.' }
+    },
+    scriptorium: {
+        title: 'The Scriptorium',
+        desc: 'A room of writing desks covered in unfinished manuscripts. Ink has pooled and dried in abstract patterns. A silver mirror hangs on the east wall.',
+        exits: { west: 'reading_hall', north: 'gallery' },
+        items: ['mirror'],
+        scenery: { manuscripts: 'Pages covered in hurried writing about the nature of entropy and order.', ink: 'Ancient ink dried into beautiful fractal patterns.', wall_mirror: 'A large silver mirror that shows your reflection... slightly delayed.' }
+    },
+    gallery: {
+        title: 'Portrait Gallery',
+        desc: 'A long corridor lined with painted portraits of Archive scholars. Their eyes seem to follow you. At the far end, a sealed crystal door glows faintly purple.',
+        exits: { south: 'scriptorium', north: 'sanctum' },
+        items: ['crown'],
+        scenery: { portraits: 'Scholars in flowing robes, each holding a different artifact. One portrait is labeled "The Last Archivist."', door: 'A door made of solid crystal, glowing with purple energy. It seems to respond to a matching frequency.' },
+        exitConstraints: { north: { flag: 'sanctum_open', fail: 'The crystal door hums but will not open. You need a resonance crystal.', key: 'crystal', unlockMsg: 'The resonance crystal sings. The crystal door dissolves into light!' } },
+        enemies: ['wraith']
+    },
+    restricted: {
+        title: 'Restricted Section',
+        desc: 'Shelves of forbidden knowledge tower above you. The air crackles with residual magic. Warning signs in a dozen languages line the entrance.',
+        exits: { south: 'reading_hall', east: 'golem_hall' },
+        items: ['potion2'],
+        scenery: { signs: '"DANGER: Knowledge beyond mortal comprehension. Proceed at your own peril."', books: 'Chained to the shelves. The chains are warm to the touch.' },
+        enemies: ['wraith'],
+        dark: true
+    },
+    golem_hall: {
+        title: 'Hall of Constructs',
+        desc: 'A forge-like chamber where stone golems were once created. One still stands, blocking the eastern passage. Its eyes flicker between dormancy and alertness.',
+        exits: { west: 'restricted', east: 'sanctum' },
+        items: [],
+        scenery: { forge: 'Cold now, but the anvil still bears marks of arcane hammering.', golem_dormant: 'The golem is massive. Attempting to pass would wake it.' },
+        enemies: ['golem']
+    },
+    sanctum: {
+        title: 'The Inner Sanctum',
+        desc: 'A circular chamber of pure white marble. In the center, on a floating pedestal of light, rests a single book. The air thrums with power. A colossal golden figure stands between you and the pedestal.',
+        exits: { south: 'gallery', west: 'golem_hall' },
+        items: [],
+        scenery: { pedestal: 'A slab of marble hovering three feet off the ground, bathed in golden light.', book: 'Even from here, you can feel the Codex pulling at the edges of reality.' },
+        enemies: ['guardian'],
+        boss: true
     }
 };
 
-// --- Item Database ---
-const items = {
-    'rusty_key': {
-        name: "rusty key",
-        aliases: ['key'],
-        description: "A heavy iron key, covered in rust.",
-        type: 'tool'
-    },
-    'lantern': {
-        name: "brass lantern",
-        aliases: ['lantern', 'light', 'lamp'],
-        description: "A battered brass lantern. It has some oil left.",
-        type: 'tool'
-    },
-    'sword': {
-        name: "steel sword",
-        aliases: ['sword', 'blade', 'weapon'],
-        description: "A sharp steel sword with a leather grip.",
-        type: 'weapon'
-    },
-    'shield': {
-        name: "wooden shield",
-        aliases: ['shield'],
-        description: "A sturdy wooden shield reinforced with iron bands.",
-        type: 'armor'
-    },
-    'scroll': {
-        name: "ancient scroll",
-        aliases: ['scroll', 'paper', 'note'],
-        description: "The text is faded, but you can make out: 'The key to the treasure lies in the dark.'",
-        type: 'readable',
-        text: "The key to the treasure lies in the dark."
-    },
-    'gem': {
-        name: "glowing gem",
-        aliases: ['gem', 'jewel', 'ruby'],
-        description: "A fist-sized ruby that glows with an inner light.",
-        type: 'treasure'
-    }
-};
-
-// --- Engine Core ---
-
+// === OUTPUT ===
 const outputDiv = document.getElementById('output');
-const inputField = document.getElementById('command-input');
+const cmdInput = document.getElementById('cmd');
 
-function print(text, className = '') {
+function print(text, cls) {
     const div = document.createElement('div');
-    div.className = className;
+    div.className = cls || '';
     div.textContent = text;
     outputDiv.appendChild(div);
     outputDiv.scrollTop = outputDiv.scrollHeight;
 }
 
-function printRoom() {
-    const room = world[state.currentRoom];
-    
-    // Title
-    const titleDiv = document.createElement('div');
-    titleDiv.className = 'room-title';
-    titleDiv.textContent = room.title;
-    outputDiv.appendChild(titleDiv);
-    
-    // Description
-    print(room.description, 'description');
-    
-    // Items
-    if (room.items.length > 0) {
-        const itemNames = room.items.map(id => items[id].name).join(', ');
-        print(`You see: ${itemNames}`, 'items');
-    }
-    
-    // Exits
-    const exitNames = Object.keys(room.exits).join(', ');
-    print(`Exits: ${exitNames}`, 'exits');
-    
+function printHTML(html, cls) {
+    const div = document.createElement('div');
+    div.className = cls || '';
+    div.innerHTML = html;
+    outputDiv.appendChild(div);
     outputDiv.scrollTop = outputDiv.scrollHeight;
 }
 
-// --- Parser ---
-
-function parseCommand(input) {
-    const cleanInput = input.trim().toLowerCase();
-    if (!cleanInput) return;
-
-    print(`> ${input}`, 'prompt-echo');
-    state.history.push(input);
-
-    const parts = cleanInput.split(' ');
-    const verb = parts[0];
-    const noun = parts.slice(1).join(' '); // Simple noun handling
-
-    // Command Dispatch
-    switch (verb) {
-        case 'n':
-        case 'north':
-            move('north');
-            break;
-        case 's':
-        case 'south':
-            move('south');
-            break;
-        case 'e':
-        case 'east':
-            move('east');
-            break;
-        case 'w':
-        case 'west':
-            move('west');
-            break;
-        case 'l':
-        case 'look':
-        case 'x':
-        case 'examine':
-            look(noun);
-            break;
-        case 'i':
-        case 'inv':
-        case 'inventory':
-            showInventory();
-            break;
-        case 'take':
-        case 'get':
-        case 'grab':
-            take(noun);
-            break;
-        case 'drop':
-            drop(noun);
-            break;
-        case 'use':
-        case 'unlock':
-        case 'open':
-            use(noun);
-            break;
-        case 'read':
-            read(noun);
-            break;
-        case 'help':
-            print("Commands: look, north/south/east/west, take [item], drop [item], inventory, use [item], examine [object]");
-            break;
-        default:
-            print("I don't understand that command.", 'error');
+function printRoom() {
+    const room = WORLD[S.room];
+    print('', '');
+    print(room.title, 'room-title');
+    let desc = room.desc;
+    if (room.dark && !hasItem('lantern')) {
+        desc = 'It is pitch black. You cannot see anything. You hear unsettling sounds in the darkness.';
     }
+    print(desc, 'description');
+
+    // Items
+    const roomItems = room.items || [];
+    if (roomItems.length > 0) {
+        const names = roomItems.map(id => ITEMS[id] ? ITEMS[id].name : id).join(', ');
+        print('You see: ' + names, 'items');
+    }
+
+    // Enemies
+    if (room.enemies && room.enemies.length > 0 && !S.flags['cleared_' + S.room]) {
+        const enemyNames = room.enemies.map(id => ENEMIES[id] ? ENEMIES[id].name : id).join(', ');
+        print('Hostile: ' + enemyNames, 'combat');
+    }
+
+    // Exits
+    const exits = Object.keys(room.exits).join(', ');
+    print('Exits: ' + exits, 'exits');
 }
 
-// --- Actions ---
-
-function move(direction) {
-    const room = world[state.currentRoom];
-    if (room.exits[direction]) {
-        // Check constraints
-        if (room.exitConstraints && room.exitConstraints[direction]) {
-            const constraint = room.exitConstraints[direction];
-            if (!constraint.check()) {
-                print(constraint.message, 'error');
-                return;
-            }
-        }
-        
-        state.currentRoom = room.exits[direction];
-        printRoom();
-    } else {
-        print("You can't go that way.", 'error');
-    }
+function updateHUD() {
+    document.getElementById('hud-hp').textContent = S.hp + '/' + S.maxHp;
+    document.getElementById('hud-atk').textContent = S.atk;
+    document.getElementById('hud-def').textContent = S.def;
+    document.getElementById('hud-score').textContent = S.score;
+    document.getElementById('hud-turns').textContent = S.turns;
+    document.getElementById('hud-room').textContent = WORLD[S.room] ? WORLD[S.room].title : '--';
+    // Color HP based on health
+    const hpEl = document.getElementById('hud-hp');
+    const pct = S.hp / S.maxHp;
+    hpEl.style.color = pct > 0.6 ? '#44ff44' : pct > 0.3 ? '#ffaa44' : '#ff4444';
 }
 
-function look(noun) {
-    if (!noun) {
-        printRoom();
-        return;
-    }
-
-    const room = world[state.currentRoom];
-    
-    // Check room items
-    let itemId = findItem(noun, room.items);
-    if (itemId) {
-        print(items[itemId].description);
-        return;
-    }
-    
-    // Check inventory
-    itemId = findItem(noun, state.inventory);
-    if (itemId) {
-        print(items[itemId].description);
-        return;
-    }
-    
-    // Check interactables (scenery)
-    if (room.interactables) {
-        for (const [key, desc] of Object.entries(room.interactables)) {
-            if (noun.includes(key)) {
-                print(desc);
-                return;
-            }
-        }
-    }
-
-    print("You don't see that here.");
+// === ITEM HELPERS ===
+function hasItem(name) {
+    return S.inv.some(id => {
+        const item = ITEMS[id];
+        return item && (id === name || item.aliases.some(a => a === name));
+    });
 }
 
-function take(noun) {
-    if (!noun) {
-        print("Take what?");
-        return;
-    }
-
-    const room = world[state.currentRoom];
-    const itemId = findItem(noun, room.items);
-
-    if (itemId) {
-        room.items = room.items.filter(id => id !== itemId);
-        state.inventory.push(itemId);
-        print(`Taken: ${items[itemId].name}`, 'success');
-    } else {
-        print("You can't see that here.");
-    }
-}
-
-function drop(noun) {
-    if (!noun) {
-        print("Drop what?");
-        return;
-    }
-
-    const itemId = findItem(noun, state.inventory);
-
-    if (itemId) {
-        state.inventory = state.inventory.filter(id => id !== itemId);
-        world[state.currentRoom].items.push(itemId);
-        print(`Dropped: ${items[itemId].name}`, 'success');
-    } else {
-        print("You don't have that.");
-    }
-}
-
-function showInventory() {
-    if (state.inventory.length === 0) {
-        print("You are not carrying anything.");
-    } else {
-        const names = state.inventory.map(id => items[id].name).join(', ');
-        print(`You are carrying: ${names}`, 'items');
-    }
-}
-
-function use(noun) {
-    if (!noun) {
-        print("Use what?");
-        return;
-    }
-
-    // Special case: Unlock door
-    if (state.currentRoom === 'library' && (noun.includes('door') || noun.includes('key'))) {
-        if (state.flags['library_door_unlocked']) {
-            print("The door is already unlocked.");
-            return;
-        }
-        
-        if (hasItem('rusty_key')) {
-            state.flags['library_door_unlocked'] = true;
-            print("You insert the rusty key into the heavy oak door. With a groan of metal, it unlocks!", 'success');
-        } else {
-            print("You don't have the key for this door.");
-        }
-        return;
-    }
-
-    print("You can't use that here, or nothing happened.");
-}
-
-function read(noun) {
-    if (!noun) {
-        print("Read what?");
-        return;
-    }
-    
-    const itemId = findItem(noun, state.inventory) || findItem(noun, world[state.currentRoom].items);
-    
-    if (itemId && items[itemId].type === 'readable') {
-        print(`It reads: "${items[itemId].text}"`, 'items');
-    } else if (itemId) {
-        print("There is nothing written on that.");
-    } else {
-        print("You don't see that here.");
-    }
-}
-
-// --- Helpers ---
-
-function findItem(name, itemList) {
-    // Exact match first
-    for (const id of itemList) {
-        if (items[id].name.toLowerCase() === name) return id;
-    }
-    // Alias match
-    for (const id of itemList) {
-        if (items[id].aliases.some(alias => name.includes(alias))) return id;
+function findItem(name, list) {
+    const n = name.toLowerCase();
+    for (const id of list) {
+        const item = ITEMS[id];
+        if (!item) continue;
+        if (id === n || item.name.toLowerCase() === n || item.aliases.some(a => n.includes(a))) return id;
     }
     return null;
 }
 
-function hasItem(id) {
-    return state.inventory.includes(id);
+function getEquippedAtk() {
+    let atk = S.atk;
+    for (const id of S.inv) {
+        const item = ITEMS[id];
+        if (item && item.type === 'weapon' && !item.consumable) atk = Math.max(atk, item.atk || 0);
+    }
+    return atk;
 }
 
-// --- Initialization ---
+function getEquippedDef() {
+    let def = 0;
+    for (const id of S.inv) {
+        const item = ITEMS[id];
+        if (item && (item.type === 'armor')) def += (item.def || 0);
+    }
+    return def;
+}
 
-inputField.addEventListener('keydown', function(e) {
+// === COMBAT ===
+function startCombat(enemyId) {
+    const template = ENEMIES[enemyId];
+    if (!template) return;
+    const d = DIFF[S.difficulty];
+    S.combatTarget = {
+        id: enemyId,
+        name: template.name,
+        hp: Math.floor(template.hp * d.hpMul),
+        maxHp: Math.floor(template.hp * d.hpMul),
+        atk: Math.floor(template.atk * d.dmgMul),
+        def: template.def,
+        xp: template.xp,
+        loot: template.loot,
+        boss: template.boss || false
+    };
+    print('', '');
+    print('--- COMBAT ---', 'combat');
+    print(template.desc, 'combat');
+    if (template.boss) {
+        Audio.boss();
+        print('** BOSS FIGHT **', 'achievement');
+    }
+    printCombatStatus();
+}
+
+function printCombatStatus() {
+    const e = S.combatTarget;
+    if (!e) return;
+    const bar = buildBar(e.hp, e.maxHp, 20);
+    print(e.name + ' HP: [' + bar + '] ' + e.hp + '/' + e.maxHp, 'combat');
+    print('Your HP: ' + S.hp + '/' + S.maxHp + ' | ATK: ' + getEquippedAtk() + ' | DEF: ' + getEquippedDef(), 'system');
+    print('Commands: attack, cast fire, use [item], flee', 'system');
+}
+
+function buildBar(current, max, width) {
+    const filled = Math.round((current / max) * width);
+    return '='.repeat(Math.max(0, filled)) + '-'.repeat(Math.max(0, width - filled));
+}
+
+function combatAttack() {
+    const e = S.combatTarget;
+    if (!e) return;
+    const atk = getEquippedAtk();
+    const def = e.def;
+    const dmg = Math.max(1, atk - def + Math.floor(Math.random() * 3));
+    e.hp -= dmg;
+    print('You strike the ' + e.name + ' for ' + dmg + ' damage!', 'success');
+    Audio.hit();
+
+    if (e.hp <= 0) {
+        endCombat(true);
+        return;
+    }
+    enemyTurn();
+}
+
+function combatCast(spell) {
+    const e = S.combatTarget;
+    if (!e) return;
+    const scrollId = findItem(spell, S.inv);
+    if (!scrollId) { print('You do not have that scroll.', 'error'); Audio.error(); return; }
+    const item = ITEMS[scrollId];
+    if (!item || item.type !== 'scroll') { print('That is not a scroll.', 'error'); return; }
+    const dmg = 12 + Math.floor(Math.random() * 8);
+    e.hp -= dmg;
+    item.uses--;
+    print('You unleash ' + item.spell + '! ' + dmg + ' damage!', 'success');
+    Audio.magic();
+    if (item.uses <= 0) {
+        S.inv = S.inv.filter(i => i !== scrollId);
+        print('The scroll crumbles to dust.', 'system');
+    }
+    if (e.hp <= 0) { endCombat(true); return; }
+    enemyTurn();
+}
+
+function combatUseItem(noun) {
+    const e = S.combatTarget;
+    if (!e) return;
+    const id = findItem(noun, S.inv);
+    if (!id) { print('You do not have that.', 'error'); Audio.error(); return; }
+    const item = ITEMS[id];
+    if (item.type === 'consumable') {
+        if (item.heal) {
+            const d = DIFF[S.difficulty];
+            const heal = Math.floor(item.heal * d.healMul);
+            S.hp = Math.min(S.maxHp, S.hp + heal);
+            print('You drink the ' + item.name + ' and recover ' + heal + ' HP!', 'success');
+            Audio.pickup();
+        }
+        S.inv = S.inv.filter(i => i !== id);
+        enemyTurn();
+    } else if (item.consumable && item.atk) {
+        const dmg = item.atk;
+        e.hp -= dmg;
+        print('You hurl the ' + item.name + '! ' + dmg + ' damage!', 'success');
+        S.inv = S.inv.filter(i => i !== id);
+        Audio.trap();
+        if (e.hp <= 0) { endCombat(true); return; }
+        enemyTurn();
+    } else {
+        print('You cannot use that in combat.', 'error');
+    }
+}
+
+function enemyTurn() {
+    const e = S.combatTarget;
+    if (!e) return;
+    const def = getEquippedDef();
+    const dmg = Math.max(1, e.atk - def + Math.floor(Math.random() * 2));
+    S.hp -= dmg;
+    print('The ' + e.name + ' strikes you for ' + dmg + ' damage!', 'combat');
+    Audio.playerHit();
+    if (S.hp <= 0) {
+        S.hp = 0;
+        updateHUD();
+        playerDeath();
+        return;
+    }
+    printCombatStatus();
+}
+
+function endCombat(won) {
+    const e = S.combatTarget;
+    print('The ' + e.name + ' is defeated!', 'success');
+    S.score += e.xp;
+    print('You gain ' + e.xp + ' experience points.', 'achievement');
+    Audio.pickup();
+
+    if (e.loot && ITEMS[e.loot]) {
+        WORLD[S.room].items = WORLD[S.room].items || [];
+        WORLD[S.room].items.push(e.loot);
+        print('The ' + e.name + ' drops: ' + ITEMS[e.loot].name, 'items');
+    }
+
+    S.flags['cleared_' + S.room] = true;
+    // Remove this enemy from the room
+    const room = WORLD[S.room];
+    if (room.enemies) {
+        const idx = room.enemies.indexOf(e.id);
+        if (idx >= 0) room.enemies.splice(idx, 1);
+    }
+    S.combatTarget = null;
+
+    // Achievement checks
+    checkAchievements();
+    updateHUD();
+}
+
+function flee() {
+    const e = S.combatTarget;
+    if (!e) return;
+    if (e.boss) {
+        print('You cannot flee from a boss!', 'error');
+        Audio.error();
+        enemyTurn();
+        return;
+    }
+    if (Math.random() < 0.6) {
+        print('You flee successfully!', 'success');
+        S.combatTarget = null;
+        // Go back to previous room if possible
+        const room = WORLD[S.room];
+        const exits = Object.values(room.exits);
+        if (exits.length > 0) {
+            S.room = exits[0];
+            printRoom();
+        }
+    } else {
+        print('You fail to escape!', 'error');
+        enemyTurn();
+    }
+}
+
+// === TRAPS ===
+function checkTraps() {
+    const room = WORLD[S.room];
+    if (!room.trap) return;
+    if (S.flags['trap_disarmed_' + S.room]) return;
+    const trap = room.trap;
+    if (trap.disarm && hasItem(trap.disarm)) {
+        print(trap.disarmMsg, 'success');
+        S.flags['trap_disarmed_' + S.room] = true;
+        Audio.unlock();
+        return;
+    }
+    const d = DIFF[S.difficulty];
+    const dmg = Math.floor(trap.dmg * d.trapMul);
+    S.hp -= dmg;
+    print(trap.msg + ' (-' + dmg + ' HP)', 'error');
+    Audio.trap();
+    if (S.hp <= 0) { S.hp = 0; playerDeath(); }
+}
+
+// === MOVEMENT ===
+function move(dir) {
+    if (S.combatTarget) {
+        print('You are in combat! Fight or flee!', 'error');
+        Audio.error();
+        return;
+    }
+    const room = WORLD[S.room];
+    if (!room.exits[dir]) {
+        print('You cannot go ' + dir + '.', 'error');
+        Audio.error();
+        return;
+    }
+    // Check constraints
+    if (room.exitConstraints && room.exitConstraints[dir]) {
+        const c = room.exitConstraints[dir];
+        if (!S.flags[c.flag]) {
+            if (c.key && hasItem(c.key)) {
+                S.flags[c.flag] = true;
+                print(c.unlockMsg, 'success');
+                Audio.unlock();
+                S.score += 10;
+            } else {
+                print(c.fail, 'error');
+                Audio.error();
+                return;
+            }
+        }
+    }
+    S.room = room.exits[dir];
+    S.turns++;
+    if (!S.visited.includes(S.room)) {
+        S.visited.push(S.room);
+        S.score += 5;
+    }
+    Audio.step();
+    printRoom();
+    checkTraps();
+    // Auto-combat if enemies present
+    const newRoom = WORLD[S.room];
+    if (newRoom.enemies && newRoom.enemies.length > 0 && !S.flags['cleared_' + S.room]) {
+        startCombat(newRoom.enemies[0]);
+    }
+    updateHUD();
+}
+
+// === PLAYER DEATH ===
+function playerDeath() {
+    print('', '');
+    print('You have fallen...', 'error');
+    Audio.death();
+    S.flags.dead = true;
+    const endingType = S.score >= 100 ? 'valiant' : S.score >= 50 ? 'brave' : 'unfortunate';
+    const endings = {
+        valiant: 'Your journey was valiant. The Archive remembers your name among its honored dead. Score: ' + S.score,
+        brave: 'A brave attempt. The Archive\'s secrets remain hidden... for now. Score: ' + S.score,
+        unfortunate: 'An unfortunate end. The darkness claims another scholar. Score: ' + S.score
+    };
+    setTimeout(() => {
+        showGameOver('You Have Fallen', endings[endingType]);
+    }, 1500);
+}
+
+// === VICTORY ===
+function checkVictory() {
+    if (hasItem('codex')) {
+        print('', '');
+        print('As you lift the Codex Eternum, reality shimmers around you.', 'lore');
+        print('The pages fall open and you see your own story written within.', 'lore');
+        print('You have found the legendary book. The Archive acknowledges you as the new Archivist.', 'achievement');
+        Audio.victory();
+        S.score += 200;
+        // Ending based on performance
+        const ending = S.hp >= S.maxHp * 0.8
+            ? 'PERFECT ENDING: You emerge unscathed, the Codex in hand. Reality bends to your will.'
+            : S.score >= 300
+            ? 'GOOD ENDING: Battered but triumphant, you carry the Codex into the light.'
+            : 'STANDARD ENDING: You escape the Archive, clutching the Codex. The knowledge is yours.';
+        print(ending, 'achievement');
+        setTimeout(() => {
+            showGameOver('Victory!', ending + '\n\nFinal Score: ' + S.score + ' | Turns: ' + S.turns + ' | Rooms: ' + S.visited.length + '/' + Object.keys(WORLD).length);
+        }, 2000);
+    }
+}
+
+// === ACHIEVEMENTS ===
+const ACH_LIST = [
+    { id: 'first_blood', name: 'First Blood', check: () => Object.keys(S.flags).some(k => k.startsWith('cleared_')) },
+    { id: 'explorer', name: 'Explorer', check: () => S.visited.length >= 5 },
+    { id: 'full_map', name: 'Cartographer', check: () => S.visited.length >= Object.keys(WORLD).length },
+    { id: 'packmule', name: 'Pack Mule', check: () => S.inv.length >= 5 },
+    { id: 'boss_slayer', name: 'Boss Slayer', check: () => S.flags['cleared_sanctum'] },
+    { id: 'treasure_hunter', name: 'Treasure Hunter', check: () => hasItem('codex') || hasItem('crown') },
+    { id: 'survivor', name: 'Survivor', check: () => S.hp <= 3 && S.hp > 0 },
+    { id: 'high_score', name: 'High Scorer', check: () => S.score >= 200 }
+];
+
+function checkAchievements() {
+    for (const ach of ACH_LIST) {
+        if (!S.achievements.includes(ach.id) && ach.check()) {
+            S.achievements.push(ach.id);
+            print('** Achievement Unlocked: ' + ach.name + ' **', 'achievement');
+            Audio.magic();
+            S.score += 15;
+        }
+    }
+}
+
+// === MAP ===
+function toggleMap() {
+    const overlay = document.getElementById('map-overlay');
+    if (overlay.style.display === 'block') {
+        overlay.style.display = 'none';
+    } else {
+        overlay.style.display = 'block';
+        drawMap();
+    }
+}
+
+function drawMap() {
+    const mc = document.getElementById('map-canvas');
+    const mx = mc.getContext('2d');
+    mx.fillStyle = '#0c0c0c';
+    mx.fillRect(0, 0, 360, 280);
+
+    const positions = {
+        entrance: { x: 180, y: 20 },
+        vestibule: { x: 180, y: 60 },
+        reading_hall: { x: 180, y: 110 },
+        armory: { x: 280, y: 60 },
+        storage: { x: 80, y: 60 },
+        vault: { x: 80, y: 110 },
+        scriptorium: { x: 280, y: 110 },
+        gallery: { x: 280, y: 160 },
+        restricted: { x: 180, y: 160 },
+        golem_hall: { x: 280, y: 210 },
+        sanctum: { x: 230, y: 250 }
+    };
+
+    // Draw connections
+    mx.strokeStyle = '#225522';
+    mx.lineWidth = 1;
+    for (const [roomId, room] of Object.entries(WORLD)) {
+        const pos = positions[roomId];
+        if (!pos) continue;
+        for (const targetId of Object.values(room.exits)) {
+            const tpos = positions[targetId];
+            if (!tpos) continue;
+            mx.beginPath();
+            mx.moveTo(pos.x, pos.y);
+            mx.lineTo(tpos.x, tpos.y);
+            mx.stroke();
+        }
+    }
+
+    // Draw rooms
+    for (const [roomId, pos] of Object.entries(positions)) {
+        const visited = S.visited.includes(roomId);
+        const current = S.room === roomId;
+        mx.fillStyle = current ? '#44ff44' : visited ? '#226622' : '#333333';
+        mx.fillRect(pos.x - 12, pos.y - 8, 24, 16);
+        mx.strokeStyle = current ? '#44ff44' : visited ? '#44aa44' : '#555555';
+        mx.strokeRect(pos.x - 12, pos.y - 8, 24, 16);
+        if (visited || current) {
+            mx.fillStyle = current ? '#000' : '#88ff88';
+            mx.font = '7px monospace';
+            mx.textAlign = 'center';
+            const label = WORLD[roomId].title.substring(0, 8);
+            mx.fillText(label, pos.x, pos.y + 3);
+        }
+    }
+}
+
+// === SAVE / LOAD ===
+function saveGame() {
+    try {
+        localStorage.setItem('zork-engine-save', JSON.stringify(S));
+        // Also save world state (room items, enemy changes)
+        localStorage.setItem('zork-engine-world', JSON.stringify(WORLD));
+        print('Game saved.', 'success');
+        Audio.save();
+    } catch(e) {
+        print('Failed to save: ' + e.message, 'error');
+    }
+}
+
+function loadGame() {
+    try {
+        const saved = localStorage.getItem('zork-engine-save');
+        const savedWorld = localStorage.getItem('zork-engine-world');
+        if (!saved) { print('No saved game found.', 'error'); return false; }
+        S = JSON.parse(saved);
+        if (savedWorld) {
+            const w = JSON.parse(savedWorld);
+            for (const [k, v] of Object.entries(w)) {
+                if (WORLD[k]) {
+                    WORLD[k].items = v.items;
+                    WORLD[k].enemies = v.enemies;
+                }
+            }
+        }
+        print('Game loaded.', 'success');
+        Audio.save();
+        printRoom();
+        updateHUD();
+        return true;
+    } catch(e) {
+        print('Failed to load: ' + e.message, 'error');
+        return false;
+    }
+}
+
+function saveHighScore() {
+    try {
+        const best = parseInt(localStorage.getItem('zork-engine-best') || '0');
+        if (S.score > best) {
+            localStorage.setItem('zork-engine-best', S.score.toString());
+        }
+    } catch(e) {}
+}
+
+// === PARSER ===
+function parseCommand(input) {
+    const raw = input.trim();
+    if (!raw) return;
+
+    // Store command history
+    S.commandHistory.push(raw);
+    S.historyIdx = S.commandHistory.length;
+
+    print('> ' + raw, 'prompt-echo');
+    S.turns++;
+
+    const parts = raw.toLowerCase().split(/\s+/);
+    const verb = parts[0];
+    const noun = parts.slice(1).join(' ');
+
+    // In combat mode, restrict commands
+    if (S.combatTarget) {
+        switch (verb) {
+            case 'attack': case 'hit': case 'strike': case 'fight': case 'a':
+                combatAttack(); break;
+            case 'cast': combatCast(noun); break;
+            case 'use': case 'drink': combatUseItem(noun); break;
+            case 'flee': case 'run': case 'escape': flee(); break;
+            case 'status': case 'hp': printCombatStatus(); break;
+            case 'i': case 'inv': case 'inventory': showInventory(); break;
+            default:
+                print('You are in combat! Attack, cast, use [item], or flee.', 'error');
+                Audio.error();
+        }
+        checkAchievements();
+        updateHUD();
+        return;
+    }
+
+    // Normal commands
+    switch (verb) {
+        // Movement
+        case 'n': case 'north': move('north'); break;
+        case 's': case 'south': move('south'); break;
+        case 'e': case 'east': move('east'); break;
+        case 'w': case 'west': move('west'); break;
+        case 'u': case 'up': move('up'); break;
+        case 'd': case 'down': move('down'); break;
+        case 'go': move(noun); break;
+
+        // Look
+        case 'l': case 'look': case 'x': case 'examine':
+            if (!noun) { printRoom(); }
+            else { examine(noun); }
+            break;
+
+        // Inventory
+        case 'i': case 'inv': case 'inventory':
+            showInventory();
+            break;
+
+        // Take
+        case 'take': case 'get': case 'grab': case 'pick':
+            takeItem(noun); break;
+
+        // Drop
+        case 'drop': case 'leave':
+            dropItem(noun); break;
+
+        // Use / unlock / open
+        case 'use': case 'unlock': case 'open':
+            useItem(noun); break;
+
+        // Read
+        case 'read':
+            readItem(noun); break;
+
+        // Drink
+        case 'drink': case 'quaff':
+            drinkItem(noun); break;
+
+        // Save / Load
+        case 'save': saveGame(); break;
+        case 'load': case 'restore': loadGame(); break;
+
+        // Map
+        case 'map': case 'm': toggleMap(); break;
+
+        // Status
+        case 'status': case 'stats': case 'hp':
+            print('HP: ' + S.hp + '/' + S.maxHp + ' | ATK: ' + getEquippedAtk() + ' | DEF: ' + getEquippedDef() + ' | Score: ' + S.score, 'system');
+            break;
+
+        // Achievements
+        case 'achievements': case 'ach':
+            if (S.achievements.length === 0) print('No achievements yet.', 'system');
+            else S.achievements.forEach(id => {
+                const ach = ACH_LIST.find(a => a.id === id);
+                if (ach) print('* ' + ach.name, 'achievement');
+            });
+            break;
+
+        // Help
+        case 'help': case '?': case 'commands':
+            print('Movement: north/south/east/west/up/down (or n/s/e/w/u/d)', 'system');
+            print('Actions: look, examine [thing], take [item], drop [item], use [item]', 'system');
+            print('Items: inventory (i), read [item], drink [item]', 'system');
+            print('Combat: attack (a), cast [spell], use [item], flee', 'system');
+            print('Other: save, load, map (m), status, achievements, help', 'system');
+            break;
+
+        // Wait
+        case 'wait': case 'z':
+            print('Time passes...', 'system');
+            Audio.ambient();
+            break;
+
+        default:
+            print('I do not understand "' + verb + '". Type "help" for commands.', 'error');
+            Audio.error();
+    }
+
+    checkAchievements();
+    checkVictory();
+    updateHUD();
+}
+
+function examine(noun) {
+    const room = WORLD[S.room];
+    // Check scenery
+    if (room.scenery) {
+        for (const [key, desc] of Object.entries(room.scenery)) {
+            if (noun.includes(key) || key.includes(noun)) {
+                print(desc, 'description');
+                return;
+            }
+        }
+    }
+    // Check room items
+    let id = findItem(noun, room.items || []);
+    if (id) { print(ITEMS[id].desc, 'description'); return; }
+    // Check inventory
+    id = findItem(noun, S.inv);
+    if (id) { print(ITEMS[id].desc, 'description'); return; }
+    print('You do not see that here.', 'error');
+}
+
+function showInventory() {
+    if (S.inv.length === 0) {
+        print('You are not carrying anything.', 'system');
+    } else {
+        print('Inventory:', 'items');
+        for (const id of S.inv) {
+            const item = ITEMS[id];
+            let extra = '';
+            if (item.type === 'weapon') extra = ' (ATK +' + item.atk + ')';
+            if (item.type === 'armor') extra = ' (DEF +' + item.def + ')';
+            if (item.type === 'scroll') extra = ' (' + item.uses + ' uses)';
+            print('  - ' + item.name + extra, 'items');
+        }
+    }
+}
+
+function takeItem(noun) {
+    if (!noun) { print('Take what?', 'error'); return; }
+    const room = WORLD[S.room];
+    const id = findItem(noun, room.items || []);
+    if (!id) { print('You do not see that here.', 'error'); Audio.error(); return; }
+    room.items = room.items.filter(i => i !== id);
+    S.inv.push(id);
+    print('Taken: ' + ITEMS[id].name, 'success');
+    Audio.pickup();
+    // Recalculate stats
+    S.def = getEquippedDef();
+}
+
+function dropItem(noun) {
+    if (!noun) { print('Drop what?', 'error'); return; }
+    const id = findItem(noun, S.inv);
+    if (!id) { print('You do not have that.', 'error'); Audio.error(); return; }
+    S.inv = S.inv.filter(i => i !== id);
+    WORLD[S.room].items = WORLD[S.room].items || [];
+    WORLD[S.room].items.push(id);
+    print('Dropped: ' + ITEMS[id].name, 'success');
+    S.def = getEquippedDef();
+}
+
+function useItem(noun) {
+    if (!noun) { print('Use what?', 'error'); return; }
+    // Check for door/lock interactions
+    const room = WORLD[S.room];
+    if (room.exitConstraints) {
+        for (const [dir, c] of Object.entries(room.exitConstraints)) {
+            if (!S.flags[c.flag] && (noun.includes('door') || noun.includes('key') || noun.includes('crystal'))) {
+                if (c.key && hasItem(c.key)) {
+                    S.flags[c.flag] = true;
+                    print(c.unlockMsg, 'success');
+                    Audio.unlock();
+                    S.score += 10;
+                    return;
+                } else {
+                    print(c.fail, 'error');
+                    return;
+                }
+            }
+        }
+    }
+    // Use consumable
+    const id = findItem(noun, S.inv);
+    if (id && ITEMS[id].type === 'consumable') {
+        drinkItem(noun);
+        return;
+    }
+    print('You cannot use that here.', 'error');
+}
+
+function readItem(noun) {
+    if (!noun) { print('Read what?', 'error'); return; }
+    const id = findItem(noun, S.inv) || findItem(noun, WORLD[S.room].items || []);
+    if (id && ITEMS[id].type === 'scroll') {
+        print('The scroll reads: "' + (ITEMS[id].spell || 'indecipherable') + '"', 'lore');
+        return;
+    }
+    if (id) { print('There is nothing written on that.', 'system'); return; }
+    // Check scenery for readable things
+    const room = WORLD[S.room];
+    if (room.scenery) {
+        for (const [key, desc] of Object.entries(room.scenery)) {
+            if (noun.includes(key)) { print(desc, 'lore'); return; }
+        }
+    }
+    print('You do not see that to read.', 'error');
+}
+
+function drinkItem(noun) {
+    if (!noun) { print('Drink what?', 'error'); return; }
+    const id = findItem(noun, S.inv);
+    if (!id) { print('You do not have that.', 'error'); return; }
+    const item = ITEMS[id];
+    if (item.type !== 'consumable' || !item.heal) { print('You cannot drink that.', 'error'); return; }
+    const d = DIFF[S.difficulty];
+    const heal = Math.floor(item.heal * d.healMul);
+    S.hp = Math.min(S.maxHp, S.hp + heal);
+    S.inv = S.inv.filter(i => i !== id);
+    print('You drink the ' + item.name + ' and recover ' + heal + ' HP! (' + S.hp + '/' + S.maxHp + ')', 'success');
+    Audio.pickup();
+}
+
+// === SCREENS ===
+function showScreen(name) {
+    document.getElementById('menu-screen').classList.toggle('hidden', name !== 'menu');
+    document.getElementById('gameover-screen').classList.toggle('hidden', name !== 'gameover');
+    document.getElementById('header').style.display = name === '' ? 'flex' : 'none';
+    document.getElementById('game-container').style.display = name === '' ? 'flex' : 'none';
+}
+
+function showGameOver(title, msg) {
+    saveHighScore();
+    document.getElementById('go-title').textContent = title;
+    document.getElementById('go-msg').textContent = msg;
+    showScreen('gameover');
+}
+
+function startNewGame() {
+    Audio.init();
+    S = newState();
+    outputDiv.innerHTML = '';
+    showScreen('');
+    print('=== THE SUNKEN ARCHIVE ===', 'room-title');
+    print('A text adventure powered by Zork Engine v2', 'system');
+    print('Type "help" for commands. Type "map" to see the map.', 'system');
+    print('Difficulty: ' + DIFF[S.difficulty].name, 'system');
+    print('', '');
+    printRoom();
+    updateHUD();
+    cmdInput.focus();
+}
+
+// === INPUT HANDLING ===
+cmdInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
-        const cmd = this.value;
+        const cmd = this.value.trim();
         this.value = '';
-        parseCommand(cmd);
+        if (cmd) parseCommand(cmd);
+    }
+    // Command history
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (S.commandHistory && S.historyIdx > 0) {
+            S.historyIdx--;
+            this.value = S.commandHistory[S.historyIdx];
+        }
+    }
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (S.commandHistory && S.historyIdx < S.commandHistory.length - 1) {
+            S.historyIdx++;
+            this.value = S.commandHistory[S.historyIdx];
+        } else {
+            S.historyIdx = S.commandHistory ? S.commandHistory.length : 0;
+            this.value = '';
+        }
+    }
+    // ESC for map toggle
+    if (e.key === 'Escape') {
+        const overlay = document.getElementById('map-overlay');
+        if (overlay.style.display === 'block') overlay.style.display = 'none';
     }
 });
 
-// Start Game
-print("Welcome to the Dungeon. Find the treasure!", 'success');
-printRoom();
+// Touch-friendly: tap output to focus input
+outputDiv.addEventListener('click', () => cmdInput.focus());
 
+// === MENU BUTTONS ===
+document.getElementById('btn-new').addEventListener('click', startNewGame);
+document.getElementById('btn-load').addEventListener('click', () => {
+    Audio.init();
+    S = newState();
+    outputDiv.innerHTML = '';
+    showScreen('');
+    if (!loadGame()) {
+        print('No saved game found. Starting new adventure.', 'system');
+        printRoom();
+    }
+    updateHUD();
+    cmdInput.focus();
+});
+document.getElementById('btn-help-menu').addEventListener('click', () => {
+    alert('Movement: n/s/e/w/u/d or north/south/east/west/up/down\nLook: look, examine [thing]\nItems: take, drop, use, read, drink, inventory\nCombat: attack, cast [spell], flee\nOther: save, load, map, status, achievements, help');
+});
+document.getElementById('btn-restart').addEventListener('click', startNewGame);
+document.getElementById('btn-menu').addEventListener('click', () => { showScreen('menu'); });
+
+// Difficulty buttons
+document.querySelectorAll('.diff-btn').forEach(b => {
+    b.addEventListener('click', () => {
+        document.querySelectorAll('.diff-btn').forEach(d => d.classList.remove('sel'));
+        b.classList.add('sel');
+        difficulty = parseInt(b.dataset.diff);
+    });
+});
+
+// === BOOT ===
+showScreen('menu');
 </script>
 </body>
 </html>
