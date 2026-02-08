@@ -352,37 +352,9 @@ def build_feedback_prompt_section(top_apps, max_examples=3):
 
 COMMUNITY_PATH = APPS_DIR / "community.json"
 
-# NPC name pools for generating comments
-NPC_FIRST_NAMES = [
-    "Pixel", "Byte", "Nova", "Glitch", "Echo", "Cipher", "Neon", "Blaze",
-    "Storm", "Vex", "Drift", "Flux", "Rune", "Zap", "Spark", "Arc",
-]
-NPC_LAST_NAMES = [
-    "Runner", "Walker", "Coder", "Hacker", "Builder", "Smith", "Knight",
-    "Fox", "Wolf", "Hawk", "Bear", "Phoenix", "Dragon", "Tiger",
-]
-
-COMMENT_TEMPLATES = [
-    "This is incredible! The {feature} really blew my mind.",
-    "Wow, {feature} is so smooth. Great work!",
-    "I've been playing this for an hour straight. Love the {feature}.",
-    "The {feature} gives this such a unique feel. Bookmarked!",
-    "Really polished. The {feature} alone makes it worth checking out.",
-    "Not bad! Would love to see more {feature} in future updates.",
-    "This is what the gallery needs more of. {feature} is next level.",
-    "Just showed this to my friend, they couldn't believe the {feature}.",
-]
-
-FEATURE_POOL = [
-    "procedural generation", "sound design", "particle effects",
-    "color palette", "game loop", "physics engine", "AI behavior",
-    "save system", "difficulty curve", "visual feedback", "animations",
-    "level design", "combo system", "progression system", "atmosphere",
-]
-
 
 def generate_community_entries(app_titles, num_comments_per_app=3, num_ratings_per_app=5, seed=None):
-    """Generate stub community data for new apps.
+    """Generate community data for new apps via Copilot CLI.
 
     Args:
         app_titles: List of (filename, title) tuples for new apps.
@@ -393,33 +365,65 @@ def generate_community_entries(app_titles, num_comments_per_app=3, num_ratings_p
     Returns:
         dict with 'comments' and 'ratings' keys, ready to merge into community.json.
     """
+    from copilot_utils import copilot_call, parse_llm_json
+
     rng = random.Random(seed)
     comments = []
     ratings = {}
 
-    for filename, title in app_titles:
-        # Generate comments
-        for _ in range(num_comments_per_app):
-            npc = rng.choice(NPC_FIRST_NAMES) + " " + rng.choice(NPC_LAST_NAMES)
-            template = rng.choice(COMMENT_TEMPLATES)
-            feature = rng.choice(FEATURE_POOL)
-            comments.append({
-                "app": filename,
-                "author": npc,
-                "text": template.format(feature=feature),
-                "timestamp": datetime.now().isoformat(),
-            })
+    # Batch apps for LLM generation (5 at a time)
+    for batch_start in range(0, len(app_titles), 5):
+        batch = app_titles[batch_start:batch_start + 5]
+        app_list = [{"filename": fn, "title": t} for fn, t in batch]
 
-        # Generate ratings (3-5 stars, weighted toward 4)
-        app_ratings = []
-        for _ in range(num_ratings_per_app):
-            rating = rng.choices([3, 4, 5], weights=[2, 5, 3])[0]
-            app_ratings.append(rating)
-        ratings[filename] = {
-            "ratings": app_ratings,
-            "avg": round(sum(app_ratings) / len(app_ratings), 2),
-            "count": len(app_ratings),
-        }
+        prompt = f"""Generate community data for these new apps:
+{json.dumps(app_list)}
+
+For each app, generate {num_comments_per_app} unique comments from different users and {num_ratings_per_app} ratings (3-5 stars).
+
+Return JSON:
+{{
+  "<filename>": {{
+    "comments": [
+      {{"author": "unique_username", "text": "specific comment about the app (1-2 sentences)"}}
+    ],
+    "ratings": [4, 5, 3, 4, 5]
+  }}
+}}
+
+Usernames should be creative gaming handles (l33t, camelCase, underscores). Comments must reference specific aspects of each app by title — not generic praise. Return ONLY the JSON."""
+
+        raw = copilot_call(prompt, timeout=45)
+        result = parse_llm_json(raw) if raw else None
+
+        for filename, title in batch:
+            if result and filename in result:
+                app_data = result[filename]
+                for c in app_data.get("comments", [])[:num_comments_per_app]:
+                    comments.append({
+                        "app": filename,
+                        "author": c.get("author", f"Player{rng.randint(100,999)}"),
+                        "text": c.get("text", f"Cool app: {title}"),
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                app_ratings = app_data.get("ratings", [])[:num_ratings_per_app]
+            else:
+                # Fallback: minimal generated data
+                comments.append({
+                    "app": filename,
+                    "author": f"Player{rng.randint(100,999)}",
+                    "text": f"Just tried {title} — interesting concept!",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                app_ratings = [rng.choices([3, 4, 5], weights=[2, 5, 3])[0] for _ in range(num_ratings_per_app)]
+
+            if not app_ratings:
+                app_ratings = [rng.choices([3, 4, 5], weights=[2, 5, 3])[0] for _ in range(num_ratings_per_app)]
+            ratings[filename] = {
+                "ratings": app_ratings,
+                "avg": round(sum(app_ratings) / len(app_ratings), 2),
+                "count": len(app_ratings),
+            }
 
     return {"comments": comments, "ratings": ratings}
 

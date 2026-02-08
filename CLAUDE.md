@@ -253,6 +253,7 @@ Push to `main`. GitHub Pages auto-deploys from root. `.github/workflows/autosort
 - **Always update manifest.json** when adding or removing apps. Validate after editing.
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file and vice versa.
 - **No build process.** Everything is hand-editable static files.
+- **No static content.** All community comments, broadcast dialogue, NPC names, and generated text must come from Copilot CLI (Claude Opus 4.6) calls — never from hardcoded template pools. Every run produces 100% fresh, unique content. No caching between runs.
 
 ## Known Pitfalls
 

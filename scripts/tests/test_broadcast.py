@@ -6,7 +6,7 @@ import random
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -20,11 +20,54 @@ from generate_broadcast import (
     estimate_duration,
     get_app_stem,
     HOSTS,
-    RAPPTR_INTROS,
-    ZOOKEEPER_INTROS,
-    RAPPTR_TAG_REACTIONS,
-    ZOOKEEPER_TAG_REACTIONS,
 )
+
+
+# ── Mock Copilot Responses ──
+
+def _mock_review_response(prompt, **kwargs):
+    """Return a valid review dialogue JSON string."""
+    return json.dumps([
+        {"host": "Rapptr", "text": "OK this one — Sky Realms — I've been obsessed with it all week."},
+        {"host": "ZooKeeper", "text": "The data shows a score of 94/100. S-grade. Impressive."},
+        {"host": "Rapptr", "text": "The 3D rendering is SMOOTH. Like butter in a browser tab."},
+        {"host": "ZooKeeper", "text": "Canvas performance metrics confirm consistent 60fps."},
+        {"host": "Rapptr", "text": "NeonWolf in the comments said it perfectly — this is next level."},
+        {"host": "ZooKeeper", "text": "Community rating at 4.7/5 with 3 ratings. Strong signal."},
+    ])
+
+def _mock_roast_response(prompt, **kwargs):
+    """Return a valid roast dialogue JSON string."""
+    return json.dumps([
+        {"host": "Rapptr", "text": "OK roast time. Deep breath. Broken Demo is... trying."},
+        {"host": "ZooKeeper", "text": "Score of 12/100. Playability at 3/25. The numbers are clear."},
+        {"host": "Rapptr", "text": "But the ambition is there! Every S-grade started somewhere."},
+        {"host": "ZooKeeper", "text": "The structural issues need addressing before polish matters."},
+    ])
+
+def _mock_episode_meta(prompt, **kwargs):
+    """Return valid episode metadata or dialogue depending on prompt content."""
+    if "metadata for podcast episode" in prompt.lower() or "episode title" in prompt.lower():
+        return json.dumps({
+            "title": "Episode 1: The Sky Realms Phenomenon",
+            "intro_rapptr": "Welcome BACK to RappterZooNation! Episode 1!",
+            "intro_zookeeper": "Median score: 53. Let's see what moves the needle.",
+            "outro_rapptr": "That's a wrap for episode 1!",
+            "outro_zookeeper": "The data doesn't lie. See you next time.",
+        })
+    elif "roast" in prompt.lower():
+        return _mock_roast_response(prompt)
+    elif "lore callback" in prompt.lower():
+        return json.dumps([
+            {"host": "Rapptr", "text": "We reviewed this before!"},
+            {"host": "ZooKeeper", "text": "Delta of +5 points."},
+        ])
+    elif "milestone" in prompt.lower():
+        return json.dumps([
+            {"host": "ZooKeeper", "text": "Episode 1. 0 apps reviewed."},
+        ])
+    else:
+        return _mock_review_response(prompt)
 
 
 # ── Fixtures ──
@@ -304,15 +347,17 @@ class TestSelectEpisodeApps:
         assert [a["file"] for a in apps1] == [a["file"] for a in apps2]
 
 
+@patch("copilot_utils.copilot_call", side_effect=_mock_review_response)
+@patch("copilot_utils.parse_llm_json", side_effect=lambda x: json.loads(x) if x else None)
 class TestDialogueGeneration:
-    def test_review_has_dialogue(self):
+    def test_review_has_dialogue(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         app = index["sky-realms-game.html"]
         rng = random.Random(42)
         dialogue = generate_review_dialogue(app, rng)
         assert len(dialogue) >= 4
 
-    def test_both_hosts_speak(self):
+    def test_both_hosts_speak(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         app = index["sky-realms-game.html"]
         rng = random.Random(42)
@@ -321,14 +366,14 @@ class TestDialogueGeneration:
         assert "Rapptr" in hosts
         assert "ZooKeeper" in hosts
 
-    def test_rapptr_opens(self):
+    def test_rapptr_opens(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         app = index["sky-realms-game.html"]
         rng = random.Random(42)
         dialogue = generate_review_dialogue(app, rng)
         assert dialogue[0]["host"] == "Rapptr"
 
-    def test_references_app_title(self):
+    def test_references_app_title(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         app = index["sky-realms-game.html"]
         rng = random.Random(42)
@@ -336,7 +381,7 @@ class TestDialogueGeneration:
         all_text = " ".join(d["text"] for d in dialogue)
         assert "Sky Realms" in all_text or "94" in all_text
 
-    def test_references_community(self):
+    def test_references_community(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         app = index["sky-realms-game.html"]
         rng = random.Random(42)
@@ -344,7 +389,8 @@ class TestDialogueGeneration:
         all_text = " ".join(d["text"] for d in dialogue)
         assert "NeonWolf" in all_text or "4.7" in all_text or "3 rating" in all_text
 
-    def test_roast_dialogue(self):
+    def test_roast_dialogue(self, mock_parse, mock_call):
+        mock_call.side_effect = _mock_roast_response
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         app = index["broken-demo.html"]
         rng = random.Random(42)
@@ -354,8 +400,10 @@ class TestDialogueGeneration:
         assert "12" in all_text  # score
 
 
+@patch("copilot_utils.copilot_call", side_effect=_mock_episode_meta)
+@patch("copilot_utils.parse_llm_json", side_effect=lambda x: json.loads(x) if x else None)
 class TestEpisodeGeneration:
-    def test_generates_complete_episode(self):
+    def test_generates_complete_episode(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         rng = random.Random(42)
         ep = generate_episode(index, rng, 1, 1, MOCK_RANKINGS["summary"])
@@ -367,7 +415,7 @@ class TestEpisodeGeneration:
         assert "segments" in ep
         assert "duration" in ep
 
-    def test_has_intro_and_outro(self):
+    def test_has_intro_and_outro(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         rng = random.Random(42)
         ep = generate_episode(index, rng, 1, 1, MOCK_RANKINGS["summary"])
@@ -375,14 +423,14 @@ class TestEpisodeGeneration:
         assert "intro" in types
         assert "outro" in types
 
-    def test_has_reviews(self):
+    def test_has_reviews(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         rng = random.Random(42)
         ep = generate_episode(index, rng, 1, 1, MOCK_RANKINGS["summary"])
         reviews = [s for s in ep["segments"] if s["type"] == "review"]
         assert len(reviews) >= 1
 
-    def test_review_has_app_data(self):
+    def test_review_has_app_data(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         rng = random.Random(42)
         ep = generate_episode(index, rng, 1, 1, MOCK_RANKINGS["summary"])
@@ -395,14 +443,14 @@ class TestEpisodeGeneration:
         assert "grade" in app
         assert "community" in app
 
-    def test_has_roast_segment(self):
+    def test_has_roast_segment(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         rng = random.Random(42)
         ep = generate_episode(index, rng, 1, 1, MOCK_RANKINGS["summary"])
         roasts = [s for s in ep["segments"] if s["type"] == "roast"]
         assert len(roasts) >= 1
 
-    def test_episode_duration_format(self):
+    def test_episode_duration_format(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         rng = random.Random(42)
         ep = generate_episode(index, rng, 1, 1, MOCK_RANKINGS["summary"])
@@ -410,7 +458,7 @@ class TestEpisodeGeneration:
         parts = ep["duration"].split(":")
         assert len(parts) == 2
 
-    def test_deterministic(self):
+    def test_deterministic(self, mock_parse, mock_call):
         index = build_app_index(MOCK_MANIFEST, MOCK_RANKINGS, MOCK_COMMUNITY)
         ep1 = generate_episode(index, random.Random(42), 1, 1, MOCK_RANKINGS["summary"])
         ep2 = generate_episode(index, random.Random(42), 1, 1, MOCK_RANKINGS["summary"])
@@ -454,29 +502,3 @@ class TestHostDefinitions:
     def test_hosts_have_colors(self):
         assert HOSTS["Rapptr"]["color"] == "#00e5ff"
         assert HOSTS["ZooKeeper"]["color"] == "#ff6e40"
-
-    def test_rapptr_has_tag_reactions(self):
-        assert len(RAPPTR_TAG_REACTIONS) > 5
-        for tag, reactions in RAPPTR_TAG_REACTIONS.items():
-            assert len(reactions) >= 2, f"Rapptr needs more reactions for '{tag}'"
-
-    def test_zookeeper_has_tag_reactions(self):
-        assert len(ZOOKEEPER_TAG_REACTIONS) > 5
-        for tag, reactions in ZOOKEEPER_TAG_REACTIONS.items():
-            assert len(reactions) >= 2, f"ZooKeeper needs more reactions for '{tag}'"
-
-    def test_tag_parity(self):
-        """Both hosts should react to the same tags."""
-        rapptr_tags = set(RAPPTR_TAG_REACTIONS.keys())
-        zoo_tags = set(ZOOKEEPER_TAG_REACTIONS.keys())
-        assert rapptr_tags == zoo_tags
-
-
-class TestVocabularyPools:
-    def test_rapptr_intros_use_title(self):
-        for template in RAPPTR_INTROS:
-            assert "{title}" in template
-
-    def test_zookeeper_intros_use_score(self):
-        for template in ZOOKEEPER_INTROS:
-            assert "{score}" in template or "{title}" in template

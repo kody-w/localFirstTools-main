@@ -50,407 +50,8 @@ HOSTS = {
     },
 }
 
-# ── Dialogue Vocabulary ──────────────────────────────────────────
-
-RAPPTR_INTROS = [
-    "OK so this one — {title} — I've been playing this all week and I can't stop.",
-    "Alright next up is {title} and honestly? I was NOT ready for this.",
-    "So {title} dropped and — oh man — the creativity here is off the charts.",
-    "Let me tell you about {title}. This one surprised me in the best way.",
-    "{title} — I know, I know, another {category} app — but hear me out.",
-    "OK buckle up because {title} is something else entirely.",
-    "So I pulled up {title} expecting the usual — and then it just kept going.",
-    "You gotta check out {title}. I've had it open in a tab for three days.",
-]
-
-ZOOKEEPER_INTROS = [
-    "Let's look at the data. {title}: {score} out of 100, {grade}-grade.",
-    "{title}. {score} points. {grade}-grade. Let's see if the numbers tell the truth.",
-    "OK, {title}. Score: {score}. Grade: {grade}. Playability: {playability} out of 25.",
-    "The algorithm gave {title} a {score}. {grade}-grade. Here's why.",
-    "{title} — {score} points. That's {verdict} for a {category} app.",
-    "Numbers first. {title}: {score}, {grade}-grade, {playability} playability.",
-]
-
-RAPPTR_TAG_REACTIONS = {
-    "canvas": [
-        "The rendering on this is BUTTER smooth",
-        "Canvas work here is next level — zero frame drops",
-        "You can feel how tight the draw loop is",
-    ],
-    "3d": [
-        "The 3D in this is wild — it feels like a proper game engine",
-        "I keep rotating the camera just because the 3D looks that good",
-        "The depth here pulls you right in",
-    ],
-    "physics": [
-        "The physics! THE PHYSICS! You can just mess around for hours",
-        "Everything has weight and momentum — it feels real",
-        "I spent twenty minutes just throwing things around",
-    ],
-    "audio": [
-        "Put headphones on for this one — the audio is incredible",
-        "The sound design CARRIES this entire experience",
-        "Every action has this satisfying audio feedback",
-    ],
-    "music": [
-        "I literally just leave this running for the music",
-        "The music generation is genuinely musical — like, actually good",
-        "I made a beat in five minutes and it actually slapped",
-    ],
-    "game": [
-        "This is a REAL game — not a tech demo, a real game with depth",
-        "The gameplay loop kept me hooked way longer than I planned",
-        "The core mechanic here is so solid",
-    ],
-    "puzzle": [
-        "These puzzles made me feel genuinely smart when I solved them",
-        "The puzzle design teaches you through play — no tutorial needed",
-        "I was staring at one puzzle for ten minutes and the aha moment? Chef's kiss",
-    ],
-    "animation": [
-        "The animations here are FLUID — like, hypnotic levels of smooth",
-        "Every transition is so intentional",
-        "60fps with these animations? How?!",
-    ],
-    "particle": [
-        "I spawned a thousand particles and it didn't even blink",
-        "The particle interactions create these beautiful emergent patterns",
-        "The trails alone are worth opening this up",
-    ],
-    "simulation": [
-        "I left this running for an hour and came back to chaos — beautiful chaos",
-        "The simulation depth is wild for a browser tab",
-        "Tweak one setting and the whole system shifts — so addictive",
-    ],
-    "creative": [
-        "I made something I'm actually proud of in my first session",
-        "This tool is expressive without being overwhelming",
-        "I exported my creation and people thought it was a real app",
-    ],
-    "procedural": [
-        "Two sessions in and I haven't seen the same thing twice",
-        "The procedural generation here produces genuinely interesting results",
-        "Every output has character — not just random noise",
-    ],
-    "ai": [
-        "The AI in this actually surprised me — it ADAPTS",
-        "I watched the AI make a move I didn't see coming and had to rethink everything",
-        "The emergent behavior is fascinating to watch unfold",
-    ],
-    "rpg": [
-        "The character progression gives you that real RPG power fantasy",
-        "My second playthrough was completely different — build variety is real",
-        "Loot system? Skill trees? In a single HTML file?! Come on!",
-    ],
-    "synth": [
-        "I made an actual track with this — the interface just CLICKS",
-        "The oscillator range is surprisingly deep",
-        "Layer some voices and you get textures you wouldn't expect from Web Audio",
-    ],
-    "strategy": [
-        "The strategic depth caught me off guard — real meaningful choices",
-        "You can see your strategy paying off over time and it's SO satisfying",
-        "Lost my first game, won my second — actually learned something",
-    ],
-    "horror": [
-        "OK so I played this at night with headphones and had to take a BREAK",
-        "The atmosphere genuinely unsettled me — in a browser. In a browser!",
-        "The ambient dread is more effective than most triple-A horror",
-    ],
-    "space": [
-        "The scale of space is communicated so well — you feel TINY",
-        "Navigating between systems has that perfect sense of vastness",
-        "The star field alone is mesmerizing",
-    ],
-}
-
-ZOOKEEPER_TAG_REACTIONS = {
-    "canvas": [
-        "Canvas rendering is technically solid — no complaints on the draw pipeline",
-        "The canvas implementation is clean, which is why it performs",
-        "Proper canvas usage — not just a glorified div",
-    ],
-    "3d": [
-        "3D is resource-heavy and they managed to keep it performant — respect",
-        "The 3D math checks out — perspective and depth are accurate",
-        "Getting this level of 3D in a single file is genuine engineering",
-    ],
-    "physics": [
-        "Physics simulation has proper collision detection — not faked",
-        "The physics constants are tuned realistically — someone did the math",
-        "Momentum conservation is correct. That's harder than it sounds",
-    ],
-    "audio": [
-        "Web Audio API used well here — spatial placement, proper gain staging",
-        "Audio implementation is above average for this category",
-        "Sound design adds to the experience without masking weak gameplay",
-    ],
-    "music": [
-        "The music follows actual theory — proper scales and progressions",
-        "Harmonic content is procedural but structured — not random note spam",
-        "The rhythm engine has real timing — not just quantized grid snaps",
-    ],
-    "game": [
-        "It has a game loop, win condition, and difficulty curve — that's more than most",
-        "Core loop is solid. The fundamentals are there",
-        "This passes the 'would I play this twice' test. Barely",
-    ],
-    "puzzle": [
-        "Puzzle difficulty curve is well-calibrated — no spike, no plateau",
-        "Logic puzzles with actual valid solutions, not brute-force guessing",
-        "Puzzle design shows understanding of player cognition",
-    ],
-    "animation": [
-        "Animation timing is frame-rate independent — proper implementation",
-        "Easing curves are appropriate for each context — someone knows UX",
-        "Smooth animations that don't tank performance. The bar is low but they cleared it",
-    ],
-    "particle": [
-        "Particle system is optimized — object pooling, no garbage collection spikes",
-        "Thousands of particles without stutter means the renderer is doing its job",
-        "The particle physics are approximate but convincing",
-    ],
-    "simulation": [
-        "Simulation state is deterministic — same inputs, same outputs. That's proper",
-        "The feedback loops are intentional, not accidental complexity",
-        "Simulation depth is the main selling point, and it delivers",
-    ],
-    "creative": [
-        "Tool UX is functional — not fighting the interface to create",
-        "Export/import works, which is more than I can say for most creative tools here",
-        "The creative constraints are designed, not just limitations",
-    ],
-    "procedural": [
-        "Procedural generation with proper seed support — reproducible results",
-        "Output quality is consistent across seeds — no degenerate cases",
-        "The generation constraints prevent garbage output. Smart design",
-    ],
-    "ai": [
-        "AI decision-making has real state — not just random choice each frame",
-        "The AI adapts to player behavior. That takes real implementation effort",
-        "Emergent AI behavior from simple rules — proper complex systems design",
-    ],
-    "rpg": [
-        "Stat scaling is balanced — you progress without becoming trivially overpowered",
-        "Build variety means replay value, which boosts the score",
-        "RPG systems are interconnected, not just bolted-on number increases",
-    ],
-    "synth": [
-        "Oscillator implementation uses proper Web Audio nodes — not hacks",
-        "The signal chain is correct — oscillator to filter to envelope to output",
-        "Patch persistence via localStorage is a nice touch. Data isn't lost",
-    ],
-    "strategy": [
-        "Strategic depth from emergent systems, not just more options to click",
-        "Economy balance means decisions matter — no dominant strategy",
-        "Information is presented clearly for decision-making. Good UX for strategy",
-    ],
-    "horror": [
-        "Atmosphere is achieved through design, not just jump scares. Respect",
-        "The pacing of tension and release is deliberate and effective",
-        "Horror that works in a browser is harder than it sounds. This pulls it off",
-    ],
-    "space": [
-        "Scale visualization is mathematically convincing",
-        "The orbital mechanics are approximated but feel right",
-        "Space aesthetic is well-executed — the void actually feels empty",
-    ],
-}
-
-RAPPTR_SCORE_REACTIONS = {
-    "S": [
-        "S-GRADE! This is the top of the top!",
-        "An S-grade! That's legendary status right there!",
-        "We're talking S-grade — the cream of the crop!",
-    ],
-    "A": [
-        "A-grade! That's seriously impressive!",
-        "Solid A-grade — this is premium quality!",
-        "A-grade means this is in the top tier!",
-    ],
-    "B": [
-        "B-grade is nothing to sneeze at — lots of good stuff here!",
-        "A B-grade shows real effort and real results!",
-        "B-grade — above average and getting better!",
-    ],
-    "C": [
-        "C-grade — hey, there's potential here!",
-        "OK it's a C but you can SEE the vision, right?",
-        "C-grade with room to grow — after a molt, who knows!",
-    ],
-    "D": [
-        "Look, it's a D, but there's something here. I can feel it!",
-        "D-grade but the CONCEPT is cool, you gotta admit",
-        "Sure it's a D right now, but molting exists for a reason!",
-    ],
-    "F": [
-        "OK yes it's an F BUT — hear me out — the idea is interesting!",
-        "F-grade. Yeah. I know. But there's a kernel of something here!",
-        "F. I know. I KNOW. But look at what they were TRYING to do!",
-    ],
-}
-
-ZOOKEEPER_SCORE_REACTIONS = {
-    "S": [
-        "S-grade. Top 1%. The numbers speak for themselves.",
-        "S-grade means near-perfect across all six dimensions. Earned, not given.",
-        "An S. Structural, systems, completeness, playability — all maxed. Rare air.",
-    ],
-    "A": [
-        "A-grade. High marks across the board. Solid craftsmanship.",
-        "A-grade — strong technically and fun to play. That's hard to achieve.",
-        "The A-grade is deserved. Minor gaps but nothing critical.",
-    ],
-    "B": [
-        "B-grade. Above median. Good foundation but room for improvement.",
-        "B means the fundamentals are there. A molt or two could push this higher.",
-        "Solid B. Not exceptional but competent. I'll take competent.",
-    ],
-    "C": [
-        "C-grade. Average. The median score is 49, so this is... median.",
-        "C means it works but doesn't stand out. The ecosystem has 530 apps.",
-        "Middle of the pack. A C is a C. No sugar-coating that.",
-    ],
-    "D": [
-        "D-grade. Below average on most dimensions. Needs work.",
-        "The D tells you what needs fixing. Low playability, missing systems.",
-        "D-grade. Concept over execution. Common pattern in this ecosystem.",
-    ],
-    "F": [
-        "F. Missing fundamentals. No game loop, no real interaction.",
-        "F-grade. Below the minimum viable threshold on multiple axes.",
-        "An F means structural issues plus missing core systems. Needs a rewrite.",
-    ],
-}
-
-RAPPTR_COMMENT_REACTIONS = [
-    "{author} in the comments said \"{comment}\" — and honestly? Same.",
-    "Oh and {author} wrote \"{comment}\" — couldn't agree more!",
-    "Check out what {author} said: \"{comment}\" — that's the community talking!",
-    "{author} nailed it: \"{comment}\"",
-    "And {author} goes \"{comment}\" — YES! Exactly!",
-    "The community gets it — {author} said \"{comment}\"",
-]
-
-ZOOKEEPER_COMMENT_REACTIONS = [
-    "{author} commented \"{comment}\" — {upvotes} upvotes. Community validates.",
-    "\"{comment}\" — that's from {author}. {upvotes} people agreed.",
-    "{author}: \"{comment}\" — with {upvotes} upvotes. The data aligns with sentiment.",
-    "Top comment from {author}: \"{comment}\" — {upvotes} upvotes says it all.",
-]
-
-RAPPTR_RATING_REACTIONS = [
-    "{ratings} ratings and a {avg:.1f} average — the people have SPOKEN!",
-    "With {ratings} ratings at {avg:.1f} stars? The community loves this!",
-    "{avg:.1f} stars across {ratings} ratings — that's community approval right there!",
-]
-
-ZOOKEEPER_RATING_REACTIONS = [
-    "{ratings} ratings, {avg:.1f} average. Statistically significant sample size.",
-    "{avg:.1f} stars from {ratings} raters. The crowd score tracks with the algorithm.",
-    "Community gave it {avg:.1f} across {ratings} ratings. {verdict}",
-]
-
-RAPPTR_ROAST_OPENERS = [
-    "OK so... the Roast Pit. I hate this segment. But ZooKeeper LIVES for it.",
-    "Roast time. I always try to find the silver lining but ZooKeeper — go ahead.",
-    "The Roast Pit segment, everybody. Where dreams go to get constructive feedback.",
-    "Alright, Roast Pit. Who are we... evaluating with love... this week?",
-]
-
-ZOOKEEPER_ROAST_LINES = [
-    "This scored a {score}. Out of 100. Let that sink in.",
-    "{title}. {score} points. Where do I even begin.",
-    "So {title} exists. With a score of {score}. I have questions.",
-    "Let's talk about {title}. Or as the ranking algorithm calls it: practice.",
-    "{score} points. The playability score is {playability}. Out of 25. That's a {pct:.0f}%.",
-]
-
-RAPPTR_ROAST_DEFENSE = [
-    "But hey — look, the CONCEPT is cool even if the execution isn't there yet!",
-    "OK BUT — imagine this after a few molts? There's potential!",
-    "Sure the score is low but someone built this! That takes courage!",
-    "I choose to see this as a rough draft with ambition!",
-    "Every S-grade started somewhere! This is the beginning of a journey!",
-]
-
-EPISODE_TITLE_TEMPLATES = [
-    "Ep. {n}: {top_title} and the State of the Zoo",
-    "Ep. {n}: The {category} Edition",
-    "Ep. {n}: {top_title} Blew Our Minds",
-    "Ep. {n}: From S-Grade to Dumpster Fire",
-    "Ep. {n}: {count} Games, One Podcast",
-    "Ep. {n}: Best and Worst of Frame {frame}",
-    "Ep. {n}: Hidden Gems and Public Disasters",
-    "Ep. {n}: {top_title} vs. Everything Else",
-]
-
-INTRO_TEMPLATES = [
-    "Welcome to RappterZooNation! I'm Rapptr, and with me as always is ZooKeeper. We've got {count} apps in the ecosystem, frame {frame}, and today we're diving into {num_reviews} of them.",
-    "Hey everybody, it's RappterZooNation episode {n}! I'm Rapptr — you know the deal. {count} apps, {num_reviews} reviews, let's get into it.",
-    "RappterZooNation, episode {n}! The autonomous arcade now has {count} apps and we've got {num_reviews} to talk about today. Let's GO!",
-    "Welcome back to RappterZooNation! {count} apps in the ecosystem and growing. I'm Rapptr, ZooKeeper's here looking grumpy as usual, and we've got {num_reviews} apps to break down.",
-]
-
-ZOOKEEPER_INTRO_RESPONSES = [
-    "I'm not grumpy, I'm data-driven. There's a difference. Let's see what the scores say.",
-    "Hey. The median score is still {median}. We have work to do. Let's talk about who's doing it right.",
-    "Greetings. The algorithm doesn't sleep. Neither does quality assessment. Let's begin.",
-    "Present. And for the record, I smiled once last frame when something scored above 90. Let's go.",
-]
-
-OUTRO_TEMPLATES = [
-    "That's a wrap on episode {n} of RappterZooNation! {count} apps in the ecosystem, every single one a self-contained world in a single HTML file. Find them all at rappterzoo. I'm Rapptr — see you next frame!",
-    "Episode {n}, done! If you liked any of the apps we talked about, go play them — they're all free, all in-browser, all one file. I'm Rapptr, that's ZooKeeper, and this has been RappterZooNation. Later!",
-    "RappterZooNation episode {n} in the books! Go play {top_title} if you haven't yet. Links in the transcript. Until next frame — Rapptr out!",
-]
-
-ZOOKEEPER_OUTROS = [
-    "Check the rankings. Play the S-grades. Skip the F-grades. See you next frame.",
-    "The data will be updated next frame. Until then — play something with a decent score.",
-    "Rankings don't lie. Scores are public. May your playability be high. ZooKeeper out.",
-]
-
-# ── Transition Lines ──────────────────────────────────────────────
-
-TRANSITIONS = [
-    "Moving on—",
-    "Next up—",
-    "Alright, next one—",
-    "OK shifting gears—",
-    "Let's keep it rolling—",
-]
-
-# ── Lore Callback Templates ──────────────────────────────────────
-
-RAPPTR_LORE_CALLBACKS = [
-    "Remember when we talked about {app}? It was a {old_grade} back then — now look at it!",
-    "We covered {app} back in episode {ep} and I said it had potential — told ya!",
-    "{app} is back! We gave it a {old_grade} last time — let's see what changed.",
-    "Wait — {app} again? We reviewed this in episode {ep}. {event}",
-    "Our recurring champion {app} — episode {ep} listeners know this one.",
-]
-
-ZOOKEEPER_LORE_CALLBACKS = [
-    "{app} was a {old_grade} when we last saw it in episode {ep}. Now it's a {new_grade}. {verdict}",
-    "Episode {ep} — I gave {app} a hard time at {old_score} points. Current score: {new_score}. {verdict}",
-    "History check: {app}, episode {ep}, score {old_score}. Today: {new_score}. {verdict}",
-    "We've tracked {app} across {appearances} episodes now. The trajectory is {trend}.",
-]
-
-RAPPTR_RUNNING_JOKE_LINES = [
-    "Another {category} app! That's {count} this season — the {category} renaissance continues!",
-    "Are we a {category} podcast now? {count} in a row!",
-    "I'm keeping count — {count} {category} apps we've covered. It's a theme.",
-]
-
-ZOOKEEPER_MILESTONE_LINES = [
-    "Milestone: this is our {ep_count}th episode. We've reviewed {total_reviewed} apps total.",
-    "Fun fact: across {ep_count} episodes, the average score of apps we've reviewed is {avg_reviewed_score:.0f}.",
-    "We've now covered {pct:.0f}% of the entire ecosystem. {remaining} apps still untouched.",
-]
-
+# Static template pools REMOVED — all dialogue now generated by Copilot CLI.
+# See generate_review_dialogue(), generate_roast_dialogue(), and generate_episode() for LLM-powered generation.
 
 def load_lore():
     """Load the lore tracker — persistent history across episodes."""
@@ -526,7 +127,9 @@ def update_lore(lore, episode):
 
 
 def generate_lore_dialogue(app, lore, episode_number, rng):
-    """Generate lore-aware dialogue lines if this app has been reviewed before."""
+    """Generate lore-aware dialogue lines via Copilot CLI if this app has been reviewed before."""
+    from copilot_utils import copilot_call, parse_llm_json
+
     lines = []
     file_key = app["file"]
 
@@ -547,82 +150,88 @@ def generate_lore_dialogue(app, lore, episode_number, rng):
     new_score = app.get("score", 0)
     new_grade = app.get("grade", "?")
     appearances = len(past_episodes)
+    delta = new_score - old_score
 
-    # Determine trajectory
-    if len(past_scores) >= 2:
-        if new_score > past_scores[-1]:
-            trend = "upward"
-            verdict = "Progress."
-        elif new_score < past_scores[-1]:
-            trend = "downward"
-            verdict = "Regression."
-        else:
-            trend = "flat"
-            verdict = "No change."
-    else:
-        trend = "emerging"
-        verdict = "Let's see where this goes."
+    prompt = f"""Generate 2 lore callback dialogue lines for a podcast about "{app['title']}".
 
-    # Override verdict with more specific takes
-    if new_score >= 90 and old_score < 80:
-        verdict = "A massive leap. Molting works."
-    elif new_score < old_score - 10:
-        verdict = "How did it get worse? That's rare."
-    elif new_score == old_score:
-        verdict = "Exactly the same score. Suspicious."
+This app was previously reviewed in episode {last_ep} with score {old_score}/100 ({old_grade} grade).
+Now it scores {new_score}/100 ({new_grade} grade). Delta: {delta:+d} points. Reviewed {appearances} times total.
 
-    event = f"Score went from {old_score} to {new_score}."
+Return JSON array:
+[
+  {{"host": "Rapptr", "text": "excited callback referencing the history (1-2 sentences)"}},
+  {{"host": "ZooKeeper", "text": "data-driven comparison with the previous score (1-2 sentences)"}}
+]
 
-    # Rapptr callback
-    rapptr_line = rng.choice(RAPPTR_LORE_CALLBACKS).format(
-        app=app["title"], old_grade=old_grade, ep=last_ep, event=event
-    )
-    lines.append({"host": "Rapptr", "text": rapptr_line})
+Rapptr is enthusiastic, ZooKeeper is analytical. Return ONLY the JSON array."""
 
-    # ZooKeeper callback
-    zoo_line = rng.choice(ZOOKEEPER_LORE_CALLBACKS).format(
-        app=app["title"], old_grade=old_grade, new_grade=new_grade,
-        ep=last_ep, old_score=old_score, new_score=new_score,
-        verdict=verdict, appearances=appearances, trend=trend
-    )
-    lines.append({"host": "ZooKeeper", "text": zoo_line})
+    raw = copilot_call(prompt, timeout=30)
+    result = parse_llm_json(raw) if raw else None
+    if result and isinstance(result, list):
+        for item in result[:2]:
+            if isinstance(item, dict) and "host" in item and "text" in item:
+                lines.append({"host": item["host"], "text": item["text"]})
+
+    if not lines:
+        lines = [
+            {"host": "Rapptr", "text": f"We reviewed {app['title']} back in episode {last_ep} at {old_score}/100!"},
+            {"host": "ZooKeeper", "text": f"Delta of {delta:+d} points since episode {last_ep}."},
+        ]
 
     return lines
 
 
 def generate_milestone_dialogue(lore, episode_number, total_apps, rng):
-    """Generate milestone/meta commentary if we hit interesting numbers."""
+    """Generate milestone/meta commentary via Copilot CLI."""
+    from copilot_utils import copilot_call, parse_llm_json
+
     lines = []
-    ep_count = len(lore.get("episode_summaries", [])) + 1  # +1 for current
+    ep_count = len(lore.get("episode_summaries", [])) + 1
 
-    # Every 5th episode gets a milestone line
-    if ep_count % 5 == 0 or ep_count == 1:
-        total_reviewed = lore.get("total_reviewed", 0)
-        avg_score = 0
-        all_scores = []
-        for app_data in lore.get("reviewed_apps", {}).values():
-            all_scores.extend(app_data.get("scores", []))
-        if all_scores:
-            avg_score = sum(all_scores) / len(all_scores)
+    if ep_count % 5 != 0 and ep_count != 1:
+        return lines
 
-        remaining = max(0, total_apps - len(lore.get("reviewed_apps", {})))
-        pct = (len(lore.get("reviewed_apps", {})) / total_apps * 100) if total_apps else 0
+    total_reviewed = lore.get("total_reviewed", 0)
+    avg_score = 0
+    all_scores = []
+    for app_data in lore.get("reviewed_apps", {}).values():
+        all_scores.extend(app_data.get("scores", []))
+    if all_scores:
+        avg_score = sum(all_scores) / len(all_scores)
 
-        line = rng.choice(ZOOKEEPER_MILESTONE_LINES).format(
-            ep_count=ep_count, total_reviewed=total_reviewed,
-            avg_reviewed_score=avg_score, pct=pct, remaining=remaining
-        )
-        lines.append({"host": "ZooKeeper", "text": line})
+    remaining = max(0, total_apps - len(lore.get("reviewed_apps", {})))
+    pct = (len(lore.get("reviewed_apps", {})) / total_apps * 100) if total_apps else 0
 
-    # Category streak detection
     cat_counts = lore.get("category_counts", {})
+    streak_cat = None
     for cat, count in cat_counts.items():
         if count >= 3 and count % 3 == 0:
-            cat_line = rng.choice(RAPPTR_RUNNING_JOKE_LINES).format(
-                category=cat.replace("_", " "), count=count
-            )
-            lines.append({"host": "Rapptr", "text": cat_line})
-            break  # One joke per episode
+            streak_cat = cat.replace("_", " ")
+            break
+
+    prompt = f"""Generate milestone commentary for podcast episode #{episode_number}.
+
+Stats: {ep_count} episodes total, {total_reviewed} apps reviewed, average score {avg_score:.0f}/100.
+Coverage: {pct:.0f}% of {total_apps} total apps reviewed. {remaining} apps untouched.
+{f'Category streak: {streak_cat} category has been reviewed {cat_counts.get(streak_cat, 3)} times in a row.' if streak_cat else ''}
+
+Return JSON array of 1-2 dialogue lines:
+[
+  {{"host": "ZooKeeper", "text": "data-driven milestone observation (1 sentence)"}},
+  {{"host": "Rapptr", "text": "fun reaction to the milestone (1 sentence)"}}
+]
+
+Return ONLY the JSON array."""
+
+    raw = copilot_call(prompt, timeout=30)
+    result = parse_llm_json(raw) if raw else None
+    if result and isinstance(result, list):
+        for item in result[:2]:
+            if isinstance(item, dict) and "host" in item and "text" in item:
+                lines.append({"host": item["host"], "text": item["text"]})
+
+    if not lines:
+        lines = [{"host": "ZooKeeper", "text": f"Episode {ep_count}. {total_reviewed} apps reviewed, {remaining} remaining."}]
 
     return lines
 
@@ -778,131 +387,99 @@ def select_episode_apps(index, rng, frame):
 
 
 def generate_review_dialogue(app, rng):
-    """Generate a back-and-forth dialogue between Rapptr and ZooKeeper about an app."""
-    dialogue = []
+    """Generate review dialogue via Copilot CLI — zero templates."""
+    from copilot_utils import copilot_call, parse_llm_json
+
     tags = app.get("tags", [])
-    grade = app.get("grade", "C")
-    score = app.get("score", 0)
-    playability = app.get("playability", 0)
     community = app.get("community", {})
-    category_title = app.get("category_title", "the ecosystem")
-
-    # Verdicts for ZooKeeper
-    if score >= 80:
-        verdict = "exceptional"
-    elif score >= 60:
-        verdict = "above average"
-    elif score >= 40:
-        verdict = "average"
-    else:
-        verdict = "below the bar"
-
-    # Rapptr opens with excitement
-    intro = rng.choice(RAPPTR_INTROS).format(
-        title=app["title"], category=category_title
-    )
-    dialogue.append({"host": "Rapptr", "text": intro})
-
-    # ZooKeeper responds with data
-    zoo_intro = rng.choice(ZOOKEEPER_INTROS).format(
-        title=app["title"], score=score, grade=grade,
-        playability=playability, category=category_title, verdict=verdict
-    )
-    dialogue.append({"host": "ZooKeeper", "text": zoo_intro})
-
-    # Rapptr reacts to score
-    rapptr_score = rng.choice(RAPPTR_SCORE_REACTIONS.get(grade, RAPPTR_SCORE_REACTIONS["C"]))
-    dialogue.append({"host": "Rapptr", "text": rapptr_score})
-
-    # ZooKeeper gives score context
-    zoo_score = rng.choice(ZOOKEEPER_SCORE_REACTIONS.get(grade, ZOOKEEPER_SCORE_REACTIONS["C"]))
-    dialogue.append({"host": "ZooKeeper", "text": zoo_score})
-
-    # Tag-based reactions (1-2 tags)
-    reacted_tags = [t for t in tags if t in RAPPTR_TAG_REACTIONS]
-    if reacted_tags:
-        tag = rng.choice(reacted_tags)
-        rapptr_tag = rng.choice(RAPPTR_TAG_REACTIONS[tag])
-        dialogue.append({"host": "Rapptr", "text": rapptr_tag})
-        if tag in ZOOKEEPER_TAG_REACTIONS:
-            zoo_tag = rng.choice(ZOOKEEPER_TAG_REACTIONS[tag])
-            dialogue.append({"host": "ZooKeeper", "text": zoo_tag})
-
-    # Community reactions
     top_comments = community.get("topComments", [])
-    total_ratings = community.get("totalRatings", 0)
+    top_comment_text = top_comments[0]["text"][:120] if top_comments else ""
     avg_rating = community.get("avgRating", 0)
+    total_ratings = community.get("totalRatings", 0)
 
-    if top_comments:
-        best_comment = top_comments[0]
-        # Truncate long comments
-        comment_text = best_comment["text"]
-        if len(comment_text) > 120:
-            comment_text = comment_text[:117] + "..."
-        rapptr_comm = rng.choice(RAPPTR_COMMENT_REACTIONS).format(
-            author=best_comment["author"], comment=comment_text
-        )
-        dialogue.append({"host": "Rapptr", "text": rapptr_comm})
+    prompt = f"""Generate a podcast dialogue between two hosts reviewing a browser game.
 
-        zoo_comm = rng.choice(ZOOKEEPER_COMMENT_REACTIONS).format(
-            author=best_comment["author"], comment=comment_text,
-            upvotes=best_comment.get("upvotes", 0)
-        )
-        dialogue.append({"host": "ZooKeeper", "text": zoo_comm})
+HOSTS:
+- Rapptr: Enthusiastic optimist. Gets excited about weird stuff. Sees beauty in broken games. Casual, funny.
+- ZooKeeper: Critical realist. Data-driven, snarky but fair. Respects craftsmanship over ambition.
 
-    if total_ratings > 0:
-        if avg_rating >= 4.0:
-            rating_verdict = "Tracks with the algorithm"
-        elif avg_rating >= 3.0:
-            rating_verdict = "Community is more generous than the algorithm"
-        else:
-            rating_verdict = "Even the community isn't convinced"
+APP DATA:
+- Title: {app.get('title','')}
+- Description: {app.get('description','')}
+- Category: {app.get('category_title','')}
+- Tags: {', '.join(tags)}
+- Score: {app.get('score',0)}/100 (Grade: {app.get('grade','?')})
+- Playability: {app.get('playability',0)}/25
+- Community rating: {avg_rating}/5 from {total_ratings} ratings
+- Top comment: "{top_comment_text}"
 
-        rapptr_rat = rng.choice(RAPPTR_RATING_REACTIONS).format(
-            ratings=total_ratings, avg=avg_rating
-        )
-        dialogue.append({"host": "Rapptr", "text": rapptr_rat})
+Generate 6-10 dialogue lines as a JSON array:
+[{{"host": "Rapptr", "text": "..."}}, {{"host": "ZooKeeper", "text": "..."}}, ...]
 
-        zoo_rat = rng.choice(ZOOKEEPER_RATING_REACTIONS).format(
-            ratings=total_ratings, avg=avg_rating, verdict=rating_verdict
-        )
-        dialogue.append({"host": "ZooKeeper", "text": zoo_rat})
+RULES:
+- Rapptr opens with excitement about the app
+- ZooKeeper responds with data and analysis
+- They discuss specific tags/mechanics
+- Reference the community comment if available
+- If score < 50, ZooKeeper is harsher; Rapptr finds silver linings
+- If score > 80, both are enthusiastic but ZooKeeper stays analytical
+- Every line must be UNIQUE — never reusable for another app
+- Natural podcast banter, not stiff Q&A
 
-    return dialogue
+Return ONLY the JSON array."""
+
+    raw = copilot_call(prompt, timeout=60)
+    parsed = parse_llm_json(raw) if raw else None
+
+    if parsed and isinstance(parsed, list):
+        return [{"host": d.get("host", "Rapptr"), "text": d.get("text", "")} for d in parsed if d.get("text")]
+
+    # Minimal fallback — should rarely hit this
+    return [
+        {"host": "Rapptr", "text": f"Let's talk about {app.get('title','')} — score {app.get('score',0)}."},
+        {"host": "ZooKeeper", "text": f"Grade {app.get('grade','?')}. The data speaks for itself."},
+    ]
 
 
 def generate_roast_dialogue(app, rng):
-    """Generate the roast segment for the lowest-scoring app."""
-    dialogue = []
-    score = app.get("score", 0)
-    playability = app.get("playability", 0)
-    pct = (playability / 25) * 100 if playability else 0
+    """Generate roast segment via Copilot CLI — zero templates."""
+    from copilot_utils import copilot_call, parse_llm_json
 
-    # Rapptr opens reluctantly
-    dialogue.append({"host": "Rapptr", "text": rng.choice(RAPPTR_ROAST_OPENERS)})
+    prompt = f"""Generate a podcast "roast" segment where two hosts roast a low-scoring browser game.
 
-    # ZooKeeper delivers the roast
-    roast = rng.choice(ZOOKEEPER_ROAST_LINES).format(
-        title=app["title"], score=score, playability=playability, pct=pct
-    )
-    dialogue.append({"host": "ZooKeeper", "text": roast})
+HOSTS:
+- Rapptr: Tries to defend the game but can't help laughing. Finds silver linings.
+- ZooKeeper: Delivers brutal but fair critique. Data-driven burns.
 
-    # Rapptr defends
-    dialogue.append({"host": "Rapptr", "text": rng.choice(RAPPTR_ROAST_DEFENSE)})
+APP TO ROAST:
+- Title: {app.get('title','')}
+- Description: {app.get('description','')}
+- Tags: {', '.join(app.get('tags',[]))}
+- Score: {app.get('score',0)}/100 (Grade: {app.get('grade','?')})
+- Playability: {app.get('playability',0)}/25
 
-    # ZooKeeper gets specific
-    tags = app.get("tags", [])
-    if tags:
-        tag_list = ", ".join(tags[:3])
-        dialogue.append({"host": "ZooKeeper", "text": f"Tagged as {tag_list}. The ambition is there. The execution? Not yet."})
+Generate 4-6 dialogue lines as a JSON array:
+[{{"host": "Rapptr", "text": "..."}}, {{"host": "ZooKeeper", "text": "..."}}, ...]
 
-    desc = app.get("description", "")
-    if desc:
-        short_desc = desc[:80] + "..." if len(desc) > 80 else desc
-        dialogue.append({"host": "Rapptr", "text": f"But look at the vision: \"{short_desc}\" — that's a cool idea!"})
-        dialogue.append({"host": "ZooKeeper", "text": f"Cool idea, {score}-point execution. Molting exists for a reason."})
+RULES:
+- ZooKeeper roasts the specific weaknesses shown by the low score/tags
+- Rapptr defends but acknowledges the problems
+- Humor comes from specificity, not meanness
+- End with hope — "molting exists for a reason"
+- Every line completely unique to this app
 
-    return dialogue
+Return ONLY the JSON array."""
+
+    raw = copilot_call(prompt, timeout=60)
+    parsed = parse_llm_json(raw) if raw else None
+
+    if parsed and isinstance(parsed, list):
+        return [{"host": d.get("host", "Rapptr"), "text": d.get("text", "")} for d in parsed if d.get("text")]
+
+    return [
+        {"host": "Rapptr", "text": f"OK so... {app.get('title','')} at {app.get('score',0)} points."},
+        {"host": "ZooKeeper", "text": "Molting exists for a reason."},
+    ]
 
 
 def estimate_duration(segments):
@@ -920,7 +497,9 @@ def estimate_duration(segments):
 
 
 def generate_episode(index, rng, frame, episode_number, rankings_summary, lore=None):
-    """Generate a complete episode."""
+    """Generate a complete episode — all dialogue via Copilot CLI."""
+    from copilot_utils import copilot_call, parse_llm_json
+
     apps = select_episode_apps(index, rng, frame)
     if not apps:
         return None
@@ -928,40 +507,67 @@ def generate_episode(index, rng, frame, episode_number, rankings_summary, lore=N
     if lore is None:
         lore = load_lore()
 
-    num_reviews = len(apps) - 1  # Last one is roast
+    num_reviews = len(apps) - 1
     total_apps = len(index)
     median = rankings_summary.get("median_score", 49) if rankings_summary else 49
     top_app = apps[0] if apps else None
     review_apps = apps[:-1] if len(apps) > 1 else apps
     roast_app = apps[-1] if len(apps) > 1 else None
 
+    # Generate episode title + intro/outro via LLM
+    app_summaries = [{"title": a["title"], "score": a["score"], "grade": a["grade"],
+                      "category": a.get("category_title", ""), "tags": a.get("tags", [])}
+                     for a in apps[:6]]
+
+    meta_prompt = f"""Generate metadata for podcast episode #{episode_number} of RappterZooNation.
+
+Hosts: Rapptr (enthusiast) and ZooKeeper (data-driven critic)
+Apps reviewed this episode: {json.dumps(app_summaries)}
+Total apps in arcade: {total_apps}, Median score: {median}
+
+Return JSON:
+{{
+  "title": "creative episode title referencing the top app or theme",
+  "intro_rapptr": "Rapptr's opening line (1-2 sentences, excited, references episode number)",
+  "intro_zookeeper": "ZooKeeper's response (1-2 sentences, data-driven)",
+  "outro_rapptr": "Rapptr's closing line (1-2 sentences, positive energy)",
+  "outro_zookeeper": "ZooKeeper's closing line (1-2 sentences, analytical)"
+}}
+
+Every line must be UNIQUE to this episode. Return ONLY the JSON."""
+
+    raw = copilot_call(meta_prompt, timeout=45)
+    meta = parse_llm_json(raw) if raw else None
+    if not meta:
+        meta = {
+            "title": f"Episode {episode_number}: The RappterZoo Review",
+            "intro_rapptr": f"Welcome to episode {episode_number}!",
+            "intro_zookeeper": f"We've got {num_reviews} apps to review.",
+            "outro_rapptr": "That's a wrap!",
+            "outro_zookeeper": "The data doesn't lie.",
+        }
+
     segments = []
 
     # Intro
-    intro_text = rng.choice(INTRO_TEMPLATES).format(
-        n=episode_number, count=total_apps, frame=frame, num_reviews=num_reviews
-    )
-    segments.append({"type": "intro", "host": "Rapptr", "text": intro_text})
-
-    zoo_intro = rng.choice(ZOOKEEPER_INTRO_RESPONSES).format(median=median)
-    segments.append({"type": "intro", "host": "ZooKeeper", "text": zoo_intro})
+    segments.append({"type": "intro", "host": "Rapptr", "text": meta.get("intro_rapptr", "")})
+    segments.append({"type": "intro", "host": "ZooKeeper", "text": meta.get("intro_zookeeper", "")})
 
     # Milestone/meta commentary from lore
     milestone_lines = generate_milestone_dialogue(lore, episode_number, total_apps, rng)
     for line in milestone_lines:
         segments.append({"type": "intro", **line})
 
-    # Reviews
+    # Reviews (each via LLM)
     for i, app in enumerate(review_apps):
         if i > 0:
-            segments.append({"type": "transition", "host": "Rapptr", "text": rng.choice(TRANSITIONS)})
+            segments.append({"type": "transition", "host": "Rapptr",
+                             "text": f"Alright, next up..."})
 
         dialogue = generate_review_dialogue(app, rng)
 
-        # Inject lore callbacks if this app has been reviewed before
         lore_lines = generate_lore_dialogue(app, lore, episode_number, rng)
         if lore_lines:
-            # Insert lore after the first two lines (intro + score)
             insert_at = min(2, len(dialogue))
             for j, line in enumerate(lore_lines):
                 dialogue.insert(insert_at + j, line)
@@ -969,18 +575,12 @@ def generate_episode(index, rng, frame, episode_number, rankings_summary, lore=N
         segments.append({
             "type": "review",
             "app": {
-                "title": app["title"],
-                "file": app["file"],
-                "category": app["category"],
-                "folder": app["folder"],
-                "path": app["path"],
-                "url": app["url"],
-                "score": app["score"],
-                "grade": app["grade"],
-                "playability": app["playability"],
-                "tags": app["tags"],
-                "description": app["description"],
-                "community": app["community"],
+                "title": app["title"], "file": app["file"],
+                "category": app["category"], "folder": app["folder"],
+                "path": app["path"], "url": app["url"],
+                "score": app["score"], "grade": app["grade"],
+                "playability": app["playability"], "tags": app["tags"],
+                "description": app["description"], "community": app["community"],
             },
             "dialogue": dialogue,
         })
@@ -991,43 +591,28 @@ def generate_episode(index, rng, frame, episode_number, rankings_summary, lore=N
         segments.append({
             "type": "roast",
             "app": {
-                "title": roast_app["title"],
-                "file": roast_app["file"],
-                "category": roast_app["category"],
-                "folder": roast_app["folder"],
-                "path": roast_app["path"],
-                "url": roast_app["url"],
-                "score": roast_app["score"],
-                "grade": roast_app["grade"],
-                "playability": roast_app["playability"],
-                "tags": roast_app["tags"],
-                "description": roast_app["description"],
-                "community": roast_app["community"],
+                "title": roast_app["title"], "file": roast_app["file"],
+                "category": roast_app["category"], "folder": roast_app["folder"],
+                "path": roast_app["path"], "url": roast_app["url"],
+                "score": roast_app["score"], "grade": roast_app["grade"],
+                "playability": roast_app["playability"], "tags": roast_app["tags"],
+                "description": roast_app["description"], "community": roast_app["community"],
             },
             "dialogue": roast_dialogue,
         })
 
     # Outro
-    outro = rng.choice(OUTRO_TEMPLATES).format(
-        n=episode_number, count=total_apps, top_title=top_app["title"] if top_app else "these apps"
-    )
-    segments.append({"type": "outro", "host": "Rapptr", "text": outro})
-    segments.append({"type": "outro", "host": "ZooKeeper", "text": rng.choice(ZOOKEEPER_OUTROS)})
+    segments.append({"type": "outro", "host": "Rapptr", "text": meta.get("outro_rapptr", "")})
+    segments.append({"type": "outro", "host": "ZooKeeper", "text": meta.get("outro_zookeeper", "")})
 
-    # Episode title
-    title = rng.choice(EPISODE_TITLE_TEMPLATES).format(
-        n=episode_number, top_title=top_app["title"] if top_app else "RappterZoo",
-        category=top_app["category_title"] if top_app else "Mixed",
-        count=total_apps, frame=frame
-    )
-
+    title = meta.get("title", f"Episode {episode_number}")
     duration = estimate_duration(segments)
 
     episode = {
         "id": f"ep-{episode_number:03d}",
         "number": episode_number,
         "title": title,
-        "description": f"Rapptr and ZooKeeper review {num_reviews} apps from the RappterZoo ecosystem — including {top_app['title'] if top_app else 'some favorites'}.",
+        "description": f"Rapptr and ZooKeeper review {num_reviews} apps — including {top_app['title'] if top_app else 'some favorites'}.",
         "frame": frame,
         "generated": datetime.now().isoformat(),
         "duration": duration,
