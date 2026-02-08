@@ -29,6 +29,16 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from runtime_verify import verify_app as _verify_app
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from runtime_verify import verify_app as _verify_app
+    except ImportError:
+        _verify_app = None
+
 ROOT = Path(__file__).resolve().parent.parent
 APPS_DIR = ROOT / "apps"
 MANIFEST = APPS_DIR / "manifest.json"
@@ -288,6 +298,36 @@ def score_game(filepath: Path, content: str = None, player_ratings: dict = None)
         + polish["score"]
     )
 
+    # Runtime health modifier: penalize broken apps, reward verified-healthy ones
+    # This catches games that score well on feature detection but crash on load
+    runtime_health = None
+    health_modifier = 0
+    try:
+        if _verify_app is None:
+            raise ImportError("runtime_verify not available")
+        health_result = _verify_app(filepath)
+        health_score = health_result["health_score"]
+        verdict = health_result["verdict"]
+        runtime_health = {
+            "score": health_score,
+            "verdict": verdict,
+            "modifier": 0,
+        }
+        if verdict == "broken":
+            # Broken apps get a significant penalty (up to -15)
+            health_modifier = -min(15, max(5, (70 - health_score) // 5))
+            runtime_health["modifier"] = health_modifier
+        elif verdict == "fragile":
+            # Fragile apps get a mild penalty (up to -5)
+            health_modifier = -min(5, max(1, (60 - health_score) // 10))
+            runtime_health["modifier"] = health_modifier
+        elif verdict == "healthy" and health_score >= 85:
+            # Verified-healthy apps get a small bonus (up to +3)
+            health_modifier = min(3, (health_score - 85) // 5)
+            runtime_health["modifier"] = health_modifier
+    except Exception:
+        pass  # Runtime verify unavailable — no modifier
+
     # Player rating bonus: up to 5 bonus points if rated 5 stars
     # This means crowd favorites can push past purely algorithmic scores
     player_data = None
@@ -303,7 +343,7 @@ def score_game(filepath: Path, content: str = None, player_ratings: dict = None)
                 player_bonus = round(avg_rating)  # 0-5 bonus
                 player_data = {"avg": avg_rating, "count": num_ratings, "bonus": player_bonus}
 
-    total = min(raw_total + player_bonus, 100)
+    total = max(0, min(raw_total + player_bonus + health_modifier, 100))
 
     title_match = re.search(r"<title>(.*?)</title>", content)
     title = title_match.group(1).strip() if title_match else filepath.stem.replace("-", " ").title()
@@ -330,6 +370,8 @@ def score_game(filepath: Path, content: str = None, player_ratings: dict = None)
     }
     if player_data:
         result["player_rating"] = player_data
+    if runtime_health:
+        result["runtime_health"] = runtime_health
 
     return result
 
@@ -450,6 +492,14 @@ def build_rankings(verbose: bool = False) -> dict:
     scores = [g["score"] for g in all_games]
     play_scores = [g["dimensions"]["playability"]["score"] for g in all_games]
 
+    # Runtime health summary
+    health_verdicts = {}
+    for g in all_games:
+        rh = g.get("runtime_health")
+        if rh:
+            v = rh["verdict"]
+            health_verdicts[v] = health_verdicts.get(v, 0) + 1
+
     # Top playability (best games to actually play)
     by_playability = sorted(all_games, key=lambda g: g["dimensions"]["playability"]["score"], reverse=True)
     top_playable = [
@@ -469,6 +519,7 @@ def build_rankings(verbose: bool = False) -> dict:
             "avg_playability": round(sum(play_scores) / len(play_scores), 1) if play_scores else 0,
             "grade_distribution": grade_dist,
             "score_histogram": histogram,
+            "runtime_health": health_verdicts,
         },
         "categories": category_stats,
         "top_playable": top_playable,
@@ -495,6 +546,9 @@ def main():
     print(f"  Avg Playability: {rankings['summary']['avg_playability']}/25")
     print(f"  Grades: {rankings['summary']['grade_distribution']}")
     print(f"  Player ratings: {'loaded' if rankings['has_player_ratings'] else 'none (create apps/player-ratings.json)'}")
+    rh = rankings['summary'].get('runtime_health', {})
+    if rh:
+        print(f"  Runtime Health: healthy:{rh.get('healthy',0)} fragile:{rh.get('fragile',0)} broken:{rh.get('broken',0)}")
 
     if rankings["top_playable"]:
         print(f"\n  Most Playable:")
