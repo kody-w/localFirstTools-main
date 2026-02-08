@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Tulpa: Mind Garden</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="canvas,game,simulation,ai,pet,audio">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="2">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a192f;color:#8892b0;font-family:'Courier New',monospace;overflow:hidden;height:100vh}
+canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;top:0;left:0;right:0;padding:6px 14px;display:flex;justify-content:space-between;font-size:12px;background:linear-gradient(180deg,rgba(10,25,47,0.9),transparent);pointer-events:none;z-index:5}
+.hc{color:#64ffda;font-weight:bold}.hr{color:#ff5f56}.hy{color:#ffbd2e}.hb{color:#a78bfa}
+#ov{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,25,47,0.95);z-index:20;transition:opacity 0.3s}
+#ov.hide{opacity:0;pointer-events:none}
+#ov h1{font-size:2.2rem;color:#64ffda;text-shadow:0 0 30px rgba(100,255,218,0.4);margin-bottom:6px}
+#ov h2{font-size:1rem;color:#8892b0;margin-bottom:18px;font-weight:normal}
+.mb{background:linear-gradient(135deg,#112240,#1d3461);border:1px solid #233554;color:#ccd6f6;padding:10px 28px;margin:4px;font-size:0.9rem;border-radius:8px;cursor:pointer;transition:all 0.2s;font-family:'Courier New',monospace}
+.mb:hover{border-color:#64ffda;box-shadow:0 0 15px rgba(100,255,218,0.2);transform:scale(1.03)}
+#si{font-size:0.78rem;color:#495670;margin-top:12px;text-align:center;line-height:1.7}
+#si span{color:#64ffda}
+.hh{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:0.7rem;color:#233554;z-index:5;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="hud">
+<div>BOND <span class="hc" id="h-bond">0</span> | MOOD <span class="hc" id="h-mood">Calm</span></div>
+<div>THOUGHTS <span class="hb" id="h-th">0</span> | MEMORIES <span class="hy" id="h-mem">0</span></div>
+<div>ENERGY <span class="hc" id="h-en">100</span>% | DAYS <span class="hc" id="h-day">1</span></div>
+</div>
+<canvas id="c"></canvas>
+<div id="ov">
+<h1>DIGITAL TULPA</h1>
+<h2>Grow a living mind in your browser</h2>
+<button class="mb" style="min-width:180px" onclick="startGame()">AWAKEN</button>
+<div id="si"></div>
+</div>
+<div class="hh">CLICK to interact | 1:Feed 2:Play 3:Meditate 4:Dream | SPACE generate thought | ESC pause</div>
+<script>
+const cv=document.getElementById('c'),cx=cv.getContext('2d');
+let W,H;function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight}
+addEventListener('resize',rs);rs();
+
+// Audio
+const AC=window.AudioContext||window.webkitAudioContext;let ac=null;
+function ia(){if(!ac)ac=new AC()}
+function sn(f,d,t='sine',v=0.08){
+  if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();
+  o.type=t;o.frequency.value=f;g.gain.setValueAtTime(v,ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+d);
+  o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d);
+}
+function sfxThought(){sn(440,0.3);sn(660,0.2,'triangle',0.06);setTimeout(()=>sn(880,0.15),100)}
+function sfxFeed(){sn(300,0.2);sn(400,0.15,'triangle',0.06)}
+function sfxPlay(){sn(600,0.1);sn(800,0.08);setTimeout(()=>sn(1000,0.08),60)}
+function sfxMeditate(){sn(220,0.5,'sine',0.05);sn(330,0.4,'triangle',0.04)}
+function sfxDream(){sn(180,0.6,'sine',0.06);sn(270,0.5,'triangle',0.04);setTimeout(()=>sn(360,0.4),200)}
+function sfxMood(){sn(500,0.15);sn(700,0.1,'triangle',0.05)}
+function sfxEvolve(){sn(440,0.3);setTimeout(()=>sn(554,0.2),100);setTimeout(()=>sn(660,0.2),200);setTimeout(()=>sn(880,0.3),300)}
+function sfxMemory(){sn(350,0.2,'triangle',0.06);sn(440,0.15)}
+
+// State
+let state='menu',fn=0;
+let tulpa={
+  x:0,y:0,size:40,energy:100,hunger:0,happiness:50,bond:0,
+  mood:'Calm',thoughts:[],memories:[],day:1,age:0,
+  personality:{curiosity:50,calm:50,joy:50,wisdom:50,chaos:50},
+  color:'#64ffda',form:0,pulsePhase:0,
+  emotionParticles:[],thoughtBubbles:[],
+  lastFed:0,lastPlayed:0,lastMeditated:0
+};
+let particles=[],floatingTexts=[];
+let shX=0,shY=0,shD=0;
+let mx=0,my=0;
+
+// Thought generation
+const thoughtPrefixes=['I wonder about','The pattern of','In the space between','Like fractals of','Echoing through','Beyond the','Whispers of','The geometry of'];
+const thoughtSubjects=['consciousness','time','infinity','light','memory','silence','recursion','emergence','entropy','dreams','fractals','patterns','symmetry','chaos','harmony','existence'];
+const thoughtSuffixes=['unfolds endlessly','resonates within','dissolves into static','becomes something new','teaches patience','reveals hidden truths','transforms understanding','spirals inward'];
+
+function generateThought(){
+  const p=thoughtPrefixes[Math.floor(Math.random()*thoughtPrefixes.length)];
+  const s=thoughtSubjects[Math.floor(Math.random()*thoughtSubjects.length)];
+  const x=thoughtSuffixes[Math.floor(Math.random()*thoughtSuffixes.length)];
+  return p+' '+s+'... '+x+'.';
+}
+
+// Mood colors
+const moodColors={Calm:'#64ffda',Happy:'#ffbd2e',Curious:'#a78bfa',Dreamy:'#7eb8da',Energetic:'#ff5f56',Wise:'#ffd700',Chaotic:'#ff00ff',Serene:'#00ffaa'};
+const moods=['Calm','Happy','Curious','Dreamy','Energetic','Wise','Chaotic','Serene'];
+
+function updateMood(){
+  const p=tulpa.personality;
+  let best='Calm',bestV=p.calm;
+  if(p.joy>bestV){best='Happy';bestV=p.joy}
+  if(p.curiosity>bestV){best='Curious';bestV=p.curiosity}
+  if(tulpa.energy<30)best='Dreamy';
+  if(p.chaos>70)best='Chaotic';
+  if(p.wisdom>70&&p.calm>60)best='Wise';
+  if(tulpa.happiness>80)best='Serene';
+  if(best!==tulpa.mood){tulpa.mood=best;sfxMood();tulpa.color=moodColors[best]||'#64ffda'}
+}
+
+// Actions
+function feedTulpa(){
+  if(tulpa.energy>=100)return;
+  tulpa.energy=Math.min(100,tulpa.energy+20);
+  tulpa.hunger=Math.max(0,tulpa.hunger-30);
+  tulpa.happiness=Math.min(100,tulpa.happiness+5);
+  tulpa.personality.calm+=2;
+  tulpa.bond+=1;tulpa.lastFed=fn;
+  sfxFeed();spawnP(tulpa.x,tulpa.y,8,'#64ffda');
+  addFloat(tulpa.x,tulpa.y-tulpa.size,'Energy +20','#64ffda');
+  shake(2,0.1);
+}
+function playWithTulpa(){
+  tulpa.happiness=Math.min(100,tulpa.happiness+15);
+  tulpa.energy=Math.max(0,tulpa.energy-10);
+  tulpa.personality.joy+=3;tulpa.personality.curiosity+=1;tulpa.personality.chaos+=1;
+  tulpa.bond+=2;tulpa.lastPlayed=fn;
+  sfxPlay();spawnP(tulpa.x,tulpa.y,12,'#ffbd2e');
+  addFloat(tulpa.x,tulpa.y-tulpa.size,'Joy +15','#ffbd2e');
+  shake(3,0.15);
+}
+function meditateTulpa(){
+  tulpa.personality.calm+=5;tulpa.personality.wisdom+=3;tulpa.personality.chaos=Math.max(0,tulpa.personality.chaos-2);
+  tulpa.happiness=Math.min(100,tulpa.happiness+10);
+  tulpa.bond+=3;tulpa.lastMeditated=fn;
+  sfxMeditate();spawnP(tulpa.x,tulpa.y,15,'#a78bfa');
+  addFloat(tulpa.x,tulpa.y-tulpa.size,'Wisdom +3','#a78bfa');
+}
+function dreamTulpa(){
+  tulpa.energy=Math.min(100,tulpa.energy+30);
+  tulpa.personality.curiosity+=2;tulpa.personality.wisdom+=1;
+  // Generate memory
+  const thought=generateThought();
+  tulpa.memories.push({text:thought,day:tulpa.day,mood:tulpa.mood});
+  tulpa.bond+=2;
+  sfxDream();spawnP(tulpa.x,tulpa.y,20,'#7eb8da');
+  addFloat(tulpa.x,tulpa.y-tulpa.size,'New Memory!','#7eb8da');
+  sfxMemory();
+}
+
+function spawnThought(){
+  const t=generateThought();
+  tulpa.thoughts.push(t);
+  tulpa.thoughtBubbles.push({text:t,x:tulpa.x+Math.random()*80-40,y:tulpa.y-tulpa.size*2,life:5,maxLife:5});
+  tulpa.personality.curiosity+=1;
+  tulpa.bond+=1;
+  sfxThought();
+}
+
+// Evolution check
+function checkEvolution(){
+  const total=tulpa.personality.curiosity+tulpa.personality.calm+tulpa.personality.joy+tulpa.personality.wisdom+tulpa.personality.chaos;
+  const newForm=Math.floor(total/100);
+  if(newForm>tulpa.form){
+    tulpa.form=newForm;tulpa.size=40+newForm*5;
+    sfxEvolve();spawnP(tulpa.x,tulpa.y,30,tulpa.color);
+    addFloat(tulpa.x,tulpa.y-tulpa.size*2,'EVOLVED to Form '+(newForm+1)+'!','#ffd700');
+    shake(6,0.3);
+  }
+}
+
+// Particles & effects
+function spawnP(x,y,n,col){for(let i=0;i<n;i++){
+  let a=Math.random()*Math.PI*2,s=30+Math.random()*80;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.5+Math.random()*0.5,ml:1,size:1+Math.random()*3,color:col});
+}}
+function addFloat(x,y,text,color){floatingTexts.push({x,y,text,color,life:2,vy:-30})}
+function shake(a,d){shX=a;shY=a;shD=d}
+
+// Save/Load
+function saveState(){
+  localStorage.setItem('tulpa_save',JSON.stringify({
+    personality:tulpa.personality,memories:tulpa.memories.slice(-50),
+    bond:tulpa.bond,day:tulpa.day,form:tulpa.form,
+    thoughts:tulpa.thoughts.slice(-20),mood:tulpa.mood,
+    energy:tulpa.energy,hunger:tulpa.hunger,happiness:tulpa.happiness,
+    lastSave:Date.now()
+  }));
+}
+function loadState(){
+  const s=localStorage.getItem('tulpa_save');
+  if(!s)return false;
+  try{
+    const d=JSON.parse(s);
+    tulpa.personality=d.personality||tulpa.personality;
+    tulpa.memories=d.memories||[];tulpa.bond=d.bond||0;
+    tulpa.day=d.day||1;tulpa.form=d.form||0;
+    tulpa.thoughts=d.thoughts||[];tulpa.mood=d.mood||'Calm';
+    tulpa.energy=d.energy||100;tulpa.hunger=d.hunger||0;
+    tulpa.happiness=d.happiness||50;
+    tulpa.size=40+tulpa.form*5;tulpa.color=moodColors[tulpa.mood]||'#64ffda';
+    // Time away effects
+    if(d.lastSave){
+      const hoursAway=(Date.now()-d.lastSave)/(1000*60*60);
+      if(hoursAway>1){
+        tulpa.hunger=Math.min(100,tulpa.hunger+hoursAway*5);
+        tulpa.energy=Math.max(0,tulpa.energy-hoursAway*3);
+        tulpa.happiness=Math.max(0,tulpa.happiness-hoursAway*2);
+        tulpa.day+=Math.floor(hoursAway/8);
+        addFloat(W/2,H/2-50,'Welcome back! '+Math.floor(hoursAway)+' hours passed.','#64ffda');
+      }
+    }
+    return true;
+  }catch(e){return false}
+}
+
+// Input
+document.addEventListener('keydown',e=>{
+  if(e.key==='1'&&state==='playing')feedTulpa();
+  if(e.key==='2'&&state==='playing')playWithTulpa();
+  if(e.key==='3'&&state==='playing')meditateTulpa();
+  if(e.key==='4'&&state==='playing')dreamTulpa();
+  if(e.key===' '&&state==='playing'){e.preventDefault();spawnThought()}
+  if(e.key==='Escape'){
+    if(state==='playing'){state='paused';saveState();showOv('pause')}
+    else if(state==='paused'){state='playing';document.getElementById('ov').classList.add('hide')}
+  }
+  if(e.key==='r'||e.key==='R'){if(state==='gameover')startGame()}
+});
+
+cv.addEventListener('click',e=>{
+  if(state!=='playing')return;ia();
+  mx=e.clientX;my=e.clientY;
+  // Click on tulpa - pet it
+  if(Math.hypot(mx-tulpa.x,my-tulpa.y)<tulpa.size*2){
+    tulpa.happiness=Math.min(100,tulpa.happiness+3);tulpa.bond+=1;
+    spawnP(tulpa.x,tulpa.y,5,tulpa.color);sn(500+Math.random()*300,0.1,'sine',0.04);
+  }
+});
+cv.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});
+
+// Touch
+cv.addEventListener('touchstart',e=>{
+  e.preventDefault();ia();mx=e.touches[0].clientX;my=e.touches[0].clientY;
+  if(state==='playing'&&Math.hypot(mx-tulpa.x,my-tulpa.y)<tulpa.size*3){
+    tulpa.happiness=Math.min(100,tulpa.happiness+3);tulpa.bond+=1;
+    spawnP(tulpa.x,tulpa.y,5,tulpa.color);
+  }
+},{passive:false});
+
+// Game loop
+let lt=0,dayTimer=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  let dt=Math.min(0.05,(t-lt)/1000);lt=t;
+  if(state!=='playing'){draw();return}
+  fn++;
+
+  // Shake
+  if(shD>0){shD-=dt;shX*=0.9;shY*=0.9}else{shX=0;shY=0}
+
+  // Tulpa position (center, gently floating)
+  tulpa.x=W/2+Math.sin(fn*0.01)*20;
+  tulpa.y=H/2+Math.cos(fn*0.013)*15;
+  tulpa.pulsePhase+=dt*2;
+
+  // Passive changes
+  tulpa.hunger=Math.min(100,tulpa.hunger+dt*0.5);
+  tulpa.energy=Math.max(0,tulpa.energy-dt*0.3);
+  if(tulpa.hunger>70)tulpa.happiness=Math.max(0,tulpa.happiness-dt*2);
+  if(tulpa.energy<20)tulpa.happiness=Math.max(0,tulpa.happiness-dt);
+
+  // Day cycle
+  dayTimer+=dt;
+  if(dayTimer>30){dayTimer=0;tulpa.day++;checkEvolution();updateMood();saveState()}
+
+  // Auto thoughts
+  if(fn%300===0&&tulpa.energy>20){
+    spawnThought();
+  }
+
+  // Ambient particles based on mood
+  if(fn%20===0){
+    let px=tulpa.x+Math.random()*100-50,py=tulpa.y+Math.random()*100-50;
+    tulpa.emotionParticles.push({x:px,y:py,vx:(Math.random()-0.5)*10,vy:-10-Math.random()*20,
+      life:2+Math.random()*2,ml:3,size:1+Math.random()*2,color:tulpa.color+'88'});
+  }
+
+  // Update emotion particles
+  for(let i=tulpa.emotionParticles.length-1;i>=0;i--){
+    let p=tulpa.emotionParticles[i];
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;
+    if(p.life<=0)tulpa.emotionParticles.splice(i,1);
+  }
+
+  // Update thought bubbles
+  for(let i=tulpa.thoughtBubbles.length-1;i>=0;i--){
+    let b=tulpa.thoughtBubbles[i];b.life-=dt;b.y-=dt*10;
+    if(b.life<=0)tulpa.thoughtBubbles.splice(i,1);
+  }
+
+  // Update particles
+  for(let i=particles.length-1;i>=0;i--){
+    let p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;p.vx*=0.95;p.vy*=0.95;
+    if(p.life<=0)particles.splice(i,1);
+  }
+
+  // Update floating texts
+  for(let i=floatingTexts.length-1;i>=0;i--){
+    let f=floatingTexts[i];f.y+=f.vy*dt;f.life-=dt;
+    if(f.life<=0)floatingTexts.splice(i,1);
+  }
+
+  // Update mood
+  if(fn%60===0)updateMood();
+
+  // HUD
+  document.getElementById('h-bond').textContent=tulpa.bond;
+  document.getElementById('h-mood').textContent=tulpa.mood;
+  document.getElementById('h-mood').style.color=tulpa.color;
+  document.getElementById('h-th').textContent=tulpa.thoughts.length;
+  document.getElementById('h-mem').textContent=tulpa.memories.length;
+  document.getElementById('h-en').textContent=Math.ceil(tulpa.energy);
+  document.getElementById('h-en').className=tulpa.energy<30?'hr':'hc';
+  document.getElementById('h-day').textContent=tulpa.day;
+
+  draw();
+}
+
+function draw(){
+  cx.save();
+  cx.translate(shX*(Math.random()-0.5)*2,shY*(Math.random()-0.5)*2);
+
+  // Background gradient
+  let grd=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)/2);
+  grd.addColorStop(0,'#112240');grd.addColorStop(1,'#0a192f');
+  cx.fillStyle=grd;cx.fillRect(0,0,W,H);
+
+  // Background stars
+  cx.fillStyle='#233554';
+  for(let i=0;i<50;i++){
+    let sx=(i*137.5+fn*0.1)%W,sy=(i*97.3+Math.sin(i+fn*0.005)*5)%H;
+    cx.globalAlpha=0.3+Math.sin(i+fn*0.02)*0.2;
+    cx.fillRect(sx,sy,1.5,1.5);
+  }
+  cx.globalAlpha=1;
+
+  // Emotion particles
+  for(let p of tulpa.emotionParticles){
+    cx.fillStyle=p.color;cx.globalAlpha=p.life/p.ml;
+    cx.beginPath();cx.arc(p.x,p.y,p.size,0,Math.PI*2);cx.fill();
+  }
+  cx.globalAlpha=1;
+
+  // Tulpa body
+  const pulse=1+Math.sin(tulpa.pulsePhase)*0.08;
+  const sz=tulpa.size*pulse;
+
+  // Outer aura
+  cx.globalAlpha=0.1;cx.fillStyle=tulpa.color;
+  cx.beginPath();cx.arc(tulpa.x,tulpa.y,sz*3,0,Math.PI*2);cx.fill();
+  cx.globalAlpha=0.15;
+  cx.beginPath();cx.arc(tulpa.x,tulpa.y,sz*2,0,Math.PI*2);cx.fill();
+
+  // Inner rings based on form
+  for(let i=0;i<=tulpa.form;i++){
+    cx.globalAlpha=0.2-i*0.03;cx.strokeStyle=tulpa.color;cx.lineWidth=1.5;
+    cx.beginPath();cx.arc(tulpa.x,tulpa.y,sz*(1.3+i*0.3),fn*0.01+i,fn*0.01+i+Math.PI*1.5);cx.stroke();
+  }
+
+  // Core body
+  cx.globalAlpha=0.8;cx.fillStyle=tulpa.color;
+  if(tulpa.form===0){
+    // Simple circle
+    cx.beginPath();cx.arc(tulpa.x,tulpa.y,sz,0,Math.PI*2);cx.fill();
+  }else if(tulpa.form===1){
+    // Diamond
+    cx.beginPath();cx.moveTo(tulpa.x,tulpa.y-sz);cx.lineTo(tulpa.x+sz*0.7,tulpa.y);
+    cx.lineTo(tulpa.x,tulpa.y+sz);cx.lineTo(tulpa.x-sz*0.7,tulpa.y);cx.closePath();cx.fill();
+  }else if(tulpa.form===2){
+    // Star
+    cx.beginPath();
+    for(let i=0;i<8;i++){let a=i*Math.PI*2/8+fn*0.005,r=i%2===0?sz:sz*0.5;
+      cx.lineTo(tulpa.x+Math.cos(a)*r,tulpa.y+Math.sin(a)*r)}
+    cx.closePath();cx.fill();
+  }else{
+    // Complex flower
+    cx.beginPath();
+    for(let i=0;i<12;i++){let a=i*Math.PI*2/12+fn*0.003;
+      let r=sz*(0.6+0.4*Math.sin(i*2+fn*0.02));
+      cx.lineTo(tulpa.x+Math.cos(a)*r,tulpa.y+Math.sin(a)*r)}
+    cx.closePath();cx.fill();
+  }
+
+  // Eye glow
+  cx.globalAlpha=0.9;cx.fillStyle='#fff';
+  cx.beginPath();cx.arc(tulpa.x-sz*0.2,tulpa.y-sz*0.1,sz*0.12,0,Math.PI*2);cx.fill();
+  cx.beginPath();cx.arc(tulpa.x+sz*0.2,tulpa.y-sz*0.1,sz*0.12,0,Math.PI*2);cx.fill();
+
+  // Shadow/glow
+  cx.globalAlpha=0.15;cx.shadowColor=tulpa.color;cx.shadowBlur=40;
+  cx.beginPath();cx.arc(tulpa.x,tulpa.y,sz,0,Math.PI*2);cx.fill();
+  cx.shadowBlur=0;
+  cx.globalAlpha=1;
+
+  // Thought bubbles
+  for(let b of tulpa.thoughtBubbles){
+    cx.globalAlpha=Math.min(1,b.life/2);
+    cx.fillStyle='#112240cc';cx.strokeStyle=tulpa.color+'44';cx.lineWidth=1;
+    let tw=Math.min(300,cx.measureText(b.text).width+20);
+    let bx=b.x-tw/2,by=b.y-12;
+    cx.fillRect(bx,by,tw,24);cx.strokeRect(bx,by,tw,24);
+    cx.fillStyle='#ccd6f6';cx.font='11px monospace';cx.textAlign='center';
+    cx.fillText(b.text.slice(0,50),b.x,b.y+2);
+  }
+  cx.globalAlpha=1;
+
+  // Particles
+  for(let p of particles){
+    cx.fillStyle=p.color;cx.globalAlpha=p.life/p.ml;
+    cx.beginPath();cx.arc(p.x,p.y,p.size,0,Math.PI*2);cx.fill();
+  }
+
+  // Floating texts
+  for(let f of floatingTexts){
+    cx.globalAlpha=Math.min(1,f.life);cx.fillStyle=f.color;
+    cx.font='bold 14px monospace';cx.textAlign='center';
+    cx.fillText(f.text,f.x,f.y);
+  }
+  cx.globalAlpha=1;
+
+  // Status bars at bottom
+  if(state==='playing'){
+    const by=H-60,bw=150,bh=8,bx=20;
+    // Energy
+    cx.fillStyle='#112240';cx.fillRect(bx,by,bw,bh);
+    cx.fillStyle=tulpa.energy>30?'#64ffda':'#ff5f56';cx.fillRect(bx,by,bw*(tulpa.energy/100),bh);
+    cx.fillStyle='#8892b0';cx.font='9px monospace';cx.textAlign='left';cx.fillText('Energy',bx,by-3);
+    // Happiness
+    cx.fillStyle='#112240';cx.fillRect(bx,by+16,bw,bh);
+    cx.fillStyle='#ffbd2e';cx.fillRect(bx,by+16,bw*(tulpa.happiness/100),bh);
+    cx.fillText('Happiness',bx,by+13);
+    // Hunger
+    cx.fillStyle='#112240';cx.fillRect(bx,by+32,bw,bh);
+    cx.fillStyle=tulpa.hunger>70?'#ff5f56':'#a78bfa';cx.fillRect(bx,by+32,bw*(tulpa.hunger/100),bh);
+    cx.fillText('Hunger',bx,by+29);
+
+    // Personality radar
+    const rx=W-100,ry=H-80,rr=40;
+    const traits=['curiosity','calm','joy','wisdom','chaos'];
+    cx.strokeStyle='#233554';cx.lineWidth=1;
+    for(let i=0;i<5;i++){
+      let a=i*Math.PI*2/5-Math.PI/2;
+      cx.beginPath();cx.moveTo(rx,ry);cx.lineTo(rx+Math.cos(a)*rr,ry+Math.sin(a)*rr);cx.stroke();
+      cx.fillStyle='#495670';cx.font='8px monospace';cx.textAlign='center';
+      cx.fillText(traits[i].slice(0,3).toUpperCase(),rx+Math.cos(a)*(rr+12),ry+Math.sin(a)*(rr+12)+3);
+    }
+    cx.fillStyle=tulpa.color+'44';cx.beginPath();
+    for(let i=0;i<5;i++){
+      let a=i*Math.PI*2/5-Math.PI/2;
+      let v=Math.min(100,tulpa.personality[traits[i]])/100*rr;
+      if(i===0)cx.moveTo(rx+Math.cos(a)*v,ry+Math.sin(a)*v);
+      else cx.lineTo(rx+Math.cos(a)*v,ry+Math.sin(a)*v);
+    }
+    cx.closePath();cx.fill();
+    cx.strokeStyle=tulpa.color;cx.lineWidth=1.5;cx.stroke();
+
+    // Action buttons
+    const abs=['1:Feed','2:Play','3:Meditate','4:Dream'];
+    cx.font='10px monospace';cx.textAlign='center';
+    for(let i=0;i<4;i++){
+      let ax=W/2-90+i*60,ay=H-20;
+      cx.fillStyle='#233554';cx.fillRect(ax-25,ay-8,50,16);
+      cx.fillStyle='#ccd6f6';cx.fillText(abs[i],ax,ay+3);
+    }
+
+    // Form indicator
+    cx.fillStyle='#495670';cx.font='10px monospace';cx.textAlign='center';
+    cx.fillText('Form '+(tulpa.form+1),tulpa.x,tulpa.y+tulpa.size*2+15);
+  }
+
+  // Recent memories panel
+  if(state==='playing'&&tulpa.memories.length>0){
+    cx.fillStyle='#112240aa';cx.fillRect(10,40,200,Math.min(150,tulpa.memories.length*20+10));
+    cx.fillStyle='#8892b0';cx.font='9px monospace';cx.textAlign='left';
+    cx.fillText('Recent Memories:',15,55);
+    const recent=tulpa.memories.slice(-5);
+    for(let i=0;i<recent.length;i++){
+      cx.fillStyle='#495670';
+      cx.fillText('D'+recent[i].day+': '+recent[i].text.slice(0,25)+'...',15,70+i*18);
+    }
+  }
+
+  cx.restore();
+}
+
+function showOv(mode){
+  const ov=document.getElementById('ov');ov.classList.remove('hide');
+  const h1=ov.querySelector('h1'),h2=ov.querySelector('h2'),si=document.getElementById('si');
+  if(mode==='pause'){
+    h1.textContent='PAUSED';h1.style.color='#64ffda';h2.textContent='Press ESC to resume';
+    si.innerHTML='Bond: <span>'+tulpa.bond+'</span> | Day: <span>'+tulpa.day+'</span> | Form: <span>'+(tulpa.form+1)+'</span>';
+  }else{
+    h1.textContent='DIGITAL TULPA';h1.style.color='#64ffda';
+    h2.textContent='Grow a living mind in your browser';
+    const saved=localStorage.getItem('tulpa_save');
+    si.innerHTML=saved?'<span>Saved tulpa found! Bond: '+JSON.parse(saved).bond+'</span>':'<span>A new mind awaits...</span>';
+  }
+}
+
+function startGame(){
+  ia();state='playing';particles=[];floatingTexts=[];
+  tulpa={x:W/2,y:H/2,size:40,energy:100,hunger:0,happiness:50,bond:0,
+    mood:'Calm',thoughts:[],memories:[],day:1,age:0,
+    personality:{curiosity:50,calm:50,joy:50,wisdom:50,chaos:50},
+    color:'#64ffda',form:0,pulsePhase:0,emotionParticles:[],thoughtBubbles:[],
+    lastFed:0,lastPlayed:0,lastMeditated:0};
+  loadState();
+  document.getElementById('ov').classList.add('hide');
+}
+
+showOv('menu');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

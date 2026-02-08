@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quality Arena</title>
+<meta name="rappterzoo:author" content="MoltEngine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games-puzzles">
+<meta name="rappterzoo:tags" content="fighting,quality,arena,combat,canvas,audio">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;color:#e0e0e0;font-family:'Courier New',monospace;overflow:hidden;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#wrap{position:relative;width:100%;max-width:900px;aspect-ratio:16/10}
+canvas{width:100%;height:100%;image-rendering:pixelated;display:block;border:2px solid #222;border-radius:4px}
+#ui{position:absolute;bottom:0;left:0;right:0;display:none;padding:8px;background:rgba(10,10,18,0.92);border-top:2px solid #333}
+#actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+#actions button{background:#1a1a2e;color:#e0e0e0;border:2px solid #444;padding:8px 18px;font-family:inherit;font-size:14px;cursor:pointer;border-radius:4px;min-width:100px;transition:all .15s}
+#actions button:hover{background:#2a2a4e;border-color:#7f5af0}
+#actions button:active{transform:scale(0.95)}
+#actions button.atk{border-color:#e74c3c}
+#actions button.def{border-color:#3498db}
+#actions button.spc{border-color:#f1c40f}
+#actions button.molt{border-color:#2ecc71}
+#log{max-height:60px;overflow-y:auto;font-size:11px;color:#aaa;text-align:center;padding:4px}
+#log div{margin:1px 0}
+.dmg{color:#e74c3c}.heal{color:#2ecc71}.info{color:#7f5af0}.crit{color:#f1c40f}
+#menu{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,10,18,0.97);z-index:10}
+#menu h1{font-size:32px;color:#7f5af0;text-shadow:0 0 20px #7f5af0;margin-bottom:8px}
+#menu h2{font-size:14px;color:#888;margin-bottom:24px;font-weight:normal}
+#menu button{background:#1a1a2e;color:#e0e0e0;border:2px solid #7f5af0;padding:12px 32px;font-family:inherit;font-size:16px;cursor:pointer;border-radius:4px;margin:6px;min-width:220px;transition:all .15s}
+#menu button:hover{background:#2a2a4e;box-shadow:0 0 15px rgba(127,90,240,0.3)}
+#stats{font-size:11px;color:#666;margin-top:16px;text-align:center}
+#roster{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;background:rgba(10,10,18,0.97);z-index:10;overflow-y:auto;padding:20px}
+#roster h2{color:#7f5af0;margin-bottom:12px}
+.fighter-card{background:#1a1a2e;border:1px solid #333;padding:8px 14px;margin:3px;border-radius:4px;display:flex;align-items:center;gap:12px;width:100%;max-width:400px;cursor:pointer;transition:all .15s}
+.fighter-card:hover{border-color:#7f5af0;background:#2a2a3e}
+.fc-portrait{width:40px;height:40px;border-radius:4px;flex-shrink:0}
+.fc-info{flex:1}
+.fc-name{font-size:13px;font-weight:bold}
+.fc-score{font-size:11px}
+.fc-tier{font-size:11px;font-weight:bold;padding:1px 6px;border-radius:3px}
+.tier-S{color:#f1c40f;border:1px solid #f1c40f}.tier-A{color:#e74c3c;border:1px solid #e74c3c}
+.tier-B{color:#7f5af0;border:1px solid #7f5af0}.tier-C{color:#3498db;border:1px solid #3498db}
+.tier-D{color:#2ecc71;border:1px solid #2ecc71}.tier-F{color:#888;border:1px solid #888}
+#bracket{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;background:rgba(10,10,18,0.97);z-index:10;overflow-y:auto;padding:20px}
+#bracket h2{color:#7f5af0;margin-bottom:12px}
+.bracket-round{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:12px}
+.bracket-match{background:#1a1a2e;border:1px solid #333;padding:6px 10px;border-radius:4px;font-size:11px;min-width:140px}
+.bracket-match.active{border-color:#f1c40f;animation:pulse 1s infinite}
+.bracket-match.done{opacity:0.6}
+.bracket-winner{color:#2ecc71;font-weight:bold}
+@keyframes pulse{0%,100%{box-shadow:0 0 5px rgba(241,196,15,0.3)}50%{box-shadow:0 0 15px rgba(241,196,15,0.6)}}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="c"></canvas>
+<div id="ui"><div id="log"></div><div id="actions"></div></div>
+<div id="menu">
+<h1>⚔️ Quality Arena</h1>
+<h2>Fight your way from F-tier to S-tier</h2>
+<button onclick="startLadder()">🏔️ Quality Ladder</button>
+<button onclick="startTournament()">🏆 Tournament (16)</button>
+<button onclick="showRoster()">📋 Fighter Roster</button>
+<button onclick="resetSave()">🗑️ Reset Save</button>
+<div id="stats"></div>
+</div>
+<div id="roster"><h2>Fighter Roster</h2><div id="roster-list"></div><button onclick="hideRoster()" style="margin-top:12px;background:#1a1a2e;color:#e0e0e0;border:2px solid #444;padding:8px 24px;font-family:inherit;cursor:pointer;border-radius:4px">Back</button></div>
+<div id="bracket"><h2>🏆 Tournament Bracket</h2><div id="bracket-rounds"></div><button onclick="hideBracket()" style="margin-top:12px;background:#1a1a2e;color:#e0e0e0;border:2px solid #444;padding:8px 24px;font-family:inherit;cursor:pointer;border-radius:4px">Back</button></div>
+</div>
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d');
+const W=720,H=450;C.width=W;C.height=H;
+const $=s=>document.getElementById(s);
+let audioCtx=null;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)()}
+function playSound(type){
+  initAudio();if(!audioCtx)return;
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain(),t=audioCtx.currentTime;
+  o.connect(g);g.connect(audioCtx.destination);
+  if(type==='hit'){o.type='sawtooth';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(80,t+0.15);g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.15);o.start(t);o.stop(t+0.15)}
+  else if(type==='crit'){o.type='square';o.frequency.setValueAtTime(400,t);o.frequency.exponentialRampToValueAtTime(100,t+0.25);g.gain.setValueAtTime(0.35,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.25);o.start(t);o.stop(t+0.25);
+    const o2=audioCtx.createOscillator(),g2=audioCtx.createGain();o2.connect(g2);g2.connect(audioCtx.destination);o2.type='sawtooth';o2.frequency.setValueAtTime(600,t+0.05);o2.frequency.exponentialRampToValueAtTime(150,t+0.3);g2.gain.setValueAtTime(0.2,t+0.05);g2.gain.exponentialRampToValueAtTime(0.01,t+0.3);o2.start(t+0.05);o2.stop(t+0.3)}
+  else if(type==='block'){o.type='triangle';o.frequency.setValueAtTime(300,t);o.frequency.linearRampToValueAtTime(250,t+0.1);g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.1);o.start(t);o.stop(t+0.1)}
+  else if(type==='special'){o.type='sine';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(900,t+0.3);o.frequency.exponentialRampToValueAtTime(400,t+0.5);g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.5);o.start(t);o.stop(t+0.5)}
+  else if(type==='heal'){o.type='sine';o.frequency.setValueAtTime(400,t);o.frequency.linearRampToValueAtTime(800,t+0.4);g.gain.setValueAtTime(0.2,t);g.gain.linearRampToValueAtTime(0,t+0.4);o.start(t);o.stop(t+0.4)}
+  else if(type==='win'){o.type='square';o.frequency.setValueAtTime(400,t);g.gain.setValueAtTime(0.2,t);
+    [400,500,600,800].forEach((f,i)=>{o.frequency.setValueAtTime(f,t+i*0.15)});g.gain.exponentialRampToValueAtTime(0.01,t+0.7);o.start(t);o.stop(t+0.7)}
+  else if(type==='lose'){o.type='sawtooth';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(60,t+0.6);g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.6);o.start(t);o.stop(t+0.6)}
+  else if(type==='ko'){o.type='sawtooth';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(30,t+0.8);g.gain.setValueAtTime(0.4,t);g.gain.exponentialRampToValueAtTime(0.01,t+0.8);o.start(t);o.stop(t+0.8);
+    const o2=audioCtx.createOscillator(),g2=audioCtx.createGain();o2.connect(g2);g2.connect(audioCtx.destination);o2.type='square';o2.frequency.setValueAtTime(100,t+0.1);o2.frequency.exponentialRampToValueAtTime(20,t+0.9);g2.gain.setValueAtTime(0.2,t+0.1);g2.gain.exponentialRampToValueAtTime(0.01,t+0.9);o2.start(t+0.1);o2.stop(t+0.9)}
+}
+
+// Seeded RNG
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t^=t+Math.imul(t^t>>>7,61|t);return((t^t>>>14)>>>0)/4294967296}}
+let rng=mulberry32(42);
+function rand(lo=0,hi=1){return lo+(hi-lo)*rng()}
+function randInt(lo,hi){return Math.floor(rand(lo,hi+1))}
+function pick(arr){return arr[Math.floor(rng()*arr.length)]}
+
+// Fighter roster
+const APP_NAMES=[
+  'Fractal Forge','Neon Bounce','Pixel Symphony','Wave Sculptor','Gravity Wells',
+  'Prism Engine','Void Runner','Hex Grid','Tone Painter','Orbit Dance',
+  'Crystal Caves','Beat Mesh','Color Flux','Maze Weaver','Light Ribbons',
+  'Poly Crusher','Sound Garden','Data Bloom','Spark Field','Flow State',
+  'Quantum Drift','Shader Lab','Pulse Grid','Star Forge','Warp Tunnel',
+  'Glyph Storm','Echo Chamber','Morph Engine','Plasma Vortex','Noise Canvas'
+];
+const SPECIALS=['Refactor Blast','Debug Surge','Lint Storm','Deploy Nuke','Hotfix Rush',
+  'Cache Burst','Memory Leak','Stack Overflow','Merge Conflict','Rollback Wave',
+  'Type Check','Null Pointer','Async Surge','Callback Hell','GC Sweep'];
+const TIER_COLORS={S:'#f1c40f',A:'#e74c3c',B:'#7f5af0',C:'#3498db',D:'#2ecc71',F:'#888'};
+
+function getTier(score){
+  if(score>=90)return'S';if(score>=75)return'A';if(score>=60)return'B';
+  if(score>=40)return'C';if(score>=25)return'D';return'F';
+}
+function tierColor(t){return TIER_COLORS[t]||'#888'}
+
+function genFighter(name,score){
+  const tier=getTier(score);
+  const base=score/100;
+  const hp=Math.round(80+base*220);
+  const atk=Math.round(8+base*32);
+  const def=Math.round(3+base*17);
+  const spd=Math.round(5+base*25);
+  const spcPow=Math.round(20+base*60);
+  const colors={
+    body:`hsl(${randInt(0,360)},${60+randInt(0,30)}%,${40+randInt(0,20)}%)`,
+    accent:`hsl(${randInt(0,360)},${70+randInt(0,25)}%,${55+randInt(0,20)}%)`,
+    eye:`hsl(${randInt(0,360)},80%,70%)`
+  };
+  const special=pick(SPECIALS);
+  const bossAbility=tier==='S'?pick(['Regen','Counter','Absorb','Haste','Fury']):null;
+  return{name,score,tier,maxHp:hp,hp,atk,def,spd,spcPow,special,colors,bossAbility,energy:0,maxEnergy:100,defending:false,portrait:null};
+}
+
+let ROSTER=[];
+function buildRoster(){
+  rng=mulberry32(12345);
+  ROSTER=[];
+  const scores=[12,18,22,28,33,38,42,47,52,55,60,63,67,72,76,80,83,86,88,91,93,95,97,15,35,50,70,85,44,68];
+  for(let i=0;i<APP_NAMES.length;i++){
+    ROSTER.push(genFighter(APP_NAMES[i],scores[i%scores.length]));
+  }
+  ROSTER.sort((a,b)=>a.score-b.score);
+}
+buildRoster();
+
+// Save system
+function loadSave(){
+  try{const d=JSON.parse(localStorage.getItem('qa_save'));return d||null}catch(e){return null}
+}
+function writeSave(d){localStorage.setItem('qa_save',JSON.stringify(d))}
+function getSave(){
+  let s=loadSave();
+  if(!s)s={wins:0,losses:0,ladderIndex:0,moltCount:0,bonusHp:0,bonusAtk:0,bonusDef:0,bonusSpd:0,bonusSpc:0,tournamentWins:0,abilities:[]};
+  return s;
+}
+function resetSave(){localStorage.removeItem('qa_save');updateMenuStats()}
+
+// Player fighter
+function getPlayer(){
+  const s=getSave();
+  const base=genFighter('Your App',15+s.moltCount*3);
+  base.maxHp+=s.bonusHp;base.hp=base.maxHp;
+  base.atk+=s.bonusAtk;base.def+=s.bonusDef;
+  base.spd+=s.bonusSpd;base.spcPow+=s.bonusSpc;
+  base.score=Math.min(99,15+s.moltCount*3);
+  base.tier=getTier(base.score);
+  base.colors={body:'#7f5af0',accent:'#2cb67d',eye:'#fff'};
+  base.special='Molt Burst';
+  return base;
+}
+
+// Particles
+let particles=[];
+function spawnParticles(x,y,color,count,speed=3,life=30){
+  for(let i=0;i<count;i++){
+    const a=Math.random()*Math.PI*2,s=Math.random()*speed+1;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life,maxLife:life,color,size:2+Math.random()*3});
+  }
+}
+function updateParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life--;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+function drawParticles(){
+  particles.forEach(p=>{
+    const a=p.life/p.maxLife;
+    X.globalAlpha=a;X.fillStyle=p.color;
+    X.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  });
+  X.globalAlpha=1;
+}
+
+// Floating damage numbers
+let floats=[];
+function addFloat(x,y,text,color){floats.push({x,y,text,color,life:45,maxLife:45})}
+function updateFloats(){
+  for(let i=floats.length-1;i>=0;i--){
+    floats[i].y-=1.2;floats[i].life--;
+    if(floats[i].life<=0)floats.splice(i,1);
+  }
+}
+function drawFloats(){
+  floats.forEach(f=>{
+    const a=f.life/f.maxLife;
+    X.globalAlpha=a;X.font='bold 18px Courier New';X.textAlign='center';
+    X.fillStyle='#000';X.fillText(f.text,f.x+1,f.y+1);
+    X.fillStyle=f.color;X.fillText(f.text,f.x,f.y);
+  });
+  X.globalAlpha=1;
+}
+
+// Screen shake
+let shakeX=0,shakeY=0,shakeMag=0,shakeDecay=0.9;
+function shake(mag){shakeMag=mag}
+function updateShake(){
+  if(shakeMag>0.5){shakeX=(Math.random()-0.5)*shakeMag*2;shakeY=(Math.random()-0.5)*shakeMag*2;shakeMag*=shakeDecay}
+  else{shakeX=0;shakeY=0;shakeMag=0}
+}
+
+// Slow motion
+let slowMo=0,slowMoTimer=0;
+function triggerSlowMo(frames){slowMo=1;slowMoTimer=frames}
+function updateSlowMo(){if(slowMoTimer>0){slowMoTimer--;if(slowMoTimer<=0)slowMo=0}}
+
+// Draw fighter portrait on canvas
+function drawPortrait(x,y,w,h,f,flip=false){
+  const cx=x+w/2,cy=y+h/2;
+  X.save();
+  if(flip){X.translate(cx*2,0);X.scale(-1,1)}
+  // Body
+  X.fillStyle=f.colors.body;
+  X.fillRect(x+w*0.2,y+h*0.3,w*0.6,h*0.5);
+  // Head
+  X.fillRect(x+w*0.25,y+h*0.05,w*0.5,h*0.35);
+  // Eyes
+  X.fillStyle=f.colors.eye;
+  X.fillRect(x+w*0.32,y+h*0.15,w*0.12,h*0.1);
+  X.fillRect(x+w*0.56,y+h*0.15,w*0.12,h*0.1);
+  // Pupils
+  X.fillStyle='#111';
+  X.fillRect(x+w*0.36,y+h*0.18,w*0.06,h*0.06);
+  X.fillRect(x+w*0.6,y+h*0.18,w*0.06,h*0.06);
+  // Accent stripe
+  X.fillStyle=f.colors.accent;
+  X.fillRect(x+w*0.25,y+h*0.32,w*0.5,h*0.06);
+  // Arms
+  X.fillStyle=f.colors.body;
+  X.fillRect(x+w*0.05,y+h*0.35,w*0.18,h*0.3);
+  X.fillRect(x+w*0.77,y+h*0.35,w*0.18,h*0.3);
+  // Fists
+  X.fillStyle=f.colors.accent;
+  X.fillRect(x+w*0.07,y+h*0.6,w*0.14,h*0.1);
+  X.fillRect(x+w*0.79,y+h*0.6,w*0.14,h*0.1);
+  // Legs
+  X.fillStyle=f.colors.body;
+  X.fillRect(x+w*0.25,y+h*0.78,w*0.2,h*0.2);
+  X.fillRect(x+w*0.55,y+h*0.78,w*0.2,h*0.2);
+  // Tier badge
+  const tc=tierColor(f.tier);
+  X.fillStyle=tc;X.font='bold 12px Courier New';X.textAlign='center';
+  X.fillText(f.tier,x+w/2,y+h+14);
+  X.restore();
+}
+
+// Combat state
+let combat=null,gameMode=null,combatAnim=null,turnBlocked=false;
+let animFrame=0,playerAnim={x:0,y:0,flash:0,hitAnim:0},enemyAnim={x:0,y:0,flash:0,hitAnim:0};
+let bracket=null,ladderQueue=[];
+
+function startCombat(player,enemy,onEnd){
+  initAudio();
+  combat={player:structuredClone(player),enemy:structuredClone(enemy),turn:'player',over:false,winner:null,log:[],onEnd};
+  combat.player.hp=combat.player.maxHp;combat.player.energy=30;combat.player.defending=false;
+  combat.enemy.hp=combat.enemy.maxHp;combat.enemy.energy=30;combat.enemy.defending=false;
+  playerAnim={x:0,y:0,flash:0,hitAnim:0};
+  enemyAnim={x:0,y:0,flash:0,hitAnim:0};
+  particles=[];floats=[];
+  $('menu').style.display='none';$('roster').style.display='none';
+  $('bracket').style.display='none';$('ui').style.display='block';
+  turnBlocked=false;
+  updateActionButtons();logMsg(`${combat.enemy.name} (${combat.enemy.tier}-tier, Score:${combat.enemy.score}) enters the arena!`,'info');
+}
+
+function logMsg(text,cls=''){
+  combat.log.push({text,cls});
+  const d=document.createElement('div');d.className=cls;d.textContent=text;
+  $('log').appendChild(d);$('log').scrollTop=$('log').scrollHeight;
+  if($('log').children.length>50)$('log').removeChild($('log').firstChild);
+}
+
+function calcDamage(attacker,defender,isSpecial=false){
+  const base=isSpecial?attacker.spcPow:attacker.atk;
+  const defMul=defender.defending?2.5:1;
+  const defVal=defender.def*defMul;
+  const variance=0.85+Math.random()*0.3;
+  const crit=Math.random()<(attacker.spd/150)?2:1;
+  let dmg=Math.max(1,Math.round((base-defVal*0.4)*variance*crit));
+  if(isSpecial)dmg=Math.round(dmg*1.3);
+  return{dmg,crit:crit===2};
+}
+
+function applyDamage(target,dmg,isPlayer){
+  target.hp=Math.max(0,target.hp-dmg);
+  const anim=isPlayer?playerAnim:enemyAnim;
+  anim.hitAnim=15;anim.flash=10;
+  const px=isPlayer?160:560,py=180;
+  spawnParticles(px,py,'#e74c3c',8+dmg/5);
+}
+
+function updateActionButtons(){
+  const a=$('actions');a.innerHTML='';
+  if(!combat||combat.over||combat.turn!=='player'){a.innerHTML='<span style="color:#666;font-size:12px">Waiting...</span>';return}
+  const btns=[
+    {label:`⚔️ Attack`,cls:'atk',fn:()=>playerAction('attack')},
+    {label:`🛡️ Defend`,cls:'def',fn:()=>playerAction('defend')},
+    {label:`✨ ${combat.player.special} (${Math.min(combat.player.energy,50)}/50)`,cls:'spc',fn:()=>playerAction('special'),dis:combat.player.energy<50},
+    {label:`🧬 Molt (+HP)`,cls:'molt',fn:()=>playerAction('molt'),dis:combat.player.energy<30}
+  ];
+  btns.forEach(b=>{
+    const btn=document.createElement('button');btn.className=b.cls;btn.textContent=b.label;
+    btn.onclick=b.fn;if(b.dis)btn.disabled=true;a.appendChild(btn);
+  });
+}
+
+function playerAction(type){
+  if(turnBlocked||!combat||combat.over||combat.turn!=='player')return;
+  turnBlocked=true;combat.player.defending=false;
+
+  if(type==='attack'){
+    const{dmg,crit}=calcDamage(combat.player,combat.enemy);
+    playerAnim.x=40;
+    setTimeout(()=>{
+      playerAnim.x=0;applyDamage(combat.enemy,dmg,false);
+      if(crit){logMsg(`CRITICAL! You deal ${dmg} damage!`,'crit');playSound('crit');shake(12);addFloat(560,160,`-${dmg} CRIT!`,'#f1c40f')}
+      else{logMsg(`You attack for ${dmg} damage.`,'dmg');playSound('hit');shake(5);addFloat(560,170,`-${dmg}`,'#e74c3c')}
+      combat.player.energy=Math.min(combat.player.maxEnergy,combat.player.energy+12);
+      checkKO();
+    },200);
+  }else if(type==='defend'){
+    combat.player.defending=true;
+    logMsg('You brace for impact! Defense doubled.','info');playSound('block');
+    combat.player.energy=Math.min(combat.player.maxEnergy,combat.player.energy+20);
+    setTimeout(()=>checkKO(),300);
+  }else if(type==='special'){
+    if(combat.player.energy<50){turnBlocked=false;return}
+    combat.player.energy-=50;
+    const{dmg,crit}=calcDamage(combat.player,combat.enemy,true);
+    const finalDmg=Math.round(dmg*1.5);
+    spawnParticles(360,200,combat.player.colors.accent,30,5,40);
+    playSound('special');
+    setTimeout(()=>{
+      applyDamage(combat.enemy,finalDmg,false);
+      shake(15);addFloat(560,150,`-${finalDmg} ✨`,'#f1c40f');
+      logMsg(`${combat.player.special}! ${finalDmg} damage!`,'crit');
+      checkKO();
+    },400);
+  }else if(type==='molt'){
+    if(combat.player.energy<30){turnBlocked=false;return}
+    combat.player.energy-=30;
+    const heal=Math.round(combat.player.maxHp*0.25);
+    combat.player.hp=Math.min(combat.player.maxHp,combat.player.hp+heal);
+    spawnParticles(160,200,'#2ecc71',20,3,35);
+    playSound('heal');addFloat(160,160,`+${heal}`,'#2ecc71');
+    logMsg(`You molt and recover ${heal} HP!`,'heal');
+    setTimeout(()=>checkKO(),300);
+  }
+}
+
+function checkKO(){
+  if(combat.enemy.hp<=0){
+    combat.over=true;combat.winner='player';
+    triggerSlowMo(60);playSound('ko');shake(20);
+    spawnParticles(560,200,'#f1c40f',50,6,50);
+    setTimeout(()=>{playSound('win');logMsg(`${combat.enemy.name} is defeated! You win!`,'heal');
+      updateActionButtons();
+      setTimeout(()=>{if(combat.onEnd)combat.onEnd('player')},1500);
+    },1000);
+  }else if(combat.player.hp<=0){
+    combat.over=true;combat.winner='enemy';
+    triggerSlowMo(60);playSound('ko');shake(20);
+    spawnParticles(160,200,'#e74c3c',50,6,50);
+    setTimeout(()=>{playSound('lose');logMsg(`You were defeated by ${combat.enemy.name}...`,'dmg');
+      updateActionButtons();
+      setTimeout(()=>{if(combat.onEnd)combat.onEnd('enemy')},1500);
+    },1000);
+  }else{
+    combat.turn='enemy';updateActionButtons();
+    setTimeout(()=>enemyTurn(),800);
+  }
+}
+
+function enemyTurn(){
+  if(!combat||combat.over)return;
+  combat.enemy.defending=false;
+  combat.enemy.energy=Math.min(combat.enemy.maxEnergy,combat.enemy.energy+15);
+
+  // Boss regen
+  if(combat.enemy.bossAbility==='Regen'&&combat.enemy.hp<combat.enemy.maxHp*0.8){
+    const heal=Math.round(combat.enemy.maxHp*0.08);
+    combat.enemy.hp=Math.min(combat.enemy.maxHp,combat.enemy.hp+heal);
+    addFloat(560,160,`+${heal}`,'#2ecc71');logMsg(`${combat.enemy.name} regenerates ${heal} HP!`,'heal');
+  }
+
+  // AI decision
+  const hpPct=combat.enemy.hp/combat.enemy.maxHp;
+  let action='attack';
+  if(combat.enemy.energy>=50&&hpPct>0.3&&Math.random()<0.35)action='special';
+  else if(hpPct<0.3&&combat.enemy.energy>=30&&Math.random()<0.4)action='molt';
+  else if(combat.player.energy>=50&&Math.random()<0.3)action='defend';
+
+  // Boss counter
+  if(combat.enemy.bossAbility==='Counter'&&combat.player.defending===false&&Math.random()<0.25){
+    action='special';combat.enemy.energy=Math.max(combat.enemy.energy,50);
+  }
+  // Boss fury at low HP
+  if(combat.enemy.bossAbility==='Fury'&&hpPct<0.4){
+    action='special';combat.enemy.energy=Math.max(combat.enemy.energy,50);
+  }
+
+  if(action==='attack'){
+    const{dmg,crit}=calcDamage(combat.enemy,combat.player);
+    enemyAnim.x=-40;
+    setTimeout(()=>{
+      enemyAnim.x=0;applyDamage(combat.player,dmg,true);
+      if(crit){logMsg(`${combat.enemy.name} CRITS for ${dmg}!`,'crit');playSound('crit');shake(10);addFloat(160,160,`-${dmg} CRIT!`,'#f1c40f')}
+      else{logMsg(`${combat.enemy.name} attacks for ${dmg}.`,'dmg');playSound('hit');shake(4);addFloat(160,170,`-${dmg}`,'#e74c3c')}
+      endEnemyTurn();
+    },300);
+  }else if(action==='defend'){
+    combat.enemy.defending=true;
+    logMsg(`${combat.enemy.name} takes a defensive stance.`,'info');playSound('block');
+    setTimeout(()=>endEnemyTurn(),300);
+  }else if(action==='special'){
+    if(combat.enemy.energy<50){action='attack';enemyTurn();return}
+    combat.enemy.energy-=50;
+    const{dmg}=calcDamage(combat.enemy,combat.player,true);
+    const finalDmg=Math.round(dmg*1.5);
+    spawnParticles(360,200,combat.enemy.colors.accent,25,5,40);
+    playSound('special');
+    setTimeout(()=>{
+      applyDamage(combat.player,finalDmg,true);shake(12);
+      addFloat(160,150,`-${finalDmg} ✨`,'#f1c40f');
+      logMsg(`${combat.enemy.name} uses ${combat.enemy.special}! ${finalDmg} damage!`,'crit');
+      endEnemyTurn();
+    },400);
+  }else if(action==='molt'){
+    if(combat.enemy.energy<30){endEnemyTurn();return}
+    combat.enemy.energy-=30;
+    const heal=Math.round(combat.enemy.maxHp*0.2);
+    combat.enemy.hp=Math.min(combat.enemy.maxHp,combat.enemy.hp+heal);
+    spawnParticles(560,200,'#2ecc71',15,3,30);
+    playSound('heal');addFloat(560,160,`+${heal}`,'#2ecc71');
+    logMsg(`${combat.enemy.name} molts and recovers ${heal} HP!`,'heal');
+    setTimeout(()=>endEnemyTurn(),300);
+  }
+}
+
+function endEnemyTurn(){
+  if(combat.player.hp<=0){checkKO();return}
+  if(combat.enemy.hp<=0){checkKO();return}
+  combat.turn='player';turnBlocked=false;updateActionButtons();
+}
+
+// Health bar drawing
+function drawBar(x,y,w,h,val,max,color,bgColor='#222'){
+  X.fillStyle=bgColor;X.fillRect(x,y,w,h);
+  const pct=Math.max(0,val/max);
+  X.fillStyle=color;X.fillRect(x,y,w*pct,h);
+  X.strokeStyle='#444';X.lineWidth=1;X.strokeRect(x,y,w,h);
+}
+
+// Arena background
+function drawArena(){
+  // Sky gradient
+  const g=X.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0a0a1a');g.addColorStop(0.6,'#151530');g.addColorStop(1,'#1a1a3e');
+  X.fillStyle=g;X.fillRect(0,0,W,H);
+  // Floor
+  X.fillStyle='#1a1a2e';X.fillRect(0,H*0.65,W,H*0.35);
+  // Grid lines
+  X.strokeStyle='#252540';X.lineWidth=1;
+  for(let i=0;i<W;i+=40){X.beginPath();X.moveTo(i,H*0.65);X.lineTo(i,H);X.stroke()}
+  for(let i=H*0.65;i<H;i+=20){X.beginPath();X.moveTo(0,i);X.lineTo(W,i);X.stroke()}
+  // Atmospheric particles
+  for(let i=0;i<15;i++){
+    const px=(animFrame*0.3+i*53)%W,py=50+Math.sin(animFrame*0.02+i)*30+i*15;
+    X.fillStyle=`rgba(127,90,240,${0.1+Math.sin(animFrame*0.03+i)*0.05})`;
+    X.fillRect(px,py,2,2);
+  }
+}
+
+// Main draw
+function drawCombat(){
+  if(!combat)return;
+  X.save();X.translate(shakeX,shakeY);
+  drawArena();
+  // Player fighter
+  const px=120+playerAnim.x+(playerAnim.hitAnim>0?Math.sin(playerAnim.hitAnim*2)*4:0);
+  const py=160;
+  if(playerAnim.flash>0&&playerAnim.flash%3===0){X.globalAlpha=0.5}
+  drawPortrait(px,py,80,100,combat.player,false);
+  X.globalAlpha=1;
+  // Defending shield
+  if(combat.player.defending){
+    X.strokeStyle='rgba(52,152,219,0.6)';X.lineWidth=3;
+    X.beginPath();X.arc(px+40,py+50,55,0,Math.PI*2);X.stroke();
+  }
+  // Enemy fighter
+  const ex=520+enemyAnim.x+(enemyAnim.hitAnim>0?Math.sin(enemyAnim.hitAnim*2)*4:0);
+  const ey=160;
+  if(enemyAnim.flash>0&&enemyAnim.flash%3===0){X.globalAlpha=0.5}
+  drawPortrait(ex,ey,80,100,combat.enemy,true);
+  X.globalAlpha=1;
+  if(combat.enemy.defending){
+    X.strokeStyle='rgba(52,152,219,0.6)';X.lineWidth=3;
+    X.beginPath();X.arc(ex+40,ey+50,55,0,Math.PI*2);X.stroke();
+  }
+  // Boss aura
+  if(combat.enemy.bossAbility){
+    X.strokeStyle=`rgba(241,196,15,${0.3+Math.sin(animFrame*0.08)*0.15})`;
+    X.lineWidth=2;X.beginPath();X.arc(ex+40,ey+50,60+Math.sin(animFrame*0.05)*5,0,Math.PI*2);X.stroke();
+  }
+
+  // HUD - Player
+  X.font='bold 14px Courier New';X.textAlign='left';
+  X.fillStyle='#e0e0e0';X.fillText(combat.player.name,30,30);
+  X.fillStyle=tierColor(combat.player.tier);X.fillText(`[${combat.player.tier}] Score:${combat.player.score}`,30,46);
+  drawBar(30,52,180,14,combat.player.hp,combat.player.maxHp,'#e74c3c');
+  X.fillStyle='#fff';X.font='10px Courier New';X.fillText(`${combat.player.hp}/${combat.player.maxHp}`,35,63);
+  drawBar(30,70,180,8,combat.player.energy,combat.player.maxEnergy,'#f1c40f');
+  X.fillText(`EN:${combat.player.energy}`,35,78);
+  // Stats
+  X.font='9px Courier New';X.fillStyle='#888';
+  X.fillText(`ATK:${combat.player.atk} DEF:${combat.player.def} SPD:${combat.player.spd}`,30,92);
+
+  // HUD - Enemy
+  X.textAlign='right';
+  X.font='bold 14px Courier New';X.fillStyle='#e0e0e0';X.fillText(combat.enemy.name,W-30,30);
+  X.fillStyle=tierColor(combat.enemy.tier);X.fillText(`[${combat.enemy.tier}] Score:${combat.enemy.score}`,W-30,46);
+  drawBar(W-210,52,180,14,combat.enemy.hp,combat.enemy.maxHp,'#e74c3c');
+  X.fillStyle='#fff';X.font='10px Courier New';X.textAlign='right';X.fillText(`${combat.enemy.hp}/${combat.enemy.maxHp}`,W-35,63);
+  drawBar(W-210,70,180,8,combat.enemy.energy,combat.enemy.maxEnergy,'#f1c40f');
+  X.fillText(`EN:${combat.enemy.energy}`,W-35,78);
+  X.font='9px Courier New';X.fillStyle='#888';
+  X.fillText(`ATK:${combat.enemy.atk} DEF:${combat.enemy.def} SPD:${combat.enemy.spd}`,W-30,92);
+  if(combat.enemy.bossAbility){X.fillStyle='#f1c40f';X.fillText(`Boss: ${combat.enemy.bossAbility}`,W-30,104)}
+
+  // VS
+  X.textAlign='center';X.font='bold 24px Courier New';X.fillStyle='#444';X.fillText('VS',W/2,50);
+
+  // Turn indicator
+  if(!combat.over){
+    const ti=combat.turn==='player'?'YOUR TURN':'ENEMY TURN';
+    X.font='bold 12px Courier New';X.fillStyle=combat.turn==='player'?'#2ecc71':'#e74c3c';
+    X.fillText(ti,W/2,H*0.63);
+  }
+  // KO text
+  if(combat.over){
+    X.font='bold 36px Courier New';X.textAlign='center';
+    const koText=combat.winner==='player'?'VICTORY!':'DEFEAT';
+    const koColor=combat.winner==='player'?'#2ecc71':'#e74c3c';
+    X.fillStyle='#000';X.fillText(koText,W/2+2,H/2+2);
+    X.fillStyle=koColor;X.fillText(koText,W/2,H/2);
+  }
+
+  drawParticles();drawFloats();
+  X.restore();
+}
+
+// Animation update
+function updateCombatAnim(){
+  if(playerAnim.hitAnim>0)playerAnim.hitAnim--;
+  if(playerAnim.flash>0)playerAnim.flash--;
+  if(enemyAnim.hitAnim>0)enemyAnim.hitAnim--;
+  if(enemyAnim.flash>0)enemyAnim.flash--;
+  // Lerp positions back
+  playerAnim.x*=0.85;enemyAnim.x*=0.85;
+}
+
+// Game modes
+function startLadder(){
+  initAudio();
+  const s=getSave();
+  ladderQueue=ROSTER.filter(f=>f.score>15+s.moltCount*3-10).slice(0,20);
+  if(ladderQueue.length===0){
+    logMsg('You have conquered all fighters!','heal');
+    showMenu();return;
+  }
+  gameMode='ladder';
+  const enemy=ladderQueue[Math.min(s.ladderIndex,ladderQueue.length-1)];
+  const player=getPlayer();
+  startCombat(player,enemy,(winner)=>{
+    const sv=getSave();
+    if(winner==='player'){
+      sv.wins++;sv.moltCount++;
+      sv.ladderIndex=Math.min(sv.ladderIndex+1,ladderQueue.length-1);
+      // Random stat bonus
+      const stats=['bonusHp','bonusAtk','bonusDef','bonusSpd','bonusSpc'];
+      const weights=[15,5,4,3,5];
+      const pick=stats[Math.floor(Math.random()*stats.length)];
+      const bonus=pick==='bonusHp'?weights[0]:weights[stats.indexOf(pick)];
+      sv[pick]+=bonus;
+      writeSave(sv);
+      setTimeout(()=>{
+        logMsg(`Molt complete! +${bonus} ${pick.replace('bonus','')}!`,'heal');
+        setTimeout(()=>showMenu(),2000);
+      },500);
+    }else{
+      sv.losses++;writeSave(sv);
+      setTimeout(()=>showMenu(),2000);
+    }
+  });
+}
+
+function startTournament(){
+  initAudio();gameMode='tournament';
+  // Build 16-fighter bracket
+  const pool=[...ROSTER].sort(()=>Math.random()-0.5).slice(0,15);
+  const player=getPlayer();
+  pool.unshift(player);
+  bracket={rounds:[],fighters:pool,currentRound:0,currentMatch:0,playerAlive:true};
+  // Round 1 matches
+  const r1=[];
+  for(let i=0;i<pool.length;i+=2){r1.push({a:pool[i],b:pool[i+1],winner:null})}
+  bracket.rounds.push(r1);
+  showBracketView();
+  runNextBracketMatch();
+}
+
+function runNextBracketMatch(){
+  if(!bracket)return;
+  const round=bracket.rounds[bracket.currentRound];
+  if(!round||bracket.currentMatch>=round.length){
+    // Advance to next round
+    if(round){
+      const winners=round.map(m=>m.winner);
+      if(winners.length<=1){
+        // Tournament over
+        const sv=getSave();
+        if(bracket.playerAlive&&winners[0]&&winners[0].name==='Your App'){
+          sv.tournamentWins++;writeSave(sv);
+          setTimeout(()=>{logMsg('🏆 Tournament Champion!','heal');playSound('win')},500);
+        }
+        setTimeout(()=>showMenu(),3000);
+        return;
+      }
+      const nextRound=[];
+      for(let i=0;i<winners.length;i+=2){
+        if(i+1<winners.length)nextRound.push({a:winners[i],b:winners[i+1],winner:null});
+        else nextRound.push({a:winners[i],b:null,winner:winners[i]});// bye
+      }
+      bracket.rounds.push(nextRound);bracket.currentRound++;bracket.currentMatch=0;
+      showBracketView();
+      setTimeout(()=>runNextBracketMatch(),500);
+      return;
+    }
+    return;
+  }
+  const match=round[bracket.currentMatch];
+  if(match.winner){bracket.currentMatch++;runNextBracketMatch();return}
+  if(!match.b){match.winner=match.a;bracket.currentMatch++;showBracketView();runNextBracketMatch();return}
+
+  const hasPlayer=match.a.name==='Your App'||match.b.name==='Your App';
+  if(hasPlayer){
+    hideBracket();
+    const player=match.a.name==='Your App'?getPlayer():getPlayer();
+    const enemy=match.a.name==='Your App'?match.b:match.a;
+    startCombat(player,enemy,(winner)=>{
+      match.winner=winner==='player'?player:enemy;
+      if(winner!=='player')bracket.playerAlive=false;
+      const sv=getSave();if(winner==='player')sv.wins++;else sv.losses++;
+      writeSave(sv);bracket.currentMatch++;
+      setTimeout(()=>{showBracketView();setTimeout(()=>runNextBracketMatch(),1000)},2000);
+    });
+  }else{
+    // Simulate AI vs AI
+    match.winner=match.a.score>=match.b.score?(Math.random()<0.7?match.a:match.b):(Math.random()<0.7?match.b:match.a);
+    showBracketView();bracket.currentMatch++;
+    setTimeout(()=>runNextBracketMatch(),600);
+  }
+}
+
+function showBracketView(){
+  $('bracket').style.display='flex';$('menu').style.display='none';
+  const br=$('bracket-rounds');br.innerHTML='';
+  bracket.rounds.forEach((round,ri)=>{
+    const rdiv=document.createElement('div');rdiv.className='bracket-round';
+    const label=document.createElement('div');label.style.cssText='width:100%;text-align:center;color:#7f5af0;font-size:12px;margin-bottom:4px';
+    label.textContent=ri===0?'Round 1':ri===1?'Semifinals':ri===2?'Finals':`Round ${ri+1}`;
+    rdiv.appendChild(label);
+    round.forEach((m,mi)=>{
+      const md=document.createElement('div');md.className='bracket-match';
+      if(ri===bracket.currentRound&&mi===bracket.currentMatch&&!m.winner)md.classList.add('active');
+      if(m.winner)md.classList.add('done');
+      const an=m.a?m.a.name:'BYE',bn=m.b?m.b.name:'BYE';
+      const at=m.a?`[${m.a.tier}]`:'',bt=m.b?`[${m.b.tier}]`:'';
+      md.innerHTML=`<div class="${m.winner===m.a?'bracket-winner':''}">${at} ${an}</div><div style="color:#555;font-size:9px">vs</div><div class="${m.winner===m.b?'bracket-winner':''}">${bt} ${bn}</div>`;
+      rdiv.appendChild(md);
+    });
+    br.appendChild(rdiv);
+  });
+}
+function hideBracket(){$('bracket').style.display='none';showMenu()}
+
+// Roster view
+function showRoster(){
+  $('roster').style.display='flex';$('menu').style.display='none';
+  const list=$('roster-list');list.innerHTML='';
+  ROSTER.forEach(f=>{
+    const card=document.createElement('div');card.className='fighter-card';
+    const cv=document.createElement('canvas');cv.className='fc-portrait';cv.width=40;cv.height=40;
+    const cx=cv.getContext('2d');
+    cx.fillStyle=f.colors.body;cx.fillRect(5,2,30,20);
+    cx.fillStyle=f.colors.accent;cx.fillRect(5,18,30,4);
+    cx.fillStyle=f.colors.body;cx.fillRect(5,22,30,16);
+    cx.fillStyle=f.colors.eye;cx.fillRect(12,8,6,5);cx.fillRect(22,8,6,5);
+    cx.fillStyle='#111';cx.fillRect(14,10,3,3);cx.fillRect(24,10,3,3);
+    const info=document.createElement('div');info.className='fc-info';
+    info.innerHTML=`<div class="fc-name">${f.name}</div><div class="fc-score">Score: ${f.score} | HP:${f.maxHp} ATK:${f.atk} DEF:${f.def} SPD:${f.spd}</div>`;
+    const tier=document.createElement('span');tier.className=`fc-tier tier-${f.tier}`;tier.textContent=f.tier;
+    card.appendChild(cv);card.appendChild(info);card.appendChild(tier);
+    list.appendChild(card);
+  });
+}
+function hideRoster(){$('roster').style.display='none';showMenu()}
+
+function showMenu(){
+  combat=null;gameMode=null;
+  $('menu').style.display='flex';$('ui').style.display='none';
+  $('log').innerHTML='';$('actions').innerHTML='';
+  updateMenuStats();
+}
+
+function updateMenuStats(){
+  const s=getSave();
+  $('stats').innerHTML=`Wins: ${s.wins} | Losses: ${s.losses} | Molts: ${s.moltCount} | Score: ${Math.min(99,15+s.moltCount*3)} [${getTier(Math.min(99,15+s.moltCount*3))}] | Tournaments: ${s.tournamentWins}`;
+}
+
+// Main loop
+let lastTime=0;
+function loop(ts){
+  const dt=ts-lastTime;lastTime=ts;
+  animFrame++;
+  updateShake();updateSlowMo();
+  if(slowMo&&animFrame%3!==0){requestAnimationFrame(loop);return}
+  updateParticles();updateFloats();
+  if(combat)updateCombatAnim();
+
+  // Draw
+  if(combat){
+    drawCombat();
+  }else if($('menu').style.display!=='none'||$('roster').style.display!=='none'||$('bracket').style.display!=='none'){
+    // Draw idle background
+    drawArena();
+    X.font='bold 48px Courier New';X.textAlign='center';X.fillStyle='rgba(127,90,240,0.15)';
+    X.fillText('QUALITY ARENA',W/2,H/2);
+  }
+  requestAnimationFrame(loop);
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{
+  if(!combat||combat.over||combat.turn!=='player'||turnBlocked)return;
+  if(e.key==='1'||e.key==='a')playerAction('attack');
+  else if(e.key==='2'||e.key==='d')playerAction('defend');
+  else if(e.key==='3'||e.key==='s')playerAction('special');
+  else if(e.key==='4'||e.key==='m')playerAction('molt');
+});
+
+// Title screen stars
+let titleStars=[];
+for(let i=0;i<60;i++){titleStars.push({x:Math.random()*W,y:Math.random()*H,s:0.5+Math.random()*2,b:Math.random()})}
+function drawTitleStars(){
+  titleStars.forEach(s=>{
+    const bright=0.2+0.4*Math.sin(animFrame*0.03+s.b*10);
+    X.fillStyle=`rgba(127,90,240,${bright})`;
+    X.fillRect(s.x,s.y,s.s,s.s);
+    s.x-=s.s*0.2;if(s.x<0)s.x=W;
+  });
+}
+
+// Animated title rendering with glow
+function drawTitle(){
+  drawArena();drawTitleStars();
+  const glow=0.15+0.08*Math.sin(animFrame*0.04);
+  X.font='bold 48px Courier New';X.textAlign='center';
+  X.fillStyle=`rgba(127,90,240,${glow})`;
+  X.fillText('QUALITY ARENA',W/2,H/2-10);
+  // Subtitle pulse
+  const subAlpha=0.08+0.04*Math.sin(animFrame*0.06);
+  X.font='14px Courier New';X.fillStyle=`rgba(224,224,224,${subAlpha})`;
+  X.fillText('Fight • Molt • Evolve',W/2,H/2+20);
+  // Decorative bars
+  const barW=200+Math.sin(animFrame*0.02)*20;
+  X.fillStyle=`rgba(127,90,240,${0.1+0.05*Math.sin(animFrame*0.03)})`;
+  X.fillRect(W/2-barW/2,H/2+30,barW,2);
+  X.fillRect(W/2-barW/2,H/2-40,barW,2);
+}
+
+// Quick fight mode: pick any roster fighter
+function quickFight(idx){
+  if(idx<0||idx>=ROSTER.length)return;
+  initAudio();gameMode='quick';
+  const player=getPlayer();const enemy=ROSTER[idx];
+  hideRoster();
+  startCombat(player,enemy,(winner)=>{
+    const sv=getSave();
+    if(winner==='player'){sv.wins++;writeSave(sv)}
+    else{sv.losses++;writeSave(sv)}
+    setTimeout(()=>showMenu(),2000);
+  });
+}
+
+// Enhanced roster view with clickable quick-fight
+const _origShowRoster=showRoster;
+showRoster=function(){
+  _origShowRoster();
+  document.querySelectorAll('.fighter-card').forEach((card,i)=>{
+    card.title='Click to quick-fight!';
+    card.onclick=()=>quickFight(i);
+  });
+};
+
+// Export/import save data
+function exportSave(){
+  const s=getSave();
+  const blob=JSON.stringify(s,null,2);
+  const el=document.createElement('textarea');el.value=blob;document.body.appendChild(el);
+  el.select();document.execCommand('copy');document.body.removeChild(el);
+  alert('Save data copied to clipboard!');
+}
+function importSave(){
+  const raw=prompt('Paste save data:');
+  if(!raw)return;
+  try{const d=JSON.parse(raw);writeSave(d);updateMenuStats();alert('Save imported!')}
+  catch(e){alert('Invalid save data')}
+}
+
+// Win streak tracking
+function getStreak(){
+  const s=getSave();return s.streak||0;
+}
+function updateStreak(won){
+  const s=getSave();
+  if(!s.streak)s.streak=0;if(!s.bestStreak)s.bestStreak=0;
+  if(won){s.streak++;if(s.streak>s.bestStreak)s.bestStreak=s.streak}
+  else{s.streak=0}
+  writeSave(s);
+}
+
+// Override ladder/tournament win tracking for streaks
+const _origStartLadder=startLadder;
+startLadder=function(){
+  initAudio();
+  const s=getSave();
+  ladderQueue=ROSTER.filter(f=>f.score>15+s.moltCount*3-10).slice(0,20);
+  if(ladderQueue.length===0){showMenu();return}
+  gameMode='ladder';
+  const enemy=ladderQueue[Math.min(s.ladderIndex,ladderQueue.length-1)];
+  const player=getPlayer();
+  startCombat(player,enemy,(winner)=>{
+    const sv=getSave();
+    updateStreak(winner==='player');
+    if(winner==='player'){
+      sv.wins++;sv.moltCount++;
+      sv.ladderIndex=Math.min(sv.ladderIndex+1,ladderQueue.length-1);
+      const stats=['bonusHp','bonusAtk','bonusDef','bonusSpd','bonusSpc'];
+      const weights=[15,5,4,3,5];
+      const pick=stats[Math.floor(Math.random()*stats.length)];
+      const bonus=pick==='bonusHp'?weights[0]:weights[stats.indexOf(pick)];
+      sv[pick]+=bonus;
+      writeSave(sv);
+      setTimeout(()=>{
+        logMsg(`Molt complete! +${bonus} ${pick.replace('bonus','')}! Streak: ${sv.streak||1}`,'heal');
+        setTimeout(()=>showMenu(),2000);
+      },500);
+    }else{
+      sv.losses++;writeSave(sv);
+      setTimeout(()=>showMenu(),2000);
+    }
+  });
+};
+
+// Updated menu stats with streak
+const _origUpdateMenuStats=updateMenuStats;
+updateMenuStats=function(){
+  const s=getSave();
+  const score=Math.min(99,15+s.moltCount*3);
+  $('stats').innerHTML=`Wins: ${s.wins} | Losses: ${s.losses} | Molts: ${s.moltCount} | Score: ${score} [${getTier(score)}]<br>Streak: ${s.streak||0} | Best: ${s.bestStreak||0} | Tournaments: ${s.tournamentWins}`;
+};
+
+// Enhanced main loop with title animation
+const _origLoop=loop;
+loop=function loopEnhanced(ts){
+  const dt=ts-lastTime;lastTime=ts;
+  animFrame++;
+  updateShake();updateSlowMo();
+  if(slowMo&&animFrame%3!==0){requestAnimationFrame(loopEnhanced);return}
+  updateParticles();updateFloats();
+  if(combat){updateCombatAnim();drawCombat()}
+  else{drawTitle()}
+  requestAnimationFrame(loopEnhanced);
+};
+
+// Init
+updateMenuStats();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

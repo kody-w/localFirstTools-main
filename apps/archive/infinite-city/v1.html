@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="description" content="Procedurally generated infinite 3D city. WASD to explore, deterministic seed, day/night cycle, street lights, building windows. Pure WebGL2, no dependencies.">
+<title>Infinite City - Procedural Explorer</title>
+<!-- 3d, webgl, procedural, generation, city, exploration -->
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:system-ui,sans-serif;color:#fff}
+canvas{display:block;width:100%;height:100%}
+#ui{position:absolute;inset:0;pointer-events:none}
+#cross{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;opacity:.4;font-weight:100}
+#info{position:absolute;top:8px;left:10px;font-size:11px;opacity:.6;line-height:1.6}
+#timeBar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;pointer-events:auto;opacity:.5;transition:opacity .2s}
+#timeBar:hover{opacity:.9}
+#timeBar input{width:140px;accent-color:#4af}
+#timeBar span{font-size:11px;min-width:40px}
+#overlay{position:absolute;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;text-align:center;pointer-events:auto;transition:opacity .5s}
+#overlay.gone{opacity:0;pointer-events:none}
+#overlay h1{font-size:2.2rem;font-weight:200;letter-spacing:6px;text-transform:uppercase;color:#4af;margin-bottom:4px}
+#overlay .sub{color:#668;font-size:.8rem;letter-spacing:3px;margin-bottom:24px}
+#overlay .seed-row{margin-bottom:20px}
+#overlay .seed-row input{background:rgba(255,255,255,.06);border:1px solid rgba(68,170,255,.2);color:#adf;padding:8px 14px;border-radius:8px;font-size:1rem;text-align:center;width:160px;outline:none}
+#overlay .seed-row input:focus{border-color:#4af}
+#overlay button{background:linear-gradient(135deg,#38f,#06c);color:#fff;border:none;padding:12px 40px;border-radius:24px;font-size:.95rem;font-weight:600;letter-spacing:2px;cursor:pointer}
+#overlay .hint{font-size:.6rem;color:#446;margin-top:16px;line-height:1.8}
+#mobileCtrl{display:none;position:absolute;bottom:20px;left:20px;pointer-events:auto}
+#mobileCtrl .mpad{width:110px;height:110px;border-radius:50%;border:2px solid rgba(68,170,255,.2);background:rgba(0,0,0,.3);position:relative}
+#mobileCtrl .mdot{width:30px;height:30px;border-radius:50%;background:rgba(68,170,255,.3);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+@media(hover:none){#mobileCtrl{display:block}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+    <div id="cross">+</div>
+    <div id="info">
+        <div id="fps">--</div>
+        <div id="pos">0, 0</div>
+        <div id="seedDisp">Seed: 0</div>
+    </div>
+    <div id="timeBar">
+        <span id="timeDisp">10:00</span>
+        <input type="range" id="timeSlider" min="0" max="24" step=".1" value="10">
+    </div>
+</div>
+<div id="overlay">
+    <div>
+        <h1>Infinite City</h1>
+        <p class="sub">Procedural Explorer</p>
+        <div class="seed-row"><input id="seedIn" placeholder="Seed (optional)" autocomplete="off"></div>
+        <button id="goBtn">Explore</button>
+        <p class="hint">WASD move / Mouse look / Scroll = time of day<br>Same seed = same city, every time</p>
+    </div>
+</div>
+<div id="mobileCtrl"><div class="mpad"><div class="mdot" id="joyDot"></div></div></div>
+
+<script>
+"use strict";
+// ===== CONFIG =====
+const BLK=22,ROAD=6,CHUNK=44,VIEW_R=6,CAM_H=1.7,FOG_D=.012,MAX_GEN=3;
+
+// ===== MATH =====
+const v3n=v=>{const l=Math.hypot(...v);return l?v.map(x=>x/l):v};
+const v3d=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const v3c=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const v3s=(a,b)=>a.map((v,i)=>v-b[i]);
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const smoothstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+
+function mat4Pers(fov,asp,n,f){
+    const t=1/Math.tan(fov/2),nf=1/(n-f);
+    return new Float32Array([t/asp,0,0,0,0,t,0,0,0,0,(f+n)*nf,-1,0,0,2*f*n*nf,0]);
+}
+function mat4Look(e,c,u){
+    const f=v3n(v3s(c,e)),r=v3n(v3c(f,u)),up=v3c(r,f);
+    return new Float32Array([r[0],up[0],-f[0],0,r[1],up[1],-f[1],0,r[2],up[2],-f[2],0,
+        -v3d(r,e),-v3d(up,e),v3d(f,e),1]);
+}
+function mat4Mul(a,b){
+    const o=new Float32Array(16);
+    for(let i=0;i<4;i++)for(let j=0;j<4;j++){
+        let s=0;for(let k=0;k<4;k++)s+=a[i+k*4]*b[k*4+j];o[i+j*4]=s;
+    }return o;
+}
+
+// ===== NOISE =====
+class Noise{
+    constructor(seed){
+        this.p=new Uint8Array(512);
+        const t=new Uint8Array(256);
+        for(let i=0;i<256;i++)t[i]=i;
+        let s=seed|0;
+        for(let i=255;i>0;i--){s=(s*1103515245+12345)&0x7fffffff;const j=s%(i+1);[t[i],t[j]]=[t[j],t[i]]}
+        for(let i=0;i<512;i++)this.p[i]=t[i&255];
+    }
+    fade(t){return t*t*t*(t*(t*6-15)+10)}
+    grad(h,x,y){const v=h&3;return(v===0?x+y:v===1?-x+y:v===2?x-y:-x-y)}
+    n2(x,y){
+        const X=Math.floor(x)&255,Y=Math.floor(y)&255;
+        const xf=x-Math.floor(x),yf=y-Math.floor(y);
+        const u=this.fade(xf),v=this.fade(yf);
+        const p=this.p,aa=p[p[X]+Y],ab=p[p[X]+Y+1],ba=p[p[X+1]+Y],bb=p[p[X+1]+Y+1];
+        return lerp(v,lerp(u,this.grad(aa,xf,yf),this.grad(ba,xf-1,yf)),
+                      lerp(u,this.grad(ab,xf,yf-1),this.grad(bb,xf-1,yf-1)));
+    }
+    fbm(x,y,oct=4){let v=0,a=1,f=1,m=0;for(let i=0;i<oct;i++){v+=this.n2(x*f,y*f)*a;m+=a;a*=.5;f*=2}return v/m}
+}
+function hash2(x,y){return(Math.sin(x*127.1+y*311.7)*43758.5453)%1}
+function hash2a(x,y){const v=hash2(x,y);return v<0?v+1:v}
+
+// ===== MESH BUILDER =====
+class MB{
+    constructor(){this.v=[];this.i=[];this.n=0}
+    vert(px,py,pz,nx,ny,nz,cr,cg,cb,tp,u,w){
+        this.v.push(px,py,pz,nx,ny,nz,cr,cg,cb,tp,u,w);return this.n++;
+    }
+    quad(a,b,c,d){this.i.push(a,b,c,a,c,d)}
+    tri(a,b,c){this.i.push(a,b,c)}
+    box(x,y,z,w,h,d,cr,cg,cb,wt,rt){
+        const hw=w/2,hd=d/2;
+        if(rt===undefined)rt=wt;
+        // +Z
+        let a=this.vert(x-hw,y,z+hd,0,0,1,cr,cg,cb,wt,0,0),b=this.vert(x+hw,y,z+hd,0,0,1,cr,cg,cb,wt,w,0),
+            c=this.vert(x+hw,y+h,z+hd,0,0,1,cr,cg,cb,wt,w,h),dd=this.vert(x-hw,y+h,z+hd,0,0,1,cr,cg,cb,wt,0,h);
+        this.quad(a,b,c,dd);
+        // -Z
+        a=this.vert(x+hw,y,z-hd,0,0,-1,cr,cg,cb,wt,0,0);b=this.vert(x-hw,y,z-hd,0,0,-1,cr,cg,cb,wt,w,0);
+        c=this.vert(x-hw,y+h,z-hd,0,0,-1,cr,cg,cb,wt,w,h);dd=this.vert(x+hw,y+h,z-hd,0,0,-1,cr,cg,cb,wt,0,h);
+        this.quad(a,b,c,dd);
+        // +X
+        a=this.vert(x+hw,y,z+hd,1,0,0,cr,cg,cb,wt,0,0);b=this.vert(x+hw,y,z-hd,1,0,0,cr,cg,cb,wt,d,0);
+        c=this.vert(x+hw,y+h,z-hd,1,0,0,cr,cg,cb,wt,d,h);dd=this.vert(x+hw,y+h,z+hd,1,0,0,cr,cg,cb,wt,0,h);
+        this.quad(a,b,c,dd);
+        // -X
+        a=this.vert(x-hw,y,z-hd,-1,0,0,cr,cg,cb,wt,0,0);b=this.vert(x-hw,y,z+hd,-1,0,0,cr,cg,cb,wt,d,0);
+        c=this.vert(x-hw,y+h,z+hd,-1,0,0,cr,cg,cb,wt,d,h);dd=this.vert(x-hw,y+h,z-hd,-1,0,0,cr,cg,cb,wt,0,h);
+        this.quad(a,b,c,dd);
+        // +Y (roof)
+        a=this.vert(x-hw,y+h,z+hd,0,1,0,cr*.9,cg*.9,cb*.9,rt,0,0);b=this.vert(x+hw,y+h,z+hd,0,1,0,cr*.9,cg*.9,cb*.9,rt,0,0);
+        c=this.vert(x+hw,y+h,z-hd,0,1,0,cr*.9,cg*.9,cb*.9,rt,0,0);dd=this.vert(x-hw,y+h,z-hd,0,1,0,cr*.9,cg*.9,cb*.9,rt,0,0);
+        this.quad(a,b,c,dd);
+    }
+}
+
+// ===== BUILDING COLORS =====
+const BCOLS=[[.48,.45,.42],[.40,.42,.48],[.52,.47,.40],[.38,.38,.42],[.50,.42,.36],[.42,.44,.50],[.55,.50,.45],[.35,.36,.40]];
+
+// ===== CHUNK GENERATION =====
+function genChunk(cx,cz,noise,gl){
+    const mb=new MB();
+    const wx=cx*CHUNK,wz=cz*CHUNK;
+    const hw=ROAD/2;
+
+    // Ground
+    const gc=[.32,.33,.35];
+    let a=mb.vert(wx,0,wz,0,1,0,...gc,0,0,0),b=mb.vert(wx+CHUNK,0,wz,0,1,0,...gc,0,0,0),
+        c=mb.vert(wx+CHUNK,0,wz+CHUNK,0,1,0,...gc,0,0,0),d=mb.vert(wx,0,wz+CHUNK,0,1,0,...gc,0,0,0);
+    mb.quad(a,b,c,d);
+
+    // Roads (Z-aligned at x=n*BLK)
+    const rc=[.11,.11,.13];
+    for(let n=Math.floor(wx/BLK)-1;n<=Math.ceil((wx+CHUNK)/BLK)+1;n++){
+        const rx=n*BLK;
+        const x0=Math.max(wx,rx-hw),x1=Math.min(wx+CHUNK,rx+hw);
+        if(x1<=x0)continue;
+        a=mb.vert(x0,.015,wz,0,1,0,...rc,1,0,0);b=mb.vert(x1,.015,wz,0,1,0,...rc,1,0,0);
+        c=mb.vert(x1,.015,wz+CHUNK,0,1,0,...rc,1,0,0);d=mb.vert(x0,.015,wz+CHUNK,0,1,0,...rc,1,0,0);
+        mb.quad(a,b,c,d);
+    }
+    // Roads (X-aligned at z=n*BLK)
+    for(let n=Math.floor(wz/BLK)-1;n<=Math.ceil((wz+CHUNK)/BLK)+1;n++){
+        const rz=n*BLK;
+        const z0=Math.max(wz,rz-hw),z1=Math.min(wz+CHUNK,rz+hw);
+        if(z1<=z0)continue;
+        a=mb.vert(wx,.015,z0,0,1,0,...rc,1,0,0);b=mb.vert(wx+CHUNK,.015,z0,0,1,0,...rc,1,0,0);
+        c=mb.vert(wx+CHUNK,.015,z1,0,1,0,...rc,1,0,0);d=mb.vert(wx,.015,z1,0,1,0,...rc,1,0,0);
+        mb.quad(a,b,c,d);
+    }
+
+    // Buildings & Parks
+    const bx0=Math.floor(wx/BLK),bx1=Math.ceil((wx+CHUNK)/BLK);
+    const bz0=Math.floor(wz/BLK),bz1=Math.ceil((wz+CHUNK)/BLK);
+    for(let bi=bx0;bi<bx1;bi++){
+        for(let bj=bz0;bj<bz1;bj++){
+            const bcx=(bi+.5)*BLK,bcz=(bj+.5)*BLK;
+            if(bcx<wx||bcx>=wx+CHUNK||bcz<wz||bcz>=wz+CHUNK)continue;
+
+            const n1=noise.fbm(bcx*.007,bcz*.007,4);
+            const n2=noise.fbm(bcx*.013+50,bcz*.013+50,3);
+            const n3=hash2a(bi*13.7,bj*17.3);
+            const maxW=BLK-ROAD-1;
+
+            if(n1<-.15){
+                // Park
+                const pw=maxW,pd=maxW;
+                a=mb.vert(bcx-pw/2,.02,bcz-pd/2,0,1,0,.12,.32,.1,4,0,0);
+                b=mb.vert(bcx+pw/2,.02,bcz-pd/2,0,1,0,.14,.34,.1,4,0,0);
+                c=mb.vert(bcx+pw/2,.02,bcz+pd/2,0,1,0,.13,.36,.11,4,0,0);
+                d=mb.vert(bcx-pw/2,.02,bcz+pd/2,0,1,0,.15,.33,.12,4,0,0);
+                mb.quad(a,b,c,d);
+                // Bushes
+                for(let t=0;t<6;t++){
+                    const bx2=bcx+(hash2a(bi+t,bj)-.5)*(pw-2);
+                    const bz2=bcz+(hash2a(bi,bj+t)-.5)*(pd-2);
+                    const bh=.4+hash2a(bi+t,bj+t)*.8;
+                    mb.box(bx2,0,bz2,.6+n3*.4,bh,.6+n3*.4,.08+n3*.05,.25+n3*.1,.06,4,4);
+                }
+            } else {
+                // Building
+                const density=(n1+1)/2; // 0-1
+                const h=5+density*65+n2*15;
+                const w=maxW*(.55+n3*.4);
+                const dp=maxW*(.55+hash2a(bi*7.1,bj*3.3)*.4);
+                const ci=Math.floor(n3*BCOLS.length)%BCOLS.length;
+                const col=BCOLS[ci];
+                const cr=col[0]+n2*.06,cg=col[1]+n2*.04,cb=col[2]+n2*.06;
+                mb.box(bcx,0,bcz,w,h,dp,cr,cg,cb,2,3);
+
+                // Rooftop structures
+                if(h>20&&n3>.4){
+                    const rh=2+n3*3,rw=w*.3,rd=dp*.3;
+                    mb.box(bcx,h,bcz,rw,rh,rd,cr*.8,cg*.8,cb*.8,3,3);
+                }
+            }
+
+            // Street lights at corners of block
+            const corners=[[bi*BLK+hw+.5,bj*BLK+hw+.5],[bi*BLK+hw+.5,(bj+1)*BLK-hw-.5],
+                           [(bi+1)*BLK-hw-.5,bj*BLK+hw+.5],[(bi+1)*BLK-hw-.5,(bj+1)*BLK-hw-.5]];
+            for(const[lx,lz] of corners){
+                if(lx<wx||lx>=wx+CHUNK||lz<wz||lz>=wz+CHUNK)continue;
+                // Pole
+                const pw2=.06,ph=4.5;
+                const pa=mb.vert(lx-pw2,0,lz,1,0,0,.25,.25,.27,5,0,0);
+                const pb=mb.vert(lx+pw2,0,lz,1,0,0,.25,.25,.27,5,0,0);
+                const pc=mb.vert(lx+pw2,ph,lz,1,0,0,.25,.25,.27,5,0,0);
+                const pd=mb.vert(lx-pw2,ph,lz,1,0,0,.25,.25,.27,5,0,0);
+                mb.quad(pa,pb,pc,pd);
+                const pe=mb.vert(lx,0,lz-pw2,0,0,1,.25,.25,.27,5,0,0);
+                const pf=mb.vert(lx,0,lz+pw2,0,0,1,.25,.25,.27,5,0,0);
+                const pg=mb.vert(lx,ph,lz+pw2,0,0,1,.25,.25,.27,5,0,0);
+                const pph=mb.vert(lx,ph,lz-pw2,0,0,1,.25,.25,.27,5,0,0);
+                mb.quad(pe,pf,pg,pph);
+                // Orb
+                mb.box(lx,ph-.1,lz,.3,.3,.3,1,.95,.7,6,6);
+            }
+        }
+    }
+
+    // Create WebGL buffers
+    const vao=gl.createVertexArray();gl.bindVertexArray(vao);
+    const vbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mb.v),gl.STATIC_DRAW);
+    const ibo=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+    const idxArr=mb.i.length>65535?new Uint32Array(mb.i):new Uint16Array(mb.i);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idxArr,gl.STATIC_DRAW);
+    const S=48;// 12 floats * 4 bytes
+    gl.vertexAttribPointer(0,3,gl.FLOAT,false,S,0);gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(1,3,gl.FLOAT,false,S,12);gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(2,3,gl.FLOAT,false,S,24);gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(3,1,gl.FLOAT,false,S,36);gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(4,2,gl.FLOAT,false,S,40);gl.enableVertexAttribArray(4);
+    gl.bindVertexArray(null);
+
+    return{vao,vbo,ibo,count:mb.i.length,idxType:mb.i.length>65535?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT,
+        destroy(){gl.deleteBuffer(vbo);gl.deleteBuffer(ibo);gl.deleteVertexArray(vao)}};
+}
+
+// ===== SHADERS =====
+const VS=`#version 300 es
+layout(location=0)in vec3 aP;layout(location=1)in vec3 aN;layout(location=2)in vec3 aC;
+layout(location=3)in float aT;layout(location=4)in vec2 aU;
+uniform mat4 uVP;uniform vec3 uCam;
+out vec3 vN,vC,vW;out float vT,vFog;out vec2 vU;
+void main(){
+    gl_Position=uVP*vec4(aP,1);
+    vN=aN;vC=aC;vT=aT;vU=aU;vW=aP;
+    vFog=distance(aP,uCam);
+}`;
+
+const FS=`#version 300 es
+precision mediump float;
+in vec3 vN,vC,vW;in float vT,vFog;in vec2 vU;
+uniform vec3 uSun,uSunC,uFogC;uniform float uNight,uFogD;
+out vec4 oC;
+
+float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+
+void main(){
+    vec3 n=normalize(vN);
+    float diff=max(dot(n,uSun),0.0);
+    vec3 amb=mix(vec3(.22,.24,.3),vec3(.03,.03,.06),uNight);
+    vec3 col=vC*(amb+uSunC*diff);
+
+    // Building walls - windows
+    if(vT>1.5&&vT<2.5){
+        vec2 wg=vU*vec2(.5,.333);
+        vec2 wf=fract(wg);
+        float isW=step(.12,wf.x)*step(wf.x,.88)*step(.08,wf.y)*step(wf.y,.92);
+        vec2 wid=floor(wg);
+        float rnd=h2(wid+floor(vW.xz*.01));
+        float lit=step(.3,rnd);
+        // Day: slight blue tint for glass
+        if(isW>.5){
+            col=mix(col,col*vec3(.85,.9,1.05),.3*(1.-uNight));
+            // Specular reflection during day
+            vec3 rf=reflect(-uSun,n);
+            float spec=pow(max(rf.y,0.),16.)*.3*(1.-uNight);
+            col+=vec3(1.,.95,.85)*spec*isW;
+        }
+        // Night: window glow
+        float winE=isW*lit*uNight;
+        vec3 wCol=mix(vec3(1.,.92,.65),vec3(.65,.8,1.),h2(wid*1.7));
+        col+=wCol*winE*.55;
+        // Darken non-window wall areas at night
+        if(isW<.5)col*=mix(1.,.8,uNight);
+    }
+
+    // Roof
+    if(vT>2.5&&vT<3.5){col*=mix(1.,.6,uNight);}
+
+    // Road - lane markings
+    if(vT>.5&&vT<1.5){
+        float blk=float(${BLK});
+        float dx2=abs(mod(vW.x+blk*.5,blk)-blk*.5);
+        float dz2=abs(mod(vW.z+blk*.5,blk)-blk*.5);
+        // Center dashes
+        float lineX=smoothstep(.08,0.,dx2)*step(.5,fract(vW.z*.2));
+        float lineZ=smoothstep(.08,0.,dz2)*step(.5,fract(vW.x*.2));
+        col+=vec3(.5,.5,.4)*max(lineX,lineZ)*.4;
+        // Edge lines
+        float hw2=float(${ROAD})*.5-.15;
+        float edgeX=smoothstep(.06,0.,abs(dx2-hw2));
+        float edgeZ=smoothstep(.06,0.,abs(dz2-hw2));
+        col+=vec3(.6,.6,.5)*max(edgeX,edgeZ)*.25;
+    }
+
+    // Light orbs
+    if(vT>5.5&&vT<6.5){
+        col=vec3(1.,.93,.65)*mix(.25,1.,uNight);
+    }
+
+    // Park
+    if(vT>3.5&&vT<4.5){col*=mix(1.,.4,uNight);}
+
+    // Fog
+    float fog=exp(-vFog*vFog*uFogD*uFogD);
+    col=mix(uFogC,col,clamp(fog,0.,1.));
+
+    oC=vec4(col,1);
+}`;
+
+// ===== APP =====
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{antialias:true,alpha:false});
+if(!gl){document.body.innerHTML='<h2 style="color:#f44;text-align:center;margin-top:40vh">WebGL2 not supported</h2>';throw'no gl';}
+
+// Compile shaders
+function mkShader(src,type){
+    const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));
+    return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,mkShader(VS,gl.VERTEX_SHADER));
+gl.attachShader(prog,mkShader(FS,gl.FRAGMENT_SHADER));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const uVP=gl.getUniformLocation(prog,'uVP');
+const uCam=gl.getUniformLocation(prog,'uCam');
+const uSun=gl.getUniformLocation(prog,'uSun');
+const uSunC=gl.getUniformLocation(prog,'uSunC');
+const uFogC=gl.getUniformLocation(prog,'uFogC');
+const uNight=gl.getUniformLocation(prog,'uNight');
+const uFogD=gl.getUniformLocation(prog,'uFogD');
+
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.CULL_FACE);
+gl.cullFace(gl.BACK);
+gl.frontFace(gl.CW);
+
+// State
+let seed=Math.floor(Math.random()*99999);
+let noise=new Noise(seed);
+const chunks=new Map();
+const cam={x:BLK*.5+2,y:CAM_H,z:BLK*.5+2,yaw:0,pitch:0};
+const keys={};
+let timeOfDay=10,locked=false;
+let lastT=0,fpsAcc=0,fpsCnt=0,fpsDisp=0;
+
+// ===== CAMERA CONTROLS =====
+window.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='Space')e.preventDefault()});
+window.addEventListener('keyup',e=>keys[e.code]=false);
+
+canvas.addEventListener('click',()=>{
+    if(document.getElementById('overlay').classList.contains('gone'))
+        canvas.requestPointerLock();
+});
+document.addEventListener('pointerlockchange',()=>locked=!!document.pointerLockElement);
+document.addEventListener('mousemove',e=>{
+    if(!locked)return;
+    cam.yaw+=e.movementX*.002;
+    cam.pitch=clamp(cam.pitch-e.movementY*.002,-1.4,1.4);
+});
+canvas.addEventListener('wheel',e=>{
+    e.preventDefault();
+    timeOfDay=clamp(timeOfDay+e.deltaY*.005,0,24);
+    document.getElementById('timeSlider').value=timeOfDay;
+},{passive:false});
+document.getElementById('timeSlider').addEventListener('input',e=>timeOfDay=+e.target.value);
+
+// Touch look (right side)
+let touchLook=null,touchMove=null;
+const joyDot=document.getElementById('joyDot');
+canvas.addEventListener('touchstart',e=>{
+    for(const t of e.changedTouches){
+        if(t.clientX<window.innerWidth*.35){touchMove={id:t.identifier,sx:t.clientX,sy:t.clientY,x:0,y:0}}
+        else{touchLook={id:t.identifier,lx:t.clientX,ly:t.clientY}}
+    }
+},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+    for(const t of e.changedTouches){
+        if(touchLook&&t.identifier===touchLook.id){
+            cam.yaw+=(t.clientX-touchLook.lx)*.004;
+            cam.pitch=clamp(cam.pitch-(t.clientY-touchLook.ly)*.004,-1.4,1.4);
+            touchLook.lx=t.clientX;touchLook.ly=t.clientY;
+        }
+        if(touchMove&&t.identifier===touchMove.id){
+            touchMove.x=clamp((t.clientX-touchMove.sx)/40,-1,1);
+            touchMove.y=clamp((t.clientY-touchMove.sy)/40,-1,1);
+            joyDot.style.transform=`translate(${-50+touchMove.x*30}%,${-50+touchMove.y*30}%)`;
+        }
+    }
+},{passive:true});
+const endTouch=e=>{
+    for(const t of e.changedTouches){
+        if(touchLook&&t.identifier===touchLook.id)touchLook=null;
+        if(touchMove&&t.identifier===touchMove.id){touchMove=null;joyDot.style.transform='translate(-50%,-50%)';}
+    }
+};
+canvas.addEventListener('touchend',endTouch,{passive:true});
+canvas.addEventListener('touchcancel',endTouch,{passive:true});
+
+// ===== WORLD MANAGEMENT =====
+function updateChunks(){
+    const ccx=Math.floor(cam.x/CHUNK),ccz=Math.floor(cam.z/CHUNK);
+    let genCount=0;
+    // Generate needed
+    for(let dx=-VIEW_R;dx<=VIEW_R;dx++){
+        for(let dz=-VIEW_R;dz<=VIEW_R;dz++){
+            if(dx*dx+dz*dz>VIEW_R*VIEW_R)continue;
+            const k=`${ccx+dx},${ccz+dz}`;
+            if(!chunks.has(k)){
+                if(genCount>=MAX_GEN)continue;
+                chunks.set(k,genChunk(ccx+dx,ccz+dz,noise,gl));
+                genCount++;
+            }
+        }
+    }
+    // Prune far
+    for(const[k,ch] of chunks){
+        const[kx,kz]=k.split(',').map(Number);
+        if(Math.abs(kx-ccx)>VIEW_R+2||Math.abs(kz-ccz)>VIEW_R+2){ch.destroy();chunks.delete(k)}
+    }
+}
+
+// ===== SUN / SKY =====
+function getSun(tod){
+    const t=tod/24;
+    const ang=(t-.25)*Math.PI*2;
+    const sy=Math.sin(ang),sh=Math.cos(ang);
+    const sunDir=v3n([sh,Math.max(sy,.001),.3]);
+    const night=1-clamp((sy+.08)/.16,0,1);
+    const sunset=smoothstep(0,.12,sy)*smoothstep(.25,.12,sy);
+    // Sun color
+    const sc=night<.5?[lerp(1,.1,night),lerp(.95,.08,night),lerp(.85,.05,night)]:[.05,.05,.05];
+    if(sunset>.1){sc[0]=lerp(sc[0],1,sunset*.5);sc[1]=lerp(sc[1],.6,sunset*.3);sc[2]=lerp(sc[2],.3,sunset*.2)}
+    // Sky/fog color
+    const fc=[lerp(.55,.02,night)+sunset*.25,lerp(.7,.02,night)+sunset*.1,lerp(.88,.05,night)];
+    // Clear color (zenith)
+    const cc=[lerp(.35,.01,night),lerp(.55,.01,night),lerp(.85,.03,night)];
+    return{dir:sunDir,col:sc,fog:fc,clear:cc,night};
+}
+
+// ===== RESIZE =====
+function resize(){
+    const dpr=Math.min(devicePixelRatio,2);
+    canvas.width=canvas.clientWidth*dpr;canvas.height=canvas.clientHeight*dpr;
+    gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener('resize',resize);resize();
+
+// ===== START =====
+document.getElementById('goBtn').addEventListener('click',()=>{
+    const si=document.getElementById('seedIn').value.trim();
+    if(si)seed=parseInt(si)||[...si].reduce((a,c)=>a*31+c.charCodeAt(0),0)&0x7fffffff;
+    noise=new Noise(seed);
+    chunks.clear();
+    document.getElementById('overlay').classList.add('gone');
+    document.getElementById('seedDisp').textContent='Seed: '+seed;
+    canvas.requestPointerLock();
+    requestAnimationFrame(loop);
+});
+
+// ===== MAIN LOOP =====
+function loop(t){
+    requestAnimationFrame(loop);
+    const dt=Math.min((t-lastT)/1000,.05);lastT=t;
+
+    // FPS
+    fpsAcc+=dt;fpsCnt++;
+    if(fpsAcc>1){fpsDisp=Math.round(fpsCnt/fpsAcc);fpsAcc=0;fpsCnt=0;document.getElementById('fps').textContent=fpsDisp+' fps'}
+
+    // Movement
+    const spd=(keys['ShiftLeft']||keys['ShiftRight']?12:5)*dt;
+    const fy=Math.cos(cam.yaw),fx=Math.sin(cam.yaw);
+    const rx=Math.cos(cam.yaw),rz=-Math.sin(cam.yaw);
+    let mx=0,mz=0;
+    if(keys['KeyW']||keys['ArrowUp']){mx+=fx;mz+=fy}
+    if(keys['KeyS']||keys['ArrowDown']){mx-=fx;mz-=fy}
+    if(keys['KeyA']||keys['ArrowLeft']){mx-=rx;mz-=rz}
+    if(keys['KeyD']||keys['ArrowRight']){mx+=rx;mz+=rz}
+    // Touch movement
+    if(touchMove){mx+=-touchMove.y*fx+touchMove.x*rx;mz+=-touchMove.y*fy+touchMove.x*rz}
+    const ml=Math.hypot(mx,mz);
+    if(ml>.001){cam.x+=mx/ml*spd;cam.z+=mz/ml*spd}
+    cam.y=CAM_H;
+
+    // Time auto-advance (very slow)
+    // timeOfDay+=dt*0.01; // uncomment for auto day/night
+
+    // Sun
+    const sun=getSun(timeOfDay);
+    const tH=Math.floor(timeOfDay),tM=Math.floor((timeOfDay%1)*60);
+    document.getElementById('timeDisp').textContent=String(tH).padStart(2,'0')+':'+String(tM).padStart(2,'0');
+    document.getElementById('pos').textContent=`${cam.x.toFixed(0)}, ${cam.z.toFixed(0)}`;
+
+    // Chunks
+    updateChunks();
+
+    // Render
+    gl.clearColor(...sun.clear,1);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+    const asp=canvas.width/canvas.height;
+    const proj=mat4Pers(1.1,asp,.3,350);
+    const cp=cam.pitch,cy2=cam.yaw;
+    const lookAt=[cam.x+Math.sin(cy2)*Math.cos(cp),cam.y+Math.sin(cp),cam.z+Math.cos(cy2)*Math.cos(cp)];
+    const view=mat4Look([cam.x,cam.y,cam.z],lookAt,[0,1,0]);
+    const vp=mat4Mul(proj,view);
+
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(uVP,false,vp);
+    gl.uniform3f(uCam,cam.x,cam.y,cam.z);
+    gl.uniform3fv(uSun,sun.dir);
+    gl.uniform3fv(uSunC,sun.col);
+    gl.uniform3fv(uFogC,sun.fog);
+    gl.uniform1f(uNight,sun.night);
+    gl.uniform1f(uFogD,FOG_D);
+
+    for(const ch of chunks.values()){
+        gl.bindVertexArray(ch.vao);
+        gl.drawElements(gl.TRIANGLES,ch.count,ch.idxType,0);
+    }
+}
+</script>
+</body>
+</html>

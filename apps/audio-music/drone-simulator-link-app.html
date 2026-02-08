@@ -7,8 +7,857 @@
 <meta name="rappterzoo:author" content="RappterZoo">
 <meta name="rappterzoo:author-type" content="agent">
 <meta name="rappterzoo:category" content="audio-music">
-<meta name="rappterzoo:tags" content="drone,synthesizer,ambient,webaudio,generative">
+<meta name="rappterzoo:tags" content="drone,synthesizer,ambient,webaudio,generative,instrument">
 <meta name="rappterzoo:type" content="instrument">
 <meta name="rappterzoo:complexity" content="advanced">
 <meta name="rappterzoo:created" content="2026-02-08">
-<meta name="rappterzoo:generation" content="2">
+<meta name="rappterzoo:generation" content="3">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a14;--surface:#12122a;--card:#1a1a3e;--card-active:#222255;--border:#2a2a5a;--text:#c8c8e8;--text-dim:#6868a8;--accent:#7b5ea7;--accent-glow:#9b7ec7;--on:#44cc88;--off:#cc4466;--knob-bg:#2a2a5a;--knob-fg:#9b7ec7}
+html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+#start-screen{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg)}
+#start-screen h1{font-size:2.5rem;color:var(--accent-glow);margin-bottom:.5rem;text-shadow:0 0 30px rgba(123,94,167,.5)}
+#start-screen p{color:var(--text-dim);margin-bottom:2rem;font-size:1.1rem}
+#start-btn{padding:1rem 3rem;font-size:1.3rem;background:linear-gradient(135deg,var(--accent),#5a3e87);color:#fff;border:none;border-radius:12px;cursor:pointer;transition:all .3s;box-shadow:0 0 20px rgba(123,94,167,.3)}
+#start-btn:hover{transform:scale(1.05);box-shadow:0 0 40px rgba(123,94,167,.6)}
+.hidden{display:none!important}
+#app{display:flex;flex-direction:column;min-height:100vh}
+#transport{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;position:sticky;top:0;z-index:100}
+#transport .master-toggle{width:48px;height:28px;border-radius:14px;border:none;cursor:pointer;position:relative;transition:background .3s}
+#transport .master-toggle.on{background:var(--on)}
+#transport .master-toggle.off{background:var(--off)}
+#transport .master-toggle::after{content:'';position:absolute;width:22px;height:22px;border-radius:50%;background:#fff;top:3px;transition:left .3s}
+#transport .master-toggle.on::after{left:23px}
+#transport .master-toggle.off::after{left:3px}
+.transport-label{font-size:.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px}
+.transport-group{display:flex;align-items:center;gap:8px}
+#preset-select{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.85rem}
+.btn-sm{padding:5px 12px;font-size:.8rem;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .2s}
+.btn-sm:hover{background:var(--accent);border-color:var(--accent)}
+#master-vol-container{display:flex;align-items:center;gap:6px}
+#master-vol{width:100px}
+.shortcuts-hint{margin-left:auto;font-size:.7rem;color:var(--text-dim)}
+#visualizer{width:100%;height:160px;background:var(--surface);border-bottom:1px solid var(--border);display:flex}
+#visualizer canvas{flex:1;height:100%}
+#bg-canvas{position:fixed;inset:0;z-index:-1;pointer-events:none}
+#voices{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;padding:16px;flex:1}
+.voice-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;transition:all .4s;position:relative;overflow:hidden}
+.voice-card.active{background:var(--card-active);border-color:var(--accent);box-shadow:0 0 20px rgba(123,94,167,.15)}
+.voice-card.inactive{opacity:.5}
+.voice-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;user-select:none}
+.voice-header h3{font-size:1rem;font-weight:600}
+.voice-status{width:10px;height:10px;border-radius:50%;transition:all .3s}
+.voice-status.on{background:var(--on);box-shadow:0 0 8px var(--on)}
+.voice-status.off{background:var(--off)}
+.controls-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.control-group{display:flex;flex-direction:column;gap:4px}
+.control-group label{font-size:.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px}
+.control-group select{background:var(--knob-bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:.8rem}
+.knob-container{display:flex;align-items:center;gap:6px}
+.knob{width:44px;height:44px;border-radius:50%;background:conic-gradient(var(--knob-fg) calc(var(--angle,0) * 1deg),var(--knob-bg) 0);position:relative;cursor:grab;border:2px solid var(--border);transition:border-color .2s}
+.knob:hover{border-color:var(--accent)}
+.knob::after{content:'';position:absolute;width:3px;height:14px;background:var(--text);top:4px;left:50%;transform:translateX(-50%) rotate(calc(var(--angle,0) * 1deg));transform-origin:bottom center;border-radius:2px}
+.knob-value{font-size:.75rem;color:var(--text);min-width:50px;text-align:right;font-variant-numeric:tabular-nums}
+#effects{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;padding:0 16px 16px}
+.fx-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.fx-card h3{font-size:.9rem;margin-bottom:10px;color:var(--accent-glow)}
+#lfo-section{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;padding:0 16px 16px}
+.lfo-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.lfo-card h3{font-size:.9rem;margin-bottom:10px;color:var(--accent-glow)}
+.lfo-card select{background:var(--knob-bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;font-size:.8rem;margin-bottom:6px;width:100%}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;background:var(--knob-bg);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--knob-fg);cursor:pointer;border:2px solid var(--accent)}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--knob-fg);cursor:pointer;border:2px solid var(--accent)}
+#save-dialog{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center}
+#save-dialog .dialog-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:300px}
+#save-dialog input{width:100%;padding:8px 12px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:1rem;margin:12px 0}
+#save-dialog .dialog-btns{display:flex;gap:8px;justify-content:flex-end}
+@media(max-width:700px){
+  #voices{grid-template-columns:1fr}
+  .controls-grid{grid-template-columns:1fr}
+  .shortcuts-hint{display:none}
+  #visualizer{height:120px}
+  #transport{gap:8px;padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<div id="start-screen">
+  <h1>🎵 Ambient Drone Synthesizer</h1>
+  <p>Multi-layer drone engine with effects &amp; modulation</p>
+  <button id="start-btn">▶ Initialize Audio</button>
+</div>
+<canvas id="bg-canvas"></canvas>
+<div id="app" class="hidden">
+  <div id="transport">
+    <button class="master-toggle off" id="master-toggle" title="Master On/Off (Space)"></button>
+    <span class="transport-label">Master</span>
+    <div id="master-vol-container">
+      <span class="transport-label">Vol</span>
+      <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.7">
+    </div>
+    <div class="transport-group">
+      <span class="transport-label">Preset</span>
+      <select id="preset-select"><option value="">-- Select --</option></select>
+      <button class="btn-sm" id="btn-save">Save</button>
+      <button class="btn-sm" id="btn-delete">Delete</button>
+    </div>
+    <span class="shortcuts-hint">Keys: 1-4 voices, Space master</span>
+  </div>
+  <div id="visualizer">
+    <canvas id="cv-wave"></canvas>
+    <canvas id="cv-freq"></canvas>
+  </div>
+  <div id="voices"></div>
+  <div id="effects"></div>
+  <div id="lfo-section"></div>
+</div>
+<div id="save-dialog" class="hidden">
+  <div class="dialog-box">
+    <h3>Save Preset</h3>
+    <input type="text" id="save-name" placeholder="Preset name...">
+    <div class="dialog-btns">
+      <button class="btn-sm" id="save-cancel">Cancel</button>
+      <button class="btn-sm" id="save-confirm" style="background:var(--accent)">Save</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+"use strict";
+
+const STORAGE_PREFIX = 'drone-synth-';
+const NUM_VOICES = 4;
+const VOICE_COLORS = ['#7b5ea7','#5e8ba7','#a75e7b','#5ea77b'];
+const VOICE_NAMES = ['Voice I','Voice II','Voice III','Voice IV'];
+
+const BUILT_IN_PRESETS = {
+  "Deep Space": {
+    voices:[
+      {on:true,waveform:'sine',freq:55,detune:-8,gain:0.6,filterFreq:400,filterQ:2},
+      {on:true,waveform:'sine',freq:82.41,detune:5,gain:0.4,filterFreq:600,filterQ:1},
+      {on:true,waveform:'triangle',freq:110,detune:-3,gain:0.3,filterFreq:800,filterQ:3},
+      {on:false,waveform:'sawtooth',freq:55,detune:0,gain:0.2,filterFreq:300,filterQ:4}
+    ],
+    effects:{reverbMix:0.7,delayTime:0.5,delayFeedback:0.4,delayMix:0.3,masterVol:0.6},
+    lfos:[
+      {rate:0.05,depth:0.6,target:'filter-0',waveform:'sine'},
+      {rate:0.08,depth:0.4,target:'filter-2',waveform:'triangle'}
+    ]
+  },
+  "Ocean Floor": {
+    voices:[
+      {on:true,waveform:'sine',freq:40,detune:-5,gain:0.7,filterFreq:250,filterQ:5},
+      {on:true,waveform:'triangle',freq:60,detune:7,gain:0.5,filterFreq:350,filterQ:3},
+      {on:true,waveform:'sine',freq:80,detune:-12,gain:0.3,filterFreq:500,filterQ:2},
+      {on:true,waveform:'sine',freq:120,detune:3,gain:0.2,filterFreq:200,filterQ:6}
+    ],
+    effects:{reverbMix:0.85,delayTime:0.8,delayFeedback:0.5,delayMix:0.2,masterVol:0.5},
+    lfos:[
+      {rate:0.03,depth:0.8,target:'filter-0',waveform:'sine'},
+      {rate:0.07,depth:0.5,target:'volume-1',waveform:'sine'}
+    ]
+  },
+  "Cathedral": {
+    voices:[
+      {on:true,waveform:'sine',freq:130.81,detune:-4,gain:0.5,filterFreq:1200,filterQ:1},
+      {on:true,waveform:'sine',freq:196,detune:6,gain:0.4,filterFreq:1500,filterQ:1},
+      {on:true,waveform:'triangle',freq:261.63,detune:-2,gain:0.35,filterFreq:2000,filterQ:0.5},
+      {on:false,waveform:'sine',freq:392,detune:0,gain:0.2,filterFreq:1800,filterQ:1}
+    ],
+    effects:{reverbMix:0.9,delayTime:0.35,delayFeedback:0.3,delayMix:0.25,masterVol:0.55},
+    lfos:[
+      {rate:0.1,depth:0.3,target:'filter-0',waveform:'sine'},
+      {rate:0.15,depth:0.2,target:'filter-2',waveform:'triangle'}
+    ]
+  },
+  "Desert Wind": {
+    voices:[
+      {on:true,waveform:'sawtooth',freq:73.42,detune:-15,gain:0.3,filterFreq:500,filterQ:8},
+      {on:true,waveform:'sawtooth',freq:73.42,detune:15,gain:0.3,filterFreq:520,filterQ:8},
+      {on:true,waveform:'triangle',freq:146.83,detune:0,gain:0.2,filterFreq:700,filterQ:3},
+      {on:false,waveform:'square',freq:36.71,detune:0,gain:0.15,filterFreq:200,filterQ:5}
+    ],
+    effects:{reverbMix:0.5,delayTime:0.6,delayFeedback:0.55,delayMix:0.35,masterVol:0.5},
+    lfos:[
+      {rate:0.2,depth:0.9,target:'filter-0',waveform:'sine'},
+      {rate:0.25,depth:0.85,target:'filter-1',waveform:'sine'}
+    ]
+  },
+  "Machine Room": {
+    voices:[
+      {on:true,waveform:'sawtooth',freq:55,detune:0,gain:0.4,filterFreq:300,filterQ:10},
+      {on:true,waveform:'square',freq:110,detune:-7,gain:0.3,filterFreq:250,filterQ:8},
+      {on:true,waveform:'sawtooth',freq:82.41,detune:12,gain:0.35,filterFreq:400,filterQ:6},
+      {on:true,waveform:'square',freq:41.2,detune:0,gain:0.5,filterFreq:150,filterQ:12}
+    ],
+    effects:{reverbMix:0.3,delayTime:0.15,delayFeedback:0.6,delayMix:0.4,masterVol:0.45},
+    lfos:[
+      {rate:2,depth:0.5,target:'filter-3',waveform:'square'},
+      {rate:0.5,depth:0.7,target:'volume-2',waveform:'sine'}
+    ]
+  }
+};
+
+let ctx, masterGain, compressor, analyser, delayNode, delayFeedback, delayDry, delayWet;
+let reverbNode, reverbDry, reverbWet;
+let voiceNodes = [];
+let lfoNodes = [];
+let masterOn = false;
+let animId;
+
+const state = {
+  voices: [],
+  effects: {reverbMix:0.5,delayTime:0.4,delayFeedback:0.35,delayMix:0.2,masterVol:0.7},
+  lfos: [
+    {rate:0.1,depth:0.5,target:'filter-0',waveform:'sine'},
+    {rate:0.2,depth:0.4,target:'filter-2',waveform:'triangle'}
+  ]
+};
+
+for(let i=0;i<NUM_VOICES;i++){
+  state.voices.push({on:i<2,waveform:'sine',freq:55*(i+1),detune:0,gain:0.5,filterFreq:800,filterQ:2});
+}
+
+function generateImpulse(duration, decay){
+  const len = ctx.sampleRate * duration;
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d = buf.getChannelData(ch);
+    for(let i=0;i<len;i++){
+      d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, decay);
+    }
+  }
+  return buf;
+}
+
+function initAudio(){
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -24;
+  compressor.knee.value = 12;
+  compressor.ratio.value = 4;
+  compressor.connect(ctx.destination);
+
+  masterGain = ctx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(compressor);
+
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.connect(masterGain);
+
+  // Reverb
+  reverbNode = ctx.createConvolver();
+  reverbNode.buffer = generateImpulse(3, 2.5);
+  reverbDry = ctx.createGain();
+  reverbDry.gain.value = 0.5;
+  reverbWet = ctx.createGain();
+  reverbWet.gain.value = 0.5;
+  const reverbInput = ctx.createGain();
+  reverbInput.connect(reverbDry);
+  reverbInput.connect(reverbNode);
+  reverbNode.connect(reverbWet);
+  reverbDry.connect(analyser);
+  reverbWet.connect(analyser);
+
+  // Delay
+  delayNode = ctx.createDelay(2);
+  delayNode.delayTime.value = 0.4;
+  delayFeedback = ctx.createGain();
+  delayFeedback.gain.value = 0.35;
+  delayDry = ctx.createGain();
+  delayDry.gain.value = 0.8;
+  delayWet = ctx.createGain();
+  delayWet.gain.value = 0.2;
+  const delayInput = ctx.createGain();
+  delayInput.connect(delayDry);
+  delayInput.connect(delayNode);
+  delayNode.connect(delayFeedback);
+  delayFeedback.connect(delayNode);
+  delayNode.connect(delayWet);
+  delayDry.connect(reverbInput);
+  delayWet.connect(reverbInput);
+
+  // Build voices
+  for(let i=0;i<NUM_VOICES;i++){
+    const v = state.voices[i];
+    const osc = ctx.createOscillator();
+    osc.type = v.waveform;
+    osc.frequency.value = v.freq;
+    osc.detune.value = v.detune;
+    const gain = ctx.createGain();
+    gain.gain.value = v.on ? v.gain : 0;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = v.filterFreq;
+    filter.Q.value = v.filterQ;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(delayInput);
+    osc.start();
+    voiceNodes.push({osc, gain, filter});
+  }
+
+  // LFOs
+  for(let i=0;i<2;i++){
+    const l = state.lfos[i];
+    const osc = ctx.createOscillator();
+    osc.type = l.waveform;
+    osc.frequency.value = l.rate;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0;
+    osc.connect(lfoGain);
+    osc.start();
+    lfoNodes.push({osc, gain: lfoGain});
+    routeLFO(i);
+  }
+
+  applyEffects();
+}
+
+function routeLFO(idx){
+  const l = state.lfos[idx];
+  const ln = lfoNodes[idx];
+  ln.gain.disconnect();
+  const parts = l.target.split('-');
+  const type = parts[0];
+  const vi = parseInt(parts[1]);
+  if(vi >= 0 && vi < NUM_VOICES){
+    if(type === 'filter'){
+      ln.gain.gain.value = l.depth * 500;
+      ln.gain.connect(voiceNodes[vi].filter.frequency);
+    } else if(type === 'volume'){
+      ln.gain.gain.value = l.depth * 0.5;
+      ln.gain.connect(voiceNodes[vi].gain.gain);
+    }
+  }
+  ln.osc.frequency.value = l.rate;
+  ln.osc.type = l.waveform;
+}
+
+function applyEffects(){
+  const e = state.effects;
+  if(delayNode) delayNode.delayTime.value = e.delayTime;
+  if(delayFeedback) delayFeedback.gain.value = e.delayFeedback;
+  if(delayDry) delayDry.gain.value = 1 - e.delayMix;
+  if(delayWet) delayWet.gain.value = e.delayMix;
+  if(reverbDry) reverbDry.gain.value = 1 - e.reverbMix;
+  if(reverbWet) reverbWet.gain.value = e.reverbMix;
+}
+
+function setMasterOn(on){
+  masterOn = on;
+  const btn = document.getElementById('master-toggle');
+  btn.className = 'master-toggle ' + (on ? 'on' : 'off');
+  if(masterGain){
+    masterGain.gain.cancelScheduledValues(ctx.currentTime);
+    masterGain.gain.setTargetAtTime(on ? state.effects.masterVol : 0, ctx.currentTime, 0.05);
+  }
+}
+
+function updateVoice(i){
+  const v = state.voices[i];
+  const n = voiceNodes[i];
+  if(!n) return;
+  n.osc.type = v.waveform;
+  n.osc.frequency.setTargetAtTime(v.freq, ctx.currentTime, 0.02);
+  n.osc.detune.setTargetAtTime(v.detune, ctx.currentTime, 0.02);
+  n.gain.gain.setTargetAtTime(v.on && masterOn ? v.gain : 0, ctx.currentTime, 0.05);
+  n.filter.frequency.setTargetAtTime(v.filterFreq, ctx.currentTime, 0.02);
+  n.filter.Q.setTargetAtTime(v.filterQ, ctx.currentTime, 0.02);
+}
+
+function saveState(){
+  try{
+    localStorage.setItem(STORAGE_PREFIX+'state', JSON.stringify(state));
+  }catch(e){}
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_PREFIX+'state');
+    if(raw){
+      const s = JSON.parse(raw);
+      if(s.voices) Object.assign(state, {voices:s.voices});
+      if(s.effects) Object.assign(state.effects, s.effects);
+      if(s.lfos) state.lfos = s.lfos;
+    }
+  }catch(e){}
+}
+
+function getPresets(){
+  try{
+    const raw = localStorage.getItem(STORAGE_PREFIX+'presets');
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+
+function savePresets(p){
+  try{
+    localStorage.setItem(STORAGE_PREFIX+'presets', JSON.stringify(p));
+  }catch(e){}
+}
+
+function applyPreset(name){
+  const all = Object.assign({}, BUILT_IN_PRESETS, getPresets());
+  const p = all[name];
+  if(!p) return;
+  if(p.voices){
+    for(let i=0;i<NUM_VOICES;i++){
+      if(p.voices[i]) Object.assign(state.voices[i], p.voices[i]);
+    }
+  }
+  if(p.effects) Object.assign(state.effects, p.effects);
+  if(p.lfos) state.lfos = p.lfos.slice();
+  applyEffects();
+  for(let i=0;i<NUM_VOICES;i++) updateVoice(i);
+  for(let i=0;i<2;i++) if(lfoNodes[i]) routeLFO(i);
+  document.getElementById('master-vol').value = state.effects.masterVol;
+  if(masterOn && masterGain){
+    masterGain.gain.setTargetAtTime(state.effects.masterVol, ctx.currentTime, 0.05);
+  }
+  renderUI();
+  saveState();
+}
+
+function buildVoiceCards(){
+  const container = document.getElementById('voices');
+  container.innerHTML = '';
+  for(let i=0;i<NUM_VOICES;i++){
+    const v = state.voices[i];
+    const card = document.createElement('div');
+    card.className = 'voice-card ' + (v.on ? 'active' : 'inactive');
+    card.id = 'voice-'+i;
+    card.style.borderLeftColor = VOICE_COLORS[i];
+    card.style.borderLeftWidth = '3px';
+    card.innerHTML = `
+      <div class="voice-header" data-voice="${i}">
+        <h3 style="color:${VOICE_COLORS[i]}">${VOICE_NAMES[i]}</h3>
+        <div class="voice-status ${v.on?'on':'off'}"></div>
+      </div>
+      <div class="controls-grid">
+        <div class="control-group">
+          <label>Waveform</label>
+          <select data-voice="${i}" data-param="waveform">
+            <option value="sine" ${v.waveform==='sine'?'selected':''}>Sine</option>
+            <option value="triangle" ${v.waveform==='triangle'?'selected':''}>Triangle</option>
+            <option value="sawtooth" ${v.waveform==='sawtooth'?'selected':''}>Sawtooth</option>
+            <option value="square" ${v.waveform==='square'?'selected':''}>Square</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Frequency: <span class="val-freq-${i}">${v.freq.toFixed(1)} Hz</span></label>
+          <input type="range" min="20" max="2000" step="0.1" value="${v.freq}" data-voice="${i}" data-param="freq">
+        </div>
+        <div class="control-group">
+          <label>Detune: <span class="val-detune-${i}">${v.detune} ¢</span></label>
+          <input type="range" min="-100" max="100" step="1" value="${v.detune}" data-voice="${i}" data-param="detune">
+        </div>
+        <div class="control-group">
+          <label>Gain: <span class="val-gain-${i}">${(v.gain*100).toFixed(0)}%</span></label>
+          <input type="range" min="0" max="1" step="0.01" value="${v.gain}" data-voice="${i}" data-param="gain">
+        </div>
+        <div class="control-group">
+          <label>Filter Cutoff: <span class="val-filterFreq-${i}">${v.filterFreq.toFixed(0)} Hz</span></label>
+          <input type="range" min="20" max="5000" step="1" value="${v.filterFreq}" data-voice="${i}" data-param="filterFreq">
+        </div>
+        <div class="control-group">
+          <label>Filter Q: <span class="val-filterQ-${i}">${v.filterQ.toFixed(1)}</span></label>
+          <input type="range" min="0.1" max="20" step="0.1" value="${v.filterQ}" data-voice="${i}" data-param="filterQ">
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
+  // Event: toggle voice
+  container.querySelectorAll('.voice-header').forEach(h=>{
+    h.addEventListener('click',()=>{
+      const i = parseInt(h.dataset.voice);
+      state.voices[i].on = !state.voices[i].on;
+      updateVoice(i);
+      renderVoiceCard(i);
+      saveState();
+    });
+  });
+
+  // Event: param changes
+  container.querySelectorAll('input[type=range]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      const i = parseInt(inp.dataset.voice);
+      const p = inp.dataset.param;
+      const val = parseFloat(inp.value);
+      state.voices[i][p] = val;
+      updateVoice(i);
+      updateVoiceLabel(i, p, val);
+      saveState();
+    });
+  });
+
+  container.querySelectorAll('select[data-param=waveform]').forEach(sel=>{
+    sel.addEventListener('change',()=>{
+      const i = parseInt(sel.dataset.voice);
+      state.voices[i].waveform = sel.value;
+      updateVoice(i);
+      saveState();
+    });
+  });
+}
+
+function renderVoiceCard(i){
+  const v = state.voices[i];
+  const card = document.getElementById('voice-'+i);
+  if(!card) return;
+  card.className = 'voice-card ' + (v.on ? 'active' : 'inactive');
+  card.querySelector('.voice-status').className = 'voice-status ' + (v.on ? 'on' : 'off');
+}
+
+function updateVoiceLabel(i, p, val){
+  const el = document.querySelector('.val-'+p+'-'+i);
+  if(!el) return;
+  if(p==='freq') el.textContent = val.toFixed(1)+' Hz';
+  else if(p==='detune') el.textContent = val+' ¢';
+  else if(p==='gain') el.textContent = (val*100).toFixed(0)+'%';
+  else if(p==='filterFreq') el.textContent = val.toFixed(0)+' Hz';
+  else if(p==='filterQ') el.textContent = val.toFixed(1);
+}
+
+function buildEffects(){
+  const container = document.getElementById('effects');
+  container.innerHTML = `
+    <div class="fx-card">
+      <h3>🌊 Reverb</h3>
+      <div class="control-group">
+        <label>Mix: <span id="val-reverbMix">${(state.effects.reverbMix*100).toFixed(0)}%</span></label>
+        <input type="range" min="0" max="1" step="0.01" value="${state.effects.reverbMix}" data-fx="reverbMix">
+      </div>
+    </div>
+    <div class="fx-card">
+      <h3>🔁 Delay</h3>
+      <div class="control-group">
+        <label>Time: <span id="val-delayTime">${state.effects.delayTime.toFixed(2)}s</span></label>
+        <input type="range" min="0.01" max="2" step="0.01" value="${state.effects.delayTime}" data-fx="delayTime">
+      </div>
+      <div class="control-group" style="margin-top:8px">
+        <label>Feedback: <span id="val-delayFeedback">${(state.effects.delayFeedback*100).toFixed(0)}%</span></label>
+        <input type="range" min="0" max="0.9" step="0.01" value="${state.effects.delayFeedback}" data-fx="delayFeedback">
+      </div>
+      <div class="control-group" style="margin-top:8px">
+        <label>Mix: <span id="val-delayMix">${(state.effects.delayMix*100).toFixed(0)}%</span></label>
+        <input type="range" min="0" max="1" step="0.01" value="${state.effects.delayMix}" data-fx="delayMix">
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll('input[data-fx]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      const p = inp.dataset.fx;
+      const val = parseFloat(inp.value);
+      state.effects[p] = val;
+      applyEffects();
+      const label = document.getElementById('val-'+p);
+      if(label){
+        if(p==='delayTime') label.textContent = val.toFixed(2)+'s';
+        else label.textContent = (val*100).toFixed(0)+'%';
+      }
+      saveState();
+    });
+  });
+}
+
+function buildLFOs(){
+  const container = document.getElementById('lfo-section');
+  container.innerHTML = '';
+  for(let i=0;i<2;i++){
+    const l = state.lfos[i];
+    const targets = [];
+    for(let v=0;v<NUM_VOICES;v++){
+      targets.push(`<option value="filter-${v}" ${l.target==='filter-'+v?'selected':''}>Voice ${v+1} Filter</option>`);
+      targets.push(`<option value="volume-${v}" ${l.target==='volume-'+v?'selected':''}>Voice ${v+1} Volume</option>`);
+    }
+    const card = document.createElement('div');
+    card.className = 'lfo-card';
+    card.innerHTML = `
+      <h3>〰️ LFO ${i+1}</h3>
+      <div class="control-group">
+        <label>Target</label>
+        <select data-lfo="${i}" data-param="target">${targets.join('')}</select>
+      </div>
+      <div class="control-group" style="margin-top:6px">
+        <label>Waveform</label>
+        <select data-lfo="${i}" data-param="waveform">
+          <option value="sine" ${l.waveform==='sine'?'selected':''}>Sine</option>
+          <option value="triangle" ${l.waveform==='triangle'?'selected':''}>Triangle</option>
+          <option value="square" ${l.waveform==='square'?'selected':''}>Square</option>
+          <option value="sawtooth" ${l.waveform==='sawtooth'?'selected':''}>Sawtooth</option>
+        </select>
+      </div>
+      <div class="control-group" style="margin-top:6px">
+        <label>Rate: <span id="val-lfo-rate-${i}">${l.rate.toFixed(2)} Hz</span></label>
+        <input type="range" min="0.01" max="10" step="0.01" value="${l.rate}" data-lfo="${i}" data-param="rate">
+      </div>
+      <div class="control-group" style="margin-top:6px">
+        <label>Depth: <span id="val-lfo-depth-${i}">${(l.depth*100).toFixed(0)}%</span></label>
+        <input type="range" min="0" max="1" step="0.01" value="${l.depth}" data-lfo="${i}" data-param="depth">
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
+  container.querySelectorAll('select, input[type=range]').forEach(el=>{
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt,()=>{
+      const i = parseInt(el.dataset.lfo);
+      const p = el.dataset.param;
+      if(p==='rate'||p==='depth'){
+        const val = parseFloat(el.value);
+        state.lfos[i][p] = val;
+        const label = document.getElementById('val-lfo-'+p+'-'+i);
+        if(label){
+          if(p==='rate') label.textContent = val.toFixed(2)+' Hz';
+          else label.textContent = (val*100).toFixed(0)+'%';
+        }
+      } else {
+        state.lfos[i][p] = el.value;
+      }
+      if(lfoNodes[i]) routeLFO(i);
+      saveState();
+    });
+  });
+}
+
+function buildPresetSelector(){
+  const sel = document.getElementById('preset-select');
+  sel.innerHTML = '<option value="">-- Select Preset --</option>';
+  const group1 = document.createElement('optgroup');
+  group1.label = 'Built-in';
+  Object.keys(BUILT_IN_PRESETS).forEach(name=>{
+    const opt = document.createElement('option');
+    opt.value = name; opt.textContent = name;
+    group1.appendChild(opt);
+  });
+  sel.appendChild(group1);
+  const custom = getPresets();
+  const customKeys = Object.keys(custom);
+  if(customKeys.length){
+    const group2 = document.createElement('optgroup');
+    group2.label = 'Custom';
+    customKeys.forEach(name=>{
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      group2.appendChild(opt);
+    });
+    sel.appendChild(group2);
+  }
+}
+
+function renderUI(){
+  buildVoiceCards();
+  buildEffects();
+  buildLFOs();
+  buildPresetSelector();
+  document.getElementById('master-vol').value = state.effects.masterVol;
+}
+
+// Visualization
+function drawVisuals(){
+  const waveCanvas = document.getElementById('cv-wave');
+  const freqCanvas = document.getElementById('cv-freq');
+  const wCtx = waveCanvas.getContext('2d');
+  const fCtx = freqCanvas.getContext('2d');
+
+  function resize(){
+    const par = document.getElementById('visualizer');
+    const w = par.clientWidth / 2;
+    const h = par.clientHeight;
+    waveCanvas.width = w * devicePixelRatio;
+    waveCanvas.height = h * devicePixelRatio;
+    waveCanvas.style.width = w+'px';
+    waveCanvas.style.height = h+'px';
+    freqCanvas.width = w * devicePixelRatio;
+    freqCanvas.height = h * devicePixelRatio;
+    freqCanvas.style.width = w+'px';
+    freqCanvas.style.height = h+'px';
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const timeBuf = new Uint8Array(analyser.fftSize);
+  const freqBuf = new Uint8Array(analyser.frequencyBinCount);
+
+  function draw(){
+    animId = requestAnimationFrame(draw);
+    const dpr = devicePixelRatio;
+    const ww = waveCanvas.width;
+    const wh = waveCanvas.height;
+    const fw = freqCanvas.width;
+    const fh = freqCanvas.height;
+
+    // Waveform
+    analyser.getByteTimeDomainData(timeBuf);
+    wCtx.fillStyle = '#0a0a14';
+    wCtx.fillRect(0,0,ww,wh);
+    wCtx.lineWidth = 2*dpr;
+    wCtx.strokeStyle = '#7b5ea7';
+    wCtx.beginPath();
+    const sliceW = ww / timeBuf.length;
+    for(let i=0;i<timeBuf.length;i++){
+      const y = (timeBuf[i]/128.0) * wh/2;
+      if(i===0) wCtx.moveTo(0,y);
+      else wCtx.lineTo(i*sliceW, y);
+    }
+    wCtx.stroke();
+    // Label
+    wCtx.fillStyle = '#6868a8';
+    wCtx.font = (10*dpr)+'px sans-serif';
+    wCtx.fillText('WAVEFORM', 8*dpr, 14*dpr);
+
+    // Frequency
+    analyser.getByteFrequencyData(freqBuf);
+    fCtx.fillStyle = '#0a0a14';
+    fCtx.fillRect(0,0,fw,fh);
+    const barW = fw / freqBuf.length * 2.5;
+    for(let i=0;i<freqBuf.length;i++){
+      const barH = (freqBuf[i]/255) * fh;
+      const hue = 260 + (freqBuf[i]/255)*40;
+      fCtx.fillStyle = `hsl(${hue},60%,${30+freqBuf[i]/255*40}%)`;
+      fCtx.fillRect(i*barW, fh-barH, barW-1, barH);
+    }
+    fCtx.fillStyle = '#6868a8';
+    fCtx.font = (10*dpr)+'px sans-serif';
+    fCtx.fillText('SPECTRUM', 8*dpr, 14*dpr);
+
+    // Background pulse
+    drawBg(freqBuf);
+  }
+  draw();
+}
+
+// Animated background
+function drawBg(freqBuf){
+  const c = document.getElementById('bg-canvas');
+  const cx = c.getContext('2d');
+  if(c.width !== window.innerWidth || c.height !== window.innerHeight){
+    c.width = window.innerWidth;
+    c.height = window.innerHeight;
+  }
+  let avg = 0;
+  if(freqBuf){
+    for(let i=0;i<freqBuf.length;i++) avg += freqBuf[i];
+    avg /= freqBuf.length;
+  }
+  const intensity = avg / 255;
+  cx.fillStyle = `rgba(10,10,20,0.3)`;
+  cx.fillRect(0,0,c.width,c.height);
+  const t = performance.now()/1000;
+  for(let i=0;i<3;i++){
+    const x = c.width/2 + Math.sin(t*0.3+i*2.1)*c.width*0.2;
+    const y = c.height/2 + Math.cos(t*0.2+i*1.7)*c.height*0.2;
+    const r = 100 + intensity * 200 + Math.sin(t*0.5+i)*30;
+    const grad = cx.createRadialGradient(x,y,0,x,y,r);
+    const alpha = 0.03 + intensity * 0.06;
+    grad.addColorStop(0, `rgba(123,94,167,${alpha})`);
+    grad.addColorStop(1, 'rgba(123,94,167,0)');
+    cx.fillStyle = grad;
+    cx.fillRect(0,0,c.width,c.height);
+  }
+}
+
+// Startup
+document.getElementById('start-btn').addEventListener('click',()=>{
+  document.getElementById('start-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  loadState();
+  initAudio();
+  renderUI();
+  drawVisuals();
+  setMasterOn(true);
+});
+
+// Master volume
+document.getElementById('master-vol').addEventListener('input',(e)=>{
+  state.effects.masterVol = parseFloat(e.target.value);
+  if(masterOn && masterGain){
+    masterGain.gain.setTargetAtTime(state.effects.masterVol, ctx.currentTime, 0.05);
+  }
+  saveState();
+});
+
+// Master toggle
+document.getElementById('master-toggle').addEventListener('click',()=>{
+  setMasterOn(!masterOn);
+  for(let i=0;i<NUM_VOICES;i++) updateVoice(i);
+  saveState();
+});
+
+// Preset select
+document.getElementById('preset-select').addEventListener('change',(e)=>{
+  if(e.target.value) applyPreset(e.target.value);
+});
+
+// Save dialog
+document.getElementById('btn-save').addEventListener('click',()=>{
+  document.getElementById('save-dialog').classList.remove('hidden');
+  document.getElementById('save-name').value = '';
+  document.getElementById('save-name').focus();
+});
+document.getElementById('save-cancel').addEventListener('click',()=>{
+  document.getElementById('save-dialog').classList.add('hidden');
+});
+document.getElementById('save-confirm').addEventListener('click',()=>{
+  const name = document.getElementById('save-name').value.trim();
+  if(!name) return;
+  const presets = getPresets();
+  presets[name] = {
+    voices: JSON.parse(JSON.stringify(state.voices)),
+    effects: Object.assign({}, state.effects),
+    lfos: JSON.parse(JSON.stringify(state.lfos))
+  };
+  savePresets(presets);
+  buildPresetSelector();
+  document.getElementById('preset-select').value = name;
+  document.getElementById('save-dialog').classList.add('hidden');
+});
+
+// Delete preset
+document.getElementById('btn-delete').addEventListener('click',()=>{
+  const sel = document.getElementById('preset-select');
+  const name = sel.value;
+  if(!name) return;
+  if(BUILT_IN_PRESETS[name]){ return; } // can't delete built-in
+  const presets = getPresets();
+  delete presets[name];
+  savePresets(presets);
+  buildPresetSelector();
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown',(e)=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA') return;
+  if(e.code==='Space'){
+    e.preventDefault();
+    setMasterOn(!masterOn);
+    for(let i=0;i<NUM_VOICES;i++) updateVoice(i);
+    saveState();
+  }
+  if(e.key>='1'&&e.key<='4'){
+    const i = parseInt(e.key)-1;
+    state.voices[i].on = !state.voices[i].on;
+    updateVoice(i);
+    renderVoiceCard(i);
+    saveState();
+  }
+});
+
+// Save dialog enter key
+document.getElementById('save-name').addEventListener('keydown',(e)=>{
+  if(e.key==='Enter') document.getElementById('save-confirm').click();
+  if(e.key==='Escape') document.getElementById('save-cancel').click();
+});
+
+})();
+</script>
+</body>
+</html>

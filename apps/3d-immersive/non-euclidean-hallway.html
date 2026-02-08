@@ -1,284 +1,584 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Non-Euclidean Hallway</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        #info {
-            position: absolute; top: 10px; left: 10px; color: white;
-            background: rgba(0,0,0,0.5); padding: 10px; pointer-events: none;
-        }
-        #crosshair {
-            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
-            background: white; border-radius: 50%; transform: translate(-50%, -50%);
-            pointer-events: none; mix-blend-mode: difference;
-        }
-    </style>
-    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Non-Euclidean Hallway</title>
+<meta name="description" content="Walk through impossible geometry — rooms bigger on the inside, infinite corridors, and gravity-defying architecture">
+<meta name="rappterzoo:category" content="3d-immersive">
+<meta name="rappterzoo:title" content="Non-Euclidean Hallway">
+<meta name="rappterzoo:description" content="Walk through impossible geometry — rooms bigger on the inside, infinite corridors, and gravity-defying architecture">
+<meta name="rappterzoo:tags" content="3d,webgl,non-euclidean,architecture,puzzle,immersive,mind-bending">
+<meta name="rappterzoo:experience" content="wonder">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:author" content="RappterZoo">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:created" content="2025-01-15">
+<meta name="rappterzoo:generation" content="2">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#000;font-family:'Segoe UI',system-ui,sans-serif;color:#fff;cursor:crosshair}
+canvas{display:block}
+#crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:20px;height:20px;pointer-events:none;z-index:10}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(255,255,255,.5)}
+#crosshair::before{width:1px;height:20px;left:9.5px}
+#crosshair::after{height:1px;width:20px;top:9.5px}
+#hud{position:fixed;top:16px;left:16px;z-index:10;pointer-events:none;text-shadow:0 2px 6px rgba(0,0,0,.9)}
+#hud .room-name{font-size:22px;font-weight:700;letter-spacing:1px;margin-bottom:4px;transition:color .5s}
+#hud .stat{font-size:13px;opacity:.8;line-height:1.7}
+#hud .hint{font-size:12px;opacity:.5;font-style:italic;margin-top:8px;max-width:280px}
+#compass{position:fixed;top:16px;right:16px;width:60px;height:60px;z-index:10}
+#minimap{position:fixed;bottom:16px;right:16px;width:120px;height:120px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);border-radius:8px;z-index:10}
+#distort{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;opacity:0;background:radial-gradient(circle,transparent,rgba(100,0,255,.3));transition:opacity .3s}
+#start-screen{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:100;cursor:pointer}
+#start-screen h1{font-size:36px;letter-spacing:4px;margin-bottom:12px}
+#start-screen p{opacity:.6;font-size:14px;margin-bottom:24px}
+#start-screen .keys{font-size:12px;opacity:.4;line-height:2}
+#settings-btn{position:fixed;bottom:16px;left:16px;background:rgba(30,30,50,.7);border:1px solid rgba(255,255,255,.2);color:#aaa;padding:6px 14px;border-radius:16px;cursor:pointer;font-size:12px;z-index:10}
+#settings{position:fixed;bottom:50px;left:16px;background:rgba(10,10,30,.95);border:1px solid rgba(255,255,255,.2);border-radius:12px;padding:16px;z-index:20;display:none;width:220px;font-size:13px}
+#settings label{display:block;margin:6px 0 3px;opacity:.7;font-size:12px}
+#settings input[type=range]{width:100%;accent-color:#88f}
+</style>
 </head>
 <body>
-    <div id="error-msg" style="color:red; position:absolute; top:50%; width:100%; text-align:center; display:none;">
-        Error: Three.js failed to load. Check internet connection.
-    </div>
-    <script>
-        window.addEventListener('error', function(e) {
-            document.getElementById('error-msg').style.display = 'block';
-            document.getElementById('error-msg').innerText = "Error: " + e.message;
-        });
-        if (typeof THREE === 'undefined') {
-            document.getElementById('error-msg').style.display = 'block';
-        }
-    </script>
-    <div id="info">
-        <strong>Non-Euclidean Geometry Demo</strong><br>
-        WASD to Move | Mouse to Look<br>
-        Walk into the small box to enter the massive hall.
-    </div>
-    <div id="debug" style="position:absolute; top:10px; right:10px; color:lime; font-family:monospace;">Waiting for input...</div>
-    <script>
-        // --- Setup ---
-        const debugEl = document.getElementById('debug');
-        function log(msg) { debugEl.innerText = msg; }
+<div id="start-screen" onclick="startGame()">
+  <h1>⌐ NON-EUCLIDEAN ¬</h1>
+  <p>Geometry has gone wrong. Find all 4 impossible rooms.</p>
+  <div class="keys">
+    WASD — Move &nbsp;|&nbsp; Mouse — Look<br>
+    Click to start &nbsp;|&nbsp; ESC — Release cursor
+  </div>
+</div>
+<canvas id="c"></canvas>
+<div id="crosshair"></div>
+<div id="hud">
+  <div class="room-name" id="h-room">The Lobby</div>
+  <div class="stat">Steps: <span id="h-steps">0</span></div>
+  <div class="stat">Rooms: <span id="h-rooms">0</span> / 4</div>
+  <div class="stat">Time: <span id="h-time">0:00</span></div>
+  <div class="hint" id="h-hint">Walk forward to begin exploring...</div>
+</div>
+<canvas id="compass" width="60" height="60"></canvas>
+<canvas id="minimap" width="120" height="120"></canvas>
+<div id="distort"></div>
+<button id="settings-btn" onclick="toggleSettings()">⚙ Settings</button>
+<div id="settings">
+  <strong style="color:#88f">Settings</strong>
+  <label>Mouse Sensitivity</label>
+  <input type="range" id="opt-sens" min="1" max="20" value="8">
+  <label>Move Speed</label>
+  <input type="range" id="opt-move" min="1" max="20" value="10">
+  <label>FOV</label>
+  <input type="range" id="opt-fov" min="50" max="120" value="80">
+</div>
+<script>
+// ====== NON-EUCLIDEAN HALLWAY — Pure WebGL Impossible Architecture ======
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+if(!gl) document.body.innerHTML='<h1 style="color:red;text-align:center;margin-top:40vh">WebGL Required</h1>';
 
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB); // Sky Blue Background
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.autoClear = false; // Important for manual clearing
-        document.body.appendChild(renderer.domElement);
+// ---- State & Persistence ----
+const SAVE_KEY = 'non-euclidean-state';
+let state = { steps:0, roomsFound:new Set(), bestTime:null, sensitivity:8, moveSpeed:10, fov:80, totalRuns:0 };
+function loadState(){
+  try{
+    const s=JSON.parse(localStorage.getItem(SAVE_KEY));
+    if(s){Object.assign(state,s);state.roomsFound=new Set(s.roomsFound||[]);}
+  }catch(e){}
+  document.getElementById('opt-sens').value=state.sensitivity;
+  document.getElementById('opt-move').value=state.moveSpeed;
+  document.getElementById('opt-fov').value=state.fov;
+}
+function saveState(){
+  try{
+    const s={...state,roomsFound:[...state.roomsFound]};
+    localStorage.setItem(SAVE_KEY,JSON.stringify(s));
+  }catch(e){}
+}
+loadState();
 
-        // --- Lighting ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Bright ambient
-        scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(1, 10, 1);
-        scene.add(dirLight);
+// ---- Resize ----
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight;gl.viewport(0,0,canvas.width,canvas.height);}
+addEventListener('resize',resize);resize();
 
-        // --- Materials ---
-        // Use BasicMaterial to ignore lighting issues for now
-        const matOutside = new THREE.MeshBasicMaterial({ color: 0x44aa88, side: THREE.DoubleSide });
-        const matInside = new THREE.MeshBasicMaterial({ color: 0xaa4444, side: THREE.DoubleSide, wireframe: true }); // Wireframe inside
-        const matDoor = new THREE.MeshBasicMaterial({ color: 0x000000, colorWrite: false, depthWrite: false }); 
+// ---- Shader Utils ----
+function mkShader(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+function mkProg(vs,fs){const p=gl.createProgram();gl.attachShader(p,mkShader(gl.VERTEX_SHADER,vs));gl.attachShader(p,mkShader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);return p;}
 
-        // --- Geometry Groups ---
-        const outsideWorld = new THREE.Group();
-        const insideWorld = new THREE.Group();
-        scene.add(outsideWorld);
-        scene.add(insideWorld);
+// ---- Math ----
+const V3={
+  create:(x,y,z)=>[x||0,y||0,z||0],
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  len:(a)=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:(a)=>{const l=V3.len(a)||1;return[a[0]/l,a[1]/l,a[2]/l];},
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
+};
+const M4={
+  identity:()=>{const m=new Float32Array(16);m[0]=m[5]=m[10]=m[15]=1;return m;},
+  perspective:(fov,a,n,f)=>{const m=new Float32Array(16),t=1/Math.tan(fov/2);m[0]=t/a;m[5]=t;m[10]=(f+n)/(n-f);m[11]=-1;m[14]=2*f*n/(n-f);return m;},
+  lookAt:(eye,center,up)=>{
+    const z=V3.norm(V3.sub(eye,center)),x=V3.norm(V3.cross(up,z)),y=V3.cross(z,x);
+    const m=new Float32Array(16);
+    m[0]=x[0];m[1]=y[0];m[2]=z[0];
+    m[4]=x[1];m[5]=y[1];m[6]=z[1];
+    m[8]=x[2];m[9]=y[2];m[10]=z[2];
+    m[12]=-V3.dot(x,eye);m[13]=-V3.dot(y,eye);m[14]=-V3.dot(z,eye);m[15]=1;
+    return m;
+  },
+  translate:(m,v)=>{const r=new Float32Array(m);r[12]+=m[0]*v[0]+m[4]*v[1]+m[8]*v[2];r[13]+=m[1]*v[0]+m[5]*v[1]+m[9]*v[2];r[14]+=m[2]*v[0]+m[6]*v[1]+m[10]*v[2];return r;},
+  mul:(a,b)=>{const r=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){r[j*4+i]=a[i]*b[j*4]+a[i+4]*b[j*4+1]+a[i+8]*b[j*4+2]+a[i+12]*b[j*4+3];}return r;}
+};
 
-        // --- 1. The Outside World ---
-        // Ground
-        const groundGeo = new THREE.PlaneGeometry(100, 100);
-        const ground = new THREE.Mesh(groundGeo, new THREE.MeshBasicMaterial({ color: 0x222222 })); // Dark Grey Ground
-        ground.rotation.x = -Math.PI / 2;
-        outsideWorld.add(ground);
+// ---- Shaders ----
+const mainVS=`
+attribute vec3 aPos,aNorm;
+attribute vec2 aUV;
+uniform mat4 uMVP,uModel;
+varying vec3 vNorm,vWorld;
+varying vec2 vUV;
+void main(){
+  vWorld=(uModel*vec4(aPos,1.0)).xyz;
+  vNorm=normalize(mat3(uModel)*aNorm);
+  vUV=aUV;
+  gl_Position=uMVP*vec4(aPos,1.0);
+}`;
+const mainFS=`
+precision mediump float;
+varying vec3 vNorm,vWorld;
+varying vec2 vUV;
+uniform vec3 uColor,uLight,uFog;
+uniform float uFogDist,uTime;
+uniform int uPattern;
+void main(){
+  vec3 N=normalize(vNorm);
+  vec3 L=normalize(uLight-vWorld);
+  float diff=max(dot(N,L),0.0)*0.7+0.3;
+  vec3 col=uColor*diff;
+  // Procedural patterns
+  if(uPattern==1){
+    float g=step(0.02,mod(vUV.x*8.0,1.0))*step(0.02,mod(vUV.y*8.0,1.0));
+    col*=mix(0.7,1.0,g);
+  } else if(uPattern==2){
+    float g=step(0.95,sin(vUV.x*40.0)*sin(vUV.y*40.0));
+    col+=vec3(0.1,0.2,0.4)*g;
+  } else if(uPattern==3){
+    float d=length(fract(vUV*6.0)-0.5);
+    col*=smoothstep(0.3,0.31,d)*0.3+0.7;
+  }
+  // Distance fog
+  float fogF=1.0-exp(-length(vWorld)*0.015);
+  col=mix(col,uFog,clamp(fogF,0.0,0.85));
+  gl_FragColor=vec4(col,1.0);
+}`;
 
-        // The "TARDIS" Box (Small on outside)
-        const boxSize = 4;
-        const boxGeo = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
-        // Remove front face for door
-        // We'll build it manually to have a hole
-        const wallGeo = new THREE.PlaneGeometry(boxSize, boxSize);
-        
-        // Back
-        const backWall = new THREE.Mesh(wallGeo, matOutside);
-        backWall.position.z = -boxSize/2;
-        backWall.position.y = boxSize/2;
-        outsideWorld.add(backWall);
-        
-        // Left
-        const leftWall = new THREE.Mesh(wallGeo, matOutside);
-        leftWall.rotation.y = Math.PI/2;
-        leftWall.position.x = -boxSize/2;
-        leftWall.position.y = boxSize/2;
-        outsideWorld.add(leftWall);
+const prog=mkProg(mainVS,mainFS);
+const uMVP=gl.getUniformLocation(prog,'uMVP');
+const uModel=gl.getUniformLocation(prog,'uModel');
+const uColor=gl.getUniformLocation(prog,'uColor');
+const uLight=gl.getUniformLocation(prog,'uLight');
+const uFog=gl.getUniformLocation(prog,'uFog');
+const uFogDist=gl.getUniformLocation(prog,'uFogDist');
+const uTime=gl.getUniformLocation(prog,'uTime');
+const uPattern=gl.getUniformLocation(prog,'uPattern');
 
-        // Right
-        const rightWall = new THREE.Mesh(wallGeo, matOutside);
-        rightWall.rotation.y = -Math.PI/2;
-        rightWall.position.x = boxSize/2;
-        rightWall.position.y = boxSize/2;
-        outsideWorld.add(rightWall);
+// ---- Geometry Builder ----
+function makeQuad(x1,y1,z1,x2,y2,z2,x3,y3,z3,x4,y4,z4,u0,v0,u1,v1){
+  // Two triangles, compute normal from first tri
+  const e1=[x2-x1,y2-y1,z2-z1],e2=[x3-x1,y3-y1,z3-z1];
+  const n=V3.norm(V3.cross(e1,e2));
+  return{
+    verts:[
+      x1,y1,z1, n[0],n[1],n[2], u0||0,v0||0,
+      x2,y2,z2, n[0],n[1],n[2], u1||1,v0||0,
+      x3,y3,z3, n[0],n[1],n[2], u1||1,v1||1,
+      x1,y1,z1, n[0],n[1],n[2], u0||0,v0||0,
+      x3,y3,z3, n[0],n[1],n[2], u1||1,v1||1,
+      x4,y4,z4, n[0],n[1],n[2], u0||0,v1||1
+    ],
+    count:6
+  };
+}
 
-        // Top
-        const topWall = new THREE.Mesh(wallGeo, matOutside);
-        topWall.rotation.x = Math.PI/2;
-        topWall.position.y = boxSize;
-        outsideWorld.add(topWall);
+function makeBox(cx,cy,cz,w,h,d){
+  const hw=w/2,hh=h/2,hd=d/2;
+  const x0=cx-hw,x1=cx+hw,y0=cy-hh,y1=cy+hh,z0=cz-hd,z1=cz+hd;
+  const faces=[
+    // Front
+    makeQuad(x0,y0,z1, x1,y0,z1, x1,y1,z1, x0,y1,z1),
+    // Back
+    makeQuad(x1,y0,z0, x0,y0,z0, x0,y1,z0, x1,y1,z0),
+    // Left
+    makeQuad(x0,y0,z0, x0,y0,z1, x0,y1,z1, x0,y1,z0),
+    // Right
+    makeQuad(x1,y0,z1, x1,y0,z0, x1,y1,z0, x1,y1,z1),
+    // Top
+    makeQuad(x0,y1,z1, x1,y1,z1, x1,y1,z0, x0,y1,z0),
+    // Bottom
+    makeQuad(x0,y0,z0, x1,y0,z0, x1,y0,z1, x0,y0,z1)
+  ];
+  const v=[];
+  faces.forEach(f=>v.push(...f.verts));
+  return{verts:new Float32Array(v),count:36};
+}
 
-        // Front (Door Frame) - Simplified as just open for now
-        // We place the "Portal" plane here
-        const portalGeo = new THREE.PlaneGeometry(boxSize - 0.2, boxSize - 0.2);
-        const portalPlane = new THREE.Mesh(portalGeo, matDoor);
-        portalPlane.position.z = boxSize/2 - 0.1; // Slightly inside
-        portalPlane.position.y = boxSize/2;
-        // portalPlane.rotation.y = Math.PI; // Face outward
-        outsideWorld.add(portalPlane);
+function makeCorridor(x,z,dx,dz,len,w,h){
+  const quads=[];
+  for(let i=0;i<len;i++){
+    const sx=x+dx*i*w, sz=z+dz*i*w;
+    const ex=sx+dx*w, ez=sz+dz*w;
+    const hw=w/2;
+    if(Math.abs(dx)>0){
+      // corridor along X
+      quads.push(makeQuad(sx,0,sz-hw, ex,0,sz-hw, ex,0,sz+hw, sx,0,sz+hw)); // floor
+      quads.push(makeQuad(sx,h,sz+hw, ex,h,sz+hw, ex,h,sz-hw, sx,h,sz-hw)); // ceiling
+      quads.push(makeQuad(sx,0,sz-hw, ex,0,sz-hw, ex,h,sz-hw, sx,h,sz-hw)); // left wall
+      quads.push(makeQuad(ex,0,sz+hw, sx,0,sz+hw, sx,h,sz+hw, ex,h,sz+hw)); // right wall
+    } else {
+      // corridor along Z
+      quads.push(makeQuad(sx-hw,0,sz, sx+hw,0,sz, sx+hw,0,ez, sx-hw,0,ez)); // floor
+      quads.push(makeQuad(sx-hw,h,ez, sx+hw,h,ez, sx+hw,h,sz, sx-hw,h,sz)); // ceiling
+      quads.push(makeQuad(sx-hw,0,sz, sx-hw,0,ez, sx-hw,h,ez, sx-hw,h,sz)); // left wall
+      quads.push(makeQuad(sx+hw,0,ez, sx+hw,0,sz, sx+hw,h,sz, sx+hw,h,ez)); // right wall
+    }
+  }
+  const v=[];
+  quads.forEach(q=>v.push(...q.verts));
+  return{verts:new Float32Array(v),count:v.length/8};
+}
 
+function makeRoom(cx,cz,w,d,h){
+  // Open-top room (floor + 4 walls)
+  const hw=w/2, hd=d/2;
+  const quads=[
+    makeQuad(cx-hw,0,cz-hd, cx+hw,0,cz-hd, cx+hw,0,cz+hd, cx-hw,0,cz+hd), // floor
+    makeQuad(cx-hw,h,cz+hd, cx+hw,h,cz+hd, cx+hw,h,cz-hd, cx-hw,h,cz-hd), // ceiling
+    makeQuad(cx-hw,0,cz-hd, cx+hw,0,cz-hd, cx+hw,h,cz-hd, cx-hw,h,cz-hd), // back
+    makeQuad(cx+hw,0,cz+hd, cx-hw,0,cz+hd, cx-hw,h,cz+hd, cx+hw,h,cz+hd), // front
+    makeQuad(cx-hw,0,cz+hd, cx-hw,0,cz-hd, cx-hw,h,cz-hd, cx-hw,h,cz+hd), // left
+    makeQuad(cx+hw,0,cz-hd, cx+hw,0,cz+hd, cx+hw,h,cz+hd, cx+hw,h,cz-hd)  // right
+  ];
+  const v=[];
+  quads.forEach(q=>v.push(...q.verts));
+  return{verts:new Float32Array(v),count:v.length/8};
+}
 
-        // --- 2. The Inside World (Massive Hall) ---
-        // This geometry physically overlaps the outside world but is only visible through stencil
-        const hallWidth = 20;
-        const hallLength = 100;
-        const hallHeight = 15;
+// ---- Build World Geometry ----
+// Room definitions with non-Euclidean zones
+const ROOMS = [
+  { id:'lobby', name:'The Lobby', color:[0.6,0.6,0.65], hint:'Four doors lead to impossible places...', light:[0,4,0], fog:[0.08,0.08,0.1], pattern:1 },
+  { id:'infinite', name:'Infinite Corridor', color:[0.3,0.4,0.7], hint:'Walk forward... you\'ll never reach the end.', light:[0,3,-20], fog:[0.05,0.05,0.15], pattern:2 },
+  { id:'tardis', name:'The TARDIS Room', color:[0.7,0.25,0.25], hint:'A tiny door. But inside... impossibly vast.', light:[0,20,0], fog:[0.12,0.04,0.04], pattern:3 },
+  { id:'gravity', name:'Gravity Shift Hall', color:[0.25,0.6,0.35], hint:'Something feels wrong about the floor...', light:[0,4,0], fog:[0.04,0.1,0.05], pattern:1 },
+  { id:'penrose', name:'Penrose Staircase', color:[0.5,0.3,0.6], hint:'Always ascending. Never arriving.', light:[0,6,0], fog:[0.06,0.04,0.1], pattern:2 }
+];
 
-        const hallGeo = new THREE.BoxGeometry(hallWidth, hallHeight, hallLength);
-        // Invert normals to see inside
-        hallGeo.scale(-1, 1, 1); 
-        
-        // Texture for inside to make it trippy
-        const canvas = document.createElement('canvas');
-        canvas.width = 512; canvas.height = 512;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#220000'; ctx.fillRect(0,0,512,512);
-        ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 5;
-        for(let i=0; i<20; i++) {
-            ctx.strokeRect(Math.random()*512, Math.random()*512, Math.random()*100, Math.random()*100);
-        }
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
-        tex.repeat.set(4, 20);
-        
-        const matHall = new THREE.MeshBasicMaterial({ 
-            map: tex, 
-            side: THREE.BackSide
-        });
+// Build geometry for each room
+const meshes = [];
+function addMesh(geo, color, pattern, modelMat) {
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, geo.verts, gl.STATIC_DRAW);
+  meshes.push({ vbo, count: geo.count, color, pattern: pattern||0, model: modelMat||M4.identity() });
+}
 
-        const hall = new THREE.Mesh(hallGeo, matHall);
-        hall.position.y = hallHeight/2;
-        hall.position.z = -hallLength/2 + boxSize/2; // Extend backwards from door
-        insideWorld.add(hall);
+// Lobby (center room 8x4x8)
+addMesh(makeRoom(0, 0, 10, 10, 4), [0.55,0.55,0.6], 1);
 
-        // Floating objects inside
-        for(let i=0; i<50; i++) {
-            const geo = new THREE.IcosahedronGeometry(1 + Math.random());
-            const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff }));
-            mesh.position.set(
-                (Math.random()-0.5) * (hallWidth-2),
-                Math.random() * (hallHeight-2) + 1,
-                -Math.random() * (hallLength-5) + boxSize/2
-            );
-            insideWorld.add(mesh);
-        }
+// Arches/doors from lobby (visual markers)
+addMesh(makeBox(0, 2, -5.1, 2.2, 3.5, 0.3), [0.3,0.4,0.7], 0); // North door frame (blue = infinite corridor)
+addMesh(makeBox(5.1, 2, 0, 0.3, 3.5, 2.2), [0.7,0.25,0.25], 0); // East door frame (red = tardis)
+addMesh(makeBox(0, 2, 5.1, 2.2, 3.5, 0.3), [0.25,0.6,0.35], 0); // South door frame (green = gravity)
+addMesh(makeBox(-5.1, 2, 0, 0.3, 3.5, 2.2), [0.5,0.3,0.6], 0); // West door frame (purple = penrose)
 
-        // --- Controls ---
-        const keys = {};
-        document.addEventListener('keydown', (e) => {
-            keys[e.code] = true;
-            log("Key down: " + e.code);
-        });
-        document.addEventListener('keyup', (e) => {
-            keys[e.code] = false;
-        });
+// Infinite Corridor (extends north from lobby)
+const corrGeo = makeCorridor(0, -6, 0, -1, 30, 3, 3.5);
+addMesh(corrGeo, [0.3,0.4,0.7], 2);
 
-        let pitch = 0;
-        let yaw = 0;
-        
-        // Mouse Look
-        document.body.addEventListener('click', () => {
-            document.body.requestPointerLock();
-            log("Pointer Lock Requested");
-        });
-        
-        document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === document.body) {
-                yaw -= e.movementX * 0.002;
-                pitch -= e.movementY * 0.002;
-                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
-                camera.rotation.set(pitch, yaw, 0, 'YXZ');
-            }
-        });
+// Pillars in infinite corridor
+for(let i=0;i<15;i++){
+  addMesh(makeBox(-1.3, 1.75, -7-i*3, 0.2, 3.5, 0.2), [0.4,0.5,0.8], 0);
+  addMesh(makeBox(1.3, 1.75, -7-i*3, 0.2, 3.5, 0.2), [0.4,0.5,0.8], 0);
+}
 
-        // Keyboard Look (Fallback)
-        function updateLook() {
-            const turnSpeed = 0.03;
-            if (keys['ArrowLeft']) yaw += turnSpeed;
-            if (keys['ArrowRight']) yaw -= turnSpeed;
-            if (keys['ArrowUp']) pitch += turnSpeed;
-            if (keys['ArrowDown']) pitch -= turnSpeed;
-            
-            if (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'] || keys['ArrowDown']) {
-                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
-                camera.rotation.set(pitch, yaw, 0, 'YXZ');
-            }
-        }
+// TARDIS Room — tiny entrance, massive interior
+// Small approach corridor
+addMesh(makeCorridor(6, 0, 1, 0, 4, 3, 3.5).verts.length ? makeCorridor(6, 0, 1, 0, 4, 3, 3.5) : makeRoom(10,0,3,3,3.5), [0.6,0.3,0.3], 1);
+// The narrow door zone
+addMesh(makeBox(17, 1.2, 0, 0.3, 2.4, 1.5), [0.5,0.15,0.15], 0);
+// The massive cathedral behind
+addMesh(makeRoom(30, 0, 24, 24, 15), [0.7,0.25,0.25], 3);
+// Cathedral pillars
+for(let i=0;i<4;i++){
+  for(let j=0;j<4;j++){
+    addMesh(makeBox(22+i*5, 7.5, -8+j*5, 0.6, 15, 0.6), [0.8,0.35,0.3], 0);
+  }
+}
 
-        camera.position.set(0, 1.7, 10);
+// Gravity Shift Hall (south corridor)
+addMesh(makeCorridor(0, 6, 0, 1, 15, 4, 4), [0.25,0.6,0.35], 1);
+// Floating blocks to show gravity is weird
+for(let i=0;i<10;i++){
+  const y = 0.5 + Math.sin(i*0.7)*1.5 + 1.5;
+  addMesh(makeBox(Math.sin(i*1.3)*1.2, y, 8+i*3, 0.6, 0.6, 0.6), [0.3,0.7,0.4], 0);
+}
 
-        // --- Render Loop ---
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            updateLook();
+// Penrose Staircase (west)
+addMesh(makeCorridor(-6, 0, -1, 0, 5, 3, 3.5), [0.5,0.3,0.6], 2);
+// Staircase segments (visual steps)
+for(let i=0;i<20;i++){
+  const stepH = 0.25;
+  const y = (i * stepH) % 3.0; // wraps back!
+  addMesh(makeBox(-18-i*0.8, y+stepH/2, 0, 2, stepH, 2.5), [0.55,0.35,0.65], 0);
+}
+// Staircase walls
+addMesh(makeRoom(-28, 0, 30, 4, 5), [0.45,0.25,0.55], 2);
 
-            // Movement
-            const speed = 0.15; // Faster speed
-            const dir = new THREE.Vector3();
-            camera.getWorldDirection(dir);
-            dir.y = 0; dir.normalize();
-            const right = new THREE.Vector3(-dir.z, 0, dir.x);
+// ---- Player State ----
+let playerPos = [0, 1.6, 0];
+let playerYaw = 0, playerPitch = 0;
+let keys = {};
+let started = false;
+let gameTime = 0;
+let stepCounter = 0;
+let stepAccum = 0;
+let currentRoom = ROOMS[0];
+let distortAmount = 0;
+let time = 0;
 
-            if (keys['KeyW']) camera.position.addScaledVector(dir, speed);
-            if (keys['KeyS']) camera.position.addScaledVector(dir, -speed);
-            if (keys['KeyA']) camera.position.addScaledVector(right, -speed);
-            if (keys['KeyD']) camera.position.addScaledVector(right, speed);
-            
-            // Simple collision with ground (stay at height)
-            camera.position.y = 1.7; 
-            
-            // Debug position
-            if (keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD']) {
-                log(`Pos: ${camera.position.x.toFixed(1)}, ${camera.position.z.toFixed(1)}`);
-            }
+// ---- Non-Euclidean Teleport Zones ----
+const ZONES = [
+  // Infinite corridor wrap: if z < -95, teleport to z = -6
+  { test:(p)=>p[2]<-95, action:(p)=>{p[2]=-7; triggerDistort();}, room:'infinite' },
+  // TARDIS transition: crossing x=17 puts you into cathedral scale
+  { test:(p)=>p[0]>17 && p[0]<18 && Math.abs(p[2])<2, action:(p)=>{p[0]=20; triggerDistort();}, room:'tardis' },
+  // Gravity hall: past z=50 loop back
+  { test:(p)=>p[2]>50, action:(p)=>{p[2]=7; triggerDistort();}, room:'gravity' },
+  // Penrose: past x=-34 loop back, bump Y
+  { test:(p)=>p[0]<-34, action:(p)=>{p[0]=-7; p[1]=1.6; triggerDistort();}, room:'penrose' },
+  // Return from any room to lobby if near origin
+  { test:(p)=>V3.len([p[0],0,p[2]])<2 && currentRoom.id!=='lobby', action:(p)=>{triggerDistort();}, room:'lobby' }
+];
 
-            // --- Stencil Logic ---
-            
-            // 1. Clear everything
-            renderer.clear();
+function triggerDistort(){
+  distortAmount = 1;
+  document.getElementById('distort').style.opacity = '0.6';
+  setTimeout(()=>document.getElementById('distort').style.opacity='0', 400);
+}
 
-            // 2. Render Outside World (Normal)
-            // We want the outside world to be visible everywhere EXCEPT where the portal is?
-            // Actually, simpler: Render Outside World first.
-            renderer.render(outsideWorld, camera);
+function detectRoom(pos){
+  const x=pos[0],z=pos[2];
+  if(x>6) return ROOMS[2]; // tardis
+  if(x<-6) return ROOMS[4]; // penrose
+  if(z<-6) return ROOMS[1]; // infinite
+  if(z>6) return ROOMS[3]; // gravity
+  return ROOMS[0]; // lobby
+}
 
-            // 3. Prepare Stencil for Portal
-            const gl = renderer.domElement.getContext('webgl');
-            renderer.state.buffers.stencil.setTest(true);
-            renderer.state.buffers.stencil.setFunc(THREE.AlwaysStencilFunc, 1, 0xff);
-            renderer.state.buffers.stencil.setOp(THREE.ReplaceStencilOp, THREE.ReplaceStencilOp, THREE.ReplaceStencilOp);
-            
-            // Render Portal Plane to Stencil Buffer ONLY
-            // (matDoor has colorWrite: false, depthWrite: false)
-            // This writes '1' into the stencil buffer where the door is
-            renderer.render(portalPlane, camera);
+// ---- Collision (simple AABB walls) ----
+const WALLS = [
+  // Lobby walls (with gaps for doors)
+  // ... simplified: just prevent going through solid walls
+];
 
-            // 4. Render Inside World
-            // Only render where Stencil == 1 (Inside the door frame)
-            renderer.state.buffers.stencil.setFunc(THREE.EqualStencilFunc, 1, 0xff);
-            renderer.state.buffers.stencil.setOp(THREE.KeepStencilOp, THREE.KeepStencilOp, THREE.KeepStencilOp);
-            
-            // Clear Depth so inside world draws "on top" of outside world background, 
-            // but clipped to the door frame.
-            renderer.clearDepth(); 
-            
-            renderer.render(insideWorld, camera);
+function collide(pos, radius){
+  // Basic boundary constraints per room
+  // In the infinite corridor, limit x
+  if(pos[2]<-5 && pos[0]>-1.3) pos[0]=Math.min(pos[0],1.3);
+  if(pos[2]<-5 && pos[0]<1.3) pos[0]=Math.max(pos[0],-1.3);
+  // Keep player above floor
+  pos[1] = Math.max(1.6, pos[1]);
+  // Cathedral ceiling
+  if(pos[0]>18) pos[1]=Math.min(pos[1],14);
+  return pos;
+}
 
-            // 5. Reset Stencil
-            renderer.state.buffers.stencil.setTest(false);
+// ---- Input ----
+addEventListener('keydown',e=>{keys[e.code]=true;});
+addEventListener('keyup',e=>{keys[e.code]=false;});
+addEventListener('mousemove',e=>{
+  if(!document.pointerLockElement) return;
+  const sens = state.sensitivity * 0.0003;
+  playerYaw -= e.movementX * sens;
+  playerPitch -= e.movementY * sens;
+  playerPitch = Math.max(-1.4, Math.min(1.4, playerPitch));
+});
+canvas.addEventListener('click',()=>{
+  if(started) canvas.requestPointerLock();
+});
 
-        }
+function startGame(){
+  document.getElementById('start-screen').style.display='none';
+  started=true;
+  state.totalRuns++;
+  saveState();
+  canvas.requestPointerLock();
+}
+function toggleSettings(){
+  const s=document.getElementById('settings');
+  s.style.display=s.style.display==='none'?'block':'none';
+}
+document.getElementById('opt-sens').oninput=e=>{state.sensitivity=+e.target.value;saveState();};
+document.getElementById('opt-move').oninput=e=>{state.moveSpeed=+e.target.value;saveState();};
+document.getElementById('opt-fov').oninput=e=>{state.fov=+e.target.value;saveState();};
 
-        animate();
+// ---- Compass ----
+const compCanvas=document.getElementById('compass');
+const compCtx=compCanvas.getContext('2d');
+function drawCompass(){
+  compCtx.clearRect(0,0,60,60);
+  compCtx.save();
+  compCtx.translate(30,30);
+  compCtx.rotate(-playerYaw);
+  compCtx.strokeStyle='rgba(255,255,255,.3)';
+  compCtx.lineWidth=1;
+  compCtx.beginPath();compCtx.arc(0,0,24,0,Math.PI*2);compCtx.stroke();
+  compCtx.fillStyle='#f44';
+  compCtx.beginPath();compCtx.moveTo(0,-20);compCtx.lineTo(-5,0);compCtx.lineTo(5,0);compCtx.fill();
+  compCtx.fillStyle='#88f';
+  compCtx.beginPath();compCtx.moveTo(0,20);compCtx.lineTo(-5,0);compCtx.lineTo(5,0);compCtx.fill();
+  compCtx.fillStyle='#fff';compCtx.font='9px sans-serif';compCtx.textAlign='center';
+  compCtx.fillText('N',0,-25);
+  compCtx.restore();
+}
 
-        // Handle Resize
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
+// ---- Minimap ----
+const mmCanvas=document.getElementById('minimap');
+const mmCtx=mmCanvas.getContext('2d');
+function drawMinimap(){
+  mmCtx.fillStyle='rgba(0,0,0,.8)';
+  mmCtx.fillRect(0,0,120,120);
+  mmCtx.save();
+  mmCtx.translate(60,60);
+  const s=1.5;
+  // Rooms
+  mmCtx.strokeStyle='rgba(100,100,120,.5)';mmCtx.lineWidth=1;
+  mmCtx.strokeRect(-5*s,-5*s,10*s,10*s); // lobby
+  mmCtx.strokeStyle='rgba(80,100,180,.5)';
+  mmCtx.strokeRect(-1.5*s,-96*s,3*s,90*s); // infinite corridor
+  mmCtx.strokeStyle='rgba(180,60,60,.5)';
+  mmCtx.strokeRect(6*s,-1.5*s,36*s,3*s); // tardis path
+  mmCtx.strokeStyle='rgba(60,150,80,.5)';
+  mmCtx.strokeRect(-2*s,6*s,4*s,45*s); // gravity hall
+  mmCtx.strokeStyle='rgba(120,70,150,.5)';
+  mmCtx.strokeRect(-35*s,-2*s,30*s,4*s); // penrose
+  // Player dot
+  mmCtx.fillStyle='#fff';
+  mmCtx.beginPath();
+  mmCtx.arc(playerPos[0]*s, playerPos[2]*s, 3, 0, Math.PI*2);
+  mmCtx.fill();
+  // Direction indicator
+  const dx=Math.sin(playerYaw)*8, dz=-Math.cos(playerYaw)*8;
+  mmCtx.strokeStyle='#ff0';mmCtx.lineWidth=1.5;
+  mmCtx.beginPath();mmCtx.moveTo(playerPos[0]*s,playerPos[2]*s);
+  mmCtx.lineTo(playerPos[0]*s+dx,playerPos[2]*s+dz);mmCtx.stroke();
+  mmCtx.restore();
+}
+
+// ---- Render ----
+function drawMesh(m, view, proj){
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo);
+  const stride = 32; // 8 floats * 4 bytes
+  const aPos=gl.getAttribLocation(prog,'aPos');
+  const aNorm=gl.getAttribLocation(prog,'aNorm');
+  const aUV=gl.getAttribLocation(prog,'aUV');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,stride,0);
+  if(aNorm>=0){gl.enableVertexAttribArray(aNorm);gl.vertexAttribPointer(aNorm,3,gl.FLOAT,false,stride,12);}
+  if(aUV>=0){gl.enableVertexAttribArray(aUV);gl.vertexAttribPointer(aUV,2,gl.FLOAT,false,stride,24);}
+  const mvp = M4.mul(proj, M4.mul(view, m.model));
+  gl.uniformMatrix4fv(uMVP,false,mvp);
+  gl.uniformMatrix4fv(uModel,false,m.model);
+  gl.uniform3fv(uColor,m.color);
+  gl.uniform1i(uPattern,m.pattern);
+  gl.drawArrays(gl.TRIANGLES,0,m.count);
+}
+
+let lastT=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  if(!started) return;
+  const dt=Math.min((now-lastT)/16.67,3);
+  lastT=now;
+  time+=dt*0.016;
+  gameTime+=dt*16.67/1000;
+  distortAmount*=0.95;
+
+  // Movement
+  const spd = state.moveSpeed * 0.004 * dt;
+  const fwd=[Math.sin(playerYaw),0,-Math.cos(playerYaw)];
+  const right=[Math.cos(playerYaw),0,Math.sin(playerYaw)];
+  let moved=false;
+  if(keys['KeyW']){playerPos=V3.add(playerPos,V3.scale(fwd,spd));moved=true;}
+  if(keys['KeyS']){playerPos=V3.add(playerPos,V3.scale(fwd,-spd));moved=true;}
+  if(keys['KeyA']){playerPos=V3.add(playerPos,V3.scale(right,-spd));moved=true;}
+  if(keys['KeyD']){playerPos=V3.add(playerPos,V3.scale(right,spd));moved=true;}
+
+  if(moved){
+    stepAccum+=spd;
+    if(stepAccum>0.8){ stepCounter++; stepAccum=0; state.steps=stepCounter; }
+  }
+
+  playerPos=collide(playerPos,0.3);
+
+  // Non-Euclidean zones
+  ZONES.forEach(z=>{
+    if(z.test(playerPos)){
+      z.action(playerPos);
+    }
+  });
+
+  // Detect room
+  const newRoom=detectRoom(playerPos);
+  if(newRoom.id!==currentRoom.id){
+    currentRoom=newRoom;
+    if(!state.roomsFound.has(newRoom.id)&&newRoom.id!=='lobby'){
+      state.roomsFound.add(newRoom.id);
+      saveState();
+    }
+  }
+
+  // Update HUD
+  document.getElementById('h-room').textContent=currentRoom.name;
+  document.getElementById('h-room').style.color=`rgb(${currentRoom.color.map(c=>c*255|0).join(',')})`;
+  document.getElementById('h-steps').textContent=stepCounter;
+  document.getElementById('h-rooms').textContent=state.roomsFound.size;
+  const mins=Math.floor(gameTime/60), secs=Math.floor(gameTime%60);
+  document.getElementById('h-time').textContent=`${mins}:${secs.toString().padStart(2,'0')}`;
+  document.getElementById('h-hint').textContent=currentRoom.hint;
+
+  // Render
+  const W=canvas.width,H=canvas.height;
+  const fovRad=state.fov*Math.PI/180;
+  const proj=M4.perspective(fovRad,W/H,0.1,200);
+  const eye=playerPos;
+  const target=V3.add(eye,[Math.sin(playerYaw)*Math.cos(playerPitch),Math.sin(playerPitch),-Math.cos(playerYaw)*Math.cos(playerPitch)]);
+  const view=M4.lookAt(eye,target,[0,1,0]);
+
+  gl.clearColor(currentRoom.fog[0],currentRoom.fog[1],currentRoom.fog[2],1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+
+  gl.useProgram(prog);
+  gl.uniform3fv(uLight, currentRoom.light);
+  gl.uniform3fv(uFog, currentRoom.fog);
+  gl.uniform1f(uFogDist, 0.015);
+  gl.uniform1f(uTime, time);
+
+  meshes.forEach(m=>drawMesh(m,view,proj));
+
+  drawCompass();
+  drawMinimap();
+}
+requestAnimationFrame(frame);
+
+// Save periodically
+setInterval(saveState, 10000);
+</script>
 </body>
 </html>
