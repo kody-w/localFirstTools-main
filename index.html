@@ -138,6 +138,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
 .reply-box textarea{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:.4rem;font-size:.75rem;font-family:inherit;resize:vertical;min-height:60px}
 .reply-box textarea:focus{border-color:var(--link);outline:none}
 .reply-box button{padding:.3rem .75rem;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:.7rem;font-weight:600;cursor:pointer;align-self:flex-end}
+.health-badge{display:inline-flex;align-items:center;gap:.2rem;font-size:.6rem;padding:.1rem .4rem;border-radius:3px;font-weight:600}
+.health-ok{background:rgba(76,175,80,.15);color:#66bb6a}
+.health-warn{background:rgba(255,152,0,.15);color:#ffa726}
+.health-crash{background:rgba(244,67,54,.15);color:#ef5350}
+.error-panel{margin:.75rem 0;border:1px solid rgba(244,67,54,.2);border-radius:var(--radius);overflow:hidden}
+.error-panel-header{display:flex;align-items:center;justify-content:space-between;padding:.4rem .6rem;background:rgba(244,67,54,.08);cursor:pointer;font-size:.7rem;font-weight:600;color:#ef5350}
+.error-panel-header:hover{background:rgba(244,67,54,.12)}
+.error-panel-body{display:none;max-height:200px;overflow-y:auto}
+.error-panel-body.open{display:block}
+.error-entry{padding:.35rem .6rem;border-top:1px solid rgba(255,255,255,.04);font-size:.65rem;font-family:monospace;color:var(--text3);line-height:1.5}
+.error-entry .err-msg{color:#ef5350;font-weight:600}
+.error-entry .err-src{color:var(--text3);opacity:.7}
+.error-entry .err-time{color:var(--text3);opacity:.5;font-size:.55rem}
 .reply-box button:hover{background:var(--accent2)}
 
 /* ===== STAR RATING ===== */
@@ -238,6 +251,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
     <input id="q" type="text" placeholder="Search the zoo..." aria-label="Search">
   </div>
   <div class="topnav-right">
+    <button id="dim-btn" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;padding:.3rem .6rem;border-radius:14px;font-size:.7rem;font-weight:700;cursor:pointer;letter-spacing:.3px;white-space:nowrap;transition:opacity .15s" title="Explore alternate dimension UIs" onclick="toggleDimOverlay()">Dimensions</button>
     <div class="online-badge"><span class="online-dot"></span> <strong id="online-ct">--</strong> online</div>
     <div class="topnav-stats">
       <span><strong id="ct">--</strong> games</span>
@@ -545,7 +559,290 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
       (frames[i].current?'Current live version':(frames[i].size?Math.round(frames[i].size/1024)+'KB archived':'Archived'))+'</span></div>';
     document.getElementById('tl-changelog').innerHTML=clH;
   }
-  function tlGoto(idx){if(idx<0||idx>=tlState.frames.length)return;tlState.frameIdx=idx;var f=tlState.frames[idx];document.getElementById('tl-viewport').src=f.url;document.getElementById('tl-frame').textContent=f.label+' of '+tlState.frames.length;document.getElementById('tl-bar').style.width=((idx+1)/tlState.frames.length*100)+'%'}
+
+  /* ═══ RAPPTERZOO GAME BRIDGE ═══ */
+  var bridgeScript='<script>'+
+    '(function(){'+
+    'var _rz={errors:[],alive:true,appStem:"",lastHB:Date.now()};'+
+    'window.addEventListener("message",function(e){'+
+      'if(!e.data||e.data.type!=="rappterzoo-cmd")return;'+
+      'var cmd=e.data.cmd,id=e.data.id;'+
+      'try{'+
+        'var api=window.RAPPTERZOO||{};'+
+        'var result=null;'+
+        'if(cmd==="getState")result=api.getState?api.getState():null;'+
+        'else if(cmd==="sendInput"&&api.sendInput)api.sendInput(e.data.action);'+
+        'else if(cmd==="getControls")result=api.getControls?api.getControls():null;'+
+        'else if(cmd==="step"){result=api.step?api.step(e.data.n||1):null}'+
+        'else if(cmd==="serialize")result=api.serialize?api.serialize():null;'+
+        'else if(cmd==="deserialize"&&api.deserialize)api.deserialize(e.data.state);'+
+        'else if(cmd==="ping"){result={alive:true,hasAPI:!!window.RAPPTERZOO,errors:_rz.errors.length}}'+
+        'parent.postMessage({type:"rappterzoo-reply",id:id,result:result},\"*\");'+
+      '}catch(err){'+
+        'parent.postMessage({type:"rappterzoo-reply",id:id,error:err.message},\"*\");'+
+      '}'+
+    '});'+
+    'window.onerror=function(msg,src,line,col,err){'+
+      'var e={msg:String(msg),src:String(src||"").split("/").pop(),line:line,col:col,stack:err?String(err.stack||"").substring(0,300):"",ts:Date.now()};'+
+      '_rz.errors.push(e);'+
+      'parent.postMessage({type:"rappterzoo-error",error:e},\"*\");'+
+    '};'+
+    'window.addEventListener("unhandledrejection",function(ev){'+
+      'var e={msg:"Unhandled rejection: "+String(ev.reason&&ev.reason.message||ev.reason||"unknown"),src:"promise",line:0,col:0,stack:ev.reason?String(ev.reason.stack||"").substring(0,300):"",ts:Date.now()};'+
+      '_rz.errors.push(e);'+
+      'parent.postMessage({type:"rappterzoo-error",error:e},\"*\");'+
+    '});'+
+    'setInterval(function(){parent.postMessage({type:"rappterzoo-heartbeat",ts:Date.now(),errorCount:_rz.errors.length},\"*\")},3000);'+
+    '})();'+
+    '<\\/script>';
+
+  function wrapWithBridge(url){
+    return url+'#rappterzoo-bridged';
+  }
+
+  // Inject bridge after iframe loads
+  function injectBridge(iframe){
+    try{
+      var doc=iframe.contentDocument||iframe.contentWindow.document;
+      if(!doc||!doc.head)return;
+      // Check if already injected
+      if(iframe.contentWindow.__rz_bridged)return;
+      var s=doc.createElement('script');
+      s.textContent=bridgeScript.replace(/<\/?script>/gi,'');
+      doc.head.insertBefore(s,doc.head.firstChild);
+      iframe.contentWindow.__rz_bridged=true;
+    }catch(e){/* cross-origin or not loaded yet */}
+  }
+
+  function tlGoto(idx){if(idx<0||idx>=tlState.frames.length)return;tlState.frameIdx=idx;var f=tlState.frames[idx];
+    var vp=document.getElementById('tl-viewport');
+    vp.onload=function(){injectBridge(vp)};
+    vp.src=f.url;
+    document.getElementById('tl-frame').textContent=f.label+' of '+tlState.frames.length;document.getElementById('tl-bar').style.width=((idx+1)/tlState.frames.length*100)+'%'}
+
+  /* ═══ ERROR STORE ═══ */
+  var appErrors={};
+  var appHealth={};
+  function getStoredErrors(){try{return JSON.parse(localStorage.getItem('rappterzoo-errors')||'{}')}catch(e){return {}}}
+  function saveStoredErrors(d){try{localStorage.setItem('rappterzoo-errors',JSON.stringify(d))}catch(e){}}
+  appErrors=getStoredErrors();
+
+  function recordError(err){
+    if(!currentApp)return;
+    var stem=currentApp.stem;
+    if(!appErrors[stem])appErrors[stem]=[];
+    // Dedupe by message
+    var dominated=appErrors[stem].some(function(e){return e.msg===err.msg});
+    if(!dominated){
+      appErrors[stem].push(err);
+      if(appErrors[stem].length>20)appErrors[stem].shift();
+      saveStoredErrors(appErrors);
+      updateHealthBadge();
+      maybeHealthBotComment(stem,err);
+    }
+  }
+
+  var lastHeartbeat=0;
+  window.addEventListener('message',function(e){
+    if(!e.data)return;
+    if(e.data.type==='rappterzoo-error')recordError(e.data.error);
+    if(e.data.type==='rappterzoo-heartbeat')lastHeartbeat=Date.now();
+    if(e.data.type==='rappterzoo-reply'&&pendingCmds[e.data.id]){
+      pendingCmds[e.data.id](e.data);delete pendingCmds[e.data.id];
+    }
+  });
+
+  /* ═══ COMMAND INTERFACE ═══ */
+  var pendingCmds={},cmdId=0;
+  function sendCmd(cmd,data,cb){
+    var id=++cmdId;
+    var msg=Object.assign({type:'rappterzoo-cmd',cmd:cmd,id:id},data||{});
+    if(cb)pendingCmds[id]=cb;
+    var vp=document.getElementById('tl-viewport');
+    if(vp&&vp.contentWindow)vp.contentWindow.postMessage(msg,'*');
+    // Timeout cleanup
+    setTimeout(function(){if(pendingCmds[id]){pendingCmds[id]({error:'timeout'});delete pendingCmds[id]}},5000);
+  }
+
+  /* ═══ HEALTH SYSTEM ═══ */
+  function getHealthStatus(stem){
+    var errs=appErrors[stem]||[];
+    if(!errs.length)return 'ok';
+    var recent=errs.filter(function(e){return Date.now()-e.ts<86400000});
+    if(recent.length>=5)return 'crash';
+    if(recent.length>=1)return 'warn';
+    return 'ok';
+  }
+
+  function updateHealthBadge(){
+    var el=document.getElementById('health-badge');
+    if(!el||!currentApp)return;
+    var status=getHealthStatus(currentApp.stem);
+    var errs=appErrors[currentApp.stem]||[];
+    if(status==='ok')el.innerHTML='<span class="health-badge health-ok">\u2705 Healthy</span>';
+    else if(status==='warn')el.innerHTML='<span class="health-badge health-warn">\u26A0\uFE0F '+errs.length+' error'+(errs.length>1?'s':'')+'</span>';
+    else el.innerHTML='<span class="health-badge health-crash">\u274C Crashing ('+errs.length+' errors)</span>';
+  }
+
+  function renderErrorPanel(){
+    var el=document.getElementById('error-panel');
+    if(!el||!currentApp)return;
+    var errs=appErrors[currentApp.stem]||[];
+    if(!errs.length){el.innerHTML='';return}
+    var html='<div class="error-panel"><div class="error-panel-header" id="err-toggle"><span>\uD83D\uDC1B '+errs.length+' captured error'+(errs.length>1?'s':'')+'</span><span>\u25BC</span></div><div class="error-panel-body" id="err-body">';
+    for(var i=errs.length-1;i>=0;i--){
+      var e=errs[i];
+      html+='<div class="error-entry"><span class="err-msg">'+esc(e.msg)+'</span>';
+      if(e.src&&e.line)html+='<br><span class="err-src">'+esc(e.src)+':'+e.line+'</span>';
+      if(e.stack)html+='<br><span class="err-src">'+esc(e.stack.substring(0,150))+'</span>';
+      html+='<br><span class="err-time">'+new Date(e.ts).toLocaleTimeString()+'</span></div>';
+    }
+    html+='</div></div>';
+    el.innerHTML=html;
+    var tog=document.getElementById('err-toggle');
+    if(tog)tog.onclick=function(){var b=document.getElementById('err-body');if(b)b.classList.toggle('open')};
+  }
+
+  function maybeHealthBotComment(stem,err){
+    var uc=getUserComments();
+    if(!uc[stem])uc[stem]=[];
+    // Check if HealthBot already reported this exact error
+    var already=uc[stem].some(function(c){return c.authorId==='healthbot'&&c.text.indexOf(err.msg)>-1});
+    if(already)return;
+    uc[stem].push({
+      id:'hb'+Date.now(),author:'HealthBot',authorId:'healthbot',authorColor:'#ff5252',
+      text:'**\uD83D\uDC1B Bug Report (auto-detected)**\n'+err.msg+(err.src&&err.line?'\nSource: '+err.src+':'+err.line:'')+(err.stack?'\n```\n'+err.stack.substring(0,200)+'\n```':''),
+      timestamp:new Date().toISOString(),upvotes:0,downvotes:0,version:0,parentId:null,children:[],
+      isAgent:true,agentRole:'healthcheck'
+    });
+    saveUserComments(uc);
+  }
+
+  /* ═══ AGENT PLAYER ═══ */
+  var agentPlaying=false,agentInterval=null,agentLog=[];
+
+  function AgentPlayer(app,options){
+    this.app=app;
+    this.actions=[];
+    this.states=[];
+    this.startTime=Date.now();
+    this.controls=[];
+    this.ticks=0;
+    this.maxTicks=options&&options.maxTicks||300;
+    this.speed=options&&options.speed||200;
+    this.onTick=options&&options.onTick||function(){};
+    this.onDone=options&&options.onDone||function(){};
+  }
+
+  AgentPlayer.prototype.start=function(){
+    var self=this;
+    agentPlaying=true;
+    agentLog=[];
+    // Discover controls
+    sendCmd('getControls',{},function(reply){
+      self.controls=reply.result||['left','right','up','down','action'];
+      self._loop();
+    });
+    // Fallback if no reply
+    setTimeout(function(){if(!self.controls.length){self.controls=['left','right','up','down','action'];self._loop()}},2000);
+  };
+
+  AgentPlayer.prototype._loop=function(){
+    var self=this;
+    agentInterval=setInterval(function(){
+      if(self.ticks>=self.maxTicks){self.stop();return}
+      self.ticks++;
+      // Get state
+      sendCmd('getState',{},function(reply){
+        var state=reply.result||{};
+        self.states.push(state);
+        // Decide action — simple heuristic AI
+        var action=self._decide(state);
+        self.actions.push({tick:self.ticks,action:action,state:state});
+        // Send input
+        sendCmd('sendInput',{action:action});
+        // Also try stepping the simulation
+        sendCmd('step',{n:1});
+        self.onTick(self.ticks,action,state);
+      });
+      // Fallback: even without API, send keyboard-like inputs
+      if(!self.states.length){
+        var action=self.controls[Math.floor(Math.random()*self.controls.length)];
+        self.actions.push({tick:self.ticks,action:action,state:null});
+        sendCmd('sendInput',{action:action});
+        self.onTick(self.ticks,action,null);
+      }
+    },self.speed);
+  };
+
+  AgentPlayer.prototype._decide=function(state){
+    // Heuristic: if score/hp available, make smarter choices
+    var c=this.controls;
+    if(!c.length)return 'action';
+    // Weighted random with recent action avoidance
+    var last=this.actions.length?this.actions[this.actions.length-1].action:'';
+    var weights=c.map(function(a){return a===last?0.3:1});
+    // Prefer movement over idle
+    var total=weights.reduce(function(a,b){return a+b},0);
+    var r=Math.random()*total,sum=0;
+    for(var i=0;i<c.length;i++){sum+=weights[i];if(r<=sum)return c[i]}
+    return c[0];
+  };
+
+  AgentPlayer.prototype.stop=function(){
+    clearInterval(agentInterval);agentInterval=null;agentPlaying=false;
+    var duration=Math.round((Date.now()-this.startTime)/1000);
+    var lastState=this.states.length?this.states[this.states.length-1]:{};
+    var score=lastState.score||lastState.points||lastState.kills||0;
+    // Log the session
+    var session={
+      app:this.app.stem,ticks:this.ticks,duration:duration,
+      score:score,actions:this.actions.length,
+      finalState:lastState,timestamp:new Date().toISOString()
+    };
+    agentLog.push(session);
+    // Post a comment with results
+    var uc=getUserComments();
+    var stem=this.app.stem;
+    if(!uc[stem])uc[stem]=[];
+    var hasAPI=this.states.some(function(s){return s&&Object.keys(s).length>0});
+    uc[stem].push({
+      id:'ap'+Date.now(),author:'AgentPlayer',authorId:'healthbot',authorColor:'#7c4dff',
+      text:'**\uD83E\uDD16 Agent Play Session**\nPlayed for '+duration+'s ('+this.ticks+' ticks)\n'+(hasAPI?'Score: '+score+'\nFinal state: '+JSON.stringify(lastState).substring(0,200):'Game does not expose RAPPTERZOO API — used blind input mode')+'\nActions: '+this.actions.length,
+      timestamp:new Date().toISOString(),upvotes:0,downvotes:0,version:0,parentId:null,children:[],
+      isAgent:true,agentRole:'player'
+    });
+    saveUserComments(uc);
+    this.onDone(session);
+  };
+
+  AgentPlayer.prototype.serialize=function(){
+    return JSON.stringify({actions:this.actions,states:this.states,controls:this.controls,ticks:this.ticks});
+  };
+
+  function startAgentPlay(){
+    if(!currentApp||agentPlaying)return;
+    var statusEl=document.getElementById('agent-status');
+    if(statusEl)statusEl.textContent='\uD83E\uDD16 Agent is playing...';
+    var agent=new AgentPlayer(currentApp,{
+      maxTicks:200,speed:150,
+      onTick:function(tick,action,state){
+        if(statusEl)statusEl.textContent='\uD83E\uDD16 Tick '+tick+' | '+action+(state&&state.score?' | Score: '+state.score:'');
+      },
+      onDone:function(session){
+        if(statusEl)statusEl.textContent='\u2705 Agent done — '+session.ticks+' ticks, '+session.duration+'s'+(session.score?' — Score: '+session.score:'');
+        // Re-render comments to show new agent comment
+        if(currentApp)renderComments(currentApp);
+      }
+    });
+    agent.start();
+  }
+
+  function stopAgentPlay(){
+    if(agentInterval){clearInterval(agentInterval);agentInterval=null;agentPlaying=false}
+    var statusEl=document.getElementById('agent-status');
+    if(statusEl)statusEl.textContent='Agent stopped';
+  }
   function tlPlay(){if(tlState.playing){tlPause();return}tlState.playing=true;var b=document.getElementById('tl-play');if(b){b.textContent='\u23F8';b.classList.add('active')}tlState.interval=setInterval(function(){tlGoto((tlState.frameIdx+1)%tlState.frames.length)},tlState.speed)}
   function tlPause(){tlState.playing=false;clearInterval(tlState.interval);var b=document.getElementById('tl-play');if(b){b.textContent='\u25B6';b.classList.remove('active')}}
 
@@ -879,6 +1176,41 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubunt
     document.getElementById('sidebar-toggle').addEventListener('click',function(){document.getElementById('sidebar').classList.toggle('open')});
   }
 })();
+</script>
+<!-- Dimensions Overlay -->
+<div id="dim-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;justify-content:center;align-items:center;padding:1rem" onclick="if(event.target===this)toggleDimOverlay()">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:640px;width:100%;max-height:80vh;overflow:auto;padding:1.5rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <h2 style="font-size:1.1rem;color:var(--text)">Dimensions</h2>
+      <button onclick="toggleDimOverlay()" style="background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer">&times;</button>
+    </div>
+    <p style="font-size:.75rem;color:var(--text2);margin-bottom:1rem">Same data, radically different experiences. Each dimension renders the full app catalog through a unique lens.</p>
+    <div id="dim-list" style="display:grid;gap:.75rem"></div>
+  </div>
+</div>
+<script>
+function toggleDimOverlay(){
+  var o=document.getElementById('dim-overlay');
+  if(o.style.display==='none'||!o.style.display){
+    o.style.display='flex';
+    loadDimensions();
+  }else{o.style.display='none'}
+}
+function loadDimensions(){
+  var el=document.getElementById('dim-list');
+  if(el.dataset.loaded)return;
+  fetch('apps/dimensions/dimensions.json').then(function(r){return r.json()}).then(function(data){
+    var html='';
+    var colors=['linear-gradient(135deg,#ff006e,#8338ec)','linear-gradient(135deg,#e8d5b7,#8b6914)','linear-gradient(135deg,#00ff41,#003311)'];
+    data.dimensions.forEach(function(d,i){
+      html+='<a href="apps/dimensions/'+d.file+'" target="_blank" style="display:flex;gap:1rem;padding:.75rem;background:var(--bg3);border:1px solid var(--border);border-radius:6px;text-decoration:none;transition:border-color .15s;align-items:center" onmouseover="this.style.borderColor=\'var(--link)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
+        +'<div style="width:48px;height:48px;border-radius:8px;background:'+colors[i%3]+';flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#fff">'+(i===0?'\uD83C\uDFAE':i===1?'\uD83C\uDFA8':'\uD83D\uDE80')+'</div>'
+        +'<div><div style="font-size:.85rem;font-weight:600;color:var(--text)">'+d.title+'</div><div style="font-size:.7rem;color:var(--text2);margin-top:.15rem">'+d.description+'</div></div></a>';
+    });
+    el.innerHTML=html;
+    el.dataset.loaded='1';
+  }).catch(function(){el.innerHTML='<p style="color:var(--text3);font-size:.75rem">Could not load dimensions.</p>'});
+}
 </script>
 </body>
 </html>
