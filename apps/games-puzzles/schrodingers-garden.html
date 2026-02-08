@@ -4,366 +4,697 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Schrodingers Garden</title>
-    <meta name="description" content="A quantum garden where plants exist in superposition until observed, collapsing into definite states under your gaze">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #050510; min-height: 100vh; font-family: 'Georgia', serif; color: #8080c0; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; }
-        #controls {
-            position: fixed; top: 20px; left: 20px; background: rgba(10,10,30,0.95);
-            padding: 20px; border-radius: 10px; border: 1px solid rgba(100,100,200,0.3);
-            z-index: 100;
+        body { background: #050510; overflow: hidden; font-family: 'Georgia', serif; }
+        canvas { display: block; }
+        .hud-box {
+            position: fixed; z-index: 10; pointer-events: auto;
+            background: rgba(10,10,30,0.85); border: 1px solid rgba(100,100,200,0.3);
+            border-radius: 10px; padding: 10px 16px; backdrop-filter: blur(4px);
         }
-        h3 { margin-bottom: 15px; color: #a0a0e0; font-weight: normal; }
-        .control-row { margin: 10px 0; }
-        label { display: block; font-size: 11px; margin-bottom: 5px; opacity: 0.8; }
-        input[type="range"] { width: 140px; }
-        .value { float: right; color: #c0c0ff; font-size: 12px; }
-        button {
-            display: block; width: 100%; padding: 10px; margin: 6px 0;
-            background: rgba(60,60,120,0.4); border: 1px solid rgba(100,100,200,0.4);
-            color: #a0a0d0; cursor: pointer; border-radius: 6px; font-family: inherit;
+        .hud-label { font-size: 9px; color: rgba(140,140,220,0.6); text-transform: uppercase; letter-spacing: 2px; }
+        .hud-value { font-size: 18px; color: #b0b0ff; }
+        .hud-row { display: flex; gap: 20px; }
+        .bar-wrap { width: 110px; height: 6px; background: rgba(40,40,80,0.5); border-radius: 3px; margin-top: 3px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .bar-energy { background: linear-gradient(90deg, #4040ff, #a040ff); }
+        .bar-coherence { background: linear-gradient(90deg, #ff4040, #40ff80); }
+        #hud-left { top: 10px; left: 20px; }
+        #hud-right { top: 10px; right: 20px; }
+        #menu-overlay, #gameover-overlay, #pause-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(3,3,10,0.95); z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.5; z-index: 100; }
+        .overlay-title { font-size: 42px; color: #b0b0ff; margin-bottom: 8px; text-shadow: 0 0 25px rgba(100,100,255,0.5); }
+        .overlay-sub { font-size: 14px; color: rgba(140,140,220,0.5); margin-bottom: 30px; letter-spacing: 3px; }
+        .menu-btn {
+            display: block; width: 250px; padding: 13px; margin: 6px;
+            background: rgba(40,40,100,0.3); border: 1px solid rgba(100,100,200,0.3);
+            color: #a0a0e0; font-size: 15px; font-family: inherit; cursor: pointer;
+            border-radius: 8px; transition: all 0.2s; text-align: center;
+        }
+        .menu-btn:hover { background: rgba(60,60,140,0.4); border-color: rgba(130,130,255,0.5); }
+        .stat-row { display: flex; justify-content: space-between; width: 280px; padding: 5px 0; color: #a0a0d0; font-size: 13px; border-bottom: 1px solid rgba(100,100,200,0.1); }
+        .stat-val { color: #b0b0ff; }
+        .hidden { display: none !important; }
+        #diff-select { display: flex; gap: 8px; margin: 8px 0 20px; }
+        .diff-btn { padding: 7px 18px; border-radius: 7px; border: 1px solid rgba(100,100,200,0.3); background: rgba(20,20,50,0.5); color: #a0a0d0; cursor: pointer; font-family: inherit; }
+        .diff-btn.sel { border-color: #6060ff; background: rgba(40,40,120,0.5); }
+        #objective { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; text-align: center; }
+        .obj-text { font-size: 13px; color: rgba(140,140,220,0.6); letter-spacing: 1px; }
+        .obj-target { font-size: 20px; color: #b0b0ff; margin-top: 4px; }
+        #wave-indicator { position: fixed; top: 50%; right: 16px; transform: translateY(-50%); z-index: 10; pointer-events: none; text-align: center; }
+        .wave-label { font-size: 10px; color: rgba(140,140,220,0.4); letter-spacing: 2px; }
+        .wave-num { font-size: 24px; color: #b0b0ff; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="controls">
-        <h3>Quantum Garden</h3>
-        <div class="control-row">
-            <label>Observation Radius <span class="value" id="radius-val">100</span></label>
-            <input type="range" id="radius" min="50" max="200" value="100">
-        </div>
-        <div class="control-row">
-            <label>Collapse Rate <span class="value" id="collapse-val">50</span></label>
-            <input type="range" id="collapse" min="10" max="100" value="50">
-        </div>
-        <button id="plant-btn">Plant Quantum Seed</button>
-        <button id="superpose-btn">Reset Superpositions</button>
+<canvas id="canvas"></canvas>
+<div id="hud-left" class="hud-box hidden">
+    <div class="hud-row">
+        <div><div class="hud-label">Quantum Score</div><div class="hud-value" id="score-val">0</div></div>
+        <div><div class="hud-label">Combo</div><div class="hud-value" id="combo-val">x1</div></div>
     </div>
-    <div id="info">Move cursor to observe | Plants collapse from quantum states when watched</div>
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let W, H;
-        function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
-        resize(); window.onresize = resize;
-        
-        let observationRadius = 100;
-        let collapseRate = 0.5;
-        let mouseX = -1000, mouseY = -1000;
-        let time = 0;
-        
-        const plants = [];
-        const particles = [];
-        
-        const STATES = ['seed', 'sprout', 'growing', 'mature', 'flowering', 'withered'];
-        
-        class QuantumPlant {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.probabilities = {};
-                STATES.forEach(s => this.probabilities[s] = 1 / STATES.length);
-                this.collapsed = false;
-                this.currentState = null;
-                this.collapseLevel = 0;
-                this.phase = Math.random() * Math.PI * 2;
-                this.hue = 100 + Math.random() * 60;
-            }
-            
-            update() {
-                const dist = Math.hypot(this.x - mouseX, this.y - mouseY);
-                
-                if (dist < observationRadius && !this.collapsed) {
-                    const intensity = (1 - dist / observationRadius) * collapseRate * 0.02;
-                    this.collapseLevel = Math.min(1, this.collapseLevel + intensity);
-                    
-                    if (this.collapseLevel > 0.95) {
-                        this.collapse();
-                    }
-                    
-                    if (Math.random() < intensity * 0.5) {
-                        particles.push({
-                            x: this.x + (Math.random() - 0.5) * 30,
-                            y: this.y - Math.random() * 50,
-                            vx: (Math.random() - 0.5) * 2,
-                            vy: -Math.random() * 2,
-                            size: 2 + Math.random() * 3,
-                            life: 1,
-                            hue: this.hue
-                        });
-                    }
-                } else if (dist > observationRadius * 1.5 && !this.collapsed) {
-                    this.collapseLevel = Math.max(0, this.collapseLevel - 0.005);
-                }
-                
-                this.phase += 0.02;
-            }
-            
-            collapse() {
-                this.collapsed = true;
-                let max = 0;
-                let chosen = STATES[0];
-                STATES.forEach(s => {
-                    if (this.probabilities[s] > max) {
-                        max = this.probabilities[s];
-                        chosen = s;
-                    }
-                });
-                this.currentState = chosen;
-                
-                for (let i = 0; i < 15; i++) {
-                    particles.push({
-                        x: this.x,
-                        y: this.y - 30,
-                        vx: (Math.random() - 0.5) * 4,
-                        vy: (Math.random() - 0.5) * 4,
-                        size: 3 + Math.random() * 5,
-                        life: 1,
-                        hue: this.hue + 40
-                    });
-                }
-            }
-            
-            resetSuperposition() {
-                this.collapsed = false;
-                this.currentState = null;
-                this.collapseLevel = 0;
-                STATES.forEach(s => this.probabilities[s] = 1 / STATES.length);
-            }
-            
-            draw() {
-                if (this.collapsed) {
-                    this.drawCollapsed();
-                } else {
-                    this.drawSuperposed();
-                }
-            }
-            
-            drawSuperposed() {
-                const wobble = Math.sin(this.phase) * 5 * (1 - this.collapseLevel);
-                
-                STATES.forEach((state, i) => {
-                    const offset = (i - STATES.length / 2) * 8 * (1 - this.collapseLevel);
-                    const alpha = this.probabilities[state] * (0.3 + this.collapseLevel * 0.5);
-                    
-                    ctx.save();
-                    ctx.translate(this.x + offset + wobble * Math.sin(i), this.y);
-                    ctx.globalAlpha = alpha;
-                    
-                    this.drawStateGhost(state);
-                    
-                    ctx.restore();
-                });
-                
-                ctx.beginPath();
-                ctx.arc(this.x, this.y - 30, 20 * (1 - this.collapseLevel), 0, Math.PI * 2);
-                ctx.strokeStyle = "rgba(150, 150, 255, " + (0.3 - this.collapseLevel * 0.3) + ")";
-                ctx.lineWidth = 2;
-                ctx.stroke();
-            }
-            
-            drawCollapsed() {
-                ctx.save();
-                ctx.translate(this.x, this.y);
-                ctx.globalAlpha = 1;
-                
-                this.drawStateGhost(this.currentState, true);
-                
-                ctx.restore();
-            }
-            
-            drawStateGhost(state, solid = false) {
-                const saturation = solid ? 70 : 40;
-                const lightness = solid ? 50 : 40;
-                
-                switch(state) {
-                    case 'seed':
-                        ctx.beginPath();
-                        ctx.ellipse(0, -5, 5, 8, 0, 0, Math.PI * 2);
-                        ctx.fillStyle = "hsla(" + (this.hue - 20) + ", " + saturation + "%, " + (lightness - 10) + "%, 1)";
-                        ctx.fill();
-                        break;
-                        
-                    case 'sprout':
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.lineTo(0, -20);
-                        ctx.strokeStyle = "hsla(" + this.hue + ", " + saturation + "%, " + lightness + "%, 1)";
-                        ctx.lineWidth = 2;
-                        ctx.stroke();
-                        
-                        ctx.beginPath();
-                        ctx.ellipse(-5, -18, 6, 3, -0.3, 0, Math.PI * 2);
-                        ctx.ellipse(5, -18, 6, 3, 0.3, 0, Math.PI * 2);
-                        ctx.fillStyle = "hsla(" + (this.hue + 20) + ", " + saturation + "%, " + lightness + "%, 1)";
-                        ctx.fill();
-                        break;
-                        
-                    case 'growing':
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.lineTo(0, -40);
-                        ctx.strokeStyle = "hsla(" + this.hue + ", " + saturation + "%, " + (lightness - 5) + "%, 1)";
-                        ctx.lineWidth = 3;
-                        ctx.stroke();
-                        
-                        for (let i = 0; i < 3; i++) {
-                            ctx.beginPath();
-                            ctx.ellipse((i % 2 === 0 ? -1 : 1) * 10, -15 - i * 10, 8, 4, (i % 2 === 0 ? -1 : 1) * 0.3, 0, Math.PI * 2);
-                            ctx.fillStyle = "hsla(" + (this.hue + 10) + ", " + saturation + "%, " + lightness + "%, 1)";
-                            ctx.fill();
-                        }
-                        break;
-                        
-                    case 'mature':
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.lineTo(0, -60);
-                        ctx.strokeStyle = "hsla(" + (this.hue - 10) + ", " + saturation + "%, " + (lightness - 10) + "%, 1)";
-                        ctx.lineWidth = 4;
-                        ctx.stroke();
-                        
-                        for (let i = 0; i < 5; i++) {
-                            ctx.beginPath();
-                            ctx.ellipse((i % 2 === 0 ? -1 : 1) * 15, -20 - i * 10, 12, 5, (i % 2 === 0 ? -1 : 1) * 0.4, 0, Math.PI * 2);
-                            ctx.fillStyle = "hsla(" + this.hue + ", " + saturation + "%, " + lightness + "%, 1)";
-                            ctx.fill();
-                        }
-                        break;
-                        
-                    case 'flowering':
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.lineTo(0, -55);
-                        ctx.strokeStyle = "hsla(" + this.hue + ", " + saturation + "%, " + (lightness - 5) + "%, 1)";
-                        ctx.lineWidth = 3;
-                        ctx.stroke();
-                        
-                        for (let i = 0; i < 6; i++) {
-                            const angle = (i / 6) * Math.PI * 2 + time * 0.5;
-                            ctx.beginPath();
-                            ctx.ellipse(Math.cos(angle) * 12, -55 + Math.sin(angle) * 5, 8, 15, angle, 0, Math.PI * 2);
-                            ctx.fillStyle = "hsla(" + (300 + i * 10) + ", 70%, 60%, 1)";
-                            ctx.fill();
-                        }
-                        
-                        ctx.beginPath();
-                        ctx.arc(0, -55, 6, 0, Math.PI * 2);
-                        ctx.fillStyle = "hsla(50, 80%, 60%, 1)";
-                        ctx.fill();
-                        break;
-                        
-                    case 'withered':
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.quadraticCurveTo(10, -20, 5, -35);
-                        ctx.strokeStyle = "hsla(30, 30%, 30%, 1)";
-                        ctx.lineWidth = 2;
-                        ctx.stroke();
-                        
-                        ctx.beginPath();
-                        ctx.ellipse(8, -30, 8, 4, 0.5, 0, Math.PI * 2);
-                        ctx.fillStyle = "hsla(30, 20%, 25%, 0.7)";
-                        ctx.fill();
-                        break;
-                }
+</div>
+<div id="hud-right" class="hud-box hidden">
+    <div><div class="hud-label">Observation Energy</div><div class="bar-wrap"><div class="bar-fill bar-energy" id="energy-bar" style="width:100%"></div></div></div>
+    <div style="margin-top:6px"><div class="hud-label">Coherence</div><div class="bar-wrap"><div class="bar-fill bar-coherence" id="coherence-bar" style="width:100%"></div></div></div>
+</div>
+<div id="wave-indicator" class="hidden"><div class="wave-label">EPOCH</div><div class="wave-num" id="epoch-num">1</div></div>
+<div id="objective" class="hidden"><div class="obj-text" id="obj-text">Collapse 3 plants to FLOWERING state</div><div class="obj-target" id="obj-progress">0 / 3</div></div>
+<div id="menu-overlay">
+    <div class="overlay-title">Schrodinger's Garden</div>
+    <div class="overlay-sub">OBSERVE TO COLLAPSE QUANTUM PLANTS</div>
+    <div id="diff-select">
+        <button class="diff-btn" data-diff="easy">Classical</button>
+        <button class="diff-btn sel" data-diff="normal">Quantum</button>
+        <button class="diff-btn" data-diff="hard">Entangled</button>
+    </div>
+    <button class="menu-btn" id="start-btn">Enter the Garden</button>
+    <button class="menu-btn" id="help-btn">Uncertainty Principle</button>
+    <div id="hs-display" style="margin-top:16px;color:rgba(140,140,220,0.5);font-size:12px"></div>
+</div>
+<div id="gameover-overlay" class="hidden">
+    <div class="overlay-title" id="go-title">Decoherence</div>
+    <div class="overlay-sub" id="go-sub"></div>
+    <div id="go-stats" style="margin-bottom:16px"></div>
+    <button class="menu-btn" id="retry-btn">Observe Again (R)</button>
+    <button class="menu-btn" id="back-btn">Main Menu</button>
+</div>
+<div id="pause-overlay" class="hidden">
+    <div class="overlay-title">Superposition</div>
+    <div class="overlay-sub">Neither playing nor not playing...</div>
+    <button class="menu-btn" id="resume-btn">Collapse to Playing</button>
+    <button class="menu-btn" id="quit-btn">Collapse to Menu</button>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+// Audio
+let audioCtx = null;
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function snd(type, freq, dur, vol) {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = type; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(vol || 0.1, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+}
+function sfxObserve() { snd('sine', 500, 0.2); snd('triangle', 700, 0.15); }
+function sfxCollapse() { snd('sine', 800, 0.3); snd('sine', 1000, 0.2); snd('sine', 1200, 0.15); }
+function sfxMatch() { snd('sine', 660, 0.15); snd('sine', 880, 0.1); snd('sine', 1100, 0.1); }
+function sfxWrong() { snd('sawtooth', 120, 0.2); snd('square', 80, 0.15); }
+function sfxDecohere() { snd('sawtooth', 150, 0.3); snd('square', 100, 0.4); }
+function sfxCombo() { snd('sine', 880, 0.1); snd('triangle', 1320, 0.08); }
+function sfxWave() { snd('sine', 440, 0.12); snd('sine', 550, 0.1); snd('sine', 660, 0.1); snd('sine', 880, 0.2); }
+function sfxShield() { snd('sine', 500, 0.3); snd('triangle', 750, 0.2); }
+function sfxDeath() { snd('sawtooth', 120, 0.5); snd('square', 80, 0.7); }
+function sfxBoss() { snd('square', 50, 0.7); snd('sawtooth', 40, 0.9); }
+function sfxWin() { for (let i = 0; i < 5; i++) setTimeout(() => snd('sine', 400 + i * 120, 0.3), i * 130); }
+function sfxMenu() { snd('sine', 440, 0.12); }
+
+const ST = { MENU: 0, PLAY: 1, PAUSE: 2, OVER: 3 };
+let state = ST.MENU;
+let diff = 'normal';
+const dMult = { easy: 0.6, normal: 1.0, hard: 1.5 };
+
+const PLANT_STATES = ['seed', 'sprout', 'growing', 'mature', 'flowering', 'withered'];
+const STATE_COLORS = { seed: '#806040', sprout: '#60a040', growing: '#40c060', mature: '#30a080', flowering: '#c060ff', withered: '#604030' };
+
+let score = 0, combo = 1, comboTimer = 0, maxCombo = 1;
+let observationEnergy = 100, coherence = 100;
+let epoch = 1, epochTimer = 0;
+let plantsCollapsed = 0, objectivesCompleted = 0, perfectCollapses = 0;
+let shakeX = 0, shakeY = 0, shakeDec = 0;
+let time = 0, lastTime = 0;
+
+// Objective system
+let currentObjective = null;
+let objectiveProgress = 0;
+let objectiveTarget = 3;
+
+// Entities
+let plants = [], decoherenceWaves = [], particles = [], texts = [];
+let mouseX = -1000, mouseY = -1000;
+let observing = false;
+let observationRadius = 100;
+
+class QuantumPlant {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.probabilities = {};
+        PLANT_STATES.forEach(s => this.probabilities[s] = 1 / PLANT_STATES.length);
+        this.collapsed = false;
+        this.currentState = null;
+        this.collapseLevel = 0;
+        this.phase = Math.random() * Math.PI * 2;
+        this.hue = 80 + Math.random() * 80;
+        this.maxSize = 50 + Math.random() * 20;
+        this.wobble = 0;
+        this.hp = 3;
+    }
+    biasToward(targetState) {
+        // Increase probability of target state
+        const boost = 0.1;
+        this.probabilities[targetState] = Math.min(0.9, (this.probabilities[targetState] || 0) + boost);
+        // Normalize
+        const total = Object.values(this.probabilities).reduce((s, v) => s + v, 0);
+        PLANT_STATES.forEach(s => this.probabilities[s] /= total);
+    }
+    observe(intensity) {
+        if (this.collapsed) return;
+        this.collapseLevel = Math.min(1, this.collapseLevel + intensity);
+        this.wobble = 5 * (1 - this.collapseLevel);
+        if (this.collapseLevel > 0.95) this.collapse();
+    }
+    collapse() {
+        this.collapsed = true;
+        // Weighted random selection based on probabilities
+        const r = Math.random();
+        let cumulative = 0;
+        for (const s of PLANT_STATES) {
+            cumulative += this.probabilities[s];
+            if (r <= cumulative) { this.currentState = s; break; }
+        }
+        if (!this.currentState) this.currentState = PLANT_STATES[PLANT_STATES.length - 1];
+        plantsCollapsed++;
+        sfxCollapse();
+        spawnP(this.x, this.y - 30, STATE_COLORS[this.currentState], 15);
+        // Check objective
+        if (currentObjective && this.currentState === currentObjective.targetState) {
+            objectiveProgress++;
+            const pts = 50 * combo;
+            score += pts;
+            sfxMatch();
+            spawnText(this.x, this.y - 50, '+' + pts + ' MATCH!', STATE_COLORS[this.currentState]);
+            combo = Math.min(8, combo + 0.5);
+            comboTimer = 4;
+            maxCombo = Math.max(maxCombo, combo);
+            if (combo >= 3) sfxCombo();
+            if (objectiveProgress >= objectiveTarget) {
+                completeObjective();
             }
         }
-        
-        function drawBackground() {
-            ctx.fillStyle = '#050510';
-            ctx.fillRect(0, 0, W, H);
-            
-            const gradient = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, observationRadius);
-            gradient.addColorStop(0, 'rgba(100, 100, 200, 0.1)');
-            gradient.addColorStop(0.5, 'rgba(80, 80, 180, 0.05)');
-            gradient.addColorStop(1, 'transparent');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, W, H);
-            
+    }
+    resetSuperposition() {
+        if (!this.collapsed) return;
+        this.collapsed = false;
+        this.currentState = null;
+        this.collapseLevel = 0;
+        PLANT_STATES.forEach(s => this.probabilities[s] = 1 / PLANT_STATES.length);
+        spawnP(this.x, this.y - 20, '#8080ff', 8);
+    }
+    update(dt) {
+        this.phase += dt * 2;
+        if (!this.collapsed && this.collapseLevel > 0) {
+            // Natural decoherence: slowly lose collapse progress when not observed
+            const dist = Math.hypot(this.x - mouseX, this.y - mouseY);
+            if (dist > observationRadius || !observing) {
+                this.collapseLevel = Math.max(0, this.collapseLevel - dt * 0.1);
+            }
+        }
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        if (this.collapsed) {
+            this.drawCollapsedState();
+        } else {
+            this.drawSuperposition();
+        }
+        ctx.restore();
+    }
+    drawSuperposition() {
+        const wobble = Math.sin(this.phase) * this.wobble;
+        // Draw ghost states
+        PLANT_STATES.forEach((s, i) => {
+            const offset = (i - PLANT_STATES.length / 2) * 10 * (1 - this.collapseLevel);
+            const alpha = this.probabilities[s] * (0.2 + this.collapseLevel * 0.5);
+            ctx.save();
+            ctx.translate(offset + wobble * Math.sin(i * 1.5), 0);
+            ctx.globalAlpha = alpha;
+            this.drawPlantShape(s, false);
+            ctx.restore();
+        });
+        // Uncertainty circle
+        ctx.strokeStyle = 'rgba(120,120,255,' + (0.3 - this.collapseLevel * 0.25) + ')';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(0, -30, 25 * (1 - this.collapseLevel), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Collapse progress arc
+        if (this.collapseLevel > 0.05) {
+            ctx.strokeStyle = '#6060ff';
+            ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(mouseX, mouseY, observationRadius, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(100, 100, 200, 0.2)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([5, 5]);
+            ctx.arc(0, -30, 28, -Math.PI / 2, -Math.PI / 2 + this.collapseLevel * Math.PI * 2);
             ctx.stroke();
-            ctx.setLineDash([]);
         }
-        
-        function drawParticles() {
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                p.x += p.vx;
-                p.y += p.vy;
-                p.vy -= 0.02;
-                p.life -= 0.02;
-                
-                if (p.life <= 0) {
-                    particles.splice(i, 1);
-                    continue;
+    }
+    drawCollapsedState() {
+        ctx.globalAlpha = 1;
+        this.drawPlantShape(this.currentState, true);
+        // State label
+        ctx.fillStyle = STATE_COLORS[this.currentState];
+        ctx.font = '10px Georgia';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.currentState.toUpperCase(), 0, 15);
+    }
+    drawPlantShape(plantState, solid) {
+        const sat = solid ? 70 : 40;
+        const light = solid ? 50 : 35;
+        const h = this.hue;
+        switch (plantState) {
+            case 'seed':
+                ctx.fillStyle = 'hsla(' + (h - 20) + ',' + sat + '%,' + (light - 10) + '%,1)';
+                ctx.beginPath(); ctx.ellipse(0, -5, 5, 8, 0, 0, Math.PI * 2); ctx.fill();
+                break;
+            case 'sprout':
+                ctx.strokeStyle = 'hsla(' + h + ',' + sat + '%,' + light + '%,1)';
+                ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -20); ctx.stroke();
+                ctx.fillStyle = 'hsla(' + (h + 20) + ',' + sat + '%,' + light + '%,1)';
+                ctx.beginPath(); ctx.ellipse(-5, -18, 6, 3, -0.3, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.ellipse(5, -18, 6, 3, 0.3, 0, Math.PI * 2); ctx.fill();
+                break;
+            case 'growing':
+                ctx.strokeStyle = 'hsla(' + h + ',' + sat + '%,' + (light - 5) + '%,1)';
+                ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -40); ctx.stroke();
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillStyle = 'hsla(' + (h + 10) + ',' + sat + '%,' + light + '%,1)';
+                    ctx.beginPath();
+                    ctx.ellipse((i % 2 === 0 ? -1 : 1) * 10, -15 - i * 10, 8, 4, (i % 2 === 0 ? -1 : 1) * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
                 }
-                
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-                ctx.fillStyle = "hsla(" + p.hue + ", 80%, 70%, " + (p.life * 0.5) + ")";
-                ctx.fill();
+                break;
+            case 'mature':
+                ctx.strokeStyle = 'hsla(' + (h - 10) + ',' + sat + '%,' + (light - 10) + '%,1)';
+                ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -55); ctx.stroke();
+                for (let i = 0; i < 5; i++) {
+                    ctx.fillStyle = 'hsla(' + h + ',' + sat + '%,' + light + '%,1)';
+                    ctx.beginPath();
+                    ctx.ellipse((i % 2 === 0 ? -1 : 1) * 15, -15 - i * 10, 12, 5, (i % 2 === 0 ? -1 : 1) * 0.4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            case 'flowering':
+                ctx.strokeStyle = 'hsla(' + h + ',' + sat + '%,' + (light - 5) + '%,1)';
+                ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -55); ctx.stroke();
+                if (solid) {
+                    ctx.shadowColor = '#c060ff';
+                    ctx.shadowBlur = 15;
+                }
+                for (let i = 0; i < 6; i++) {
+                    const angle = (i / 6) * Math.PI * 2 + this.phase * 0.3;
+                    ctx.fillStyle = 'hsla(' + (280 + i * 15) + ',70%,60%,1)';
+                    ctx.beginPath();
+                    ctx.ellipse(Math.cos(angle) * 12, -55 + Math.sin(angle) * 5, 8, 15, angle, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = 'hsla(50,80%,60%,1)';
+                ctx.beginPath(); ctx.arc(0, -55, 6, 0, Math.PI * 2); ctx.fill();
+                break;
+            case 'withered':
+                ctx.strokeStyle = 'hsla(30,30%,30%,1)';
+                ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(10, -20, 5, -35); ctx.stroke();
+                ctx.fillStyle = 'hsla(30,20%,25%,0.7)';
+                ctx.beginPath(); ctx.ellipse(8, -30, 8, 4, 0.5, 0, Math.PI * 2); ctx.fill();
+                break;
+        }
+    }
+}
+
+class DecoherenceWave {
+    constructor() {
+        const side = Math.random();
+        if (side < 0.25) { this.x = -30; this.y = Math.random() * H; this.vx = 1; this.vy = 0; }
+        else if (side < 0.5) { this.x = W + 30; this.y = Math.random() * H; this.vx = -1; this.vy = 0; }
+        else if (side < 0.75) { this.x = Math.random() * W; this.y = -30; this.vx = 0; this.vy = 1; }
+        else { this.x = Math.random() * W; this.y = H + 30; this.vx = 0; this.vy = -1; }
+        this.speed = (0.5 + Math.random() * 0.5) * dMult[diff];
+        this.size = 20 + Math.random() * 20;
+        this.phase = Math.random() * Math.PI * 2;
+        this.hp = 2;
+        this.dead = false;
+        this.boss = false;
+    }
+    update(dt) {
+        this.phase += dt * 4;
+        this.x += this.vx * this.speed * dt * 60;
+        this.y += this.vy * this.speed * dt * 60;
+        // Check collision with collapsed plants
+        plants.forEach(p => {
+            if (!p.collapsed) return;
+            const d = Math.hypot(p.x - this.x, p.y - this.y);
+            if (d < this.size + 15) {
+                p.resetSuperposition();
+                coherence -= 5 * dMult[diff];
+                sfxDecohere();
+                shakeX = (Math.random() - 0.5) * 5;
+                shakeY = (Math.random() - 0.5) * 5;
+                shakeDec = 0.2;
             }
+        });
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = this.boss ? '#ff2060' : '#6040a0';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = this.boss ? '#ff0040' : '#4020a0';
+        ctx.shadowBlur = 10;
+        // Wavy ring
+        ctx.beginPath();
+        for (let i = 0; i < 20; i++) {
+            const a = (i / 20) * Math.PI * 2;
+            const r = this.size + Math.sin(a * 3 + this.phase) * 5;
+            i === 0 ? ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
         }
-        
-        function animate() {
-            time += 0.016;
-            
-            drawBackground();
-            
-            plants.forEach(p => p.update());
-            plants.forEach(p => p.draw());
-            
-            drawParticles();
-            
-            requestAnimationFrame(animate);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.fillStyle = this.boss ? 'rgba(255,30,80,0.1)' : 'rgba(80,40,160,0.1)';
+        ctx.fill();
+        ctx.restore();
+    }
+    isOffscreen() {
+        return this.x < -100 || this.x > W + 100 || this.y < -100 || this.y > H + 100;
+    }
+}
+
+function spawnP(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4 - 1,
+            size: 2 + Math.random() * 3, life: 1, color, decay: 0.015 + Math.random() * 0.02
+        });
+    }
+}
+function spawnText(x, y, text, color) {
+    texts.push({ x, y, text, color, life: 1, vy: -1.5 });
+}
+
+function generateObjective() {
+    const possibleStates = ['sprout', 'growing', 'mature', 'flowering'];
+    const targetState = possibleStates[Math.floor(Math.random() * possibleStates.length)];
+    objectiveTarget = 2 + Math.floor(Math.random() * 3) + Math.floor(epoch / 3);
+    objectiveProgress = 0;
+    currentObjective = { targetState };
+    document.getElementById('obj-text').textContent = 'Collapse ' + objectiveTarget + ' plants to ' + targetState.toUpperCase();
+    document.getElementById('obj-progress').textContent = '0 / ' + objectiveTarget;
+    // Bias existing uncollapsed plants slightly toward the target
+    plants.forEach(p => {
+        if (!p.collapsed) p.biasToward(targetState);
+    });
+}
+
+function completeObjective() {
+    objectivesCompleted++;
+    const bonus = 200 * epoch;
+    score += bonus;
+    sfxWave();
+    spawnText(W / 2, H / 2, 'OBJECTIVE COMPLETE! +' + bonus, '#80ff80');
+    observationEnergy = Math.min(100, observationEnergy + 30);
+    // Reset all plants for next objective
+    setTimeout(() => {
+        plants.forEach(p => p.resetSuperposition());
+        generateObjective();
+    }, 1000);
+}
+
+function spawnPlants() {
+    plants = [];
+    const count = 8 + epoch * 2;
+    for (let i = 0; i < Math.min(count, 20); i++) {
+        plants.push(new QuantumPlant(
+            W * 0.1 + Math.random() * W * 0.8,
+            H * 0.3 + Math.random() * H * 0.5
+        ));
+    }
+}
+
+// Input
+canvas.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+canvas.addEventListener('mousedown', e => { initAudio(); observing = true; });
+canvas.addEventListener('mouseup', () => { observing = false; });
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault(); initAudio();
+    mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY;
+    observing = true;
+});
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY;
+});
+canvas.addEventListener('touchend', e => { e.preventDefault(); observing = false; });
+
+window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        if (state === ST.PLAY) { state = ST.PAUSE; document.getElementById('pause-overlay').classList.remove('hidden'); sfxMenu(); }
+        else if (state === ST.PAUSE) resumeGame();
+    }
+    if ((e.key === 'r' || e.key === 'R') && state === ST.OVER) startGame();
+});
+
+// UI
+document.querySelectorAll('.diff-btn').forEach(b => b.addEventListener('click', () => {
+    diff = b.dataset.diff;
+    document.querySelectorAll('.diff-btn').forEach(d => d.classList.toggle('sel', d === b));
+    sfxMenu();
+}));
+document.getElementById('start-btn').addEventListener('click', () => { initAudio(); startGame(); });
+document.getElementById('help-btn').addEventListener('click', () => {
+    initAudio(); sfxMenu();
+    alert('SCHRODINGER\'S GARDEN\n\nPlants exist in quantum superposition -- all states at once!\n\nHold mouse/touch to OBSERVE plants in range. Observation collapses their wavefunction into a definite state.\n\nMatch the OBJECTIVE: collapse the right number of plants to the target state.\n\nWatch out for DECOHERENCE WAVES -- they reset collapsed plants back to superposition!\n\nObservation costs energy. Energy regenerates when not observing.\n\nESC to pause, R to restart.');
+});
+document.getElementById('retry-btn').addEventListener('click', startGame);
+document.getElementById('back-btn').addEventListener('click', () => {
+    state = ST.MENU;
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+});
+document.getElementById('resume-btn').addEventListener('click', resumeGame);
+document.getElementById('quit-btn').addEventListener('click', () => {
+    state = ST.MENU;
+    document.getElementById('pause-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+    showHUD(false);
+});
+
+function resumeGame() { state = ST.PLAY; document.getElementById('pause-overlay').classList.add('hidden'); lastTime = performance.now(); }
+function showHUD(show) {
+    const m = show ? 'remove' : 'add';
+    ['hud-left', 'hud-right', 'wave-indicator', 'objective'].forEach(id => document.getElementById(id).classList[m]('hidden'));
+}
+
+function loadHS() { try { return JSON.parse(localStorage.getItem('schrodinger-garden-scores')) || []; } catch { return []; } }
+function saveHS(s) {
+    const hs = loadHS();
+    hs.push({ score: s, diff, date: new Date().toISOString() });
+    hs.sort((a, b) => b.score - a.score);
+    localStorage.setItem('schrodinger-garden-scores', JSON.stringify(hs.slice(0, 10)));
+}
+function displayHS() {
+    const hs = loadHS();
+    document.getElementById('hs-display').textContent = hs.length ? 'Best: ' + hs[0].score + ' (' + hs[0].diff + ')' : 'No scores yet';
+}
+
+function startGame() {
+    state = ST.PLAY;
+    score = 0; combo = 1; comboTimer = 0; maxCombo = 1;
+    observationEnergy = 100; coherence = 100;
+    epoch = 1; epochTimer = 0;
+    plantsCollapsed = 0; objectivesCompleted = 0; perfectCollapses = 0;
+    decoherenceWaves = []; particles = []; texts = [];
+    spawnPlants();
+    generateObjective();
+    document.getElementById('menu-overlay').classList.add('hidden');
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('pause-overlay').classList.add('hidden');
+    showHUD(true);
+    lastTime = performance.now();
+}
+
+function gameOver(ending) {
+    state = ST.OVER;
+    showHUD(false);
+    saveHS(score);
+    const titles = { energy: 'Energy Depleted', coherence: 'Total Decoherence', victory: 'Quantum Mastery!' };
+    const subs = { energy: 'Your observation power faded...', coherence: 'The garden lost all coherence...', victory: 'You mastered the quantum garden!' };
+    document.getElementById('go-title').textContent = titles[ending] || 'Decoherence';
+    document.getElementById('go-sub').textContent = subs[ending] || '';
+    const el = document.getElementById('go-stats');
+    el.innerHTML = '';
+    [['Quantum Score', score], ['Max Combo', 'x' + maxCombo.toFixed(1)], ['Plants Collapsed', plantsCollapsed],
+     ['Objectives Completed', objectivesCompleted], ['Epochs Survived', epoch],
+     ['Difficulty', diff.charAt(0).toUpperCase() + diff.slice(1)]
+    ].forEach(([l, v]) => {
+        const r = document.createElement('div');
+        r.className = 'stat-row';
+        r.innerHTML = '<span>' + l + '</span><span class="stat-val">' + v + '</span>';
+        el.appendChild(r);
+    });
+    document.getElementById('gameover-overlay').classList.remove('hidden');
+    ending === 'victory' ? sfxWin() : sfxDeath();
+}
+
+// Background
+const bgStars = [];
+for (let i = 0; i < 200; i++) bgStars.push({ x: Math.random() * 2000, y: Math.random() * 2000, s: Math.random() * 1.5, p: Math.random() * Math.PI * 2 });
+
+function drawBg() {
+    const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H));
+    g.addColorStop(0, '#0a0a20');
+    g.addColorStop(1, '#050510');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    bgStars.forEach(s => {
+        s.p += 0.005;
+        ctx.fillStyle = 'rgba(140,140,220,' + (0.15 + Math.sin(s.p) * 0.1) + ')';
+        ctx.fillRect(s.x % W, s.y % H, s.s, s.s);
+    });
+    // Observation radius
+    if (state === ST.PLAY) {
+        const obsAlpha = observing ? 0.15 : 0.05;
+        const grad = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, observationRadius);
+        grad.addColorStop(0, 'rgba(100,100,255,' + obsAlpha + ')');
+        grad.addColorStop(0.7, 'rgba(80,80,200,' + (obsAlpha * 0.5) + ')');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = 'rgba(100,100,255,' + (observing ? 0.3 : 0.1) + ')';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.arc(mouseX, mouseY, observationRadius, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+
+function updateHUD() {
+    document.getElementById('score-val').textContent = score;
+    document.getElementById('combo-val').textContent = 'x' + combo.toFixed(1);
+    document.getElementById('energy-bar').style.width = Math.max(0, observationEnergy) + '%';
+    document.getElementById('coherence-bar').style.width = Math.max(0, coherence) + '%';
+    document.getElementById('epoch-num').textContent = epoch;
+    if (currentObjective) {
+        document.getElementById('obj-progress').textContent = objectiveProgress + ' / ' + objectiveTarget;
+    }
+}
+
+function update(dt) {
+    time += dt;
+    // Observation
+    if (observing && observationEnergy > 0) {
+        observationEnergy -= dt * 15 * dMult[diff];
+        plants.forEach(p => {
+            const dist = Math.hypot(p.x - mouseX, p.y - mouseY);
+            if (dist < observationRadius) {
+                const intensity = (1 - dist / observationRadius) * 0.02;
+                p.observe(intensity);
+                if (Math.random() < intensity * 0.3) sfxObserve();
+            }
+        });
+    } else if (!observing) {
+        observationEnergy = Math.min(100, observationEnergy + dt * 8);
+    }
+    // Combo decay
+    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) combo = 1; }
+    // Coherence natural decay
+    coherence -= dt * 0.5 * dMult[diff];
+    // Shake
+    if (shakeDec > 0) { shakeDec -= dt; shakeX *= 0.9; shakeY *= 0.9; } else { shakeX = 0; shakeY = 0; }
+    // Epoch progression
+    epochTimer += dt;
+    if (epochTimer > 25 + epoch * 5) {
+        epoch++;
+        epochTimer = 0;
+        sfxWave();
+        spawnText(W / 2, H / 2, 'EPOCH ' + epoch, '#b0b0ff');
+        // Add more plants
+        for (let i = 0; i < 2; i++) {
+            plants.push(new QuantumPlant(W * 0.1 + Math.random() * W * 0.8, H * 0.3 + Math.random() * H * 0.5));
         }
-        
-        canvas.onmousemove = e => {
-            mouseX = e.clientX;
-            mouseY = e.clientY;
-        };
-        
-        canvas.onclick = e => {
-            plants.push(new QuantumPlant(e.clientX, e.clientY));
-        };
-        
-        document.getElementById('radius').oninput = e => {
-            observationRadius = parseInt(e.target.value);
-            document.getElementById('radius-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('collapse').oninput = e => {
-            collapseRate = e.target.value / 100;
-            document.getElementById('collapse-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('plant-btn').onclick = () => {
-            plants.push(new QuantumPlant(
-                W * 0.2 + Math.random() * W * 0.6,
-                H * 0.4 + Math.random() * H * 0.4
-            ));
-        };
-        
-        document.getElementById('superpose-btn').onclick = () => {
-            plants.forEach(p => p.resetSuperposition());
-        };
-        
-        for (let i = 0; i < 8; i++) {
-            plants.push(new QuantumPlant(
-                W * 0.15 + (i % 4) * W * 0.2 + Math.random() * 50,
-                H * 0.5 + Math.floor(i / 4) * 100 + Math.random() * 50
-            ));
+        if (epoch % 3 === 0) {
+            // Boss decoherence wave
+            const boss = new DecoherenceWave();
+            boss.size = 50;
+            boss.boss = true;
+            boss.speed *= 0.5;
+            decoherenceWaves.push(boss);
+            sfxBoss();
+            spawnText(W / 2, H / 2 + 30, 'DECOHERENCE SURGE!', '#ff2060');
         }
-        
-        animate();
-    </script>
+    }
+    // Spawn decoherence waves
+    const spawnRate = Math.max(2, 6 - epoch * 0.3);
+    if (Math.random() < dt / spawnRate && decoherenceWaves.length < 3 + epoch) {
+        decoherenceWaves.push(new DecoherenceWave());
+    }
+    // Update entities
+    plants.forEach(p => p.update(dt));
+    decoherenceWaves.forEach(w => w.update(dt));
+    decoherenceWaves = decoherenceWaves.filter(w => !w.isOffscreen());
+    // Particles
+    particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.02; p.life -= p.decay; return p.life > 0; });
+    texts = texts.filter(t => { t.y += t.vy; t.life -= 0.015; return t.life > 0; });
+    // Game over
+    if (observationEnergy <= 0 && !observing) {
+        // Energy can recover, only game over if truly depleted while trying to observe
+    }
+    if (coherence <= 0) gameOver('coherence');
+    if (epoch >= 12 && objectivesCompleted >= 5) gameOver('victory');
+}
+
+function render() {
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+    drawBg();
+    plants.forEach(p => p.draw());
+    decoherenceWaves.forEach(w => w.draw());
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    texts.forEach(t => {
+        ctx.globalAlpha = t.life;
+        ctx.fillStyle = t.color;
+        ctx.font = '14px Georgia';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.text, t.x, t.y);
+    });
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    updateHUD();
+}
+
+function loop(now) {
+    requestAnimationFrame(loop);
+    if (!lastTime) lastTime = now;
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    if (state === ST.PLAY) { update(dt); render(); }
+    else if (state === ST.MENU) { time += dt; drawBg(); }
+    else if (state === ST.PAUSE) { render(); ctx.fillStyle = 'rgba(3,3,10,0.3)'; ctx.fillRect(0, 0, W, H); }
+}
+
+displayHS();
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>

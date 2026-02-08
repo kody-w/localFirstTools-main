@@ -3,598 +3,1272 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Déjà Vu Corridor</title>
-    <meta name="description" content="Navigate an endless hallway where doors lead to rooms you've already been in, but everything is slightly different each time.">
-    <!-- tags: dream, surreal, experimental, canvas, exploration, ambient -->
+    <title>Deja Vu Corridor</title>
+    <meta name="description" content="Navigate an endless shifting corridor where rooms change each time you revisit them. Collect memory fragments, avoid glitch entities, and find the exit before reality unravels.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
             background: #0a0a0f;
             min-height: 100vh;
             font-family: 'Georgia', serif;
             overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
         }
-
-        #gameCanvas {
-            display: block;
-            cursor: none;
+        canvas { display: block; }
+        #hud {
+            position: fixed; top: 0; left: 0; right: 0;
+            padding: 10px 15px;
+            display: flex; justify-content: space-between; align-items: center;
+            pointer-events: none; z-index: 100;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
         }
-
-        .ui-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            pointer-events: none;
-            z-index: 100;
+        .hud-section { display: flex; flex-direction: column; gap: 4px; }
+        .hud-label { font-size: 10px; color: rgba(180,160,220,0.7); text-transform: uppercase; letter-spacing: 1px; }
+        .hud-value { font-size: 16px; color: #c0b0e0; font-weight: bold; }
+        .bar-container { width: 120px; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .sanity-bar { background: linear-gradient(to right, #ff4444, #aa44ff, #4488ff); }
+        .memory-bar { background: linear-gradient(to right, #44ff88, #88ffcc); }
+        .combo-display { font-size: 14px; color: #ffcc44; text-shadow: 0 0 8px rgba(255,200,0,0.5); }
+        #toolbar {
+            position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 8px; z-index: 100; pointer-events: auto;
         }
-
-        .room-counter {
-            color: rgba(255, 255, 255, 0.3);
-            font-size: 0.9em;
-            font-style: italic;
+        .tool-btn {
+            width: 56px; height: 56px; border-radius: 10px; border: 2px solid rgba(150,130,200,0.5);
+            background: rgba(20,15,40,0.9); color: #c0b0e0; font-size: 10px;
+            cursor: pointer; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 2px; transition: all 0.2s; position: relative;
         }
-
-        .familiarity {
-            color: rgba(255, 255, 255, 0.3);
-            font-size: 0.9em;
-            text-align: right;
+        .tool-btn:hover { border-color: #c0b0e0; background: rgba(40,30,80,0.9); transform: translateY(-2px); }
+        .tool-btn.active { border-color: #ffcc44; box-shadow: 0 0 12px rgba(255,200,0,0.3); }
+        .tool-btn.cooldown { opacity: 0.4; pointer-events: none; }
+        .tool-icon { font-size: 20px; }
+        .tool-key { font-size: 8px; opacity: 0.6; }
+        .cooldown-overlay {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.7); border-radius: 0 0 8px 8px;
+            transition: height 0.1s;
         }
-
-        .message-overlay {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 1.5em;
-            font-style: italic;
-            text-align: center;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 2s ease;
-            z-index: 100;
+        #menu-screen {
+            position: fixed; inset: 0; z-index: 200;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: radial-gradient(ellipse at center, #1a1030, #0a0a0f);
         }
-
-        .message-overlay.visible {
-            opacity: 1;
+        #menu-screen h1 {
+            font-size: 48px; color: #c0b0e0; margin-bottom: 5px;
+            text-shadow: 0 0 20px rgba(180,140,255,0.4);
+            animation: titlePulse 3s ease-in-out infinite;
         }
-
-        .instructions {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            color: rgba(255, 255, 255, 0.2);
-            font-size: 0.8em;
-            pointer-events: none;
-            transition: opacity 3s ease;
+        @keyframes titlePulse {
+            0%, 100% { text-shadow: 0 0 20px rgba(180,140,255,0.3); }
+            50% { text-shadow: 0 0 40px rgba(180,140,255,0.6), 0 0 60px rgba(120,80,200,0.2); }
         }
-
-        .vignette {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            pointer-events: none;
-            background: radial-gradient(ellipse at center, transparent 0%, transparent 50%, rgba(0,0,0,0.8) 100%);
-            z-index: 50;
+        #menu-screen .subtitle { color: rgba(180,160,220,0.6); font-style: italic; margin-bottom: 40px; font-size: 16px; }
+        .menu-btn {
+            width: 220px; padding: 14px; margin: 6px;
+            background: rgba(40,30,80,0.6); border: 1px solid rgba(150,130,200,0.4);
+            color: #c0b0e0; font-size: 16px; font-family: inherit; cursor: pointer;
+            border-radius: 8px; transition: all 0.3s;
         }
+        .menu-btn:hover { background: rgba(60,40,120,0.8); border-color: #c0b0e0; transform: scale(1.05); }
+        .diff-label { font-size: 11px; opacity: 0.6; display: block; margin-top: 3px; }
+        .high-scores { margin-top: 30px; text-align: center; }
+        .high-scores h3 { color: rgba(180,160,220,0.5); font-size: 13px; margin-bottom: 8px; }
+        .high-scores p { color: rgba(180,160,220,0.4); font-size: 12px; }
+        #pause-overlay {
+            position: fixed; inset: 0; z-index: 200;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(10,10,20,0.85);
+        }
+        #pause-overlay h2 { color: #c0b0e0; font-size: 36px; margin-bottom: 25px; }
+        #gameover-screen {
+            position: fixed; inset: 0; z-index: 200;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(10,10,20,0.9);
+        }
+        #gameover-screen h2 { font-size: 42px; margin-bottom: 10px; }
+        .stat-row { color: rgba(180,160,220,0.7); font-size: 14px; margin: 4px 0; }
+        .ending-text { color: #ffcc44; font-size: 18px; margin: 15px 0; font-style: italic; max-width: 400px; text-align: center; }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas"></canvas>
+    <canvas id="c"></canvas>
 
-    <div class="vignette"></div>
-
-    <div class="ui-overlay">
-        <div class="room-counter">
-            Room <span id="roomNumber">1</span>
-            <br>
-            <span id="visitCount" style="font-size: 0.8em; opacity: 0.5;"></span>
+    <div id="hud" style="display:none;">
+        <div class="hud-section">
+            <span class="hud-label">Room</span>
+            <span class="hud-value" id="room-num">1</span>
         </div>
-        <div class="familiarity">
-            <span id="familiarityText">Unfamiliar</span>
-            <br>
-            <span id="driftText" style="font-size: 0.8em; opacity: 0.5;"></span>
+        <div class="hud-section">
+            <span class="hud-label">Sanity</span>
+            <div class="bar-container"><div class="bar-fill sanity-bar" id="sanity-bar" style="width:100%"></div></div>
+        </div>
+        <div class="hud-section">
+            <span class="hud-label">Memory</span>
+            <div class="bar-container"><div class="bar-fill memory-bar" id="memory-bar" style="width:0%"></div></div>
+        </div>
+        <div class="hud-section">
+            <span class="hud-label">Score</span>
+            <span class="hud-value" id="score-val">0</span>
+        </div>
+        <div class="hud-section">
+            <span class="combo-display" id="combo-val"></span>
+        </div>
+        <div class="hud-section">
+            <span class="hud-label">Floor</span>
+            <span class="hud-value" id="floor-val">1</span>
         </div>
     </div>
 
-    <div class="message-overlay" id="messageOverlay"></div>
+    <div id="toolbar" style="display:none;">
+        <button class="tool-btn" id="tool-peek" onclick="useTool('peek')">
+            <span class="tool-icon">&#128065;</span><span>Peek</span><span class="tool-key">1</span>
+            <div class="cooldown-overlay" style="height:0"></div>
+        </button>
+        <button class="tool-btn" id="tool-anchor" onclick="useTool('anchor')">
+            <span class="tool-icon">&#9875;</span><span>Anchor</span><span class="tool-key">2</span>
+            <div class="cooldown-overlay" style="height:0"></div>
+        </button>
+        <button class="tool-btn" id="tool-purge" onclick="useTool('purge')">
+            <span class="tool-icon">&#10024;</span><span>Purge</span><span class="tool-key">3</span>
+            <div class="cooldown-overlay" style="height:0"></div>
+        </button>
+        <button class="tool-btn" id="tool-recall" onclick="useTool('recall')">
+            <span class="tool-icon">&#128200;</span><span>Recall</span><span class="tool-key">4</span>
+            <div class="cooldown-overlay" style="height:0"></div>
+        </button>
+    </div>
 
-    <div class="instructions" id="instructions">
-        Click doors to move. Hold to remember.
+    <div id="menu-screen">
+        <h1>Deja Vu Corridor</h1>
+        <p class="subtitle">Have I been here before?</p>
+        <button class="menu-btn" onclick="startGame('easy')">Lucid Dream<span class="diff-label">Slow reality decay, fewer glitches</span></button>
+        <button class="menu-btn" onclick="startGame('normal')">Liminal Space<span class="diff-label">Standard difficulty</span></button>
+        <button class="menu-btn" onclick="startGame('hard')">Fever Dream<span class="diff-label">Rapid decay, aggressive entities</span></button>
+        <div class="high-scores" id="high-scores"></div>
+    </div>
+
+    <div id="pause-overlay">
+        <h2>Paused</h2>
+        <button class="menu-btn" onclick="resumeGame()">Resume</button>
+        <button class="menu-btn" onclick="quitToMenu()">Quit to Menu</button>
+    </div>
+
+    <div id="gameover-screen">
+        <h2 id="go-title" style="color:#c0b0e0;">Reality Collapsed</h2>
+        <p class="ending-text" id="go-ending"></p>
+        <div id="go-stats"></div>
+        <button class="menu-btn" style="margin-top:20px;" onclick="startGame(game.difficulty)">Try Again</button>
+        <button class="menu-btn" onclick="quitToMenu()">Menu</button>
     </div>
 
     <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
+    // --- Audio Engine ---
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function initAudio() { if (!audioCtx) audioCtx = new AudioCtx(); }
+    function playSound(type, freq, dur, vol) {
+        if (!audioCtx) return;
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.connect(g); g.connect(audioCtx.destination);
+        o.type = type;
+        o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        g.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        o.start(); o.stop(audioCtx.currentTime + dur);
+    }
+    function sfxCollect() { playSound('sine', 880, 0.15, 0.12); setTimeout(() => playSound('sine', 1100, 0.2, 0.1), 80); }
+    function sfxDoor() { playSound('triangle', 220, 0.3, 0.1); playSound('sine', 330, 0.2, 0.08); }
+    function sfxHit() { playSound('sawtooth', 120, 0.2, 0.15); playSound('square', 80, 0.15, 0.1); }
+    function sfxGlitch() { playSound('square', 60 + Math.random() * 200, 0.1, 0.08); }
+    function sfxPurge() { playSound('sine', 600, 0.4, 0.12); playSound('sine', 900, 0.3, 0.1); playSound('sine', 1200, 0.2, 0.08); }
+    function sfxBoss() { playSound('sawtooth', 50, 0.5, 0.2); playSound('square', 70, 0.4, 0.15); }
+    function sfxMenu() { playSound('sine', 440, 0.1, 0.08); }
+    function sfxAnchor() { playSound('triangle', 300, 0.3, 0.1); playSound('sine', 450, 0.4, 0.08); }
+    function sfxRecall() { playSound('sine', 500, 0.2, 0.1); playSound('sine', 700, 0.15, 0.08); playSound('sine', 1000, 0.1, 0.06); }
+    function sfxWin() { [440,554,659,880].forEach((f,i) => setTimeout(() => playSound('sine', f, 0.4, 0.12), i*120)); }
 
-        function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+    // --- Canvas ---
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    resize(); window.addEventListener('resize', resize);
+
+    // --- Seeded Random ---
+    function seeded(seed) { const x = Math.sin(seed) * 10000; return x - Math.floor(x); }
+
+    // --- Game State ---
+    const game = {
+        state: 'menu', // menu, playing, paused, gameover
+        difficulty: 'normal',
+        score: 0,
+        combo: 0,
+        comboTimer: 0,
+        maxCombo: 0,
+        sanity: 100,
+        maxSanity: 100,
+        memory: 0,
+        memoryTarget: 10,
+        floor: 1,
+        roomIndex: 0,
+        roomsVisited: 0,
+        roomsExplored: new Set(),
+        totalFragments: 0,
+        totalGlitchesKilled: 0,
+        bossesDefeated: 0,
+        currentRoom: null,
+        player: { x: 0, y: 0, vx: 0, vy: 0, radius: 12, invincible: 0, flash: 0 },
+        doors: [],
+        fragments: [],
+        glitches: [],
+        particles: [],
+        floatingTexts: [],
+        shakeX: 0, shakeY: 0, shakeMag: 0,
+        transitionAlpha: 0,
+        transitioning: false,
+        transitionTarget: -1,
+        anchored: false, anchorRoom: -1,
+        peekActive: false, peekTimer: 0,
+        tools: {
+            peek: { cooldown: 0, maxCooldown: 8, name: 'Peek' },
+            anchor: { cooldown: 0, maxCooldown: 15, name: 'Anchor' },
+            purge: { cooldown: 0, maxCooldown: 12, name: 'Purge' },
+            recall: { cooldown: 0, maxCooldown: 20, name: 'Recall' }
+        },
+        diffSettings: {
+            easy:   { sanityDecay: 0.02, glitchRate: 0.003, glitchSpeed: 0.6, bossHP: 40, fragCount: 8 },
+            normal: { sanityDecay: 0.05, glitchRate: 0.006, glitchSpeed: 1.0, bossHP: 60, fragCount: 6 },
+            hard:   { sanityDecay: 0.10, glitchRate: 0.012, glitchSpeed: 1.5, bossHP: 80, fragCount: 4 }
+        },
+        settings: null,
+        time: 0,
+        dt: 0,
+        lastTime: 0
+    };
+
+    // --- Input ---
+    const keys = {};
+    let mouseX = 0, mouseY = 0, mouseDown = false;
+    let touchActive = false;
+    document.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.key === 'Escape') {
+            if (game.state === 'playing') { pauseGame(); e.preventDefault(); }
+            else if (game.state === 'paused') { resumeGame(); e.preventDefault(); }
         }
-        resize();
-        window.addEventListener('resize', resize);
+        if (e.key === 'r' && game.state === 'gameover') startGame(game.difficulty);
+        if (game.state === 'playing') {
+            if (e.key === '1') useTool('peek');
+            if (e.key === '2') useTool('anchor');
+            if (e.key === '3') useTool('purge');
+            if (e.key === '4') useTool('recall');
+        }
+    });
+    document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+    canvas.addEventListener('mousemove', e => { mouseX = e.clientX; mouseY = e.clientY; });
+    canvas.addEventListener('mousedown', e => { mouseDown = true; initAudio(); });
+    canvas.addEventListener('mouseup', () => { mouseDown = false; });
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault(); initAudio(); touchActive = true;
+        const t = e.touches[0]; mouseX = t.clientX; mouseY = t.clientY; mouseDown = true;
+    }, { passive: false });
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const t = e.touches[0]; mouseX = t.clientX; mouseY = t.clientY;
+    }, { passive: false });
+    canvas.addEventListener('touchend', e => { e.preventDefault(); mouseDown = false; touchActive = false; }, { passive: false });
 
-        // Game state
-        const state = {
-            currentRoom: 0,
-            roomHistory: [],
-            roomMemory: new Map(), // Stores details about visited rooms
-            totalVisits: 0,
-            mouseX: 0,
-            mouseY: 0,
-            transitionProgress: 0,
-            transitioning: false,
-            nextRoom: null,
-            holdStart: 0,
-            holding: false
+    // --- Room Generation ---
+    const ROOM_THEMES = [
+        { name: 'Library',     hue: 30,  sat: 25, lit: 12, wallHue: 25,  floorHue: 20 },
+        { name: 'Conservatory',hue: 140, sat: 30, lit: 10, wallHue: 130, floorHue: 110 },
+        { name: 'Ballroom',    hue: 270, sat: 20, lit: 15, wallHue: 260, floorHue: 250 },
+        { name: 'Kitchen',     hue: 50,  sat: 20, lit: 14, wallHue: 40,  floorHue: 35 },
+        { name: 'Observatory', hue: 220, sat: 35, lit: 8,  wallHue: 210, floorHue: 200 },
+        { name: 'Chapel',      hue: 0,   sat: 15, lit: 18, wallHue: 350, floorHue: 345 },
+        { name: 'Laboratory',  hue: 180, sat: 30, lit: 12, wallHue: 170, floorHue: 160 },
+        { name: 'Nursery',     hue: 310, sat: 20, lit: 16, wallHue: 300, floorHue: 290 }
+    ];
+
+    function generateRoom(index, visitCount) {
+        const seed = index * 7919 + game.floor * 131;
+        const themeIdx = Math.floor(seeded(seed) * ROOM_THEMES.length);
+        const theme = ROOM_THEMES[themeIdx];
+        const drift = Math.min(visitCount * 0.08, 0.6);
+        const hueShift = drift * 40 * (seeded(seed + visitCount * 3) - 0.5);
+
+        const room = {
+            index, visitCount, theme: theme.name,
+            hue: (theme.hue + hueShift + 360) % 360,
+            sat: theme.sat + drift * 8,
+            lit: theme.lit + drift * 3,
+            wallHue: (theme.wallHue + hueShift * 0.7 + 360) % 360,
+            floorHue: (theme.floorHue + hueShift * 0.5 + 360) % 360,
+            width: 600 + seeded(seed + 1) * 300,
+            height: 450 + seeded(seed + 2) * 200,
+            isBoss: (index > 0 && index % 5 === 0 && visitCount === 0),
+            ambientIntensity: 0.3 + seeded(seed + 9) * 0.4,
+            furnitureSeeds: []
         };
+        for (let i = 0; i < 4; i++) room.furnitureSeeds.push(seeded(seed + 10 + i + visitCount));
+        return room;
+    }
 
-        // Room generation seed
-        function seededRandom(seed) {
-            const x = Math.sin(seed) * 10000;
-            return x - Math.floor(x);
+    function enterRoom(index) {
+        const vc = game.roomsExplored.has(index) ? (game.currentRoom && game.currentRoom.index === index ? game.currentRoom.visitCount + 1 : 1) : 0;
+        game.roomIndex = index;
+        game.roomsExplored.add(index);
+        game.roomsVisited++;
+        const room = generateRoom(index, vc);
+        game.currentRoom = room;
+
+        // Reset per-room entities
+        game.doors = [];
+        game.fragments = [];
+        game.glitches = [];
+
+        const W = canvas.width, H = canvas.height;
+        const cx = W / 2, cy = H / 2;
+
+        // Generate doors (2-4)
+        const numDoors = 2 + Math.floor(seeded(index * 3571 + game.floor) * 3);
+        const doorPositions = [
+            { x: cx - room.width / 2 - 10, y: cy, side: 'left', label: index - 1 < 0 ? Math.floor(seeded(index * 91 + 7) * 20) : index - 1 },
+            { x: cx + room.width / 2 + 10, y: cy, side: 'right', label: index + 1 },
+            { x: cx, y: cy - room.height / 2 - 10, side: 'top', label: Math.floor(seeded(index * 41 + 3) * 20) + game.floor * 20 },
+            { x: cx, y: cy + room.height / 2 + 10, side: 'bottom', label: Math.floor(seeded(index * 67 + 11) * 20) + game.floor * 20 }
+        ];
+        for (let i = 0; i < Math.min(numDoors, 4); i++) {
+            const dp = doorPositions[i];
+            game.doors.push({
+                x: dp.x, y: dp.y, side: dp.side,
+                width: dp.side === 'left' || dp.side === 'right' ? 20 : 60,
+                height: dp.side === 'left' || dp.side === 'right' ? 80 : 20,
+                destination: dp.label,
+                glow: 0, hue: (room.hue + 60 + i * 30) % 360
+            });
         }
 
-        // Generate room properties
-        function generateRoom(roomId, visitCount = 0) {
-            const seed = roomId * 12345;
-            const drift = Math.min(visitCount * 0.1, 0.5); // Rooms drift with each visit
-
-            // Base properties from seed
-            const baseHue = seededRandom(seed) * 360;
-            const baseSaturation = 10 + seededRandom(seed + 1) * 20;
-            const baseBrightness = 5 + seededRandom(seed + 2) * 10;
-
-            // Apply drift
-            const hue = (baseHue + drift * 30 * (seededRandom(seed + visitCount) - 0.5)) % 360;
-            const saturation = baseSaturation + drift * 10 * (seededRandom(seed + visitCount + 1) - 0.5);
-            const brightness = baseBrightness + drift * 5 * (seededRandom(seed + visitCount + 2) - 0.5);
-
-            // Room features
-            const numDoors = 2 + Math.floor(seededRandom(seed + 3) * 3); // 2-4 doors
-            const hasWindow = seededRandom(seed + 4) > 0.6;
-            const hasPainting = seededRandom(seed + 5) > 0.5;
-            const hasChair = seededRandom(seed + 6) > 0.7;
-            const hasMirror = seededRandom(seed + 7) > 0.8;
-
-            // Corridor length
-            const corridorDepth = 200 + seededRandom(seed + 8) * 300;
-
-            // Objects shift with visits
-            const objectDrift = drift * 50;
-
-            return {
-                id: roomId,
-                visitCount,
-                hue,
-                saturation,
-                brightness,
-                numDoors,
-                hasWindow,
-                hasPainting,
-                hasChair,
-                hasMirror,
-                corridorDepth,
-                objectDrift,
-                doors: generateDoors(roomId, numDoors, visitCount),
-                ambientLight: 0.3 + seededRandom(seed + 9) * 0.4
-            };
+        // Generate memory fragments
+        const fragCount = game.settings.fragCount + Math.floor(seeded(index * 1117) * 3);
+        for (let i = 0; i < fragCount; i++) {
+            game.fragments.push({
+                x: cx - room.width / 2 + 40 + seeded(index * 100 + i) * (room.width - 80),
+                y: cy - room.height / 2 + 40 + seeded(index * 200 + i) * (room.height - 80),
+                radius: 6, collected: false,
+                bobPhase: seeded(index * 300 + i) * Math.PI * 2,
+                hue: 120 + seeded(index * 400 + i) * 60,
+                value: room.isBoss ? 3 : 1
+            });
         }
 
-        function generateDoors(roomId, numDoors, visitCount) {
-            const doors = [];
-            const seed = roomId * 67890;
+        // Spawn glitches based on floor and visits
+        const glitchCount = room.isBoss ? 0 : Math.floor(1 + game.floor * 0.5 + vc * 0.3);
+        for (let i = 0; i < glitchCount; i++) spawnGlitch(false);
 
-            for (let i = 0; i < numDoors; i++) {
-                const doorSeed = seed + i * 1000;
-                const side = i % 2 === 0 ? 'left' : 'right';
-                const depth = 0.3 + seededRandom(doorSeed) * 0.5;
+        // Spawn boss
+        if (room.isBoss) spawnBoss();
 
-                // Door destination (somewhat random but deterministic)
-                let destination = Math.floor(seededRandom(doorSeed + 1) * 20);
+        // Position player at center
+        game.player.x = cx;
+        game.player.y = cy;
+        game.player.vx = 0;
+        game.player.vy = 0;
 
-                // Sometimes doors loop back
-                if (seededRandom(doorSeed + 2) > 0.7 && visitCount > 0) {
-                    destination = roomId; // Loop to self
+        sfxDoor();
+        document.getElementById('room-num').textContent = index + 1;
+    }
+
+    // --- Entity Types ---
+    const GLITCH_TYPES = [
+        { name: 'Flicker',  color: '#ff4466', speed: 1.2, hp: 1, size: 10, behavior: 'chase', damage: 5 },
+        { name: 'Drift',    color: '#66aaff', speed: 0.6, hp: 2, size: 14, behavior: 'wander', damage: 3 },
+        { name: 'Pulse',    color: '#ffaa44', speed: 0.8, hp: 1, size: 12, behavior: 'orbit', damage: 4 },
+        { name: 'Shatter',  color: '#ff66ff', speed: 1.5, hp: 1, size: 8,  behavior: 'dash', damage: 8 },
+        { name: 'Void',     color: '#884488', speed: 0.4, hp: 3, size: 18, behavior: 'ambush', damage: 6 },
+        { name: 'Static',   color: '#aaffaa', speed: 1.0, hp: 2, size: 11, behavior: 'zigzag', damage: 5 }
+    ];
+
+    function spawnGlitch(isBoss) {
+        const W = canvas.width, H = canvas.height;
+        const typeIdx = Math.floor(Math.random() * GLITCH_TYPES.length);
+        const type = GLITCH_TYPES[typeIdx];
+        const speedMul = game.settings.glitchSpeed * (1 + game.floor * 0.05);
+        const side = Math.floor(Math.random() * 4);
+        let x, y;
+        if (side === 0) { x = Math.random() * W; y = 30; }
+        else if (side === 1) { x = Math.random() * W; y = H - 30; }
+        else if (side === 2) { x = 30; y = Math.random() * H; }
+        else { x = W - 30; y = Math.random() * H; }
+
+        game.glitches.push({
+            x, y, vx: 0, vy: 0,
+            type: type.name, color: type.color,
+            speed: type.speed * speedMul,
+            hp: isBoss ? game.settings.bossHP : type.hp * (1 + Math.floor(game.floor / 3)),
+            maxHp: isBoss ? game.settings.bossHP : type.hp * (1 + Math.floor(game.floor / 3)),
+            size: isBoss ? 30 : type.size,
+            behavior: isBoss ? 'boss' : type.behavior,
+            damage: isBoss ? 15 : type.damage,
+            isBoss,
+            phase: Math.random() * Math.PI * 2,
+            dashTimer: 0, dashCooldown: 0,
+            ambushRevealed: false,
+            flash: 0
+        });
+    }
+
+    function spawnBoss() {
+        spawnGlitch(true);
+        sfxBoss();
+        addFloatingText(canvas.width / 2, canvas.height / 2 - 60, 'REALITY FRACTURE', '#ff4466', 2);
+    }
+
+    // --- Tools ---
+    function useTool(name) {
+        if (game.state !== 'playing') return;
+        const tool = game.tools[name];
+        if (tool.cooldown > 0) return;
+        initAudio();
+
+        if (name === 'peek') {
+            // Reveal all doors' destinations and hidden fragments for 5s
+            game.peekActive = true;
+            game.peekTimer = 5;
+            tool.cooldown = tool.maxCooldown;
+            sfxRecall();
+            addFloatingText(game.player.x, game.player.y - 30, 'PEEK', '#88ccff', 1);
+        }
+        else if (name === 'anchor') {
+            // Set an anchor in this room - can return here with Recall
+            game.anchored = true;
+            game.anchorRoom = game.roomIndex;
+            tool.cooldown = tool.maxCooldown;
+            sfxAnchor();
+            addFloatingText(game.player.x, game.player.y - 30, 'ANCHORED', '#44ffaa', 1);
+        }
+        else if (name === 'purge') {
+            // Destroy all glitches in range, restore some sanity
+            let purged = 0;
+            game.glitches.forEach(g => {
+                const dx = g.x - game.player.x, dy = g.y - game.player.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 150) {
+                    g.hp = 0;
+                    purged++;
+                    spawnDeathParticles(g.x, g.y, g.color);
                 }
-
-                doors.push({
-                    side,
-                    depth,
-                    destination,
-                    width: 60 + seededRandom(doorSeed + 3) * 40,
-                    height: 120 + seededRandom(doorSeed + 4) * 60,
-                    open: seededRandom(doorSeed + 5) > 0.7,
-                    color: `hsl(${seededRandom(doorSeed + 6) * 60 + 20}, 20%, 25%)`
+            });
+            game.glitches = game.glitches.filter(g => g.hp > 0);
+            game.sanity = Math.min(game.maxSanity, game.sanity + purged * 5);
+            game.totalGlitchesKilled += purged;
+            tool.cooldown = tool.maxCooldown;
+            sfxPurge();
+            game.shakeMag = 8;
+            // Purge particles
+            for (let i = 0; i < 30; i++) {
+                const angle = (i / 30) * Math.PI * 2;
+                game.particles.push({
+                    x: game.player.x, y: game.player.y,
+                    vx: Math.cos(angle) * (3 + Math.random() * 3),
+                    vy: Math.sin(angle) * (3 + Math.random() * 3),
+                    life: 1, maxLife: 1, size: 3, color: '#ffcc44'
                 });
             }
-
-            return doors;
+            addFloatingText(game.player.x, game.player.y - 30, 'PURGE x' + purged, '#ffcc44', 1.5);
+        }
+        else if (name === 'recall') {
+            // Teleport back to anchored room
+            if (game.anchored) {
+                game.transitioning = true;
+                game.transitionTarget = game.anchorRoom;
+                tool.cooldown = tool.maxCooldown;
+                sfxRecall();
+                addFloatingText(game.player.x, game.player.y - 30, 'RECALL', '#cc88ff', 1);
+            } else {
+                addFloatingText(game.player.x, game.player.y - 30, 'No anchor set!', '#ff6644', 1);
+            }
         }
 
-        let currentRoomData = generateRoom(0);
+        updateToolUI();
+    }
 
-        // Messages that appear
-        const messages = [
-            "Have I been here before?",
-            "Something feels different...",
-            "The shadows remember.",
-            "Was that painting always there?",
-            "The door seems familiar.",
-            "Time moves strangely here.",
-            "The corridor stretches endlessly.",
-            "Which way did I come from?",
-            "The walls are watching.",
-            "I think I recognize this place."
-        ];
+    function updateToolUI() {
+        ['peek', 'anchor', 'purge', 'recall'].forEach(name => {
+            const btn = document.getElementById('tool-' + name);
+            const tool = game.tools[name];
+            const overlay = btn.querySelector('.cooldown-overlay');
+            if (tool.cooldown > 0) {
+                btn.classList.add('cooldown');
+                overlay.style.height = (tool.cooldown / tool.maxCooldown * 100) + '%';
+            } else {
+                btn.classList.remove('cooldown');
+                overlay.style.height = '0';
+            }
+        });
+    }
 
-        function showMessage(text) {
-            const overlay = document.getElementById('messageOverlay');
-            overlay.textContent = text;
-            overlay.classList.add('visible');
-
-            setTimeout(() => {
-                overlay.classList.remove('visible');
-            }, 4000);
-        }
-
-        // Drawing functions
-        function draw() {
-            const { width, height } = canvas;
-            const centerX = width / 2;
-            const centerY = height / 2;
-
-            // Room colors
-            const room = currentRoomData;
-            const bgColor = `hsl(${room.hue}, ${room.saturation}%, ${room.brightness}%)`;
-            const floorColor = `hsl(${room.hue}, ${room.saturation * 0.8}%, ${room.brightness * 0.6}%)`;
-            const ceilingColor = `hsl(${room.hue}, ${room.saturation * 0.5}%, ${room.brightness * 0.8}%)`;
-
-            // Clear
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(0, 0, width, height);
-
-            // Draw corridor perspective
-            const vanishY = centerY * 0.4;
-            const corridorWidth = width * 0.8;
-            const corridorHeight = height * 0.9;
-
-            // Floor
-            ctx.fillStyle = floorColor;
-            ctx.beginPath();
-            ctx.moveTo(0, height);
-            ctx.lineTo(width, height);
-            ctx.lineTo(centerX + corridorWidth * 0.15, vanishY + corridorHeight * 0.3);
-            ctx.lineTo(centerX - corridorWidth * 0.15, vanishY + corridorHeight * 0.3);
-            ctx.closePath();
-            ctx.fill();
-
-            // Ceiling
-            ctx.fillStyle = ceilingColor;
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(width, 0);
-            ctx.lineTo(centerX + corridorWidth * 0.15, vanishY - corridorHeight * 0.1);
-            ctx.lineTo(centerX - corridorWidth * 0.15, vanishY - corridorHeight * 0.1);
-            ctx.closePath();
-            ctx.fill();
-
-            // Left wall
-            ctx.fillStyle = `hsl(${room.hue}, ${room.saturation}%, ${room.brightness * 0.7}%)`;
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(0, height);
-            ctx.lineTo(centerX - corridorWidth * 0.15, vanishY + corridorHeight * 0.3);
-            ctx.lineTo(centerX - corridorWidth * 0.15, vanishY - corridorHeight * 0.1);
-            ctx.closePath();
-            ctx.fill();
-
-            // Right wall
-            ctx.fillStyle = `hsl(${room.hue}, ${room.saturation}%, ${room.brightness * 0.9}%)`;
-            ctx.beginPath();
-            ctx.moveTo(width, 0);
-            ctx.lineTo(width, height);
-            ctx.lineTo(centerX + corridorWidth * 0.15, vanishY + corridorHeight * 0.3);
-            ctx.lineTo(centerX + corridorWidth * 0.15, vanishY - corridorHeight * 0.1);
-            ctx.closePath();
-            ctx.fill();
-
-            // Far wall (end of corridor)
-            ctx.fillStyle = `hsl(${room.hue}, ${room.saturation * 0.3}%, ${room.brightness * 0.4}%)`;
-            ctx.fillRect(
-                centerX - corridorWidth * 0.15,
-                vanishY - corridorHeight * 0.1,
-                corridorWidth * 0.3,
-                corridorHeight * 0.4
-            );
-
-            // Draw doors
-            room.doors.forEach((door, i) => {
-                drawDoor(door, i, room);
+    // --- Particles ---
+    function spawnDeathParticles(x, y, color) {
+        for (let i = 0; i < 12; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 1 + Math.random() * 4;
+            game.particles.push({
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 1, maxLife: 1,
+                size: 2 + Math.random() * 3,
+                color
             });
+        }
+    }
 
-            // Draw window if present
-            if (room.hasWindow) {
-                drawWindow(room);
+    function spawnCollectParticles(x, y) {
+        for (let i = 0; i < 8; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            game.particles.push({
+                x, y,
+                vx: Math.cos(angle) * (1 + Math.random() * 2),
+                vy: Math.sin(angle) * (1 + Math.random() * 2) - 1,
+                life: 0.8, maxLife: 0.8,
+                size: 2 + Math.random() * 2,
+                color: '#44ffaa'
+            });
+        }
+    }
+
+    function addFloatingText(x, y, text, color, duration) {
+        game.floatingTexts.push({ x, y, text, color, life: duration, maxLife: duration });
+    }
+
+    // --- Game Flow ---
+    function startGame(diff) {
+        initAudio(); sfxMenu();
+        game.difficulty = diff;
+        game.settings = game.diffSettings[diff];
+        game.state = 'playing';
+        game.score = 0; game.combo = 0; game.comboTimer = 0; game.maxCombo = 0;
+        game.sanity = 100; game.memory = 0; game.memoryTarget = 10;
+        game.floor = 1; game.roomIndex = 0; game.roomsVisited = 0;
+        game.roomsExplored = new Set();
+        game.totalFragments = 0; game.totalGlitchesKilled = 0; game.bossesDefeated = 0;
+        game.particles = []; game.floatingTexts = [];
+        game.transitionAlpha = 0; game.transitioning = false;
+        game.anchored = false; game.anchorRoom = -1;
+        game.peekActive = false; game.peekTimer = 0;
+        game.time = 0;
+        Object.values(game.tools).forEach(t => t.cooldown = 0);
+
+        document.getElementById('menu-screen').style.display = 'none';
+        document.getElementById('gameover-screen').style.display = 'none';
+        document.getElementById('pause-overlay').style.display = 'none';
+        document.getElementById('hud').style.display = 'flex';
+        document.getElementById('toolbar').style.display = 'flex';
+
+        enterRoom(0);
+        updateToolUI();
+    }
+
+    function pauseGame() {
+        game.state = 'paused';
+        document.getElementById('pause-overlay').style.display = 'flex';
+        sfxMenu();
+    }
+
+    function resumeGame() {
+        game.state = 'playing';
+        document.getElementById('pause-overlay').style.display = 'none';
+        game.lastTime = performance.now();
+        sfxMenu();
+    }
+
+    function quitToMenu() {
+        game.state = 'menu';
+        document.getElementById('menu-screen').style.display = 'flex';
+        document.getElementById('pause-overlay').style.display = 'none';
+        document.getElementById('gameover-screen').style.display = 'none';
+        document.getElementById('hud').style.display = 'none';
+        document.getElementById('toolbar').style.display = 'none';
+        displayHighScores();
+    }
+
+    function gameOver(ending) {
+        game.state = 'gameover';
+        document.getElementById('gameover-screen').style.display = 'flex';
+        document.getElementById('toolbar').style.display = 'none';
+
+        const endings = {
+            sanity: { title: 'Reality Collapsed', text: 'Your sanity shattered. The corridor consumed your mind, and you became another echo in its endless halls.' },
+            escape: { title: 'Awakened', text: 'You gathered enough memories to remember who you are. The corridor released you, and you woke up somewhere familiar.' },
+            boss: { title: 'Transcended', text: 'You defeated the fractures in reality itself. The corridor bent to your will, opening a path to somewhere new.' },
+            master: { title: 'Corridor Master', text: 'You navigated every floor, defeated every boss, and mapped the unmappable. The corridor respects you now.' }
+        };
+
+        const e = endings[ending] || endings.sanity;
+        document.getElementById('go-title').textContent = e.title;
+        document.getElementById('go-title').style.color = ending === 'sanity' ? '#ff4466' : '#44ffaa';
+        document.getElementById('go-ending').textContent = e.text;
+
+        let statsHTML = '';
+        statsHTML += '<p class="stat-row">Score: ' + game.score + '</p>';
+        statsHTML += '<p class="stat-row">Floor reached: ' + game.floor + '</p>';
+        statsHTML += '<p class="stat-row">Rooms visited: ' + game.roomsVisited + '</p>';
+        statsHTML += '<p class="stat-row">Fragments collected: ' + game.totalFragments + '</p>';
+        statsHTML += '<p class="stat-row">Glitches destroyed: ' + game.totalGlitchesKilled + '</p>';
+        statsHTML += '<p class="stat-row">Max combo: ' + game.maxCombo + 'x</p>';
+        statsHTML += '<p class="stat-row">Bosses defeated: ' + game.bossesDefeated + '</p>';
+        statsHTML += '<p class="stat-row">Difficulty: ' + game.difficulty + '</p>';
+        document.getElementById('go-stats').innerHTML = statsHTML;
+
+        saveHighScore(game.score, game.floor, ending);
+    }
+
+    // --- localStorage ---
+    function saveHighScore(score, floor, ending) {
+        try {
+            let scores = JSON.parse(localStorage.getItem('dejavu-scores') || '[]');
+            scores.push({ score, floor, ending, date: new Date().toISOString(), difficulty: game.difficulty });
+            scores.sort((a, b) => b.score - a.score);
+            scores = scores.slice(0, 10);
+            localStorage.setItem('dejavu-scores', JSON.stringify(scores));
+        } catch(e) {}
+    }
+
+    function displayHighScores() {
+        try {
+            const scores = JSON.parse(localStorage.getItem('dejavu-scores') || '[]');
+            const el = document.getElementById('high-scores');
+            if (scores.length === 0) {
+                el.innerHTML = '<h3>High Scores</h3><p>No scores yet</p>';
+            } else {
+                let html = '<h3>High Scores</h3>';
+                scores.slice(0, 5).forEach((s, i) => {
+                    html += '<p>' + (i + 1) + '. ' + s.score + ' pts (Floor ' + s.floor + ', ' + s.difficulty + ')</p>';
+                });
+                el.innerHTML = html;
+            }
+        } catch(e) {}
+    }
+
+    // --- Update ---
+    function update(dt) {
+        if (game.state !== 'playing') return;
+        game.time += dt;
+        game.dt = dt;
+
+        const p = game.player;
+        const W = canvas.width, H = canvas.height;
+
+        // Sanity decay
+        game.sanity -= game.settings.sanityDecay * dt * 60 * (1 + game.floor * 0.03);
+        if (game.sanity <= 0) { game.sanity = 0; gameOver('sanity'); return; }
+
+        // Combo timer
+        if (game.combo > 0) {
+            game.comboTimer -= dt;
+            if (game.comboTimer <= 0) { game.combo = 0; }
+        }
+
+        // Tool cooldowns
+        Object.values(game.tools).forEach(t => {
+            if (t.cooldown > 0) t.cooldown = Math.max(0, t.cooldown - dt);
+        });
+        updateToolUI();
+
+        // Peek timer
+        if (game.peekActive) {
+            game.peekTimer -= dt;
+            if (game.peekTimer <= 0) game.peekActive = false;
+        }
+
+        // Player movement (WASD/Arrow + mouse)
+        const speed = 200;
+        let ax = 0, ay = 0;
+        if (keys['w'] || keys['arrowup']) ay -= 1;
+        if (keys['s'] || keys['arrowdown']) ay += 1;
+        if (keys['a'] || keys['arrowleft']) ax -= 1;
+        if (keys['d'] || keys['arrowright']) ax += 1;
+
+        // Touch/mouse movement
+        if (mouseDown && game.state === 'playing') {
+            const dx = mouseX - p.x, dy = mouseY - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 20) {
+                ax += dx / dist;
+                ay += dy / dist;
+            }
+        }
+
+        const len = Math.sqrt(ax * ax + ay * ay);
+        if (len > 0) { ax /= len; ay /= len; }
+        p.vx += ax * speed * dt;
+        p.vy += ay * speed * dt;
+        p.vx *= 0.85;
+        p.vy *= 0.85;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        // Room bounds
+        const room = game.currentRoom;
+        if (room) {
+            const cx = W / 2, cy = H / 2;
+            const left = cx - room.width / 2 + 20;
+            const right = cx + room.width / 2 - 20;
+            const top = cy - room.height / 2 + 20;
+            const bottom = cy + room.height / 2 - 20;
+            p.x = Math.max(left, Math.min(right, p.x));
+            p.y = Math.max(top, Math.min(bottom, p.y));
+        }
+
+        // Invincibility timer
+        if (p.invincible > 0) p.invincible -= dt;
+        if (p.flash > 0) p.flash -= dt;
+
+        // Collect fragments
+        game.fragments.forEach(f => {
+            if (f.collected) return;
+            const dx = f.x - p.x, dy = f.y - p.y;
+            if (Math.sqrt(dx * dx + dy * dy) < p.radius + f.radius + 5) {
+                f.collected = true;
+                game.combo++;
+                game.comboTimer = 3;
+                if (game.combo > game.maxCombo) game.maxCombo = game.combo;
+                const points = f.value * 10 * Math.max(1, game.combo);
+                game.score += points;
+                game.memory += f.value;
+                game.totalFragments++;
+                sfxCollect();
+                spawnCollectParticles(f.x, f.y);
+                addFloatingText(f.x, f.y - 15, '+' + points + (game.combo > 1 ? ' x' + game.combo : ''), '#44ffaa', 1);
+            }
+        });
+
+        // Check floor progression
+        if (game.memory >= game.memoryTarget) {
+            game.floor++;
+            game.memory = 0;
+            game.memoryTarget = Math.floor(game.memoryTarget * 1.3);
+            game.sanity = Math.min(game.maxSanity, game.sanity + 20);
+            addFloatingText(W / 2, H / 2, 'FLOOR ' + game.floor, '#ffcc44', 2);
+            sfxWin();
+            game.shakeMag = 6;
+            document.getElementById('floor-val').textContent = game.floor;
+
+            if (game.floor >= 10) { gameOver('master'); return; }
+        }
+
+        // Glitch spawning
+        if (Math.random() < game.settings.glitchRate * dt * 60 && game.glitches.length < 8 + game.floor) {
+            spawnGlitch(false);
+        }
+
+        // Update glitches
+        game.glitches.forEach(g => {
+            g.phase += dt * 2;
+            g.flash = Math.max(0, g.flash - dt * 4);
+            const dx = p.x - g.x, dy = p.y - g.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            switch (g.behavior) {
+                case 'chase':
+                    if (dist > 10) { g.vx = (dx / dist) * g.speed; g.vy = (dy / dist) * g.speed; }
+                    break;
+                case 'wander':
+                    g.vx = Math.cos(g.phase * 0.5) * g.speed;
+                    g.vy = Math.sin(g.phase * 0.7) * g.speed;
+                    if (dist < 100) { g.vx += (dx / dist) * g.speed * 0.3; g.vy += (dy / dist) * g.speed * 0.3; }
+                    break;
+                case 'orbit':
+                    const orbitR = 120;
+                    const targetX = p.x + Math.cos(g.phase) * orbitR;
+                    const targetY = p.y + Math.sin(g.phase) * orbitR;
+                    g.vx = (targetX - g.x) * 0.03 * g.speed;
+                    g.vy = (targetY - g.y) * 0.03 * g.speed;
+                    break;
+                case 'dash':
+                    g.dashCooldown -= dt;
+                    if (g.dashCooldown <= 0 && dist < 200) {
+                        g.vx = (dx / dist) * g.speed * 5;
+                        g.vy = (dy / dist) * g.speed * 5;
+                        g.dashCooldown = 2 + Math.random();
+                        sfxGlitch();
+                    } else {
+                        g.vx *= 0.92; g.vy *= 0.92;
+                    }
+                    break;
+                case 'ambush':
+                    if (dist < 80 || g.ambushRevealed) {
+                        g.ambushRevealed = true;
+                        g.vx = (dx / dist) * g.speed * 1.5;
+                        g.vy = (dy / dist) * g.speed * 1.5;
+                    }
+                    break;
+                case 'zigzag':
+                    g.vx = (dx / (dist || 1)) * g.speed + Math.sin(g.phase * 3) * g.speed * 2;
+                    g.vy = (dy / (dist || 1)) * g.speed + Math.cos(g.phase * 3) * g.speed * 2;
+                    break;
+                case 'boss':
+                    // Boss: chase + periodic dash + spawn minions
+                    g.dashTimer -= dt;
+                    if (g.dashTimer <= 0) {
+                        // Dash attack
+                        g.vx = (dx / (dist || 1)) * g.speed * 4;
+                        g.vy = (dy / (dist || 1)) * g.speed * 4;
+                        g.dashTimer = 3;
+                        sfxGlitch();
+                        // Spawn minion every other dash
+                        if (Math.random() > 0.5 && game.glitches.length < 10) spawnGlitch(false);
+                    } else {
+                        g.vx += (dx / (dist || 1)) * g.speed * 0.05;
+                        g.vy += (dy / (dist || 1)) * g.speed * 0.05;
+                        g.vx *= 0.96; g.vy *= 0.96;
+                    }
+                    break;
             }
 
-            // Draw painting if present
-            if (room.hasPainting) {
-                drawPainting(room);
+            g.x += g.vx * dt * 60;
+            g.y += g.vy * dt * 60;
+
+            // Keep in room bounds
+            if (room) {
+                const cx = W / 2, cy = H / 2;
+                g.x = Math.max(cx - room.width / 2, Math.min(cx + room.width / 2, g.x));
+                g.y = Math.max(cy - room.height / 2, Math.min(cy + room.height / 2, g.y));
             }
 
-            // Ambient light effect
-            const gradient = ctx.createRadialGradient(
-                centerX, vanishY, 0,
-                centerX, vanishY, Math.max(width, height)
-            );
-            gradient.addColorStop(0, `rgba(255, 240, 200, ${room.ambientLight * 0.1})`);
-            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, width, height);
+            // Collision with player
+            if (dist < p.radius + g.size && p.invincible <= 0) {
+                game.sanity -= g.damage;
+                p.invincible = 1;
+                p.flash = 0.5;
+                game.shakeMag = 10;
+                game.combo = 0;
+                sfxHit();
+                addFloatingText(p.x, p.y - 20, '-' + g.damage + ' SANITY', '#ff4466', 1);
 
-            // Transition effect
-            if (state.transitioning) {
-                ctx.fillStyle = `rgba(0, 0, 0, ${state.transitionProgress})`;
-                ctx.fillRect(0, 0, width, height);
-            }
+                // Knockback
+                if (dist > 0) {
+                    p.vx = -(dx / dist) * 300;
+                    p.vy = -(dy / dist) * 300;
+                }
 
-            // Custom cursor
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.beginPath();
-            ctx.arc(state.mouseX, state.mouseY, 5, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Hold indicator
-            if (state.holding) {
-                const holdProgress = Math.min((Date.now() - state.holdStart) / 2000, 1);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(state.mouseX, state.mouseY, 15, -Math.PI / 2, -Math.PI / 2 + holdProgress * Math.PI * 2);
-                ctx.stroke();
-
-                if (holdProgress >= 1) {
-                    // Memory effect - show room details
-                    showRoomMemory();
+                // Damage glitch on contact
+                g.hp -= 1;
+                g.flash = 1;
+                if (g.hp <= 0) {
+                    game.totalGlitchesKilled++;
+                    game.score += g.isBoss ? 200 : 20;
+                    spawnDeathParticles(g.x, g.y, g.color);
+                    if (g.isBoss) {
+                        game.bossesDefeated++;
+                        game.sanity = Math.min(game.maxSanity, game.sanity + 30);
+                        addFloatingText(g.x, g.y, 'BOSS DEFEATED!', '#ffcc44', 2);
+                        sfxWin();
+                        if (game.bossesDefeated >= 3) { gameOver('boss'); return; }
+                    }
                 }
             }
-        }
+        });
 
-        function drawDoor(door, index, room) {
-            const { width, height } = canvas;
-            const centerX = width / 2;
-            const centerY = height / 2;
+        game.glitches = game.glitches.filter(g => g.hp > 0);
 
-            // Calculate door position based on depth
-            const depthScale = 1 - door.depth * 0.7;
-            const wallOffset = door.side === 'left' ? -1 : 1;
+        // Door interaction
+        game.doors.forEach(d => {
+            const dx = d.x - p.x, dy = d.y - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            d.glow = dist < 60 ? 1 - dist / 60 : 0;
 
-            const doorX = centerX + wallOffset * width * 0.3 * depthScale;
-            const doorY = centerY * (0.8 + door.depth * 0.4);
-            const doorW = door.width * depthScale;
-            const doorH = door.height * depthScale;
-
-            // Door frame
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(doorX - doorW / 2 - 5, doorY - doorH - 5, doorW + 10, doorH + 10);
-
-            // Door
-            ctx.fillStyle = door.color;
-            ctx.fillRect(doorX - doorW / 2, doorY - doorH, doorW, doorH);
-
-            // Door handle
-            const handleX = door.side === 'left' ? doorX + doorW / 2 - 10 : doorX - doorW / 2 + 10;
-            ctx.fillStyle = '#887755';
-            ctx.beginPath();
-            ctx.arc(handleX, doorY - doorH * 0.4, 4 * depthScale, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Light under door if open
-            if (door.open) {
-                ctx.fillStyle = 'rgba(255, 240, 200, 0.3)';
-                ctx.fillRect(doorX - doorW / 2 + 5, doorY - 5, doorW - 10, 5);
+            if (dist < 30 && !game.transitioning) {
+                game.transitioning = true;
+                game.transitionTarget = d.destination;
             }
-
-            // Store door hitbox for click detection
-            door.hitbox = {
-                x: doorX - doorW / 2,
-                y: doorY - doorH,
-                w: doorW,
-                h: doorH
-            };
-        }
-
-        function drawWindow(room) {
-            const { width, height } = canvas;
-            const windowX = width * 0.15 + room.objectDrift * 0.5;
-            const windowY = height * 0.25;
-            const windowW = 80;
-            const windowH = 100;
-
-            // Frame
-            ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(windowX - 5, windowY - 5, windowW + 10, windowH + 10);
-
-            // Glass with moonlight
-            const gradient = ctx.createLinearGradient(windowX, windowY, windowX + windowW, windowY + windowH);
-            gradient.addColorStop(0, 'rgba(100, 120, 180, 0.4)');
-            gradient.addColorStop(1, 'rgba(40, 50, 80, 0.6)');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(windowX, windowY, windowW, windowH);
-
-            // Moonlight beam
-            ctx.fillStyle = 'rgba(200, 220, 255, 0.05)';
-            ctx.beginPath();
-            ctx.moveTo(windowX, windowY + windowH);
-            ctx.lineTo(windowX + windowW, windowY + windowH);
-            ctx.lineTo(windowX + windowW + 100, height);
-            ctx.lineTo(windowX - 50, height);
-            ctx.closePath();
-            ctx.fill();
-        }
-
-        function drawPainting(room) {
-            const { width, height } = canvas;
-            const paintingX = width * 0.75 - room.objectDrift * 0.3;
-            const paintingY = height * 0.2;
-            const paintingW = 100;
-            const paintingH = 70;
-
-            // Frame
-            ctx.fillStyle = '#4a3a2a';
-            ctx.fillRect(paintingX - 8, paintingY - 8, paintingW + 16, paintingH + 16);
-
-            // Canvas
-            ctx.fillStyle = `hsl(${room.hue + 60}, 30%, 30%)`;
-            ctx.fillRect(paintingX, paintingY, paintingW, paintingH);
-
-            // Abstract shapes that drift
-            const shapeSeed = room.id * 999;
-            for (let i = 0; i < 3; i++) {
-                const sx = paintingX + seededRandom(shapeSeed + i) * paintingW;
-                const sy = paintingY + seededRandom(shapeSeed + i + 10) * paintingH;
-                const sr = 10 + seededRandom(shapeSeed + i + 20) * 20;
-                const shue = (room.hue + seededRandom(shapeSeed + i + 30) * 120) % 360;
-
-                ctx.fillStyle = `hsla(${shue}, 40%, 50%, 0.6)`;
-                ctx.beginPath();
-                ctx.arc(sx + room.objectDrift * 0.1, sy, sr, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        function showRoomMemory() {
-            const room = currentRoomData;
-            const memory = state.roomMemory.get(room.id);
-
-            if (memory) {
-                const firstVisit = new Date(memory.firstVisit).toLocaleTimeString();
-                document.getElementById('visitCount').textContent = `First seen: ${firstVisit}`;
-            }
-        }
+        });
 
         // Room transition
-        function transitionToRoom(roomId) {
-            if (state.transitioning) return;
-
-            state.transitioning = true;
-            state.transitionProgress = 0;
-
-            const animate = () => {
-                state.transitionProgress += 0.02;
-
-                if (state.transitionProgress >= 1) {
-                    // Switch room at peak darkness
-                    if (state.transitionProgress < 1.5) {
-                        // Update state
-                        const visitCount = (state.roomMemory.get(roomId)?.visits || 0) + 1;
-
-                        if (!state.roomMemory.has(roomId)) {
-                            state.roomMemory.set(roomId, {
-                                firstVisit: Date.now(),
-                                visits: 0
-                            });
-                        }
-                        state.roomMemory.get(roomId).visits = visitCount;
-
-                        state.currentRoom = roomId;
-                        state.totalVisits++;
-                        currentRoomData = generateRoom(roomId, visitCount);
-
-                        // Update UI
-                        document.getElementById('roomNumber').textContent = roomId + 1;
-
-                        const familiarity = visitCount > 3 ? 'Very Familiar' :
-                                          visitCount > 1 ? 'Familiar' :
-                                          'Unfamiliar';
-                        document.getElementById('familiarityText').textContent = familiarity;
-
-                        if (visitCount > 1) {
-                            document.getElementById('driftText').textContent = `Visited ${visitCount} times`;
-                            showMessage(messages[Math.floor(Math.random() * messages.length)]);
-                        } else {
-                            document.getElementById('driftText').textContent = 'First time here';
-                        }
-                    }
-
-                    if (state.transitionProgress >= 2) {
-                        state.transitioning = false;
-                        state.transitionProgress = 0;
-                        return;
-                    }
-                }
-
-                draw();
-                requestAnimationFrame(animate);
-            };
-
-            animate();
+        if (game.transitioning) {
+            game.transitionAlpha += dt * 3;
+            if (game.transitionAlpha >= 1) {
+                enterRoom(game.transitionTarget);
+                game.transitioning = false;
+                game.transitionTarget = -1;
+            }
+        } else if (game.transitionAlpha > 0) {
+            game.transitionAlpha -= dt * 3;
+            if (game.transitionAlpha < 0) game.transitionAlpha = 0;
         }
 
-        // Input handling
-        canvas.addEventListener('mousemove', (e) => {
-            state.mouseX = e.clientX;
-            state.mouseY = e.clientY;
+        // Shake decay
+        game.shakeMag *= 0.9;
+        game.shakeX = (Math.random() - 0.5) * game.shakeMag;
+        game.shakeY = (Math.random() - 0.5) * game.shakeMag;
+
+        // Particles
+        game.particles.forEach(pt => {
+            pt.x += pt.vx;
+            pt.y += pt.vy;
+            pt.vy += 0.05;
+            pt.life -= dt;
         });
+        game.particles = game.particles.filter(pt => pt.life > 0);
 
-        canvas.addEventListener('mousedown', (e) => {
-            state.holding = true;
-            state.holdStart = Date.now();
+        // Floating texts
+        game.floatingTexts.forEach(ft => {
+            ft.y -= 30 * dt;
+            ft.life -= dt;
         });
+        game.floatingTexts = game.floatingTexts.filter(ft => ft.life > 0);
 
-        canvas.addEventListener('mouseup', (e) => {
-            state.holding = false;
+        // HUD updates
+        document.getElementById('sanity-bar').style.width = (game.sanity / game.maxSanity * 100) + '%';
+        document.getElementById('memory-bar').style.width = (game.memory / game.memoryTarget * 100) + '%';
+        document.getElementById('score-val').textContent = game.score;
+        document.getElementById('combo-val').textContent = game.combo > 1 ? game.combo + 'x COMBO' : '';
+    }
 
-            // Check door clicks
-            const room = currentRoomData;
-            for (const door of room.doors) {
-                if (door.hitbox &&
-                    e.clientX >= door.hitbox.x &&
-                    e.clientX <= door.hitbox.x + door.hitbox.w &&
-                    e.clientY >= door.hitbox.y &&
-                    e.clientY <= door.hitbox.y + door.hitbox.h) {
+    // --- Rendering ---
+    function draw() {
+        const W = canvas.width, H = canvas.height;
+        ctx.save();
+        ctx.translate(game.shakeX, game.shakeY);
 
-                    transitionToRoom(door.destination);
-                    return;
-                }
+        // Background - dark void
+        ctx.fillStyle = '#06060c';
+        ctx.fillRect(-10, -10, W + 20, H + 20);
+
+        if (game.state === 'menu') { ctx.restore(); return; }
+        if (game.state !== 'playing' && game.state !== 'paused') { ctx.restore(); return; }
+
+        const room = game.currentRoom;
+        if (!room) { ctx.restore(); return; }
+
+        const cx = W / 2, cy = H / 2;
+        const rw = room.width, rh = room.height;
+        const left = cx - rw / 2, top = cy - rh / 2;
+
+        // Draw floor
+        const floorGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(rw, rh) / 2);
+        floorGrad.addColorStop(0, 'hsl(' + room.floorHue + ', ' + (room.sat * 0.6) + '%, ' + (room.lit * 1.2) + '%)');
+        floorGrad.addColorStop(1, 'hsl(' + room.floorHue + ', ' + (room.sat * 0.4) + '%, ' + (room.lit * 0.5) + '%)');
+        ctx.fillStyle = floorGrad;
+        ctx.fillRect(left, top, rw, rh);
+
+        // Floor tiles
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 1;
+        const tileSize = 40;
+        for (let x = left; x < left + rw; x += tileSize) {
+            ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + rh); ctx.stroke();
+        }
+        for (let y = top; y < top + rh; y += tileSize) {
+            ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + rw, y); ctx.stroke();
+        }
+
+        // Walls
+        const wallThickness = 12;
+        ctx.fillStyle = 'hsl(' + room.wallHue + ', ' + room.sat + '%, ' + (room.lit * 0.8) + '%)';
+        ctx.fillRect(left - wallThickness, top - wallThickness, rw + wallThickness * 2, wallThickness); // top wall
+        ctx.fillRect(left - wallThickness, top + rh, rw + wallThickness * 2, wallThickness); // bottom wall
+        ctx.fillRect(left - wallThickness, top, wallThickness, rh); // left wall
+        ctx.fillRect(left + rw, top, wallThickness, rh); // right wall
+
+        // Wall shadow gradients
+        const shadowDist = 30;
+        const topShadow = ctx.createLinearGradient(0, top, 0, top + shadowDist);
+        topShadow.addColorStop(0, 'rgba(0,0,0,0.3)');
+        topShadow.addColorStop(1, 'transparent');
+        ctx.fillStyle = topShadow;
+        ctx.fillRect(left, top, rw, shadowDist);
+
+        // Furniture (decorative)
+        const fs = room.furnitureSeeds;
+        // Paintings/mirrors on walls
+        if (fs[0] > 0.4) {
+            const px = left + 50 + fs[0] * (rw - 100);
+            const py = top + 20;
+            ctx.fillStyle = 'hsl(' + ((room.hue + 60) % 360) + ', 30%, 25%)';
+            ctx.fillRect(px - 25, py, 50, 35);
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(px - 25, py, 50, 35);
+        }
+        if (fs[1] > 0.5) {
+            // Table
+            const tx = left + 100 + fs[1] * (rw - 200);
+            const ty = top + rh * 0.4 + fs[2] * rh * 0.2;
+            ctx.fillStyle = 'hsl(' + room.wallHue + ', 20%, 18%)';
+            ctx.fillRect(tx - 25, ty - 15, 50, 30);
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.strokeRect(tx - 25, ty - 15, 50, 30);
+        }
+        if (fs[3] > 0.6) {
+            // Bookshelf
+            const bx = left + rw - 60;
+            const by = top + 30;
+            ctx.fillStyle = 'hsl(' + room.wallHue + ', 25%, 15%)';
+            ctx.fillRect(bx, by, 40, 80);
+            for (let i = 0; i < 4; i++) {
+                ctx.fillStyle = 'hsl(' + (room.hue + i * 40) + ', 30%, 25%)';
+                ctx.fillRect(bx + 3, by + 3 + i * 20, 34, 16);
+            }
+        }
+
+        // Draw doors
+        game.doors.forEach(d => {
+            const dw = d.width, dh = d.height;
+            let dx = d.x, dy = d.y;
+            if (d.side === 'left' || d.side === 'right') {
+                dx = d.side === 'left' ? left - wallThickness / 2 : left + rw + wallThickness / 2;
+                dy = d.y;
+            } else {
+                dx = d.x;
+                dy = d.side === 'top' ? top - wallThickness / 2 : top + rh + wallThickness / 2;
+            }
+            d.x = dx; d.y = dy;
+
+            // Door glow
+            if (d.glow > 0) {
+                const glowGrad = ctx.createRadialGradient(dx, dy, 0, dx, dy, 50);
+                glowGrad.addColorStop(0, 'hsla(' + d.hue + ', 80%, 60%, ' + (d.glow * 0.3) + ')');
+                glowGrad.addColorStop(1, 'transparent');
+                ctx.fillStyle = glowGrad;
+                ctx.fillRect(dx - 50, dy - 50, 100, 100);
+            }
+
+            // Door body
+            ctx.fillStyle = 'hsl(' + d.hue + ', 30%, 20%)';
+            ctx.fillRect(dx - dw / 2, dy - dh / 2, dw, dh);
+            ctx.strokeStyle = 'hsl(' + d.hue + ', 50%, 40%)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(dx - dw / 2, dy - dh / 2, dw, dh);
+
+            // Door label (peek reveals destination)
+            if (game.peekActive) {
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                ctx.font = '11px Georgia';
+                ctx.textAlign = 'center';
+                ctx.fillText('Room ' + (d.destination + 1), dx, dy + 4);
             }
         });
 
-        canvas.addEventListener('mouseleave', () => {
-            state.holding = false;
+        // Draw fragments
+        game.fragments.forEach(f => {
+            if (f.collected) return;
+            const bobY = Math.sin(game.time * 3 + f.bobPhase) * 4;
+            const pulse = 1 + Math.sin(game.time * 5 + f.bobPhase) * 0.15;
+
+            // Fragment glow
+            const fGrad = ctx.createRadialGradient(f.x, f.y + bobY, 0, f.x, f.y + bobY, f.radius * 3);
+            fGrad.addColorStop(0, 'hsla(' + f.hue + ', 90%, 70%, 0.3)');
+            fGrad.addColorStop(1, 'transparent');
+            ctx.fillStyle = fGrad;
+            ctx.fillRect(f.x - f.radius * 3, f.y + bobY - f.radius * 3, f.radius * 6, f.radius * 6);
+
+            // Fragment diamond shape
+            ctx.fillStyle = 'hsl(' + f.hue + ', 80%, 65%)';
+            ctx.beginPath();
+            const r = f.radius * pulse;
+            ctx.moveTo(f.x, f.y + bobY - r);
+            ctx.lineTo(f.x + r * 0.7, f.y + bobY);
+            ctx.lineTo(f.x, f.y + bobY + r);
+            ctx.lineTo(f.x - r * 0.7, f.y + bobY);
+            ctx.closePath();
+            ctx.fill();
+
+            // Inner sparkle
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.beginPath();
+            ctx.arc(f.x, f.y + bobY, r * 0.3, 0, Math.PI * 2);
+            ctx.fill();
         });
 
-        // Hide instructions after a while
-        setTimeout(() => {
-            document.getElementById('instructions').style.opacity = '0';
-        }, 10000);
+        // Draw glitches
+        game.glitches.forEach(g => {
+            const pulse = 1 + Math.sin(g.phase) * 0.1;
+            const sz = g.size * pulse;
 
-        // Main loop
-        function gameLoop() {
-            if (!state.transitioning) {
-                draw();
+            // Glitch aura
+            if (g.isBoss) {
+                const bossGrad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, sz * 3);
+                bossGrad.addColorStop(0, 'rgba(255,50,50,0.15)');
+                bossGrad.addColorStop(0.5, 'rgba(255,0,100,0.05)');
+                bossGrad.addColorStop(1, 'transparent');
+                ctx.fillStyle = bossGrad;
+                ctx.fillRect(g.x - sz * 3, g.y - sz * 3, sz * 6, sz * 6);
             }
-            requestAnimationFrame(gameLoop);
+
+            // Ambush: partially hidden
+            if (g.behavior === 'ambush' && !g.ambushRevealed && !game.peekActive) {
+                ctx.globalAlpha = 0.15;
+            }
+
+            // Body
+            ctx.fillStyle = g.flash > 0 ? '#ffffff' : g.color;
+            ctx.beginPath();
+            // Jagged glitch shape
+            const sides = g.isBoss ? 8 : 5;
+            for (let i = 0; i < sides; i++) {
+                const angle = (i / sides) * Math.PI * 2 + g.phase * 0.5;
+                const r = sz * (0.7 + seeded(i * 17 + Math.floor(game.time * 2)) * 0.6);
+                const px = g.x + Math.cos(angle) * r;
+                const py = g.y + Math.sin(angle) * r;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.globalAlpha = 1;
+
+            // Boss HP bar
+            if (g.isBoss && g.hp > 0) {
+                const barW = 50, barH = 5;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(g.x - barW / 2, g.y - sz - 12, barW, barH);
+                ctx.fillStyle = '#ff4466';
+                ctx.fillRect(g.x - barW / 2, g.y - sz - 12, barW * (g.hp / g.maxHp), barH);
+            }
+
+            // Glitch static effect
+            if (Math.random() > 0.7) {
+                ctx.fillStyle = g.color;
+                ctx.globalAlpha = 0.3;
+                ctx.fillRect(g.x - sz + Math.random() * sz * 2, g.y - 1, Math.random() * 15, 2);
+                ctx.globalAlpha = 1;
+            }
+        });
+
+        // Draw player
+        const p = game.player;
+        if (p.flash > 0 && Math.floor(p.flash * 10) % 2 === 0) {
+            // Flash when hit
+        } else {
+            // Player glow
+            const pGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius * 3);
+            pGrad.addColorStop(0, 'rgba(180,140,255,0.2)');
+            pGrad.addColorStop(1, 'transparent');
+            ctx.fillStyle = pGrad;
+            ctx.fillRect(p.x - p.radius * 3, p.y - p.radius * 3, p.radius * 6, p.radius * 6);
+
+            // Player body
+            ctx.fillStyle = p.invincible > 0 ? 'rgba(180,140,255,0.5)' : '#c0a0ff';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Eye
+            const eyeAngle = Math.atan2(mouseY - p.y, mouseX - p.x);
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(p.x + Math.cos(eyeAngle) * 4, p.y + Math.sin(eyeAngle) * 4, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#222';
+            ctx.beginPath();
+            ctx.arc(p.x + Math.cos(eyeAngle) * 5.5, p.y + Math.sin(eyeAngle) * 5.5, 1.5, 0, Math.PI * 2);
+            ctx.fill();
         }
 
-        // Initialize
-        state.roomMemory.set(0, { firstVisit: Date.now(), visits: 1 });
-        gameLoop();
+        // Anchor indicator
+        if (game.anchored && game.anchorRoom === game.roomIndex) {
+            ctx.strokeStyle = 'rgba(68,255,170,0.4)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
 
-        // Initial message
-        setTimeout(() => {
-            showMessage("Where does this corridor lead?");
-        }, 3000);
+        // Particles
+        game.particles.forEach(pt => {
+            const alpha = pt.life / pt.maxLife;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = pt.color;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, pt.size * alpha, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+
+        // Floating texts
+        game.floatingTexts.forEach(ft => {
+            const alpha = ft.life / ft.maxLife;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = ft.color;
+            ctx.font = 'bold 14px Georgia';
+            ctx.textAlign = 'center';
+            ctx.fillText(ft.text, ft.x, ft.y);
+        });
+        ctx.globalAlpha = 1;
+
+        // Sanity visual effects
+        if (game.sanity < 40) {
+            // Edge distortion
+            const intensity = 1 - game.sanity / 40;
+            ctx.fillStyle = 'rgba(100,0,50,' + (intensity * 0.15) + ')';
+            ctx.fillRect(-10, -10, W + 20, H + 20);
+
+            // Vignette intensifies
+            const vig = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.3, cx, cy, Math.max(W, H) * 0.7);
+            vig.addColorStop(0, 'transparent');
+            vig.addColorStop(1, 'rgba(0,0,0,' + (0.3 + intensity * 0.5) + ')');
+            ctx.fillStyle = vig;
+            ctx.fillRect(-10, -10, W + 20, H + 20);
+
+            // Static noise when very low
+            if (game.sanity < 20) {
+                for (let i = 0; i < 30; i++) {
+                    ctx.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.05 * intensity) + ')';
+                    ctx.fillRect(Math.random() * W, Math.random() * H, Math.random() * 30, 1);
+                }
+            }
+        }
+
+        // Peek overlay
+        if (game.peekActive) {
+            ctx.strokeStyle = 'rgba(100,150,255,0.15)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 5; i++) {
+                const r = 50 + i * 40 + Math.sin(game.time * 2) * 10;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        // Room theme label
+        if (room.theme) {
+            ctx.fillStyle = 'rgba(180,160,220,0.2)';
+            ctx.font = '12px Georgia';
+            ctx.textAlign = 'left';
+            ctx.fillText(room.theme + (room.visitCount > 0 ? ' (visited ' + room.visitCount + 'x)' : ''), left + 15, top + rh - 10);
+        }
+
+        // Transition overlay
+        if (game.transitionAlpha > 0) {
+            ctx.fillStyle = 'rgba(0,0,0,' + Math.min(1, game.transitionAlpha) + ')';
+            ctx.fillRect(-10, -10, W + 20, H + 20);
+        }
+
+        ctx.restore();
+    }
+
+    // --- Main Loop ---
+    function loop(now) {
+        if (!game.lastTime) game.lastTime = now;
+        const dt = Math.min((now - game.lastTime) / 1000, 0.05);
+        game.lastTime = now;
+
+        if (game.state === 'playing') update(dt);
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    // --- Init ---
+    displayHighScores();
+    requestAnimationFrame(loop);
     </script>
 </body>
 </html>
