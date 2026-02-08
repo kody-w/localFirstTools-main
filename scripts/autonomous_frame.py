@@ -28,6 +28,7 @@ MANIFEST_FILE = APPS_DIR / "manifest.json"
 RANKINGS_FILE = APPS_DIR / "rankings.json"
 COMMUNITY_FILE = APPS_DIR / "community.json"
 FEED_FILE = APPS_DIR / "broadcasts" / "feed.json"
+GHOST_STATE_FILE = APPS_DIR / "ghost-state.json"
 
 VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
 DRY_RUN = "--dry-run" in sys.argv
@@ -287,6 +288,55 @@ def broadcast(frame):
     return ok
 
 
+# ── Phase 8.5: POKE GHOST ──
+
+def poke_ghost(frame, obs, actions_log):
+    """Poke the zoo-pilot ghost with a summary of what this frame did.
+
+    Writes a poke to apps/ghost-state.json so the ghost (if running in
+    auto-mode) will notice and react to the autonomous frame's actions.
+    """
+    if not GHOST_STATE_FILE.exists():
+        log("ghost-state.json not found — skipping poke")
+        return False
+
+    print("\n[POKE GHOST] Notifying zoo-pilot ghost...")
+    try:
+        gs = json.loads(GHOST_STATE_FILE.read_text())
+    except Exception as e:
+        log(f"Failed to read ghost state: {e}")
+        return False
+
+    # Build a poke summarising the frame
+    molted = actions_log.get("molted", [])
+    poke = {
+        "id": f"poke-frame-{frame}-{datetime.now().strftime('%H%M%S')}",
+        "ts": datetime.now().isoformat(),
+        "from": "autonomous-frame",
+        "command": "slosh",
+        "args": [
+            f"Frame {frame} complete.",
+            f"Molted {len(molted)} apps." if molted else "No molts.",
+            "Scored." if actions_log.get("scored") else "",
+            "Community refreshed." if actions_log.get("socialized") else "",
+        ],
+        "status": "pending",
+    }
+    poke["args"] = [a for a in poke["args"] if a]
+
+    gs.setdefault("pokes", []).append(poke)
+    gs.setdefault("stats", {})
+    gs["stats"]["pokesReceived"] = gs["stats"].get("pokesReceived", 0) + 1
+
+    try:
+        GHOST_STATE_FILE.write_text(json.dumps(gs, indent=2))
+        log(f"Poked ghost: {poke['id']}")
+        return True
+    except Exception as e:
+        log(f"Failed to write ghost state: {e}")
+        return False
+
+
 # ── Phase 9: PUBLISH ──
 
 def publish(frame, actions_log):
@@ -308,6 +358,8 @@ def publish(frame, actions_log):
         files_to_stage.append("apps/data-molt-state.json")
     if (APPS_DIR / "content-graph.json").exists():
         files_to_stage.append("apps/content-graph.json")
+    if GHOST_STATE_FILE.exists():
+        files_to_stage.append("apps/ghost-state.json")
 
     # Stage molted HTML files
     for f in actions_log.get("molted", []):
@@ -437,6 +489,9 @@ def main():
     # Phase 8: BROADCAST
     if actions["broadcast"]:
         actions_log["broadcast"] = broadcast(frame)
+
+    # Phase 8.5: POKE GHOST
+    actions_log["ghost_poked"] = poke_ghost(frame, obs, actions_log)
 
     # Phase 10: LOG (before publish so state is committed)
     log_frame(frame, obs, actions_log)

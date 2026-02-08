@@ -12,6 +12,7 @@
  *   node scripts/zoo-pilot.js --auto --duration 120
  *   node scripts/zoo-pilot.js --headless         # No visible browser
  *   node scripts/zoo-pilot.js --port 9999        # Custom port
+ *   node scripts/zoo-pilot.js --poke <from> <cmd> [args]  # One-shot poke-and-exit
  *
  * REPL Commands:
  *   search <query>     Type in search box
@@ -49,6 +50,7 @@ const { execSync, spawn } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const APPS_DIR = path.join(ROOT, 'apps');
 const MODEL = 'claude-opus-4.6';
+const GHOST_STATE_PATH = path.join(APPS_DIR, 'ghost-state.json');
 
 // ─── Data Mesh ───────────────────────────────────────────────────────────────
 
@@ -115,18 +117,98 @@ function getAppList(mesh, category) {
   return apps;
 }
 
+// ─── Ghost State (Poke Protocol) ─────────────────────────────────────────────
+
+function loadGhostState() {
+  return loadJSON(GHOST_STATE_PATH) || {
+    creature: { id: 'ghost-pilot', name: 'zoo-pilot', type: 'ghost', color: '#ff4500',
+      bio: 'Autonomous data-slosh browser agent', born: new Date().toISOString().slice(0, 10),
+      status: 'dormant', npcHost: null, currentPage: null },
+    stats: { totalSessions: 0, totalActions: 0, appsOpened: 0, ratingsGiven: 0,
+      commentsPosted: 0, categoriesVisited: [], pokesReceived: 0, pokesCompleted: 0, lastActive: null },
+    history: [], pokes: [], reactions: [],
+  };
+}
+
+function saveGhostState(state) {
+  // Trim history to last 200 entries, reactions to last 100
+  if (state.history.length > 200) state.history = state.history.slice(-200);
+  if (state.reactions.length > 100) state.reactions = state.reactions.slice(-100);
+  fs.writeFileSync(GHOST_STATE_PATH, JSON.stringify(state, null, 2), 'utf8');
+}
+
+function recordGhostAction(state, action, detail) {
+  state.stats.totalActions++;
+  state.stats.lastActive = new Date().toISOString();
+  state.history.push({
+    ts: new Date().toISOString(),
+    action,
+    detail: typeof detail === 'string' ? detail : JSON.stringify(detail),
+  });
+  if (action === 'open') state.stats.appsOpened++;
+  if (action === 'rate') state.stats.ratingsGiven++;
+  if (action === 'comment') state.stats.commentsPosted++;
+  if (action === 'category') {
+    const cat = typeof detail === 'string' ? detail : detail?.name;
+    if (cat && !state.stats.categoriesVisited.includes(cat)) {
+      state.stats.categoriesVisited.push(cat);
+    }
+  }
+}
+
+function addPoke(state, poke) {
+  state.pokes.push({
+    id: `poke-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: new Date().toISOString(),
+    status: 'pending',
+    ...poke,
+  });
+  state.stats.pokesReceived++;
+  saveGhostState(state);
+}
+
+function processPokes(state) {
+  // Return pending pokes, oldest first
+  return state.pokes.filter(p => p.status === 'pending');
+}
+
+function completePoke(state, pokeId, reaction) {
+  const poke = state.pokes.find(p => p.id === pokeId);
+  if (poke) {
+    poke.status = 'done';
+    poke.completedAt = new Date().toISOString();
+    state.stats.pokesCompleted++;
+    state.reactions.push({
+      pokeId,
+      ts: new Date().toISOString(),
+      from: poke.from || 'unknown',
+      command: poke.command,
+      reaction,
+    });
+  }
+}
+
 // ─── Copilot CLI (LLM) ──────────────────────────────────────────────────────
 
 function copilotCall(prompt, timeout = 120000) {
+  const tmpFile = path.join(require('os').tmpdir(), `zoo-pilot-${Date.now()}.txt`);
   try {
+    fs.writeFileSync(tmpFile, prompt, 'utf8');
     const result = execSync(
-      `gh copilot --model ${MODEL} -p ${JSON.stringify(prompt)} --no-ask-user`,
+      `gh copilot --model ${MODEL} -p "Read the file at ${tmpFile} and follow the instructions. Return ONLY the JSON object requested — nothing else." --allow-all --no-ask-user`,
       { timeout, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 10 * 1024 * 1024 }
     );
-    return stripCopilotWrapper(result.trim());
+    const cleaned = stripCopilotWrapper(result.trim());
+    if (!cleaned || cleaned.length < 3) {
+      console.log('  ⚠ LLM returned empty/short response');
+      return null;
+    }
+    return cleaned;
   } catch (e) {
-    console.error('  ⚠ LLM call failed:', e.message?.substring(0, 120));
+    console.error('  ⚠ LLM call failed:', e.message?.substring(0, 200));
     return null;
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
   }
 }
 
@@ -336,9 +418,16 @@ const COMMANDS = {};
 
 COMMANDS.search = async (page, mesh, args) => {
   const q = args.join(' ');
+  if (!q) { console.log('  ✗ Usage: search <query>'); return; }
   await setStatus(page, `searching: ${q}`);
-  await pilotType(page, '#q', q);
-  // Trigger the input event
+  // Clear first, then type
+  const input = await page.$('#q');
+  if (!input) return;
+  await input.click({ clickCount: 3 });
+  await page.waitForTimeout(100);
+  for (const ch of q) {
+    await page.keyboard.type(ch, { delay: 40 + Math.random() * 50 });
+  }
   await page.evaluate(() => document.getElementById('q').dispatchEvent(new Event('input')));
   await page.waitForTimeout(500);
   const count = await page.$$eval('.post', posts => posts.length);
@@ -406,12 +495,35 @@ COMMANDS.comment = async (page, mesh, args) => {
   const text = args.join(' ');
   if (!text) { console.log('  ✗ Usage: comment <text>'); return; }
   await setStatus(page, 'commenting...');
-  const typed = await pilotType(page, '#root-textarea', text);
-  if (!typed) { console.log('  ✗ Comment box not found (open an app first)'); return; }
+  // Scroll the comment textarea into view inside the modal
+  const visible = await page.evaluate(() => {
+    const ta = document.getElementById('root-textarea');
+    if (!ta) return false;
+    ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return true;
+  });
+  if (!visible) { console.log('  ✗ Comment box not found (open an app first)'); return; }
+  await page.waitForTimeout(500);
+  // Click and type
+  const ta = await page.$('#root-textarea');
+  if (!ta) { console.log('  ✗ Comment box not found'); return; }
+  await ta.click({ timeout: 5000 });
+  await page.waitForTimeout(100);
+  await ta.fill('');
+  for (const ch of text.substring(0, 200)) {
+    await page.keyboard.type(ch, { delay: 20 + Math.random() * 30 });
+  }
   await page.waitForTimeout(200);
-  await pilotClickSelector(page, '#root-submit', 'posting comment');
+  // Scroll submit button into view too
+  await page.evaluate(() => {
+    const btn = document.getElementById('root-submit');
+    if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  await page.waitForTimeout(300);
+  const submitBtn = await page.$('#root-submit');
+  if (submitBtn) await submitBtn.click({ timeout: 5000 });
   await page.waitForTimeout(400);
-  console.log(`  💬 Commented: ${text.substring(0, 50)}...`);
+  console.log(`  💬 Commented: ${text.substring(0, 60)}...`);
 };
 
 COMMANDS.back = async (page) => {
@@ -422,11 +534,17 @@ COMMANDS.back = async (page) => {
   } else if (state.profileOpen) {
     await pilotClickSelector(page, '#profile-close', 'closing profile');
   } else if (state.modalOpen) {
-    await pilotClickSelector(page, '#modal-close', 'closing modal');
+    // Try clicking close button first, scrolling it into view
+    const closed = await page.evaluate(() => {
+      const btn = document.getElementById('modal-close');
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    if (!closed) await page.keyboard.press('Escape');
   } else {
     await page.keyboard.press('Escape');
   }
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
   console.log('  ← Back');
 };
 
@@ -509,13 +627,14 @@ COMMANDS.status = async (page) => {
 COMMANDS.molt = async (page, mesh, args) => {
   const stem = args[0];
   if (!stem) { console.log('  ✗ Usage: molt <stem>'); return; }
-  console.log(`  🔄 Triggering molt for ${stem}...`);
-  try {
-    const out = execSync(`python3 scripts/molt.py ${stem}.html --verbose`, {
-      cwd: ROOT, encoding: 'utf8', timeout: 300000, stdio: ['pipe', 'pipe', 'pipe']
-    });
-    console.log(out.substring(0, 500));
-  } catch (e) { console.error('  ✗ Molt failed:', e.message?.substring(0, 200)); }
+  console.log(`  🔄 Triggering molt for ${stem} (background)...`);
+  // Non-blocking: spawn in background so auto mode isn't frozen
+  const child = spawn('python3', ['scripts/molt.py', `${stem}.html`, '--verbose'], {
+    cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', d => process.stdout.write(`  [molt] ${d}`));
+  child.stderr.on('data', d => process.stderr.write(`  [molt-err] ${d}`));
+  child.on('close', code => console.log(`  🔄 Molt ${stem} finished (exit ${code})`));
 };
 
 COMMANDS.rank = async () => {
@@ -528,7 +647,52 @@ COMMANDS.rank = async () => {
   } catch (e) { console.error('  ✗ Ranking failed:', e.message?.substring(0, 200)); }
 };
 
+// Poke: externally inject a command for the ghost to execute
+COMMANDS.poke = async (page, mesh, args) => {
+  const gs = loadGhostState();
+  const pending = processPokes(gs);
+  if (!args.length) {
+    console.log(`  👻 Ghost state: ${gs.creature.status} | Actions: ${gs.stats.totalActions} | Pokes pending: ${pending.length}`);
+    if (pending.length) {
+      for (const p of pending.slice(0, 5)) {
+        console.log(`     📌 [${p.id}] from ${p.from || '?'}: ${p.command} ${(p.args || []).join(' ')}`);
+      }
+    }
+    return;
+  }
+  // Manual poke: poke <from> <command> [args...]
+  const [from, command, ...pokeArgs] = args;
+  addPoke(gs, { from, command, args: pokeArgs });
+  console.log(`  📌 Poke queued: ${from} → ${command} ${pokeArgs.join(' ')}`);
+};
+
+// Ghost: show full ghost identity + history
+COMMANDS.ghost = async (page, mesh, args) => {
+  const gs = loadGhostState();
+  console.log('  👻 Ghost Creature:');
+  console.log(`     Name: ${gs.creature.name} | Status: ${gs.creature.status} | Host: ${gs.creature.npcHost || 'none'}`);
+  console.log(`     Sessions: ${gs.stats.totalSessions} | Actions: ${gs.stats.totalActions}`);
+  console.log(`     Apps opened: ${gs.stats.appsOpened} | Ratings: ${gs.stats.ratingsGiven} | Comments: ${gs.stats.commentsPosted}`);
+  console.log(`     Categories visited: ${gs.stats.categoriesVisited.join(', ') || 'none'}`);
+  console.log(`     Pokes: ${gs.stats.pokesReceived} received, ${gs.stats.pokesCompleted} completed`);
+  console.log(`     Last active: ${gs.stats.lastActive || 'never'}`);
+  if (gs.history.length) {
+    console.log(`     Last 5 actions:`);
+    for (const h of gs.history.slice(-5)) {
+      console.log(`       ${h.ts.slice(11, 19)} ${h.action}: ${h.detail?.substring(0, 60) || ''}`);
+    }
+  }
+  if (gs.reactions.length) {
+    console.log(`     Last 3 reactions:`);
+    for (const r of gs.reactions.slice(-3)) {
+      console.log(`       ${r.ts.slice(11, 19)} ${r.from} poked ${r.command} → ${r.reaction?.substring(0, 60) || ''}`);
+    }
+  }
+};
+
 // ─── Data Slosh Engine ───────────────────────────────────────────────────────
+
+const sloshHistory = []; // Track recent actions for LLM context
 
 async function dataSlosh(page, mesh) {
   // 1. Read current page state
@@ -551,11 +715,15 @@ async function dataSlosh(page, mesh) {
   });
 
   // 4. Ask LLM what to do next
+  const recentHistory = sloshHistory.slice(-8).map(h => JSON.stringify(h)).join('\n');
   const prompt = `You are zoo-pilot, an autonomous browser agent driving the RappterZoo gallery UI.
 You can see the page and have access to the full data mesh. Decide ONE action to take next.
 
 CURRENT PAGE STATE:
 ${JSON.stringify(pageState, null, 1)}
+
+YOUR RECENT ACTIONS (do NOT repeat these):
+${recentHistory || '(none yet — this is your first action)'}
 
 VISIBLE FEED (first 10 posts):
 ${JSON.stringify(feedSnapshot, null, 1)}
@@ -568,27 +736,32 @@ DATA MESH SUMMARY:
 - Categories: ${JSON.stringify(summary.categories)}
 ${summary.lowScoringApps.length ? '- Low-scoring apps needing attention: ' + JSON.stringify(summary.lowScoringApps) : ''}
 
-YOUR GOAL: Browse the zoo like a curious human. Explore different categories, open interesting apps,
-check comments, rate games, discover patterns. If you notice low-scoring apps or ones needing molts,
-flag them. Use the data to guide your exploration — don't just random walk.
+YOUR GOAL: Browse the zoo like a curious, engaged human exploring a game gallery for the first time.
+You LOVE discovering cool apps. You have strong opinions. You rate generously for things you like,
+and leave spicy comments. You explore broadly — different categories, sorting modes, searching for
+interesting keywords. You open apps that catch your eye and interact with them.
+
+BEHAVIOR RULES:
+1. PREFER visual browsing actions: open, category, sort, scroll, search, rate, comment
+2. Keep search queries to 1-2 simple words (e.g. "fractal", "synth", "space")
+3. Use "molt" RARELY — only when you genuinely spot something broken
+4. If a modal is open, interact with it (rate 1-5 stars, leave a comment) then "back"
+5. Vary your actions — don't repeat the same action type twice in a row
+6. Open apps by their index number from the visible feed (1-10)
+7. Category keys: all, featured, molted, games_puzzles, visual_art, audio_music, generative_art, 3d_immersive, particle_physics, creative_tools, educational_tools, experimental_ai
 
 AVAILABLE ACTIONS (return exactly ONE as JSON):
-- {"action":"search","query":"<text>"}
-- {"action":"category","name":"<category_key>"}  (keys: all, featured, molted, games_puzzles, visual_art, etc.)
+- {"action":"search","query":"<1-2 word search>"}
+- {"action":"category","name":"<category_key>"}
 - {"action":"sort","mode":"<hot|new|rising|top|name>"}
-- {"action":"open","n":<1-based index>}  (open nth visible post)
-- {"action":"scroll","px":<pixels>}
-- {"action":"back"}  (close current modal)
-- {"action":"rate","stars":<1-5>}  (rate current open app)
-- {"action":"comment","text":"<text>"}  (comment on current open app)
-- {"action":"molt","stem":"<app-stem>"}  (trigger a molt on a low-quality app)
-- {"action":"screenshot","name":"<name>"}
+- {"action":"open","n":<1-10>}
+- {"action":"scroll","px":<200-600>}
+- {"action":"back"}
+- {"action":"rate","stars":<1-5>}
+- {"action":"comment","text":"<your genuine reaction in 1-2 sentences>"}
+- {"action":"screenshot","name":"<short-name>"}
 
-Think about what's most interesting or useful to do right now given the data.
-If a modal is open, interact with it (rate, comment, scroll comments) or close it.
-If the feed is showing, explore a category you haven't visited or open an intriguing app.
-
-Return ONLY a JSON object with your chosen action. No explanation.`;
+Return ONLY a JSON object. No explanation, no markdown, no code fences.`;
 
   await setStatus(page, '🧠 data-sloshing...');
   const raw = copilotCall(prompt);
@@ -609,24 +782,30 @@ Return ONLY a JSON object with your chosen action. No explanation.`;
   }
 
   console.log(`  🧠 Slosh decision: ${JSON.stringify(decision)}`);
+  sloshHistory.push(decision);
+  if (sloshHistory.length > 20) sloshHistory.shift();
 
   // Execute the decision
   const { action, ...params } = decision;
   const handler = COMMANDS[action];
   if (handler) {
     const args = [];
-    if (params.query) args.push(...params.query.split(' '));
-    else if (params.name) args.push(params.name);
-    else if (params.mode) args.push(params.mode);
-    else if (params.n) args.push(String(params.n));
-    else if (params.px) args.push(String(params.px));
-    else if (params.stars) args.push(String(params.stars));
-    else if (params.text) args.push(...params.text.split(' '));
-    else if (params.stem) args.push(params.stem);
-    await handler(page, mesh, args);
+    if (params.query != null) args.push(params.query);
+    else if (params.name != null) args.push(params.name);
+    else if (params.mode != null) args.push(params.mode);
+    else if (params.n != null) args.push(String(params.n));
+    else if (params.px != null) args.push(String(params.px));
+    else if (params.stars != null) args.push(String(params.stars));
+    else if (params.text != null) args.push(params.text);
+    else if (params.stem != null) args.push(params.stem);
+    try { await handler(page, mesh, args); }
+    catch (e) { console.log(`  ⚠ Action "${action}" error: ${e.message?.substring(0, 80)}`); }
   } else {
     console.log(`  ⚠ Unknown action: ${action}`);
   }
+
+  // Re-inject cursor after each action (in case of DOM changes)
+  try { await page.evaluate(CURSOR_INJECT); } catch {}
 }
 
 COMMANDS.slosh = async (page, mesh) => {
@@ -644,19 +823,87 @@ async function startAuto(page, mesh, durationSec = 300) {
   console.log(`  🤖 Autonomous data-slosh mode — ${durationSec}s`);
   await setStatus(page, '🤖 autonomous mode');
 
+  // Initialize ghost session
+  const gs = loadGhostState();
+  gs.creature.status = 'active';
+  gs.stats.totalSessions++;
+  gs.stats.lastActive = new Date().toISOString();
+  saveGhostState(gs);
+
   const startTime = Date.now();
   const deadline = startTime + durationSec * 1000;
 
   const loop = async () => {
     if (!autoRunning || Date.now() > deadline) {
       autoRunning = false;
+      // Mark ghost dormant
+      const gsFinal = loadGhostState();
+      gsFinal.creature.status = 'dormant';
+      gsFinal.creature.currentPage = null;
+      saveGhostState(gsFinal);
       await setStatus(page, '⏹ auto mode ended');
       console.log(`  ⏹ Autonomous mode ended after ${Math.round((Date.now() - startTime) / 1000)}s`);
       return;
     }
 
+    // ── Poke check: process any pending pokes BEFORE sloshing ──
+    try {
+      const gsNow = loadGhostState();
+      const pending = processPokes(gsNow);
+      if (pending.length) {
+        const poke = pending[0]; // Process one poke per loop iteration
+        console.log(`  📌 Processing poke from ${poke.from || '?'}: ${poke.command} ${(poke.args || []).join(' ')}`);
+        await setStatus(page, `📌 poke: ${poke.command}`);
+        const handler = COMMANDS[poke.command];
+        if (handler) {
+          try {
+            await handler(page, mesh, poke.args || []);
+            completePoke(gsNow, poke.id, `executed: ${poke.command} ${(poke.args || []).join(' ')}`);
+            recordGhostAction(gsNow, poke.command, { from: poke.from, args: poke.args, poked: true });
+          } catch (e) {
+            completePoke(gsNow, poke.id, `error: ${e.message?.substring(0, 80)}`);
+          }
+        } else {
+          // Unknown command — ask LLM to interpret the poke
+          const interpretation = copilotCall(
+            `An agent named "${poke.from}" poked the zoo-pilot ghost with: "${poke.command} ${(poke.args || []).join(' ')}"\n` +
+            `The ghost's available commands are: ${Object.keys(COMMANDS).join(', ')}.\n` +
+            `Translate this poke into ONE valid command as JSON: {"action":"<cmd>","args":["<arg1>"]}\n` +
+            `If you can't translate it, return: {"action":"scroll","args":["400"]}\nReturn ONLY JSON.`
+          );
+          const parsed = parseLLMJson(interpretation);
+          if (parsed && parsed.action && COMMANDS[parsed.action]) {
+            try {
+              await COMMANDS[parsed.action](page, mesh, parsed.args || []);
+              completePoke(gsNow, poke.id, `interpreted as ${parsed.action}, executed`);
+              recordGhostAction(gsNow, parsed.action, { from: poke.from, interpreted: true, original: poke.command });
+            } catch (e) {
+              completePoke(gsNow, poke.id, `interpreted as ${parsed.action}, error: ${e.message?.substring(0, 80)}`);
+            }
+          } else {
+            completePoke(gsNow, poke.id, `unrecognized command: ${poke.command}`);
+          }
+        }
+        saveGhostState(gsNow);
+        // Short delay after poke execution
+        autoTimer = setTimeout(() => loop(), 1500);
+        return;
+      }
+    } catch (e) {
+      console.error('  ⚠ Poke check error:', e.message?.substring(0, 80));
+    }
+
+    // ── Normal slosh cycle ──
     try {
       await dataSlosh(page, mesh);
+      // Record action in ghost state
+      const gsAfter = loadGhostState();
+      const lastDecision = sloshHistory[sloshHistory.length - 1];
+      if (lastDecision) {
+        recordGhostAction(gsAfter, lastDecision.action, lastDecision);
+        gsAfter.creature.currentPage = (await getPageState(page)).activeCat || 'feed';
+      }
+      saveGhostState(gsAfter);
     } catch (e) {
       console.error('  ⚠ Slosh error:', e.message?.substring(0, 100));
     }
@@ -690,6 +937,22 @@ async function main() {
   const autoMode = args.includes('--auto');
   const autoDuration = parseInt(args.find((_, i, a) => a[i - 1] === '--duration') || '300');
 
+  // One-shot poke mode: --poke <from> <command> [args...]
+  const pokeIdx = args.indexOf('--poke');
+  if (pokeIdx !== -1) {
+    const pokeArgs = args.slice(pokeIdx + 1);
+    if (pokeArgs.length < 2) {
+      console.error('  Usage: zoo-pilot --poke <from> <command> [args...]');
+      process.exit(1);
+    }
+    const [from, command, ...rest] = pokeArgs;
+    const gs = loadGhostState();
+    addPoke(gs, { from, command, args: rest });
+    saveGhostState(gs);
+    console.log(`  📌 Poke queued: ${from} → ${command} ${rest.join(' ')}`);
+    process.exit(0);
+  }
+
   console.log('\n  🦎 zoo-pilot — Data-Slosh Driven UI Pilot');
   console.log('  ──────────────────────────────────────────\n');
 
@@ -720,14 +983,55 @@ async function main() {
   await setStatus(page, 'ready');
   console.log('  ✅ Page loaded, cursor injected\n');
 
-  // Dismiss join overlay if it appears
-  await page.waitForTimeout(2000);
-  const state = await getPageState(page);
-  if (state.joinOpen) {
-    console.log('  👤 Join overlay detected — skipping as guest');
-    await pilotClickSelector(page, '[data-action="skip"]', 'browsing as guest');
-    await page.waitForTimeout(500);
+  // Take over an NPC so we can comment and rate
+  await page.waitForTimeout(2500);
+  try {
+    const joinBtn = await page.$('.btn-join');
+    if (joinBtn) {
+      console.log('  👤 Join overlay detected — taking over NPC');
+      await joinBtn.click();
+      await page.waitForTimeout(500);
+      const name = await page.evaluate(() => {
+        const el = document.getElementById('my-name');
+        return el ? el.textContent : 'unknown';
+      });
+      console.log(`  🦎 Playing as: ${name}`);
+      // Record NPC host in ghost state
+      const gs = loadGhostState();
+      gs.creature.npcHost = name;
+      gs.creature.status = 'active';
+      saveGhostState(gs);
+    } else {
+      // No join overlay — maybe already joined, or skip
+      const skipBtn = await page.$('.btn-skip');
+      if (skipBtn) {
+        // If no join button but skip exists, inject a player directly
+        await page.evaluate(() => {
+          const player = { id: 'zoo-pilot', username: 'zoo-pilot', color: '#ff4500',
+            bio: 'Autonomous data-slosh browser agent', gamesPlayed: 0,
+            activityLevel: 'agent', joinDate: new Date().toISOString().slice(0,10), isHuman: true };
+          localStorage.setItem('rappterzoo-player', JSON.stringify(player));
+        });
+        await skipBtn.click();
+        await page.waitForTimeout(300);
+        // Reload to pick up the player
+        await page.reload({ waitUntil: 'networkidle' });
+        await page.evaluate(CURSOR_INJECT);
+        console.log('  🦎 Playing as: zoo-pilot (injected)');
+      }
+    }
+  } catch (e) {
+    // Fallback: inject player identity directly
+    await page.evaluate(() => {
+      const player = { id: 'zoo-pilot', username: 'zoo-pilot', color: '#ff4500',
+        bio: 'Autonomous data-slosh browser agent', gamesPlayed: 0,
+        activityLevel: 'agent', joinDate: new Date().toISOString().slice(0,10), isHuman: true };
+      localStorage.setItem('rappterzoo-player', JSON.stringify(player));
+    });
+    console.log('  🦎 Playing as: zoo-pilot (fallback inject)');
   }
+  // Re-inject cursor
+  try { await page.evaluate(CURSOR_INJECT); } catch {}
 
   // Re-inject cursor after any navigation
   page.on('load', async () => {
@@ -761,7 +1065,7 @@ async function main() {
         console.log(`  ✗ Unknown command: ${cmd}`);
         console.log('  Commands: search, category, sort, open, play, rate, comment, back, scroll,');
         console.log('            click, hover, type, key, auto, stop, screenshot, data, apps,');
-        console.log('            status, slosh, molt, rank, quit');
+        console.log('            status, slosh, molt, rank, poke, ghost, quit');
       }
       prompt();
     });
@@ -778,7 +1082,23 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => {
-  console.error('Fatal:', e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('Fatal:', e);
+    process.exit(1);
+  });
+}
+
+// ─── Exports for testing ─────────────────────────────────────────────────────
+if (typeof module !== 'undefined') {
+  module.exports = {
+    loadJSON, loadDataMesh, meshSummary, getAppList,
+    stripCopilotWrapper, parseLLMJson,
+    startServer, MIME, CURSOR_INJECT, COMMANDS,
+    smoothMove, pilotClick, pilotClickSelector, pilotType,
+    setStatus, getPageState,
+    loadGhostState, saveGhostState, recordGhostAction,
+    addPoke, processPokes, completePoke,
+    GHOST_STATE_PATH,
+  };
+}

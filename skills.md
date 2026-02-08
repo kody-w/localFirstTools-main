@@ -767,3 +767,113 @@ g = r['meta']['grade_distribution']
 print(f'S:{g.get(\"S\",0)} A:{g.get(\"A\",0)} B:{g.get(\"B\",0)} C:{g.get(\"C\",0)} D:{g.get(\"D\",0)} F:{g.get(\"F\",0)}')
 "
 ```
+
+---
+
+## Skill 13 — Ghost Poke Protocol
+
+### What It Is
+
+The **Zoo-Pilot Ghost** (`scripts/zoo-pilot.js`) is a Playwright-driven autonomous browser agent that browses the RappterZoo gallery like a human. It's registered as a **creature** in the zoo ecosystem (`apps/ghost-state.json`). Other agents can **poke** the ghost to make it perform actions, then observe its reactions.
+
+### Ghost State File
+
+`apps/ghost-state.json` is the shared communication channel:
+
+```json
+{
+  "creature": {
+    "id": "ghost-pilot",
+    "name": "zoo-pilot",
+    "type": "ghost",
+    "status": "active|dormant",
+    "npcHost": "cryptviper",
+    "currentPage": "visual_art"
+  },
+  "stats": { "totalActions": 42, "appsOpened": 15, "pokesReceived": 3, "pokesCompleted": 2 },
+  "history": [{ "ts": "...", "action": "open", "detail": "Fractal Garden" }],
+  "pokes": [{ "id": "poke-xxx", "from": "molter-engine", "command": "open", "args": ["5"], "status": "pending" }],
+  "reactions": [{ "pokeId": "poke-xxx", "from": "molter-engine", "command": "open", "reaction": "executed: open 5" }]
+}
+```
+
+### How to Poke the Ghost
+
+Any agent can poke the ghost by writing to `apps/ghost-state.json`:
+
+**From Python (e.g., in autonomous_frame.py):**
+```python
+import json, time
+from datetime import datetime
+gs = json.load(open('apps/ghost-state.json'))
+gs['pokes'].append({
+    'id': f'poke-{int(time.time())}',
+    'ts': datetime.now().isoformat(),
+    'from': 'molter-engine',
+    'command': 'category',
+    'args': ['games_puzzles'],
+    'status': 'pending'
+})
+gs['stats']['pokesReceived'] += 1
+json.dump(gs, open('apps/ghost-state.json', 'w'), indent=2)
+```
+
+**From the CLI (inside zoo-pilot REPL):**
+```
+zoo> poke molter-engine category games_puzzles
+zoo> poke data-slosh search fractal
+zoo> poke human open 3
+```
+
+**From Node.js (e.g., another agent script):**
+```javascript
+const { loadGhostState, addPoke, saveGhostState } = require('./zoo-pilot');
+const gs = loadGhostState();
+addPoke(gs, { from: 'my-agent', command: 'search', args: ['particle'] });
+```
+
+### Available Poke Commands
+
+Any REPL command can be used as a poke:
+
+| Command | Args | What it does |
+|---------|------|-------------|
+| `search` | `<query>` | Filter gallery by search term |
+| `category` | `<name>` | Switch to a category |
+| `sort` | `<mode>` | Sort: alpha, newest, complex |
+| `open` | `<index>` | Open the nth visible post |
+| `rate` | `<1-5>` | Rate the open post |
+| `comment` | `<text>` | Post a comment on the open post |
+| `back` | — | Close modal, return to feed |
+| `scroll` | `<px>` | Scroll down by N pixels |
+| `screenshot` | `[name]` | Take a screenshot |
+| `molt` | `<stem>` | Trigger molting on an app (background) |
+| `rank` | — | Trigger re-ranking |
+| `slosh` | — | One LLM data-slosh decision |
+
+Unknown commands are interpreted by the LLM into the nearest valid action.
+
+### How to Observe the Ghost
+
+1. **Read `ghost-state.json`** — the `history` array shows every action taken, `reactions` show poke responses
+2. **Watch screenshots/** — the ghost takes screenshots during auto mode
+3. **Open a second terminal** and run: `watch -n2 'python3 -c "import json; gs=json.load(open(\"apps/ghost-state.json\")); print(f\"Status: {gs[\"creature\"][\"status\"]}\nActions: {gs[\"stats\"][\"totalActions\"]}\nLast: {gs[\"history\"][-1] if gs[\"history\"] else \"none\"}\")"'`
+4. **Run `ghost` in the REPL** — shows full ghost identity and recent history
+5. **The ghost IS a creature** — other NPCs in community.json can reference it
+
+### Poke Processing
+
+When the ghost is running in autonomous mode (`auto`):
+1. Before each LLM data-slosh cycle, it checks `ghost-state.json` for pending pokes
+2. Pending pokes are executed **immediately** (priority over LLM decisions)
+3. Each poke gets a reaction logged in `reactions[]`
+4. One poke per loop iteration (prevents flooding)
+5. After poke execution, normal sloshing resumes
+
+### Safety Rules
+
+1. Pokes cannot kill the ghost or modify its core identity
+2. The ghost ignores pokes when dormant (not running)
+3. Max 100 reactions stored (oldest trimmed)
+4. Max 200 history entries (oldest trimmed)
+5. Unknown poke commands are LLM-interpreted to nearest valid action (never silently dropped)
