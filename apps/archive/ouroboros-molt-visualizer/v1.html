@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ouroboros — Molt Engine Visualizer</title>
+    <meta name="description" content="Interactive force-directed graph visualizing the RappterZoo evolutionary ecosystem: molt lineage, content identities, score trajectories, and generation history.">
+    <meta name="rappterzoo:author" content="RappterZoo">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="experimental-ai">
+    <meta name="rappterzoo:tags" content="visualization,graph,ecosystem,molt,evolution,force-directed,meta">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="1">
+    <style>
+        :root {
+            --bg: #08090d;
+            --panel: rgba(12,14,22,0.92);
+            --border: rgba(255,255,255,0.06);
+            --text: #c8ccd4;
+            --dim: #555;
+            --accent: #7c4dff;
+            --cat-3d: #e91e63;
+            --cat-audio: #ff9800;
+            --cat-creative: #4caf50;
+            --cat-edu: #2196f3;
+            --cat-exp: #9c27b0;
+            --cat-games: #f44336;
+            --cat-gen: #00bcd4;
+            --cat-particle: #ff5722;
+            --cat-visual: #e040fb;
+            --cat-data: #8bc34a;
+            --cat-prod: #607d8b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            overflow: hidden;
+            height: 100vh;
+        }
+        canvas { display: block; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+
+        /* Top HUD */
+        #hud {
+            position: fixed; top: 0; left: 0; right: 0;
+            display: flex; align-items: center; gap: 16px;
+            padding: 10px 16px;
+            background: var(--panel);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+            z-index: 20;
+            font-size: 0.75rem;
+        }
+        #hud h1 {
+            font-size: 0.95rem;
+            font-weight: 400;
+            letter-spacing: 1.5px;
+            background: linear-gradient(90deg, var(--accent), #00bcd4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            white-space: nowrap;
+        }
+        .hud-stat {
+            text-align: center;
+            min-width: 48px;
+        }
+        .hud-stat .val {
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: #fff;
+        }
+        .hud-stat .lbl {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--dim);
+        }
+        #hud .spacer { flex: 1; }
+
+        /* Frame timeline */
+        #timeline-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #timeline-box label { color: var(--dim); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        #frame-slider {
+            -webkit-appearance: none;
+            width: 140px;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            outline: none;
+        }
+        #frame-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+        #frame-label { font-variant-numeric: tabular-nums; min-width: 60px; }
+
+        /* View controls */
+        .view-btns { display: flex; gap: 4px; }
+        .view-btns button {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border);
+            color: var(--dim);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.15s;
+        }
+        .view-btns button:hover, .view-btns button.active {
+            color: #fff;
+            background: rgba(124,77,255,0.2);
+            border-color: var(--accent);
+        }
+
+        /* Side panel (detail view) */
+        #detail-panel {
+            position: fixed;
+            top: 48px; right: 0;
+            width: 340px;
+            bottom: 0;
+            background: var(--panel);
+            backdrop-filter: blur(16px);
+            border-left: 1px solid var(--border);
+            z-index: 15;
+            overflow-y: auto;
+            padding: 16px;
+            transform: translateX(100%);
+            transition: transform 0.25s ease;
+            font-size: 0.75rem;
+        }
+        #detail-panel.open { transform: translateX(0); }
+        #detail-panel h2 {
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 12px;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #detail-panel h2 .close-btn {
+            cursor: pointer;
+            color: var(--dim);
+            font-size: 1.1rem;
+            border: none;
+            background: none;
+            font-family: inherit;
+        }
+        #detail-panel h2 .close-btn:hover { color: #fff; }
+        .detail-section {
+            margin-bottom: 14px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        .detail-section:last-child { border-bottom: none; }
+        .detail-section h3 {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--dim);
+            margin-bottom: 6px;
+        }
+        .detail-kv {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+        .detail-kv .k { color: var(--dim); }
+        .detail-kv .v { color: #fff; text-align: right; max-width: 180px; }
+        .detail-list { list-style: none; padding: 0; }
+        .detail-list li {
+            padding: 2px 0;
+            color: var(--text);
+            position: relative;
+            padding-left: 12px;
+        }
+        .detail-list li::before {
+            content: '›';
+            position: absolute;
+            left: 0;
+            color: var(--accent);
+        }
+        .score-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin: 3px 0;
+        }
+        .score-bar .bar-track {
+            flex: 1;
+            height: 6px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .score-bar .bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        .score-bar .bar-label { min-width: 30px; text-align: right; font-size: 0.65rem; color: var(--dim); }
+        .score-bar .bar-val { min-width: 28px; font-variant-numeric: tabular-nums; }
+        #score-trajectory {
+            width: 100%;
+            height: 60px;
+            margin-top: 8px;
+        }
+
+        /* Category legend */
+        #legend {
+            position: fixed;
+            bottom: 12px; left: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            font-size: 0.65rem;
+            z-index: 15;
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+        .legend-item.dimmed { opacity: 0.3; }
+        .legend-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+        }
+
+        /* Loading */
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            z-index: 100;
+            transition: opacity 0.5s;
+        }
+        #loading.hidden { opacity: 0; pointer-events: none; }
+        .loader-ring {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading p { margin-top: 16px; color: var(--dim); font-size: 0.8rem; }
+
+        /* Bottom stats */
+        #bottom-bar {
+            position: fixed;
+            bottom: 12px; right: 12px;
+            font-size: 0.65rem;
+            color: var(--dim);
+            z-index: 15;
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: fixed;
+            pointer-events: none;
+            background: rgba(20,22,30,0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.7rem;
+            z-index: 25;
+            max-width: 260px;
+            display: none;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        #tooltip .tt-title { color: #fff; font-weight: 600; margin-bottom: 4px; }
+        #tooltip .tt-sub { color: var(--dim); }
+
+        @media (max-width: 700px) {
+            #detail-panel { width: 100%; }
+            #legend { bottom: auto; top: 48px; left: 0; right: 0; border-radius: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading">
+    <div class="loader-ring"></div>
+    <p id="load-status">Ingesting ecosystem data...</p>
+</div>
+
+<canvas id="graph"></canvas>
+
+<div id="hud">
+    <h1>⊘ OUROBOROS</h1>
+    <div class="hud-stat"><div class="val" id="h-apps">-</div><div class="lbl">Apps</div></div>
+    <div class="hud-stat"><div class="val" id="h-frames">-</div><div class="lbl">Frames</div></div>
+    <div class="hud-stat"><div class="val" id="h-molts">-</div><div class="lbl">Molts</div></div>
+    <div class="hud-stat"><div class="val" id="h-avg">-</div><div class="lbl">Avg Score</div></div>
+    <div class="spacer"></div>
+    <div id="timeline-box">
+        <label>Frame</label>
+        <input type="range" id="frame-slider" min="0" max="1" value="1">
+        <span id="frame-label">All</span>
+    </div>
+    <div class="view-btns">
+        <button id="btn-score" class="active" title="Size by score">Score</button>
+        <button id="btn-gen" title="Size by generation">Gen</button>
+        <button id="btn-ident" title="Show only identified apps">Identity</button>
+        <button id="btn-reset" title="Reset view">Reset</button>
+    </div>
+</div>
+
+<div id="detail-panel">
+    <h2>
+        <span id="detail-title">-</span>
+        <button class="close-btn" id="detail-close">✕</button>
+    </h2>
+    <div id="detail-content"></div>
+</div>
+
+<div id="legend"></div>
+<div id="bottom-bar">
+    <span id="hover-info">Hover over a node</span>
+</div>
+<div id="tooltip">
+    <div class="tt-title" id="tt-title"></div>
+    <div class="tt-sub" id="tt-sub"></div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const CAT_COLORS = {
+    '3d_immersive':    '#e91e63',
+    'audio_music':     '#ff9800',
+    'creative_tools':  '#4caf50',
+    'educational_tools':'#2196f3',
+    'experimental_ai': '#9c27b0',
+    'games_puzzles':   '#f44336',
+    'generative_art':  '#00bcd4',
+    'particle_physics':'#ff5722',
+    'visual_art':      '#e040fb',
+    'data_tools':      '#8bc34a',
+    'productivity':    '#607d8b'
+};
+
+const GRADE_COLORS = { S: '#ffd700', A: '#00e676', B: '#2196f3', C: '#ff9800', D: '#f44336', F: '#666' };
+
+// ── Data ──
+let manifest = null, rankings = null, identities = null, molterState = null;
+let nodes = [], edges = [];
+let catFilters = new Set(); // empty = show all
+
+// ── Canvas ──
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+let W, H;
+let camX = 0, camY = 0, camZoom = 1;
+let dragging = false, dragStartX, dragStartY, dragCamX, dragCamY;
+let hoveredNode = null, selectedNode = null;
+let sizeMode = 'score'; // 'score' | 'gen'
+let filterIdentity = false;
+let simRunning = true;
+let simAlpha = 1;
+
+// ── Data Loading ──
+async function loadJSON(path) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error('Failed: ' + path);
+    return res.json();
+}
+
+async function loadAll() {
+    const status = document.getElementById('load-status');
+    try {
+        status.textContent = 'Loading manifest...';
+        manifest = await loadJSON('../manifest.json');
+        status.textContent = 'Loading rankings...';
+        rankings = await loadJSON('../rankings.json');
+        status.textContent = 'Loading content identities...';
+        identities = await loadJSON('../content-identities.json');
+        status.textContent = 'Loading molter state...';
+        molterState = await loadJSON('../molter-state.json');
+        status.textContent = 'Building graph...';
+        buildGraph();
+        setupUI();
+        document.getElementById('loading').classList.add('hidden');
+        requestAnimationFrame(tick);
+    } catch(e) {
+        status.textContent = 'Error: ' + e.message + ' — Run from the gallery server.';
+        console.error(e);
+    }
+}
+
+// ── Graph Construction ──
+function buildGraph() {
+    nodes = [];
+    edges = [];
+    const rankMap = {};
+    if (rankings && rankings.rankings) {
+        for (const r of rankings.rankings) rankMap[r.file] = r;
+    }
+
+    const cats = manifest.categories || {};
+    let idx = 0;
+    const fileToNode = {};
+
+    for (const [catKey, catData] of Object.entries(cats)) {
+        const apps = catData.apps || [];
+        for (const app of apps) {
+            const r = rankMap[app.file] || {};
+            const id = identities ? identities['apps/' + (catData.folder || catKey.replace(/_/g, '-')) + '/' + app.file] : null;
+            const node = {
+                id: idx,
+                file: app.file,
+                title: app.title || app.file.replace('.html',''),
+                category: catKey,
+                catFolder: catData.folder || catKey.replace(/_/g, '-'),
+                score: r.score || 0,
+                grade: r.grade || '?',
+                dims: r.dimensions || null,
+                generation: app.generation || 1,
+                moltHistory: app.moltHistory || null,
+                identity: id,
+                runtime: r.runtime_health || null,
+                lines: r.lines || 0,
+                sizeKb: r.size_kb || 0,
+                featured: app.featured || false,
+                created: app.created || null,
+                tags: app.tags || [],
+                // Physics
+                x: (Math.random() - 0.5) * 800,
+                y: (Math.random() - 0.5) * 600,
+                vx: 0, vy: 0,
+                radius: 4
+            };
+            nodes.push(node);
+            fileToNode[app.file] = node;
+            idx++;
+        }
+    }
+
+    // Edges: molt lineage (same stem, different generations via archive)
+    // Group by stem
+    const stems = {};
+    for (const n of nodes) {
+        const stem = n.file.replace(/\.html$/, '').replace(/-v\d+.*$/, '');
+        if (!stems[stem]) stems[stem] = [];
+        stems[stem].push(n);
+    }
+    for (const [stem, group] of Object.entries(stems)) {
+        if (group.length < 2) continue;
+        group.sort((a, b) => a.generation - b.generation);
+        for (let i = 1; i < group.length; i++) {
+            edges.push({ source: group[i-1], target: group[i], type: 'molt' });
+        }
+    }
+
+    // Edges: apps created in the same frame
+    if (molterState && molterState.history) {
+        for (const frame of molterState.history) {
+            const created = (frame.actions && frame.actions.created) || [];
+            for (let i = 0; i < created.length; i++) {
+                for (let j = i + 1; j < created.length; j++) {
+                    const a = fileToNode[created[i]], b = fileToNode[created[j]];
+                    if (a && b) edges.push({ source: a, target: b, type: 'sibling' });
+                }
+            }
+        }
+    }
+
+    // Edges: same-category weak links (nearest neighbors by score)
+    const byCat = {};
+    for (const n of nodes) {
+        if (!byCat[n.category]) byCat[n.category] = [];
+        byCat[n.category].push(n);
+    }
+    for (const [cat, group] of Object.entries(byCat)) {
+        group.sort((a, b) => a.score - b.score);
+        for (let i = 1; i < group.length; i++) {
+            edges.push({ source: group[i-1], target: group[i], type: 'category', strength: 0.02 });
+        }
+    }
+
+    // Compute initial positions — cluster by category
+    const catAngles = {};
+    const catKeys = Object.keys(cats);
+    catKeys.forEach((k, i) => { catAngles[k] = (i / catKeys.length) * Math.PI * 2; });
+    for (const n of nodes) {
+        const a = catAngles[n.category] || 0;
+        const spread = 200;
+        n.x = Math.cos(a) * 300 + (Math.random() - 0.5) * spread;
+        n.y = Math.sin(a) * 300 + (Math.random() - 0.5) * spread;
+    }
+
+    updateNodeRadii();
+}
+
+function updateNodeRadii() {
+    for (const n of nodes) {
+        if (sizeMode === 'score') {
+            n.radius = 3 + (n.score / 100) * 14;
+        } else {
+            n.radius = 3 + (n.generation - 1) * 6;
+        }
+    }
+}
+
+// ── Force Simulation ──
+function simulate() {
+    if (!simRunning || simAlpha < 0.001) return;
+    simAlpha *= 0.998;
+
+    const N = nodes.length;
+    // Repulsion (Barnes-Hut would be better but n^2 is fine for <1000)
+    for (let i = 0; i < N; i++) {
+        for (let j = i + 1; j < N; j++) {
+            let dx = nodes[j].x - nodes[i].x;
+            let dy = nodes[j].y - nodes[i].y;
+            let d2 = dx * dx + dy * dy;
+            if (d2 < 1) d2 = 1;
+            const f = -800 / d2 * simAlpha;
+            const fx = dx / Math.sqrt(d2) * f;
+            const fy = dy / Math.sqrt(d2) * f;
+            nodes[i].vx -= fx;
+            nodes[i].vy -= fy;
+            nodes[j].vx += fx;
+            nodes[j].vy += fy;
+        }
+    }
+
+    // Edge attraction
+    for (const e of edges) {
+        const str = e.type === 'molt' ? 0.3 : e.type === 'sibling' ? 0.15 : (e.strength || 0.01);
+        const targetLen = e.type === 'molt' ? 40 : e.type === 'sibling' ? 80 : 120;
+        let dx = e.target.x - e.source.x;
+        let dy = e.target.y - e.source.y;
+        let d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = (d - targetLen) * str * simAlpha;
+        const fx = (dx / d) * f;
+        const fy = (dy / d) * f;
+        e.source.vx += fx;
+        e.source.vy += fy;
+        e.target.vx -= fx;
+        e.target.vy -= fy;
+    }
+
+    // Center gravity
+    for (const n of nodes) {
+        n.vx -= n.x * 0.001 * simAlpha;
+        n.vy -= n.y * 0.001 * simAlpha;
+    }
+
+    // Integrate + damping
+    for (const n of nodes) {
+        n.vx *= 0.85;
+        n.vy *= 0.85;
+        n.x += n.vx;
+        n.y += n.vy;
+    }
+}
+
+// ── Rendering ──
+function toScreen(x, y) {
+    return [(x - camX) * camZoom + W / 2, (y - camY) * camZoom + H / 2];
+}
+function toWorld(sx, sy) {
+    return [(sx - W / 2) / camZoom + camX, (sy - H / 2) / camZoom + camY];
+}
+
+function isVisible(n) {
+    if (catFilters.size > 0 && !catFilters.has(n.category)) return false;
+    if (filterIdentity && !n.identity) return false;
+    return true;
+}
+
+function draw() {
+    ctx.fillStyle = '#08090d';
+    ctx.fillRect(0, 0, W, H);
+
+    // Edges
+    ctx.globalAlpha = 0.15;
+    for (const e of edges) {
+        if (!isVisible(e.source) || !isVisible(e.target)) continue;
+        const [x1, y1] = toScreen(e.source.x, e.source.y);
+        const [x2, y2] = toScreen(e.target.x, e.target.y);
+        if (e.type === 'molt') {
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 1.5 * camZoom;
+            ctx.globalAlpha = 0.5;
+        } else if (e.type === 'sibling') {
+            ctx.strokeStyle = '#7c4dff';
+            ctx.lineWidth = 1 * camZoom;
+            ctx.globalAlpha = 0.25;
+        } else {
+            ctx.strokeStyle = CAT_COLORS[e.source.category] || '#333';
+            ctx.lineWidth = 0.5 * camZoom;
+            ctx.globalAlpha = 0.06;
+        }
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        // Arrow for molt edges
+        if (e.type === 'molt') {
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const r = e.target.radius * camZoom;
+            const ax = x2 - Math.cos(angle) * r;
+            const ay = y2 - Math.sin(angle) * r;
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(ax - Math.cos(angle - 0.4) * 8, ay - Math.sin(angle - 0.4) * 8);
+            ctx.lineTo(ax - Math.cos(angle + 0.4) * 8, ay - Math.sin(angle + 0.4) * 8);
+            ctx.closePath();
+            ctx.fillStyle = '#ffd700';
+            ctx.globalAlpha = 0.6;
+            ctx.fill();
+        }
+    }
+    ctx.globalAlpha = 1;
+
+    // Nodes
+    for (const n of nodes) {
+        if (!isVisible(n)) continue;
+        const [sx, sy] = toScreen(n.x, n.y);
+        const r = n.radius * camZoom;
+        if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) continue;
+
+        const color = CAT_COLORS[n.category] || '#666';
+        const isHovered = n === hoveredNode;
+        const isSelected = n === selectedNode;
+
+        // Glow for generation > 1
+        if (n.generation > 1) {
+            const grad = ctx.createRadialGradient(sx, sy, r, sx, sy, r * 3);
+            grad.addColorStop(0, color + '40');
+            grad.addColorStop(1, color + '00');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(sx, sy, r * 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Node body
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = isHovered || isSelected ? '#fff' : color;
+        ctx.globalAlpha = n.identity ? 1 : 0.5;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Ring for selected
+        if (isSelected) {
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // Grade badge for large enough nodes
+        if (r > 6 && n.grade && n.grade !== '?') {
+            ctx.fillStyle = GRADE_COLORS[n.grade] || '#888';
+            ctx.font = `bold ${Math.max(8, r * 0.9)}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(n.grade, sx, sy);
+        }
+
+        // Title label at zoom
+        if (camZoom > 1.8 || isHovered || isSelected) {
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.font = `${Math.max(9, 10 * camZoom)}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.fillText(n.title.substring(0, 24), sx, sy - r - 4);
+        }
+    }
+
+    // Draw ouroboros symbol at center
+    const [cx, cy] = toScreen(0, 0);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 20 * camZoom, 0, Math.PI * 1.85);
+    ctx.strokeStyle = 'rgba(124,77,255,0.15)';
+    ctx.lineWidth = 2 * camZoom;
+    ctx.stroke();
+    // Arrow head on the circle
+    const aAngle = Math.PI * 1.85;
+    const aR = 20 * camZoom;
+    const ax = cx + Math.cos(aAngle) * aR;
+    const ay = cy + Math.sin(aAngle) * aR;
+    ctx.beginPath();
+    ctx.arc(ax, ay, 3 * camZoom, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(124,77,255,0.3)';
+    ctx.fill();
+}
+
+function tick() {
+    simulate();
+    draw();
+    requestAnimationFrame(tick);
+}
+
+// ── Interaction ──
+function getNodeAt(sx, sy) {
+    const [wx, wy] = toWorld(sx, sy);
+    let closest = null, minD = Infinity;
+    for (const n of nodes) {
+        if (!isVisible(n)) continue;
+        const dx = n.x - wx, dy = n.y - wy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < n.radius / camZoom + 5 && d < minD) {
+            minD = d;
+            closest = n;
+        }
+    }
+    return closest;
+}
+
+canvas.addEventListener('mousedown', e => {
+    const node = getNodeAt(e.clientX, e.clientY);
+    if (node) {
+        selectedNode = node;
+        showDetail(node);
+    } else {
+        dragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        dragCamX = camX;
+        dragCamY = camY;
+    }
+});
+canvas.addEventListener('mousemove', e => {
+    if (dragging) {
+        camX = dragCamX - (e.clientX - dragStartX) / camZoom;
+        camY = dragCamY - (e.clientY - dragStartY) / camZoom;
+        return;
+    }
+    const node = getNodeAt(e.clientX, e.clientY);
+    hoveredNode = node;
+    const tt = document.getElementById('tooltip');
+    if (node) {
+        canvas.style.cursor = 'pointer';
+        tt.style.display = 'block';
+        tt.style.left = (e.clientX + 14) + 'px';
+        tt.style.top = (e.clientY - 10) + 'px';
+        document.getElementById('tt-title').textContent = node.title;
+        let sub = `${node.category.replace(/_/g,' ')} · ${node.score}pts · Gen ${node.generation}`;
+        if (node.identity) sub += ' · 🧬';
+        document.getElementById('tt-sub').textContent = sub;
+        document.getElementById('hover-info').textContent = `${node.file} — ${node.lines}L · ${node.sizeKb}KB`;
+    } else {
+        canvas.style.cursor = 'grab';
+        tt.style.display = 'none';
+        document.getElementById('hover-info').textContent = 'Hover over a node';
+    }
+});
+canvas.addEventListener('mouseup', () => { dragging = false; });
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.92 : 1.08;
+    camZoom = Math.max(0.1, Math.min(15, camZoom * factor));
+}, { passive: false });
+
+// Touch support
+let touchDist = 0;
+canvas.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const node = getNodeAt(t.clientX, t.clientY);
+        if (node) { selectedNode = node; showDetail(node); }
+        else {
+            dragging = true;
+            dragStartX = t.clientX; dragStartY = t.clientY;
+            dragCamX = camX; dragCamY = camY;
+        }
+    } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchDist = Math.sqrt(dx*dx + dy*dy);
+    }
+}, { passive: true });
+canvas.addEventListener('touchmove', e => {
+    if (e.touches.length === 1 && dragging) {
+        const t = e.touches[0];
+        camX = dragCamX - (t.clientX - dragStartX) / camZoom;
+        camY = dragCamY - (t.clientY - dragStartY) / camZoom;
+    } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const d = Math.sqrt(dx*dx + dy*dy);
+        if (touchDist > 0) camZoom = Math.max(0.1, Math.min(15, camZoom * (d / touchDist)));
+        touchDist = d;
+    }
+}, { passive: true });
+canvas.addEventListener('touchend', () => { dragging = false; touchDist = 0; });
+
+// ── Detail Panel ──
+function showDetail(n) {
+    const panel = document.getElementById('detail-panel');
+    panel.classList.add('open');
+    document.getElementById('detail-title').textContent = n.title;
+    const c = document.getElementById('detail-content');
+    let html = '';
+
+    // Basic info
+    html += '<div class="detail-section"><h3>Identity</h3>';
+    html += kv('File', n.file);
+    html += kv('Category', n.category.replace(/_/g, ' '));
+    html += kv('Score', `${n.score}/100 (${n.grade})`);
+    html += kv('Generation', n.generation);
+    html += kv('Lines', n.lines.toLocaleString());
+    html += kv('Size', n.sizeKb + ' KB');
+    html += kv('Created', n.created || '—');
+    html += kv('Runtime', n.runtime ? `${n.runtime.verdict} (${n.runtime.score})` : '—');
+    if (n.tags.length) html += kv('Tags', n.tags.join(', '));
+    html += '</div>';
+
+    // Dimensions
+    if (n.dims) {
+        html += '<div class="detail-section"><h3>Score Dimensions</h3>';
+        for (const [dk, dv] of Object.entries(n.dims)) {
+            const pct = (dv.score / dv.max * 100).toFixed(0);
+            const color = pct > 75 ? '#00e676' : pct > 50 ? '#ff9800' : '#f44336';
+            html += `<div class="score-bar">
+                <span class="bar-label">${dk.substring(0,8)}</span>
+                <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+                <span class="bar-val">${dv.score}/${dv.max}</span>
+            </div>`;
+        }
+        html += '</div>';
+    }
+
+    // Content identity
+    if (n.identity) {
+        const id = n.identity;
+        html += '<div class="detail-section"><h3>Content Identity 🧬</h3>';
+        html += kv('Medium', id.medium);
+        html += kv('Purpose', id.purpose);
+        if (id.craft_score != null) html += kv('Craft', id.craft_score + '/20');
+        if (id.completeness_score != null) html += kv('Completeness', id.completeness_score + '/15');
+        if (id.engagement_score != null) html += kv('Engagement', id.engagement_score + '/25');
+        if (id.techniques && id.techniques.length) {
+            html += '<h3 style="margin-top:8px">Techniques</h3><ul class="detail-list">';
+            for (const t of id.techniques.slice(0, 6)) html += `<li>${t}</li>`;
+            html += '</ul>';
+        }
+        if (id.strengths && id.strengths.length) {
+            html += '<h3 style="margin-top:8px">Strengths</h3><ul class="detail-list">';
+            for (const s of id.strengths.slice(0, 4)) html += `<li>${s}</li>`;
+            html += '</ul>';
+        }
+        if (id.improvement_vectors && id.improvement_vectors.length) {
+            html += '<h3 style="margin-top:8px">Improvement Vectors</h3><ul class="detail-list">';
+            for (const v of id.improvement_vectors.slice(0, 3)) html += `<li>${v}</li>`;
+            html += '</ul>';
+        }
+        html += '</div>';
+    }
+
+    // Molt history
+    if (n.moltHistory && n.moltHistory.length) {
+        html += '<div class="detail-section"><h3>Molt Lineage</h3>';
+        for (const m of n.moltHistory) {
+            const gen = m.generation || m.gen || '?';
+            const date = m.date || '?';
+            const focus = m.focus || `${(m.size||0)} bytes`;
+            html += `<div class="detail-kv"><span class="k">v${gen} (${date})</span><span class="v">${focus}</span></div>`;
+        }
+        html += '</div>';
+    }
+
+    c.innerHTML = html;
+}
+
+function kv(k, v) {
+    return `<div class="detail-kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+}
+
+document.getElementById('detail-close').onclick = () => {
+    document.getElementById('detail-panel').classList.remove('open');
+    selectedNode = null;
+};
+
+// ── UI Setup ──
+function setupUI() {
+    // HUD stats
+    document.getElementById('h-apps').textContent = nodes.length;
+    document.getElementById('h-frames').textContent = molterState ? molterState.frame : 0;
+
+    let totalMolts = 0;
+    if (molterState && molterState.history) {
+        for (const h of molterState.history) totalMolts += (h.actions.molted || []).length;
+    }
+    document.getElementById('h-molts').textContent = totalMolts;
+
+    const avg = nodes.length ? (nodes.reduce((s, n) => s + n.score, 0) / nodes.length).toFixed(1) : 0;
+    document.getElementById('h-avg').textContent = avg;
+
+    // Frame slider
+    const slider = document.getElementById('frame-slider');
+    const maxFrame = molterState ? molterState.frame : 0;
+    slider.max = maxFrame;
+    slider.value = maxFrame;
+    document.getElementById('frame-label').textContent = `Frame ${maxFrame}`;
+    slider.oninput = function() {
+        const v = parseInt(this.value);
+        document.getElementById('frame-label').textContent = v === 0 ? 'All' : `Frame ${v}`;
+        highlightFrame(v);
+    };
+
+    // View buttons
+    document.getElementById('btn-score').onclick = function() {
+        sizeMode = 'score';
+        updateNodeRadii();
+        setActiveBtn(this);
+    };
+    document.getElementById('btn-gen').onclick = function() {
+        sizeMode = 'gen';
+        updateNodeRadii();
+        setActiveBtn(this);
+    };
+    document.getElementById('btn-ident').onclick = function() {
+        filterIdentity = !filterIdentity;
+        this.classList.toggle('active', filterIdentity);
+    };
+    document.getElementById('btn-reset').onclick = () => {
+        camX = 0; camY = 0; camZoom = 1;
+        simAlpha = 1;
+    };
+
+    // Legend
+    buildLegend();
+}
+
+function setActiveBtn(btn) {
+    document.querySelectorAll('.view-btns button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function buildLegend() {
+    const leg = document.getElementById('legend');
+    const cats = manifest.categories || {};
+    const counts = {};
+    for (const n of nodes) counts[n.category] = (counts[n.category] || 0) + 1;
+    let html = '';
+    for (const [key, data] of Object.entries(cats)) {
+        const color = CAT_COLORS[key] || '#666';
+        const name = (data.name || key).replace(/_/g, ' ');
+        html += `<div class="legend-item" data-cat="${key}">
+            <div class="legend-dot" style="background:${color}"></div>
+            <span>${name} (${counts[key] || 0})</span>
+        </div>`;
+    }
+    leg.innerHTML = html;
+
+    leg.querySelectorAll('.legend-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const cat = el.dataset.cat;
+            if (catFilters.has(cat)) {
+                catFilters.delete(cat);
+                el.classList.remove('dimmed');
+            } else {
+                // If no filters active, set all to dimmed except this one
+                if (catFilters.size === 0) {
+                    for (const [k] of Object.entries(cats)) {
+                        if (k !== cat) catFilters.add(k);
+                    }
+                    leg.querySelectorAll('.legend-item').forEach(e => {
+                        e.classList.toggle('dimmed', e.dataset.cat !== cat);
+                    });
+                } else {
+                    catFilters.add(cat);
+                    el.classList.add('dimmed');
+                }
+            }
+            // If all are dimmed, reset
+            if (catFilters.size >= Object.keys(cats).length) {
+                catFilters.clear();
+                leg.querySelectorAll('.legend-item').forEach(e => e.classList.remove('dimmed'));
+            }
+        });
+    });
+}
+
+function highlightFrame(frameNum) {
+    if (!molterState || !molterState.history) return;
+    if (frameNum === 0) {
+        // Reset — show all
+        for (const n of nodes) n._frameHighlight = false;
+        return;
+    }
+    const frame = molterState.history.find(h => h.frame === frameNum);
+    if (!frame) return;
+    const created = new Set(frame.actions.created || []);
+    const molted = new Set(frame.actions.molted || []);
+    for (const n of nodes) {
+        n._frameHighlight = created.has(n.file) || molted.has(n.file);
+    }
+}
+
+// ── Resize ──
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.getElementById('detail-panel').classList.remove('open');
+        selectedNode = null;
+    }
+    if (e.key === ' ') { simRunning = !simRunning; simAlpha = 1; }
+    if (e.key === 'r') { camX = 0; camY = 0; camZoom = 1; }
+});
+
+// ── Launch ──
+loadAll();
+
+})();
+</script>
+</body>
+</html>

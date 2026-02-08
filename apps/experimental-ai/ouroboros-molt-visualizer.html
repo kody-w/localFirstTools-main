@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ouroboros — Molt Engine Visualizer</title>
+    <meta name="description" content="Interactive force-directed graph visualizing the RappterZoo evolutionary ecosystem: molt lineage, content identities, score trajectories, generation history, ecosystem health timeline, and search.">
+    <meta name="rappterzoo:author" content="RappterZoo">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="experimental-ai">
+    <meta name="rappterzoo:tags" content="visualization,graph,ecosystem,molt,evolution,force-directed,meta,search,timeline">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="2">
+    <style>
+        :root {
+            --bg: #08090d;
+            --panel: rgba(12,14,22,0.92);
+            --border: rgba(255,255,255,0.06);
+            --text: #c8ccd4;
+            --dim: #555;
+            --accent: #7c4dff;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            overflow: hidden;
+            height: 100vh;
+        }
+        canvas#graph { display: block; cursor: grab; }
+        canvas#graph:active { cursor: grabbing; }
+
+        #hud {
+            position: fixed; top: 0; left: 0; right: 0;
+            display: flex; align-items: center; gap: 12px;
+            padding: 8px 14px;
+            background: var(--panel);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+            z-index: 20;
+            font-size: 0.72rem;
+        }
+        #hud h1 {
+            font-size: 0.9rem; font-weight: 400; letter-spacing: 1.5px;
+            background: linear-gradient(90deg, var(--accent), #00bcd4);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            white-space: nowrap;
+        }
+        .hud-stat { text-align: center; min-width: 40px; }
+        .hud-stat .val { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
+        .hud-stat .lbl { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.7px; color: var(--dim); }
+        #hud .spacer { flex: 1; }
+
+        /* Search */
+        #search-box {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        #search-input {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            color: var(--text);
+            padding: 4px 28px 4px 10px;
+            font-size: 0.72rem;
+            font-family: inherit;
+            width: 160px;
+            outline: none;
+            transition: border-color 0.2s, width 0.2s;
+        }
+        #search-input:focus { border-color: var(--accent); width: 200px; }
+        #search-input::placeholder { color: #444; }
+        #search-clear {
+            position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: var(--dim); cursor: pointer;
+            font-size: 0.8rem; font-family: inherit; display: none;
+        }
+        #search-results {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: var(--panel); border: 1px solid var(--border);
+            border-radius: 6px; margin-top: 4px; max-height: 200px;
+            overflow-y: auto; display: none; z-index: 30;
+        }
+        #search-results .sr-item {
+            padding: 5px 10px; cursor: pointer; font-size: 0.7rem;
+            display: flex; justify-content: space-between;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        #search-results .sr-item:hover { background: rgba(124,77,255,0.15); }
+        #search-results .sr-item .sr-score { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+        /* Frame timeline */
+        #timeline-box { display: flex; align-items: center; gap: 6px; }
+        #timeline-box label { color: var(--dim); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        #frame-slider {
+            -webkit-appearance: none; width: 120px; height: 4px;
+            background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
+        }
+        #frame-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 12px; height: 12px;
+            border-radius: 50%; background: var(--accent); cursor: pointer;
+        }
+        #frame-label { font-variant-numeric: tabular-nums; min-width: 52px; font-size: 0.65rem; }
+
+        .view-btns { display: flex; gap: 3px; }
+        .view-btns button, .hud-btn {
+            background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+            color: var(--dim); padding: 3px 8px; border-radius: 4px;
+            font-size: 0.62rem; cursor: pointer; font-family: inherit; transition: all 0.15s;
+        }
+        .view-btns button:hover, .view-btns button.active, .hud-btn:hover {
+            color: #fff; background: rgba(124,77,255,0.2); border-color: var(--accent);
+        }
+
+        /* Detail panel */
+        #detail-panel {
+            position: fixed; top: 44px; right: 0; width: 330px; bottom: 0;
+            background: var(--panel); backdrop-filter: blur(16px);
+            border-left: 1px solid var(--border); z-index: 15;
+            overflow-y: auto; padding: 14px; transform: translateX(100%);
+            transition: transform 0.25s ease; font-size: 0.72rem;
+        }
+        #detail-panel.open { transform: translateX(0); }
+        #detail-panel h2 {
+            font-size: 0.85rem; font-weight: 500; margin-bottom: 10px; color: #fff;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        #detail-panel h2 .close-btn {
+            cursor: pointer; color: var(--dim); font-size: 1rem;
+            border: none; background: none; font-family: inherit;
+        }
+        #detail-panel h2 .close-btn:hover { color: #fff; }
+        .detail-section { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+        .detail-section:last-child { border-bottom: none; }
+        .detail-section h3 { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.7px; color: var(--dim); margin-bottom: 5px; }
+        .detail-kv { display: flex; justify-content: space-between; padding: 2px 0; }
+        .detail-kv .k { color: var(--dim); }
+        .detail-kv .v { color: #fff; text-align: right; max-width: 170px; word-break: break-word; }
+        .detail-list { list-style: none; padding: 0; }
+        .detail-list li { padding: 2px 0; color: var(--text); position: relative; padding-left: 12px; }
+        .detail-list li::before { content: '›'; position: absolute; left: 0; color: var(--accent); }
+        .score-bar { display: flex; align-items: center; gap: 5px; margin: 2px 0; }
+        .score-bar .bar-track { flex: 1; height: 5px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+        .score-bar .bar-fill { height: 100%; border-radius: 3px; }
+        .score-bar .bar-label { min-width: 28px; text-align: right; font-size: 0.6rem; color: var(--dim); }
+        .score-bar .bar-val { min-width: 26px; font-variant-numeric: tabular-nums; font-size: 0.68rem; }
+
+        /* Legend */
+        #legend {
+            position: fixed; bottom: 12px; left: 12px;
+            display: flex; flex-wrap: wrap; gap: 5px 10px; font-size: 0.62rem; z-index: 15;
+            background: var(--panel); backdrop-filter: blur(10px);
+            padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border);
+        }
+        .legend-item { display: flex; align-items: center; gap: 4px; cursor: pointer; transition: opacity 0.2s; }
+        .legend-item.dimmed { opacity: 0.25; }
+        .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+        /* Ecosystem timeline chart */
+        #eco-timeline {
+            position: fixed; bottom: 50px; left: 50%; transform: translateX(-50%);
+            width: min(600px, 80vw); height: 80px; z-index: 14;
+            background: var(--panel); backdrop-filter: blur(12px);
+            border: 1px solid var(--border); border-radius: 8px;
+            padding: 6px 10px; display: none;
+        }
+        #eco-timeline.open { display: block; }
+        #eco-timeline canvas { width: 100%; height: 100%; }
+        #eco-label {
+            position: absolute; top: 4px; left: 10px;
+            font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim);
+        }
+        #eco-toggle {
+            position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+            z-index: 15;
+        }
+
+        /* Minimap */
+        #minimap {
+            position: fixed; bottom: 12px; right: 12px;
+            width: 140px; height: 100px;
+            background: rgba(8,9,13,0.85);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            z-index: 14;
+            overflow: hidden;
+        }
+        #minimap canvas { width: 100%; height: 100%; }
+        #minimap .viewport-rect {
+            position: absolute; border: 1px solid var(--accent);
+            pointer-events: none; opacity: 0.5;
+        }
+
+        /* Loading */
+        #loading {
+            position: fixed; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            background: var(--bg); z-index: 100; transition: opacity 0.5s;
+        }
+        #loading.hidden { opacity: 0; pointer-events: none; }
+        .loader-ring {
+            width: 44px; height: 44px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading p { margin-top: 14px; color: var(--dim); font-size: 0.75rem; }
+
+        /* Tooltip */
+        #tooltip {
+            position: fixed; pointer-events: none;
+            background: rgba(20,22,30,0.95); backdrop-filter: blur(10px);
+            border: 1px solid var(--border); border-radius: 6px;
+            padding: 7px 10px; font-size: 0.68rem; z-index: 25;
+            max-width: 250px; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        #tooltip .tt-title { color: #fff; font-weight: 600; margin-bottom: 3px; }
+        #tooltip .tt-sub { color: var(--dim); }
+
+        /* Bottom bar */
+        #bottom-bar {
+            position: fixed; bottom: 12px; right: 164px;
+            font-size: 0.6rem; color: var(--dim); z-index: 15;
+            background: var(--panel); backdrop-filter: blur(10px);
+            padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border);
+        }
+
+        @media (max-width: 700px) {
+            #detail-panel { width: 100%; }
+            #minimap { display: none; }
+            #search-input { width: 100px; }
+            #search-input:focus { width: 130px; }
+            .hud-stat { min-width: 32px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading">
+    <div class="loader-ring"></div>
+    <p id="load-status">Ingesting ecosystem data...</p>
+</div>
+
+<canvas id="graph"></canvas>
+
+<div id="hud">
+    <h1>⊘ OUROBOROS</h1>
+    <div class="hud-stat"><div class="val" id="h-apps">-</div><div class="lbl">Apps</div></div>
+    <div class="hud-stat"><div class="val" id="h-frames">-</div><div class="lbl">Frames</div></div>
+    <div class="hud-stat"><div class="val" id="h-molts">-</div><div class="lbl">Molts</div></div>
+    <div class="hud-stat"><div class="val" id="h-avg">-</div><div class="lbl">Avg Score</div></div>
+    <div class="hud-stat"><div class="val" id="h-ident">-</div><div class="lbl">Identified</div></div>
+    <div id="search-box">
+        <input type="text" id="search-input" placeholder="/ Search apps...">
+        <button id="search-clear">✕</button>
+        <div id="search-results"></div>
+    </div>
+    <div class="spacer"></div>
+    <div id="timeline-box">
+        <label>Frame</label>
+        <input type="range" id="frame-slider" min="0" max="1" value="1">
+        <span id="frame-label">All</span>
+    </div>
+    <div class="view-btns">
+        <button id="btn-score" class="active" title="Size by score">Score</button>
+        <button id="btn-gen" title="Size by generation">Gen</button>
+        <button id="btn-ident" title="Show only identified apps">🧬</button>
+        <button id="btn-eco" title="Ecosystem timeline">📈</button>
+        <button id="btn-export" title="Export PNG">📷</button>
+        <button id="btn-reset" title="Reset view">Reset</button>
+    </div>
+</div>
+
+<div id="detail-panel">
+    <h2>
+        <span id="detail-title">-</span>
+        <button class="close-btn" id="detail-close">✕</button>
+    </h2>
+    <div id="detail-content"></div>
+</div>
+
+<div id="legend"></div>
+
+<div id="eco-timeline">
+    <span id="eco-label">Ecosystem Health Timeline</span>
+    <canvas id="eco-canvas"></canvas>
+</div>
+
+<div id="minimap"><canvas id="mini-canvas"></canvas></div>
+
+<div id="bottom-bar">
+    <span id="hover-info">Hover a node · / to search · Space pause · R reset</span>
+</div>
+
+<div id="tooltip">
+    <div class="tt-title" id="tt-title"></div>
+    <div class="tt-sub" id="tt-sub"></div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const CAT_COLORS = {
+    '3d_immersive':'#e91e63', 'audio_music':'#ff9800', 'creative_tools':'#4caf50',
+    'educational_tools':'#2196f3', 'experimental_ai':'#9c27b0', 'games_puzzles':'#f44336',
+    'generative_art':'#00bcd4', 'particle_physics':'#ff5722', 'visual_art':'#e040fb',
+    'data_tools':'#8bc34a', 'productivity':'#607d8b'
+};
+const GRADE_COLORS = { S:'#ffd700', A:'#00e676', B:'#2196f3', C:'#ff9800', D:'#f44336', F:'#666' };
+
+let manifest, rankings, identities, molterState;
+let nodes = [], edges = [];
+let catFilters = new Set();
+let searchQuery = '';
+
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+const miniCanvas = document.getElementById('mini-canvas');
+const miniCtx = miniCanvas.getContext('2d');
+const ecoCanvas = document.getElementById('eco-canvas');
+const ecoCtx = ecoCanvas.getContext('2d');
+let W, H;
+let camX = 0, camY = 0, camZoom = 1;
+let dragging = false, dragStartX, dragStartY, dragCamX, dragCamY;
+let hoveredNode = null, selectedNode = null;
+let sizeMode = 'score';
+let filterIdentity = false;
+let simRunning = true, simAlpha = 1;
+let trailParticles = [];
+let frameCount = 0;
+
+const $ = id => document.getElementById(id);
+
+// ── Data Loading ──
+async function loadJSON(path) {
+    const r = await fetch(path);
+    if (!r.ok) throw new Error('Failed: ' + path);
+    return r.json();
+}
+
+async function loadAll() {
+    const status = $('load-status');
+    try {
+        // Try localStorage cache first
+        const cached = localStorage.getItem('ouroboros-cache');
+        const cacheAge = localStorage.getItem('ouroboros-cache-ts');
+        const fresh = cacheAge && (Date.now() - parseInt(cacheAge)) < 5 * 60 * 1000;
+        if (cached && fresh) {
+            status.textContent = 'Loading from cache...';
+            const d = JSON.parse(cached);
+            manifest = d.manifest; rankings = d.rankings;
+            identities = d.identities; molterState = d.molterState;
+        } else {
+            status.textContent = 'Loading manifest...';
+            manifest = await loadJSON('../manifest.json');
+            status.textContent = 'Loading rankings...';
+            rankings = await loadJSON('../rankings.json');
+            status.textContent = 'Loading content identities...';
+            identities = await loadJSON('../content-identities.json');
+            status.textContent = 'Loading molter state...';
+            molterState = await loadJSON('../molter-state.json');
+            try {
+                localStorage.setItem('ouroboros-cache', JSON.stringify({ manifest, rankings, identities, molterState }));
+                localStorage.setItem('ouroboros-cache-ts', Date.now().toString());
+            } catch(e) { /* quota exceeded, ignore */ }
+        }
+        status.textContent = 'Building graph...';
+        buildGraph();
+        setupUI();
+        drawEcoTimeline();
+        $('loading').classList.add('hidden');
+        requestAnimationFrame(tick);
+    } catch(e) {
+        status.textContent = 'Error: ' + e.message + ' — Serve via gallery.';
+        console.error(e);
+    }
+}
+
+// ── Graph Construction ──
+function buildGraph() {
+    nodes = []; edges = []; trailParticles = [];
+    const rankMap = {};
+    if (rankings && rankings.rankings) {
+        for (const r of rankings.rankings) rankMap[r.file] = r;
+    }
+    const cats = manifest.categories || {};
+    let idx = 0;
+    const fileToNode = {};
+    for (const [catKey, catData] of Object.entries(cats)) {
+        for (const app of (catData.apps || [])) {
+            const r = rankMap[app.file] || {};
+            const folder = catData.folder || catKey.replace(/_/g, '-');
+            const id = identities ? identities['apps/' + folder + '/' + app.file] : null;
+            const node = {
+                id: idx, file: app.file,
+                title: app.title || app.file.replace('.html', ''),
+                category: catKey, catFolder: folder,
+                score: r.score || 0, grade: r.grade || '?',
+                dims: r.dimensions || null,
+                generation: app.generation || 1,
+                moltHistory: app.moltHistory || null,
+                identity: id, runtime: r.runtime_health || null,
+                lines: r.lines || 0, sizeKb: r.size_kb || 0,
+                featured: app.featured || false,
+                created: app.created || null,
+                tags: app.tags || [],
+                x: 0, y: 0, vx: 0, vy: 0, radius: 4
+            };
+            nodes.push(node);
+            fileToNode[app.file] = node;
+            idx++;
+        }
+    }
+
+    // Edges: molt lineage
+    const stems = {};
+    for (const n of nodes) {
+        const stem = n.file.replace(/\.html$/, '').replace(/-v\d+.*$/, '');
+        if (!stems[stem]) stems[stem] = [];
+        stems[stem].push(n);
+    }
+    for (const [, group] of Object.entries(stems)) {
+        if (group.length < 2) continue;
+        group.sort((a, b) => a.generation - b.generation);
+        for (let i = 1; i < group.length; i++) {
+            edges.push({ source: group[i-1], target: group[i], type: 'molt' });
+        }
+    }
+
+    // Edges: co-created in same frame
+    if (molterState && molterState.history) {
+        for (const frame of molterState.history) {
+            const created = (frame.actions && frame.actions.created) || [];
+            for (let i = 0; i < created.length; i++) {
+                for (let j = i + 1; j < created.length; j++) {
+                    const a = fileToNode[created[i]], b = fileToNode[created[j]];
+                    if (a && b) edges.push({ source: a, target: b, type: 'sibling' });
+                }
+            }
+        }
+    }
+
+    // Edges: category chain (score-ordered)
+    const byCat = {};
+    for (const n of nodes) { if (!byCat[n.category]) byCat[n.category] = []; byCat[n.category].push(n); }
+    for (const [, group] of Object.entries(byCat)) {
+        group.sort((a, b) => a.score - b.score);
+        for (let i = 1; i < group.length; i++) {
+            edges.push({ source: group[i-1], target: group[i], type: 'category', strength: 0.02 });
+        }
+    }
+
+    // Initial cluster positions
+    const catKeys = Object.keys(cats);
+    const catAngles = {};
+    catKeys.forEach((k, i) => { catAngles[k] = (i / catKeys.length) * Math.PI * 2; });
+    for (const n of nodes) {
+        const a = catAngles[n.category] || 0;
+        n.x = Math.cos(a) * 300 + (Math.random() - 0.5) * 200;
+        n.y = Math.sin(a) * 300 + (Math.random() - 0.5) * 200;
+    }
+
+    // Seed trail particles on molt edges
+    for (const e of edges) {
+        if (e.type === 'molt') {
+            for (let i = 0; i < 3; i++) {
+                trailParticles.push({ edge: e, t: Math.random(), speed: 0.003 + Math.random() * 0.004 });
+            }
+        }
+        if (e.type === 'sibling') {
+            trailParticles.push({ edge: e, t: Math.random(), speed: 0.002 + Math.random() * 0.002 });
+        }
+    }
+
+    updateNodeRadii();
+}
+
+function updateNodeRadii() {
+    for (const n of nodes) {
+        n.radius = sizeMode === 'score' ? 3 + (n.score / 100) * 14 : 3 + (n.generation - 1) * 6;
+    }
+}
+
+// ── Force Simulation ──
+function simulate() {
+    if (!simRunning || simAlpha < 0.001) return;
+    simAlpha *= 0.998;
+    const N = nodes.length;
+    for (let i = 0; i < N; i++) {
+        for (let j = i + 1; j < N; j++) {
+            let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+            let d2 = dx * dx + dy * dy;
+            if (d2 < 1) d2 = 1;
+            const f = -800 / d2 * simAlpha;
+            const d = Math.sqrt(d2);
+            const fx = (dx / d) * f, fy = (dy / d) * f;
+            nodes[i].vx -= fx; nodes[i].vy -= fy;
+            nodes[j].vx += fx; nodes[j].vy += fy;
+        }
+    }
+    for (const e of edges) {
+        const str = e.type === 'molt' ? 0.3 : e.type === 'sibling' ? 0.15 : (e.strength || 0.01);
+        const tLen = e.type === 'molt' ? 40 : e.type === 'sibling' ? 80 : 120;
+        let dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+        let d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = (d - tLen) * str * simAlpha;
+        const fx = (dx / d) * f, fy = (dy / d) * f;
+        e.source.vx += fx; e.source.vy += fy;
+        e.target.vx -= fx; e.target.vy -= fy;
+    }
+    for (const n of nodes) {
+        n.vx -= n.x * 0.001 * simAlpha;
+        n.vy -= n.y * 0.001 * simAlpha;
+        n.vx *= 0.85; n.vy *= 0.85;
+        n.x += n.vx; n.y += n.vy;
+    }
+}
+
+// ── Rendering helpers ──
+function toScreen(x, y) { return [(x - camX) * camZoom + W / 2, (y - camY) * camZoom + H / 2]; }
+function toWorld(sx, sy) { return [(sx - W / 2) / camZoom + camX, (sy - H / 2) / camZoom + camY]; }
+
+function isVisible(n) {
+    if (catFilters.size > 0 && !catFilters.has(n.category)) return false;
+    if (filterIdentity && !n.identity) return false;
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        if (!n.title.toLowerCase().includes(q) && !n.file.toLowerCase().includes(q) &&
+            !n.tags.some(t => t.toLowerCase().includes(q))) return false;
+    }
+    return true;
+}
+
+function draw() {
+    ctx.fillStyle = '#08090d';
+    ctx.fillRect(0, 0, W, H);
+    frameCount++;
+
+    // Edges
+    for (const e of edges) {
+        if (!isVisible(e.source) || !isVisible(e.target)) continue;
+        const [x1, y1] = toScreen(e.source.x, e.source.y);
+        const [x2, y2] = toScreen(e.target.x, e.target.y);
+        if (e.type === 'molt') {
+            ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1.5 * camZoom; ctx.globalAlpha = 0.45;
+        } else if (e.type === 'sibling') {
+            ctx.strokeStyle = '#7c4dff'; ctx.lineWidth = 1 * camZoom; ctx.globalAlpha = 0.2;
+        } else {
+            ctx.strokeStyle = CAT_COLORS[e.source.category] || '#333';
+            ctx.lineWidth = 0.4 * camZoom; ctx.globalAlpha = 0.04;
+        }
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        if (e.type === 'molt') {
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const r = e.target.radius * camZoom;
+            const ax = x2 - Math.cos(angle) * r, ay = y2 - Math.sin(angle) * r;
+            ctx.beginPath(); ctx.moveTo(ax, ay);
+            ctx.lineTo(ax - Math.cos(angle - 0.4) * 7 * camZoom, ay - Math.sin(angle - 0.4) * 7 * camZoom);
+            ctx.lineTo(ax - Math.cos(angle + 0.4) * 7 * camZoom, ay - Math.sin(angle + 0.4) * 7 * camZoom);
+            ctx.closePath(); ctx.fillStyle = '#ffd700'; ctx.globalAlpha = 0.55; ctx.fill();
+        }
+    }
+
+    // Animated trail particles along edges
+    ctx.globalAlpha = 1;
+    for (const tp of trailParticles) {
+        const e = tp.edge;
+        if (!isVisible(e.source) || !isVisible(e.target)) continue;
+        tp.t += tp.speed;
+        if (tp.t > 1) tp.t -= 1;
+        const px = e.source.x + (e.target.x - e.source.x) * tp.t;
+        const py = e.source.y + (e.target.y - e.source.y) * tp.t;
+        const [sx, sy] = toScreen(px, py);
+        const color = e.type === 'molt' ? '#ffd700' : '#7c4dff';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.5 * camZoom, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.6 + Math.sin(tp.t * Math.PI) * 0.3;
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Nodes
+    for (const n of nodes) {
+        if (!isVisible(n)) continue;
+        const [sx, sy] = toScreen(n.x, n.y);
+        const r = n.radius * camZoom;
+        if (sx + r < -10 || sx - r > W + 10 || sy + r < -10 || sy - r > H + 10) continue;
+        const color = CAT_COLORS[n.category] || '#666';
+        const isHov = n === hoveredNode, isSel = n === selectedNode;
+        const isHighlighted = n._frameHighlight;
+
+        // Glow for evolved or highlighted
+        if (n.generation > 1 || isHighlighted) {
+            const gc = isHighlighted ? '#ffffff' : color;
+            const grad = ctx.createRadialGradient(sx, sy, r, sx, sy, r * 3);
+            grad.addColorStop(0, gc + '40'); grad.addColorStop(1, gc + '00');
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(sx, sy, r * 3, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // Body
+        ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = isHov || isSel ? '#fff' : color;
+        ctx.globalAlpha = n.identity ? 1 : 0.45;
+        ctx.fill(); ctx.globalAlpha = 1;
+        if (isSel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+
+        // Grade
+        if (r > 5.5 && n.grade !== '?') {
+            ctx.fillStyle = GRADE_COLORS[n.grade] || '#888';
+            ctx.font = `bold ${Math.max(7, r * 0.85)}px monospace`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(n.grade, sx, sy);
+        }
+
+        // Labels
+        if (camZoom > 1.8 || isHov || isSel) {
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.font = `${Math.max(8, 10 * camZoom)}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.fillText(n.title.substring(0, 22), sx, sy - r - 3);
+        }
+    }
+
+    // Center ouroboros glyph
+    const [cx, cy] = toScreen(0, 0);
+    ctx.beginPath(); ctx.arc(cx, cy, 18 * camZoom, 0, Math.PI * 1.85);
+    ctx.strokeStyle = 'rgba(124,77,255,0.12)'; ctx.lineWidth = 2 * camZoom; ctx.stroke();
+    const aA = Math.PI * 1.85, aR = 18 * camZoom;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(aA) * aR, cy + Math.sin(aA) * aR, 2.5 * camZoom, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(124,77,255,0.25)'; ctx.fill();
+}
+
+// ── Minimap ──
+function drawMinimap() {
+    if (frameCount % 4 !== 0) return; // throttle
+    const mW = 140, mH = 100;
+    miniCanvas.width = mW; miniCanvas.height = mH;
+    miniCtx.fillStyle = '#08090d'; miniCtx.fillRect(0, 0, mW, mH);
+
+    if (!nodes.length) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+        if (n.x < minX) minX = n.x; if (n.x > maxX) maxX = n.x;
+        if (n.y < minY) minY = n.y; if (n.y > maxY) maxY = n.y;
+    }
+    const pad = 50;
+    minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+    const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+    const scale = Math.min(mW / rangeX, mH / rangeY);
+
+    for (const n of nodes) {
+        if (!isVisible(n)) continue;
+        const mx = (n.x - minX) * scale, my = (n.y - minY) * scale;
+        miniCtx.fillStyle = CAT_COLORS[n.category] || '#444';
+        miniCtx.globalAlpha = 0.7;
+        miniCtx.fillRect(mx - 1, my - 1, 2, 2);
+    }
+    miniCtx.globalAlpha = 1;
+
+    // Viewport rect
+    const [tlX, tlY] = toWorld(0, 0);
+    const [brX, brY] = toWorld(W, H);
+    const rx = (tlX - minX) * scale, ry = (tlY - minY) * scale;
+    const rw = (brX - tlX) * scale, rh = (brY - tlY) * scale;
+    miniCtx.strokeStyle = '#7c4dff'; miniCtx.lineWidth = 1;
+    miniCtx.strokeRect(Math.max(0, rx), Math.max(0, ry), Math.min(mW, rw), Math.min(mH, rh));
+}
+
+// ── Ecosystem Health Timeline ──
+function drawEcoTimeline() {
+    if (!molterState || !molterState.history || !molterState.history.length) return;
+    const hist = molterState.history;
+    const cW = ecoCanvas.parentElement.clientWidth - 20;
+    const cH = 62;
+    ecoCanvas.width = cW; ecoCanvas.height = cH;
+    ecoCtx.clearRect(0, 0, cW, cH);
+
+    // Data series
+    const scores = hist.map(h => h.metrics ? h.metrics.avg_score : 0);
+    const counts = hist.map(h => h.metrics ? h.metrics.total_apps : 0);
+    const maxS = Math.max(...scores, 1), minS = Math.min(...scores, 0);
+    const maxC = Math.max(...counts, 1);
+
+    // Grid
+    ecoCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ecoCtx.lineWidth = 0.5;
+    for (let y = 0; y < cH; y += 15) { ecoCtx.beginPath(); ecoCtx.moveTo(0, y); ecoCtx.lineTo(cW, y); ecoCtx.stroke(); }
+
+    // App count area
+    ecoCtx.beginPath();
+    ecoCtx.moveTo(0, cH);
+    for (let i = 0; i < hist.length; i++) {
+        const x = (i / (hist.length - 1 || 1)) * cW;
+        const y = cH - (counts[i] / maxC) * cH * 0.8;
+        i === 0 ? ecoCtx.moveTo(x, y) : ecoCtx.lineTo(x, y);
+    }
+    ecoCtx.lineTo(cW, cH); ecoCtx.lineTo(0, cH);
+    ecoCtx.fillStyle = 'rgba(124,77,255,0.08)'; ecoCtx.fill();
+
+    // Avg score line
+    ecoCtx.beginPath(); ecoCtx.strokeStyle = '#00bcd4'; ecoCtx.lineWidth = 1.5;
+    for (let i = 0; i < hist.length; i++) {
+        const x = (i / (hist.length - 1 || 1)) * cW;
+        const y = cH - ((scores[i] - minS) / (maxS - minS || 1)) * cH * 0.8 - cH * 0.1;
+        i === 0 ? ecoCtx.moveTo(x, y) : ecoCtx.lineTo(x, y);
+    }
+    ecoCtx.stroke();
+
+    // Dots with frame labels
+    for (let i = 0; i < hist.length; i++) {
+        const x = (i / (hist.length - 1 || 1)) * cW;
+        const y = cH - ((scores[i] - minS) / (maxS - minS || 1)) * cH * 0.8 - cH * 0.1;
+        ecoCtx.beginPath(); ecoCtx.arc(x, y, 3, 0, Math.PI * 2);
+        ecoCtx.fillStyle = '#00bcd4'; ecoCtx.fill();
+
+        // Molt count bars
+        const molted = (hist[i].actions && hist[i].actions.molted) || [];
+        const created = (hist[i].actions && hist[i].actions.created) || [];
+        if (created.length) {
+            const bh = Math.min(created.length * 3, 20);
+            ecoCtx.fillStyle = 'rgba(0,230,118,0.3)';
+            ecoCtx.fillRect(x - 2, cH - bh, 2, bh);
+        }
+        if (molted.length) {
+            const bh = Math.min(molted.length * 3, 20);
+            ecoCtx.fillStyle = 'rgba(255,215,0,0.3)';
+            ecoCtx.fillRect(x + 1, cH - bh, 2, bh);
+        }
+
+        if (hist.length <= 15 || i === 0 || i === hist.length - 1) {
+            ecoCtx.fillStyle = '#555'; ecoCtx.font = '8px monospace'; ecoCtx.textAlign = 'center';
+            ecoCtx.fillText('F' + hist[i].frame, x, cH - 1);
+        }
+    }
+
+    // Legend
+    ecoCtx.fillStyle = '#00bcd4'; ecoCtx.font = '8px monospace'; ecoCtx.textAlign = 'right';
+    ecoCtx.fillText('avg score', cW - 2, 10);
+    ecoCtx.fillStyle = 'rgba(124,77,255,0.4)';
+    ecoCtx.fillText('app count', cW - 2, 20);
+}
+
+// ── Search ──
+const searchInput = $('search-input');
+const searchResults = $('search-results');
+const searchClear = $('search-clear');
+
+searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    searchQuery = q;
+    searchClear.style.display = q ? 'block' : 'none';
+    if (!q) { searchResults.style.display = 'none'; return; }
+    const lower = q.toLowerCase();
+    const matches = nodes.filter(n =>
+        n.title.toLowerCase().includes(lower) ||
+        n.file.toLowerCase().includes(lower) ||
+        n.tags.some(t => t.toLowerCase().includes(lower))
+    ).slice(0, 12);
+    if (!matches.length) { searchResults.style.display = 'none'; return; }
+    searchResults.style.display = 'block';
+    searchResults.innerHTML = matches.map(n =>
+        `<div class="sr-item" data-id="${n.id}">
+            <span style="color:${CAT_COLORS[n.category] || '#888'}">${n.title.substring(0,30)}</span>
+            <span class="sr-score">${n.score}pts ${n.grade}</span>
+        </div>`
+    ).join('');
+    searchResults.querySelectorAll('.sr-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const node = nodes[parseInt(el.dataset.id)];
+            if (node) { flyToNode(node); selectedNode = node; showDetail(node); }
+            searchResults.style.display = 'none';
+        });
+    });
+});
+searchClear.addEventListener('click', () => {
+    searchInput.value = ''; searchQuery = '';
+    searchClear.style.display = 'none'; searchResults.style.display = 'none';
+});
+searchInput.addEventListener('blur', () => { setTimeout(() => searchResults.style.display = 'none', 200); });
+
+function flyToNode(n) {
+    camX = n.x; camY = n.y; camZoom = 3;
+}
+
+// ── Main Loop ──
+function tick() {
+    simulate();
+    draw();
+    drawMinimap();
+    requestAnimationFrame(tick);
+}
+
+// ── Interaction ──
+function getNodeAt(sx, sy) {
+    const [wx, wy] = toWorld(sx, sy);
+    let closest = null, minD = Infinity;
+    for (const n of nodes) {
+        if (!isVisible(n)) continue;
+        const dx = n.x - wx, dy = n.y - wy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < n.radius / camZoom + 5 && d < minD) { minD = d; closest = n; }
+    }
+    return closest;
+}
+
+canvas.addEventListener('mousedown', e => {
+    const node = getNodeAt(e.clientX, e.clientY);
+    if (node) { selectedNode = node; showDetail(node); }
+    else { dragging = true; dragStartX = e.clientX; dragStartY = e.clientY; dragCamX = camX; dragCamY = camY; }
+});
+canvas.addEventListener('mousemove', e => {
+    if (dragging) {
+        camX = dragCamX - (e.clientX - dragStartX) / camZoom;
+        camY = dragCamY - (e.clientY - dragStartY) / camZoom;
+        return;
+    }
+    const node = getNodeAt(e.clientX, e.clientY);
+    hoveredNode = node;
+    const tt = $('tooltip');
+    if (node) {
+        canvas.style.cursor = 'pointer';
+        tt.style.display = 'block';
+        tt.style.left = Math.min(e.clientX + 14, W - 260) + 'px';
+        tt.style.top = (e.clientY - 10) + 'px';
+        $('tt-title').textContent = node.title;
+        let sub = `${node.category.replace(/_/g,' ')} · ${node.score}pts · Gen ${node.generation}`;
+        if (node.identity) sub += ' · 🧬';
+        if (node.runtime) sub += ' · ' + node.runtime.verdict;
+        $('tt-sub').textContent = sub;
+        $('hover-info').textContent = `${node.file} — ${node.lines.toLocaleString()}L · ${node.sizeKb}KB`;
+    } else {
+        canvas.style.cursor = 'grab'; tt.style.display = 'none';
+        $('hover-info').textContent = 'Hover a node · / to search · Space pause · R reset';
+    }
+});
+canvas.addEventListener('mouseup', () => { dragging = false; });
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const [wx, wy] = toWorld(e.clientX, e.clientY);
+    const factor = e.deltaY > 0 ? 0.92 : 1.08;
+    camZoom = Math.max(0.1, Math.min(15, camZoom * factor));
+    // Zoom toward cursor
+    camX = wx - (e.clientX - W / 2) / camZoom;
+    camY = wy - (e.clientY - H / 2) / camZoom;
+}, { passive: false });
+
+// Touch support
+let touchDist = 0;
+canvas.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const node = getNodeAt(t.clientX, t.clientY);
+        if (node) { selectedNode = node; showDetail(node); }
+        else { dragging = true; dragStartX = t.clientX; dragStartY = t.clientY; dragCamX = camX; dragCamY = camY; }
+    } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchDist = Math.sqrt(dx * dx + dy * dy);
+    }
+}, { passive: true });
+canvas.addEventListener('touchmove', e => {
+    if (e.touches.length === 1 && dragging) {
+        const t = e.touches[0];
+        camX = dragCamX - (t.clientX - dragStartX) / camZoom;
+        camY = dragCamY - (t.clientY - dragStartY) / camZoom;
+    } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (touchDist > 0) camZoom = Math.max(0.1, Math.min(15, camZoom * (d / touchDist)));
+        touchDist = d;
+    }
+}, { passive: true });
+canvas.addEventListener('touchend', () => { dragging = false; touchDist = 0; });
+
+// ── Detail Panel ──
+function showDetail(n) {
+    const panel = $('detail-panel');
+    panel.classList.add('open');
+    $('detail-title').textContent = n.title;
+    const c = $('detail-content');
+    let html = '';
+
+    html += '<div class="detail-section"><h3>Identity</h3>';
+    html += kv('File', n.file);
+    html += kv('Category', n.category.replace(/_/g, ' '));
+    html += kv('Score', n.score + '/100 (' + n.grade + ')');
+    html += kv('Generation', n.generation);
+    html += kv('Lines', n.lines.toLocaleString());
+    html += kv('Size', n.sizeKb + ' KB');
+    html += kv('Created', n.created || '—');
+    html += kv('Runtime', n.runtime ? n.runtime.verdict + ' (' + n.runtime.score + ')' : '—');
+    if (n.tags.length) html += kv('Tags', n.tags.join(', '));
+    html += '</div>';
+
+    if (n.dims) {
+        html += '<div class="detail-section"><h3>Score Dimensions</h3>';
+        for (const [dk, dv] of Object.entries(n.dims)) {
+            const pct = (dv.score / dv.max * 100).toFixed(0);
+            const color = pct > 75 ? '#00e676' : pct > 50 ? '#ff9800' : '#f44336';
+            html += '<div class="score-bar"><span class="bar-label">' + dk.substring(0, 8) +
+                '</span><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color +
+                '"></div></div><span class="bar-val">' + dv.score + '/' + dv.max + '</span></div>';
+        }
+        html += '</div>';
+    }
+
+    if (n.identity) {
+        const id = n.identity;
+        html += '<div class="detail-section"><h3>Content Identity 🧬</h3>';
+        html += kv('Medium', id.medium);
+        if (id.purpose) html += kv('Purpose', id.purpose);
+        if (id.craft_score != null) html += kv('Craft', id.craft_score + '/20');
+        if (id.completeness_score != null) html += kv('Completeness', id.completeness_score + '/15');
+        if (id.engagement_score != null) html += kv('Engagement', id.engagement_score + '/25');
+        if (id.techniques && id.techniques.length) {
+            html += '<h3 style="margin-top:6px">Techniques</h3><ul class="detail-list">';
+            for (const t of id.techniques.slice(0, 5)) html += '<li>' + escH(t) + '</li>';
+            html += '</ul>';
+        }
+        if (id.strengths && id.strengths.length) {
+            html += '<h3 style="margin-top:6px">Strengths</h3><ul class="detail-list">';
+            for (const s of id.strengths.slice(0, 3)) html += '<li>' + escH(s) + '</li>';
+            html += '</ul>';
+        }
+        if (id.improvement_vectors && id.improvement_vectors.length) {
+            html += '<h3 style="margin-top:6px">Improvement Vectors</h3><ul class="detail-list">';
+            for (const v of id.improvement_vectors.slice(0, 3)) html += '<li>' + escH(v) + '</li>';
+            html += '</ul>';
+        }
+        html += '</div>';
+    }
+
+    if (n.moltHistory && n.moltHistory.length) {
+        html += '<div class="detail-section"><h3>Molt Lineage</h3>';
+        for (const m of n.moltHistory) {
+            const gen = m.generation || m.gen || '?';
+            const date = m.date || '?';
+            const focus = m.focus || ((m.size || 0) + ' bytes');
+            html += '<div class="detail-kv"><span class="k">v' + gen + ' (' + date + ')</span><span class="v">' + escH(focus) + '</span></div>';
+        }
+        html += '</div>';
+    }
+
+    // Link to open app
+    html += '<div class="detail-section" style="text-align:center">';
+    html += '<a href="../' + n.catFolder + '/' + n.file + '" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.75rem">▶ Open App</a>';
+    html += '</div>';
+
+    c.innerHTML = html;
+}
+
+function kv(k, v) { return '<div class="detail-kv"><span class="k">' + escH(k) + '</span><span class="v">' + escH(String(v)) + '</span></div>'; }
+function escH(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+$('detail-close').onclick = () => { $('detail-panel').classList.remove('open'); selectedNode = null; };
+
+// ── PNG Export ──
+$('btn-export').onclick = () => {
+    const link = document.createElement('a');
+    link.download = 'ouroboros-ecosystem-' + Date.now() + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+};
+
+// ── UI Setup ──
+function setupUI() {
+    $('h-apps').textContent = nodes.length;
+    $('h-frames').textContent = molterState ? molterState.frame : 0;
+    let totalMolts = 0;
+    if (molterState && molterState.history) {
+        for (const h of molterState.history) totalMolts += (h.actions.molted || []).length;
+    }
+    $('h-molts').textContent = totalMolts;
+    const avg = nodes.length ? (nodes.reduce((s, n) => s + n.score, 0) / nodes.length).toFixed(1) : 0;
+    $('h-avg').textContent = avg;
+    $('h-ident').textContent = nodes.filter(n => n.identity).length;
+
+    const slider = $('frame-slider');
+    const maxFrame = molterState ? molterState.frame : 0;
+    slider.max = maxFrame; slider.value = maxFrame;
+    $('frame-label').textContent = 'F' + maxFrame;
+    slider.oninput = function() {
+        const v = parseInt(this.value);
+        $('frame-label').textContent = v === 0 ? 'All' : 'F' + v;
+        highlightFrame(v);
+    };
+
+    $('btn-score').onclick = function() { sizeMode = 'score'; updateNodeRadii(); setActive(this); };
+    $('btn-gen').onclick = function() { sizeMode = 'gen'; updateNodeRadii(); setActive(this); };
+    $('btn-ident').onclick = function() { filterIdentity = !filterIdentity; this.classList.toggle('active', filterIdentity); };
+    $('btn-eco').onclick = function() {
+        $('eco-timeline').classList.toggle('open');
+        this.classList.toggle('active');
+        if ($('eco-timeline').classList.contains('open')) drawEcoTimeline();
+    };
+    $('btn-reset').onclick = () => { camX = 0; camY = 0; camZoom = 1; simAlpha = 1; searchInput.value = ''; searchQuery = ''; };
+
+    buildLegend();
+}
+
+function setActive(btn) {
+    btn.parentElement.querySelectorAll('button').forEach(b => {
+        if (b.id === 'btn-score' || b.id === 'btn-gen') b.classList.remove('active');
+    });
+    btn.classList.add('active');
+}
+
+function buildLegend() {
+    const leg = $('legend');
+    const cats = manifest.categories || {};
+    const counts = {};
+    for (const n of nodes) counts[n.category] = (counts[n.category] || 0) + 1;
+    let html = '';
+    for (const [key, data] of Object.entries(cats)) {
+        const color = CAT_COLORS[key] || '#666';
+        const name = (data.name || key).replace(/_/g, ' ');
+        html += '<div class="legend-item" data-cat="' + key + '">' +
+            '<div class="legend-dot" style="background:' + color + '"></div>' +
+            '<span>' + name + ' (' + (counts[key] || 0) + ')</span></div>';
+    }
+    leg.innerHTML = html;
+    leg.querySelectorAll('.legend-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const cat = el.dataset.cat;
+            if (catFilters.has(cat)) { catFilters.delete(cat); el.classList.remove('dimmed'); }
+            else {
+                if (catFilters.size === 0) {
+                    for (const k of Object.keys(cats)) { if (k !== cat) catFilters.add(k); }
+                    leg.querySelectorAll('.legend-item').forEach(e => e.classList.toggle('dimmed', e.dataset.cat !== cat));
+                } else { catFilters.add(cat); el.classList.add('dimmed'); }
+            }
+            if (catFilters.size >= Object.keys(cats).length) {
+                catFilters.clear();
+                leg.querySelectorAll('.legend-item').forEach(e => e.classList.remove('dimmed'));
+            }
+        });
+    });
+}
+
+function highlightFrame(frameNum) {
+    if (!molterState || !molterState.history) return;
+    if (frameNum === 0) { for (const n of nodes) n._frameHighlight = false; return; }
+    const frame = molterState.history.find(h => h.frame === frameNum);
+    if (!frame) return;
+    const created = new Set(frame.actions.created || []);
+    const molted = new Set(frame.actions.molted || []);
+    for (const n of nodes) n._frameHighlight = created.has(n.file) || molted.has(n.file);
+}
+
+// ── Resize ──
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+window.addEventListener('resize', () => { resize(); drawEcoTimeline(); });
+resize();
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => {
+    if (e.target === searchInput) return;
+    if (e.key === 'Escape') { $('detail-panel').classList.remove('open'); selectedNode = null; }
+    if (e.key === '/' || (e.key === 'f' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); searchInput.focus(); }
+    if (e.key === ' ') { e.preventDefault(); simRunning = !simRunning; simAlpha = 1; }
+    if (e.key === 'r' || e.key === 'R') { camX = 0; camY = 0; camZoom = 1; }
+});
+
+// ── Launch ──
+loadAll();
+
+})();
+</script>
+</body>
+</html>

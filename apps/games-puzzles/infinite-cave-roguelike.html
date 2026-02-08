@@ -4,318 +4,1393 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Infinite Cave Roguelike</title>
-<meta name="description" content="Procedurally generated infinite cave system with real-time lighting, minimap, and collectibles">
+<meta name="description" content="Turn-based roguelike dungeon crawler with procedural caves, shadowcasting FOV, combat, and persistent high scores">
+<meta name="rappterzoo:author" content="RappterZoo">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games-puzzles">
+<meta name="rappterzoo:tags" content="roguelike,dungeon,procedural,turn-based,rpg,cave,combat">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2025-01-15">
+<meta name="rappterzoo:generation" content="2">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#000;overflow:hidden;font-family:monospace;color:#ccc}
-canvas{display:block}
-#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-#hud{position:absolute;top:10px;left:10px;font-size:14px;line-height:1.6;text-shadow:0 0 4px #000}
-#minimap{position:absolute;top:10px;right:10px;border:1px solid #555;image-rendering:pixelated}
-#inv{position:absolute;bottom:10px;left:10px;font-size:13px}
-#msg{position:absolute;bottom:10px;right:10px;font-size:13px;text-align:right;max-width:300px}
-#death{position:absolute;top:0;left:0;width:100%;height:100%;display:none;background:rgba(80,0,0,0.85);justify-content:center;align-items:center;flex-direction:column;pointer-events:all}
-#death h1{font-size:48px;color:#f44;margin-bottom:20px}
-#death p{font-size:18px;margin:5px}
-#death button{margin-top:20px;padding:10px 30px;font-size:18px;cursor:pointer;background:#333;color:#fff;border:1px solid #888}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; color: #ccc; }
+canvas { display: block; }
+#ui {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; user-select: none;
+}
+#hud-panel {
+  position: absolute; top: 10px; left: 10px;
+  background: rgba(0,0,0,0.78); border: 1px solid #333; border-radius: 4px;
+  padding: 8px 12px; font-size: 13px; line-height: 1.5;
+  text-shadow: 0 0 4px #000; min-width: 220px;
+}
+.bar-container {
+  width: 100%; height: 14px; background: #1a0000; border: 1px solid #333;
+  border-radius: 2px; margin: 2px 0 4px; overflow: hidden; position: relative;
+}
+.bar-fill { height: 100%; transition: width 0.3s ease; border-radius: 1px; }
+.bar-hp { background: linear-gradient(180deg, #c44, #822); }
+.bar-xp { background: linear-gradient(180deg, #48f, #236); }
+.bar-label {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: #ddd; text-shadow: 1px 1px 1px #000;
+}
+.equip-line { color: #88aaff; font-size: 11px; }
+.stat-line { font-size: 12px; margin: 1px 0; }
+.inv-line { font-size: 11px; }
+#minimap-panel {
+  position: absolute; top: 10px; right: 10px;
+  background: rgba(0,0,0,0.78); border: 1px solid #333; border-radius: 4px;
+  padding: 4px;
+}
+#minimap { image-rendering: pixelated; display: block; }
+#msg-log {
+  position: absolute; bottom: 10px; left: 10px; right: 10px;
+  background: rgba(0,0,0,0.72); border: 1px solid #333; border-radius: 4px;
+  padding: 6px 10px; font-size: 12px; max-height: 160px; overflow: hidden;
+}
+.msg-line { padding: 1px 0; transition: opacity 0.3s; }
+#equip-panel {
+  position: absolute; top: 10px; left: 240px;
+  background: rgba(0,0,0,0.78); border: 1px solid #333; border-radius: 4px;
+  padding: 8px 12px; font-size: 12px; min-width: 160px; display: none;
+}
+.overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: none; background: rgba(0,0,0,0.92);
+  justify-content: center; align-items: center; flex-direction: column;
+  pointer-events: all; z-index: 100;
+}
+.overlay.active { display: flex; }
+#start-screen pre {
+  color: #c84; font-size: 10px; line-height: 1.15; text-align: center;
+  text-shadow: 0 0 10px #a62; margin-bottom: 6px;
+}
+#start-screen .subtitle { color: #886; font-size: 14px; margin: 8px 0 20px; }
+.btn {
+  margin: 5px; padding: 10px 30px; font-size: 16px; cursor: pointer;
+  background: #222; color: #ddd; border: 1px solid #555; border-radius: 4px;
+  font-family: 'Courier New', monospace; pointer-events: all;
+  transition: background 0.2s, border-color 0.2s;
+}
+.btn:hover { background: #333; border-color: #888; }
+.btn:active { background: #444; }
+.btn-primary { border-color: #c84; color: #c84; }
+.btn-primary:hover { background: #2a1800; border-color: #ea6; }
+#death-screen { background: rgba(60,0,0,0.92); }
+#death-screen h1 { font-size: 48px; color: #f44; margin-bottom: 10px; text-shadow: 0 0 20px #a00; }
+#death-screen .stat { font-size: 16px; margin: 4px 0; color: #caa; }
+#help-screen { background: rgba(0,0,0,0.95); }
+#help-screen .help-content {
+  max-width: 500px; text-align: left; font-size: 13px; line-height: 1.8;
+}
+#help-screen h2 { color: #c84; margin-bottom: 10px; text-align: center; }
+#help-screen .key { color: #4af; display: inline-block; min-width: 80px; }
+#scores-display { margin-top: 15px; font-size: 13px; color: #aa8; max-width: 400px; }
+#scores-display table { width: 100%; border-collapse: collapse; }
+#scores-display td { padding: 2px 6px; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="ui">
-<div id="hud"></div>
-<canvas id="minimap" width="120" height="120"></canvas>
-<div id="inv"></div>
-<div id="msg"></div>
+  <div id="hud-panel"></div>
+  <div id="minimap-panel"><canvas id="minimap" width="140" height="105"></canvas></div>
+  <div id="equip-panel"></div>
+  <div id="msg-log"></div>
 </div>
-<div id="death"><h1>YOU DIED</h1><p id="dscore"></p><p id="dlevel"></p><button onclick="restart()">Try Again</button></div>
+
+<div id="start-screen" class="overlay active">
+  <pre id="ascii-title"></pre>
+  <div class="subtitle">A Procedural Dungeon Crawler</div>
+  <button class="btn btn-primary" id="btn-new">New Game</button>
+  <button class="btn" id="btn-continue" style="display:none">Continue</button>
+  <button class="btn" id="btn-help-start">Controls (? / H)</button>
+  <div id="scores-display"></div>
+</div>
+
+<div id="death-screen" class="overlay">
+  <h1>YOU DIED</h1>
+  <div class="stat" id="d-score"></div>
+  <div class="stat" id="d-level"></div>
+  <div class="stat" id="d-kills"></div>
+  <button class="btn btn-primary" id="btn-restart">Try Again</button>
+  <button class="btn" id="btn-scores">High Scores</button>
+</div>
+
+<div id="help-screen" class="overlay">
+  <div class="help-content">
+    <h2>&#9876; CONTROLS &#9876;</h2>
+    <div><span class="key">WASD/Arrows</span> Move / Attack</div>
+    <div><span class="key">1-9</span> Use inventory item</div>
+    <div><span class="key">R</span> Rest (regen 1 HP if safe)</div>
+    <div><span class="key">X + dir</span> Examine enemy</div>
+    <div><span class="key">E</span> Toggle equipment</div>
+    <div><span class="key">? / H</span> This help screen</div>
+    <div><span class="key">M</span> Toggle sound</div>
+    <div style="margin-top:12px; color:#886;">
+      <div>&#8226; Kill 50% of enemies to unlock stairs (&gt;)</div>
+      <div>&#8226; Boss appears every 5 levels</div>
+      <div>&#8226; Game auto-saves on level change</div>
+    </div>
+  </div>
+  <button class="btn" id="btn-help-close">Close</button>
+</div>
+
 <script>
-const C=document.getElementById("game"),X=C.getContext("2d");
-const MC=document.getElementById("minimap"),MX=MC.getContext("2d");
-const W=80,H=60,TILE=0,WALL=1,STAIR=3;
-let cw,ch,tw,th;
-function resize(){cw=C.width=innerWidth;ch=C.height=innerHeight;tw=cw/W;th=ch/H}
-resize();window.onresize=resize;
-let map,visible,explored,enemies,items,player,level,msgs=[],msgTimer=0,turn=0,gameOver=false;
-let lastHud="",lastInv="",lastMsg="";
-function msg(t){msgs.unshift(t);if(msgs.length>5)msgs.pop();msgTimer=180}
-function genCave(){
-  let m=new Uint8Array(W*H);
-  for(let i=0;i<W*H;i++)m[i]=Math.random()<0.45?WALL:TILE;
-  for(let x=0;x<W;x++){m[x]=WALL;m[x+(H-1)*W]=WALL}
-  for(let y=0;y<H;y++){m[y*W]=WALL;m[(y+1)*W-1]=WALL}
-  for(let iter=0;iter<5;iter++){
-    let n=new Uint8Array(W*H);
-    for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){
-      let c=0;
-      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)if(m[(y+dy)*W+x+dx]===WALL)c++;
-      n[y*W+x]=c>=5?WALL:TILE;
-    }
-    for(let x=0;x<W;x++){n[x]=WALL;n[x+(H-1)*W]=WALL}
-    for(let y=0;y<H;y++){n[y*W]=WALL;n[(y+1)*W-1]=WALL}
-    m=n;
+// ============================================================
+// CONSTANTS & SETUP
+// ============================================================
+const C = document.getElementById("game"), ctx = C.getContext("2d");
+const MC = document.getElementById("minimap"), mctx = MC.getContext("2d");
+const MAP_W = 80, MAP_H = 60;
+const FLOOR = 0, WALL = 1, WATER = 2, STAIR = 3;
+let cw, ch, tileW, tileH;
+function resize() {
+  cw = C.width = innerWidth;
+  ch = C.height = innerHeight;
+  tileW = cw / 40;
+  tileH = ch / 30;
+}
+resize();
+window.onresize = resize;
+
+let map, visible, explored, enemies, items, player, level, turn, kills, initialEnemyCount;
+let gameState = 'start';
+let msgs = [];
+let particles = [];
+let damageNumbers = [];
+let camX = 0, camY = 0;
+let shakeAmount = 0;
+let soundEnabled = true;
+let equipPanelVisible = false;
+let lastHudStr = '', lastMsgStr = '';
+let frameTime = 0;
+
+// ============================================================
+// SOUND SYSTEM
+// ============================================================
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-  let visited=new Int32Array(W*H).fill(-1),regions=[],rid=0;
-  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){
-    if(m[y*W+x]===TILE&&visited[y*W+x]<0){
-      let q=[[x,y]],cells=[];visited[y*W+x]=rid;
-      while(q.length){
-        let[cx,cy]=q.pop();cells.push([cx,cy]);
-        for(let[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){
-          let nx=cx+dx,ny=cy+dy;
-          if(nx>0&&nx<W-1&&ny>0&&ny<H-1&&m[ny*W+nx]===TILE&&visited[ny*W+nx]<0){
-            visited[ny*W+nx]=rid;q.push([nx,ny]);
+  return audioCtx;
+}
+function makeNoise(duration) {
+  const ac = ensureAudio();
+  const buf = ac.createBuffer(1, ac.sampleRate * duration, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  return src;
+}
+function playFootstep() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    const src = makeNoise(0.05);
+    const filt = ac.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 800 + Math.random() * 400;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.08, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.05);
+    src.connect(filt); filt.connect(gain); gain.connect(ac.destination);
+    src.start(); src.stop(ac.currentTime + 0.05);
+  } catch(e) {}
+}
+function playSwordHit() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    const src = makeNoise(0.1);
+    const filt = ac.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 2000;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.15, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.1);
+    src.connect(filt); filt.connect(gain); gain.connect(ac.destination);
+    src.start(); src.stop(ac.currentTime + 0.1);
+  } catch(e) {}
+}
+function playEnemyHit() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 80;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.2, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.15);
+  } catch(e) {}
+}
+function playDeath() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    const osc = ac.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(400, ac.currentTime);
+    osc.frequency.linearRampToValueAtTime(100, ac.currentTime + 0.8);
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.2, ac.currentTime);
+    gain.gain.linearRampToValueAtTime(0, ac.currentTime + 0.8);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.8);
+  } catch(e) {}
+}
+function playPickup() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.12, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.2);
+    osc.frequency.setValueAtTime(523, ac.currentTime);
+    osc.frequency.setValueAtTime(659, ac.currentTime + 0.1);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.2);
+  } catch(e) {}
+}
+function playLevelUp() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.15, ac.currentTime);
+    gain.gain.linearRampToValueAtTime(0, ac.currentTime + 0.45);
+    osc.frequency.setValueAtTime(523, ac.currentTime);
+    osc.frequency.setValueAtTime(659, ac.currentTime + 0.15);
+    osc.frequency.setValueAtTime(784, ac.currentTime + 0.3);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.45);
+  } catch(e) {}
+}
+function playHeartbeat() {
+  if (!soundEnabled) return;
+  try {
+    const ac = ensureAudio();
+    for (let i = 0; i < 2; i++) {
+      const osc = ac.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 50;
+      const gain = ac.createGain();
+      const t = ac.currentTime + i * 0.25;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.15, t + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.start(t); osc.stop(t + 0.15);
+    }
+  } catch(e) {}
+}
+let nextDripTime = 0;
+function playAmbientDrip() {
+  if (!soundEnabled || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  if (now < nextDripTime) return;
+  nextDripTime = now + 3 + Math.random() * 5;
+  try {
+    const ac = audioCtx;
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 1200 + Math.random() * 800;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.04, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.15);
+  } catch(e) {}
+}
+
+// ============================================================
+// CAVE GENERATION
+// ============================================================
+function genCave() {
+  const m = new Uint8Array(MAP_W * MAP_H);
+  for (let i = 0; i < MAP_W * MAP_H; i++) m[i] = Math.random() < 0.45 ? WALL : FLOOR;
+  for (let x = 0; x < MAP_W; x++) { m[x] = WALL; m[x + (MAP_H - 1) * MAP_W] = WALL; }
+  for (let y = 0; y < MAP_H; y++) { m[y * MAP_W] = WALL; m[(y + 1) * MAP_W - 1] = WALL; }
+  for (let iter = 0; iter < 5; iter++) {
+    const n = new Uint8Array(MAP_W * MAP_H);
+    for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+        if (m[(y + dy) * MAP_W + x + dx] === WALL) c++;
+      n[y * MAP_W + x] = c >= 5 ? WALL : FLOOR;
+    }
+    for (let x = 0; x < MAP_W; x++) { n[x] = WALL; n[x + (MAP_H - 1) * MAP_W] = WALL; }
+    for (let y = 0; y < MAP_H; y++) { n[y * MAP_W] = WALL; n[(y + 1) * MAP_W - 1] = WALL; }
+    for (let i = 0; i < MAP_W * MAP_H; i++) m[i] = n[i];
+  }
+  // flood fill to find connected regions
+  const visited = new Int32Array(MAP_W * MAP_H).fill(-1);
+  const regions = [];
+  let rid = 0;
+  for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
+    if (m[y * MAP_W + x] === FLOOR && visited[y * MAP_W + x] < 0) {
+      const q = [[x, y]], cells = [];
+      visited[y * MAP_W + x] = rid;
+      while (q.length) {
+        const [cx, cy] = q.pop();
+        cells.push([cx, cy]);
+        for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nx = cx + ddx, ny = cy + ddy;
+          if (nx > 0 && nx < MAP_W - 1 && ny > 0 && ny < MAP_H - 1 &&
+              m[ny * MAP_W + nx] === FLOOR && visited[ny * MAP_W + nx] < 0) {
+            visited[ny * MAP_W + nx] = rid;
+            q.push([nx, ny]);
           }
         }
       }
-      regions.push(cells);rid++;
+      regions.push(cells);
+      rid++;
     }
   }
-  regions.sort(function(a,b){return b.length-a.length});
-  for(let i=1;i<regions.length;i++)for(let[x,y]of regions[i])m[y*W+x]=WALL;
-  if(regions.length>0){let c=regions[0],s=c[Math.floor(Math.random()*c.length)];m[s[1]*W+s[0]]=STAIR}
+  regions.sort((a, b) => b.length - a.length);
+  for (let i = 1; i < regions.length; i++)
+    for (const [x, y] of regions[i]) m[y * MAP_W + x] = WALL;
+  // place stairs
+  if (regions.length > 0) {
+    const big = regions[0];
+    const s = big[Math.floor(Math.random() * big.length)];
+    m[s[1] * MAP_W + s[0]] = STAIR;
+  }
+  // scatter water tiles (~10% of floors)
+  for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
+    if (m[y * MAP_W + x] === FLOOR && Math.random() < 0.10) {
+      m[y * MAP_W + x] = WATER;
+    }
+  }
   return m;
 }
-function computeFOV(px,py,radius){
-  let v=new Uint8Array(W*H);v[py*W+px]=1;
-  var mult=[[1,0,0,1],[0,1,1,0],[0,-1,1,0],[-1,0,0,1],[-1,0,0,-1],[0,-1,-1,0],[0,1,-1,0],[1,0,0,-1]];
-  for(let oct=0;oct<8;oct++)castLight(v,px,py,radius,1,1.0,0.0,mult[oct][0],mult[oct][1],mult[oct][2],mult[oct][3]);
+
+// ============================================================
+// FOV SYSTEM (SHADOWCASTING)
+// ============================================================
+function computeFOV(px, py, radius) {
+  const v = new Uint8Array(MAP_W * MAP_H);
+  v[py * MAP_W + px] = 1;
+  const mult = [
+    [1,0,0,1],[0,1,1,0],[0,-1,1,0],[-1,0,0,1],
+    [-1,0,0,-1],[0,-1,-1,0],[0,1,-1,0],[1,0,0,-1]
+  ];
+  for (let oct = 0; oct < 8; oct++)
+    castLight(v, px, py, radius, 1, 1.0, 0.0, mult[oct][0], mult[oct][1], mult[oct][2], mult[oct][3]);
   return v;
 }
-function castLight(v,cx,cy,r,row,startSlope,endSlope,xx,xy,yx,yy){
-  if(startSlope<endSlope)return;
-  var nextStart=startSlope;
-  for(var j=row;j<=r;j++){
-    var blocked=false;
-    for(var dx=-j,dy=-j;dx<=0;dx++){
-      var lSlope=(dx-0.5)/(dy+0.5),rSlope=(dx+0.5)/(dy-0.5);
-      if(rSlope>nextStart)continue;
-      if(lSlope<endSlope)break;
-      var ax=cx+dx*xx+dy*xy,ay=cy+dx*yx+dy*yy;
-      if(ax>=0&&ax<W&&ay>=0&&ay<H&&(dx*dx+dy*dy)<r*r)v[ay*W+ax]=1;
-      if(blocked){
-        if(ax<0||ax>=W||ay<0||ay>=H||map[ay*W+ax]===WALL){nextStart=rSlope;continue;}
-        blocked=false;startSlope=nextStart;
-      }else if(ax>=0&&ax<W&&ay>=0&&ay<H&&map[ay*W+ax]===WALL&&j<r){
-        blocked=true;castLight(v,cx,cy,r,j+1,nextStart,lSlope,xx,xy,yx,yy);nextStart=rSlope;
+function castLight(v, cx, cy, r, row, startSlope, endSlope, xx, xy, yx, yy) {
+  if (startSlope < endSlope) return;
+  let nextStart = startSlope;
+  for (let j = row; j <= r; j++) {
+    let blocked = false;
+    for (let dx = -j, dy = -j; dx <= 0; dx++) {
+      const lSlope = (dx - 0.5) / (dy + 0.5);
+      const rSlope = (dx + 0.5) / (dy - 0.5);
+      if (rSlope > nextStart) continue;
+      if (lSlope < endSlope) break;
+      const ax = cx + dx * xx + dy * xy;
+      const ay = cy + dx * yx + dy * yy;
+      if (ax >= 0 && ax < MAP_W && ay >= 0 && ay < MAP_H && (dx * dx + dy * dy) < r * r)
+        v[ay * MAP_W + ax] = 1;
+      if (blocked) {
+        if (ax < 0 || ax >= MAP_W || ay < 0 || ay >= MAP_H || map[ay * MAP_W + ax] === WALL) {
+          nextStart = rSlope;
+          continue;
+        }
+        blocked = false;
+        startSlope = nextStart;
+      } else if (ax >= 0 && ax < MAP_W && ay >= 0 && ay < MAP_H && map[ay * MAP_W + ax] === WALL && j < r) {
+        blocked = true;
+        castLight(v, cx, cy, r, j + 1, nextStart, lSlope, xx, xy, yx, yy);
+        nextStart = rSlope;
       }
     }
-    if(blocked)break;
+    if (blocked) break;
   }
 }
-function bfs(sx,sy,tx,ty){
-  var dist=new Int32Array(W*H).fill(-1),q=new Int32Array(W*H*2),h=0,t=0;
-  dist[sy*W+sx]=0;q[t++]=sx;q[t++]=sy;
-  while(h<t){var cx=q[h++],cy=q[h++];if(cx===tx&&cy===ty)break;
-    for(var dd of[[-1,0],[1,0],[0,-1],[0,1]]){var nx=cx+dd[0],ny=cy+dd[1];
-      if(nx>=0&&nx<W&&ny>=0&&ny<H&&map[ny*W+nx]!==WALL&&dist[ny*W+nx]<0){dist[ny*W+nx]=dist[cy*W+cx]+1;q[t++]=nx;q[t++]=ny;}
+
+// ============================================================
+// PATHFINDING (BFS)
+// ============================================================
+function bfs(sx, sy, tx, ty) {
+  const dist = new Int32Array(MAP_W * MAP_H).fill(-1);
+  const q = [];
+  dist[sy * MAP_W + sx] = 0;
+  q.push([sx, sy]);
+  let head = 0;
+  while (head < q.length) {
+    const [cx, cy] = q[head++];
+    if (cx === tx && cy === ty) break;
+    for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      const nx = cx + ddx, ny = cy + ddy;
+      if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H &&
+          map[ny * MAP_W + nx] !== WALL && dist[ny * MAP_W + nx] < 0) {
+        dist[ny * MAP_W + nx] = dist[cy * MAP_W + cx] + 1;
+        q.push([nx, ny]);
+      }
     }
   }
-  if(dist[ty*W+tx]<0)return null;
-  var path=[[tx,ty]],cx2=tx,cy2=ty;
-  while(cx2!==sx||cy2!==sy){var best=null,bd=dist[cy2*W+cx2];
-    for(var dd of[[-1,0],[1,0],[0,-1],[0,1]]){var nx=cx2+dd[0],ny=cy2+dd[1];
-      if(nx>=0&&nx<W&&ny>=0&&ny<H&&dist[ny*W+nx]>=0&&dist[ny*W+nx]<bd){bd=dist[ny*W+nx];best=[nx,ny];}}
-    if(!best)break;path.push(best);cx2=best[0];cy2=best[1];
+  if (dist[ty * MAP_W + tx] < 0) return null;
+  const path = [[tx, ty]];
+  let cx2 = tx, cy2 = ty;
+  while (cx2 !== sx || cy2 !== sy) {
+    let best = null, bd = dist[cy2 * MAP_W + cx2];
+    for (const [ddx, ddy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      const nx = cx2 + ddx, ny = cy2 + ddy;
+      if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H &&
+          dist[ny * MAP_W + nx] >= 0 && dist[ny * MAP_W + nx] < bd) {
+        bd = dist[ny * MAP_W + nx];
+        best = [nx, ny];
+      }
+    }
+    if (!best) break;
+    path.push(best);
+    cx2 = best[0]; cy2 = best[1];
   }
   return path.reverse();
 }
-var EDEFS=[
-  {name:"Bat",hp:3,atk:1,color:"#aa8866",ch:"B",xp:5,speed:2},
-  {name:"Rat",hp:5,atk:2,color:"#886644",ch:"r",xp:8,speed:1},
-  {name:"Skeleton",hp:10,atk:4,color:"#cccccc",ch:"S",xp:15,speed:1},
-  {name:"Slime",hp:8,atk:2,color:"#44cc44",ch:"s",xp:10,speed:1},
-  {name:"Goblin",hp:12,atk:5,color:"#44aa44",ch:"g",xp:20,speed:1},
-  {name:"Wraith",hp:15,atk:7,color:"#8844cc",ch:"W",xp:30,speed:1},
-  {name:"Troll",hp:25,atk:8,color:"#668844",ch:"T",xp:40,speed:2},
-  {name:"Dragon",hp:40,atk:12,color:"#cc4444",ch:"D",xp:100,speed:2}
+
+// ============================================================
+// ENTITY DEFINITIONS
+// ============================================================
+const ENEMY_DEFS = [
+  { name: "Bat",      ch: "B", color: "#aa8866", hp: 4,  atk: 2,  xp: 5 },
+  { name: "Rat",      ch: "r", color: "#886644", hp: 6,  atk: 3,  xp: 8 },
+  { name: "Skeleton", ch: "S", color: "#cccccc", hp: 12, atk: 5,  xp: 15 },
+  { name: "Slime",    ch: "s", color: "#44cc44", hp: 10, atk: 3,  xp: 10 },
+  { name: "Goblin",   ch: "g", color: "#44aa44", hp: 15, atk: 6,  xp: 20 },
+  { name: "Wraith",   ch: "W", color: "#8844cc", hp: 20, atk: 8,  xp: 30 },
+  { name: "Troll",    ch: "T", color: "#668844", hp: 30, atk: 10, xp: 40 },
+  { name: "Dragon",   ch: "D", color: "#cc4444", hp: 50, atk: 14, xp: 100 }
 ];
-var IDEFS=[
-  {name:"Health Potion",color:"#ff4444",ch:"!",type:"heal",val:15},
-  {name:"Torch",color:"#ffaa00",ch:"*",type:"torch",val:3},
-  {name:"Sword",color:"#aaaaff",ch:"/",type:"weapon",val:3},
-  {name:"Shield",color:"#aaffaa",ch:"]",type:"armor",val:2},
-  {name:"Gold",color:"#ffff44",ch:"$",type:"gold",val:0},
-  {name:"Scroll",color:"#ffaaff",ch:"?",type:"scroll",val:0}
+const ITEM_DEFS = [
+  { name: "Health Potion",         ch: "!", color: "#ff4444", type: "heal",             val: 0, tier: 0 },
+  { name: "Greater Health Potion", ch: "!", color: "#ff6666", type: "heal",             val: 40, tier: 0 },
+  { name: "Torch",                 ch: "*", color: "#ffaa00", type: "torch",            val: 3, tier: 0 },
+  { name: "Rusty Sword",           ch: "/", color: "#8888ff", type: "weapon",           val: 2, tier: 1 },
+  { name: "Steel Sword",           ch: "/", color: "#aaaaff", type: "weapon",           val: 5, tier: 2 },
+  { name: "Enchanted Blade",       ch: "/", color: "#44ffff", type: "weapon",           val: 8, tier: 3 },
+  { name: "Leather Armor",         ch: "]", color: "#44aa44", type: "armor",            val: 2, tier: 1 },
+  { name: "Chain Mail",            ch: "]", color: "#66dd66", type: "armor",            val: 4, tier: 2 },
+  { name: "Plate Armor",           ch: "]", color: "#44ffff", type: "armor",            val: 7, tier: 3 },
+  { name: "Gold",                  ch: "$", color: "#ffff44", type: "gold",             val: 0, tier: 0 },
+  { name: "Scroll of Lightning",   ch: "?", color: "#ff88ff", type: "scroll_lightning", val: 0, tier: 0 },
+  { name: "Scroll of Teleport",    ch: "?", color: "#aa44ff", type: "scroll_teleport",  val: 0, tier: 0 },
+  { name: "Scroll of Mapping",     ch: "?", color: "#ffffff", type: "scroll_map",       val: 0, tier: 0 }
 ];
-function spawnEnemies(){
-  enemies=[];var count=5+level*2+Math.floor(Math.random()*3);var open=[];
-  for(var y=1;y<H-1;y++)for(var x=1;x<W-1;x++)
-    if(map[y*W+x]===TILE&&(Math.abs(x-player.x)>5||Math.abs(y-player.y)>5))open.push([x,y]);
-  for(var i=0;i<count&&open.length;i++){
-    var idx=Math.floor(Math.random()*open.length),pos=open.splice(idx,1)[0];
-    var tier=Math.min(Math.floor(Math.random()*(1+level*0.5)),EDEFS.length-1);
-    var def=EDEFS[tier],sc=1+level*0.15;
-    enemies.push({x:pos[0],y:pos[1],name:def.name,hp:Math.ceil(def.hp*sc),maxHp:Math.ceil(def.hp*sc),
-      atk:Math.ceil(def.atk*(1+level*0.1)),color:def.color,ch:def.ch,xp:def.xp,speed:def.speed,cooldown:0});
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+function spawnParticles(x, y, count, color, speed) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = (0.3 + Math.random() * 0.7) * (speed || 1);
+    particles.push({
+      x: x, y: y,
+      vx: Math.cos(angle) * spd * 0.05,
+      vy: Math.sin(angle) * spd * 0.05,
+      life: 40 + Math.random() * 30,
+      maxLife: 70,
+      color: color,
+      size: 2 + Math.random() * 3
+    });
   }
 }
-function spawnItems(){
-  items=[];var count=3+Math.floor(Math.random()*5);var open=[];
-  for(var y=1;y<H-1;y++)for(var x=1;x<W-1;x++)if(map[y*W+x]===TILE)open.push([x,y]);
-  for(var i=0;i<count&&open.length;i++){
-    var idx=Math.floor(Math.random()*open.length),pos=open.splice(idx,1)[0];
-    var def=IDEFS[Math.floor(Math.random()*IDEFS.length)];
-    var val=def.type==="gold"?5+Math.floor(Math.random()*15*(level+1)):def.val;
-    items.push({x:pos[0],y:pos[1],name:def.name,color:def.color,ch:def.ch,type:def.type,val:val});
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.02;
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
   }
 }
-function initLevel(){
-  map=genCave();explored=new Uint8Array(W*H);
-  var open=[];
-  for(var y=1;y<H-1;y++)for(var x=1;x<W-1;x++)if(map[y*W+x]===TILE)open.push([x,y]);
-  var start=open[Math.floor(Math.random()*open.length)];
-  if(!player){
-    player={x:start[0],y:start[1],hp:30,maxHp:30,atk:5,def:0,xp:0,lvl:1,fov:8,gold:0,inventory:[],weapon:null,armor:null};
-  }else{
-    player.x=start[0];player.y=start[1];
-  }
-  spawnEnemies();spawnItems();
-  visible=computeFOV(player.x,player.y,player.fov);
-  for(var i=0;i<W*H;i++)if(visible[i])explored[i]=1;
-  msg("Entered cave level "+(level+1));
+
+// ============================================================
+// CAMERA & SCREEN EFFECTS
+// ============================================================
+function updateCamera() {
+  if (!player) return;
+  camX += (player.x - camX) * 0.1;
+  camY += (player.y - camY) * 0.1;
+  shakeAmount *= 0.9;
+  if (shakeAmount < 0.1) shakeAmount = 0;
 }
-level=0;initLevel();
-var keys={};
-window.addEventListener("keydown",function(e){
-  if(gameOver)return;
-  keys[e.key]=true;
-  var dx=0,dy=0,acted=false;
-  if(e.key==="ArrowLeft"||e.key==="a")dx=-1;
-  if(e.key==="ArrowRight"||e.key==="d")dx=1;
-  if(e.key==="ArrowUp"||e.key==="w")dy=-1;
-  if(e.key==="ArrowDown"||e.key==="s")dy=1;
-  if(dx||dy){
-    var nx=player.x+dx,ny=player.y+dy;
-    var enemy=enemies.find(function(en){return en.x===nx&&en.y===ny});
-    if(enemy){
-      var dmg=Math.max(1,player.atk+(player.weapon?player.weapon.val:0)-Math.floor(Math.random()*3));
-      enemy.hp-=dmg;msg("Hit "+enemy.name+" for "+dmg);
-      if(enemy.hp<=0){msg(enemy.name+" defeated! +"+enemy.xp+"xp");player.xp+=enemy.xp;
-        enemies=enemies.filter(function(en){return en!==enemy});checkLevelUp();}
-      acted=true;
-    }else if(map[ny*W+nx]!==WALL){
-      player.x=nx;player.y=ny;acted=true;
-      var item=items.find(function(it){return it.x===nx&&it.y===ny});
-      if(item){
-        if(item.type==="gold"){player.gold+=item.val;msg("Picked up "+item.val+" gold")}
-        else{player.inventory.push(item);msg("Picked up "+item.name)}
-        items=items.filter(function(it){return it!==item});
-      }
-      if(map[ny*W+nx]===STAIR){level++;initLevel();return}
+function worldToScreen(wx, wy) {
+  const visW = cw / tileW;
+  const visH = ch / tileH;
+  const sx = (wx - camX + visW / 2) * tileW;
+  const sy = (wy - camY + visH / 2) * tileH;
+  return [sx, sy];
+}
+
+// ============================================================
+// SAVE / LOAD SYSTEM
+// ============================================================
+function encodeMap(m) {
+  let s = '';
+  for (let i = 0; i < m.length; i++) s += String.fromCharCode(m[i] + 48);
+  return btoa(s);
+}
+function decodeMap(s) {
+  const decoded = atob(s);
+  const m = new Uint8Array(decoded.length);
+  for (let i = 0; i < decoded.length; i++) m[i] = decoded.charCodeAt(i) - 48;
+  return m;
+}
+function encodeExplored(e) {
+  let s = '';
+  for (let i = 0; i < e.length; i++) s += String.fromCharCode(e[i] + 48);
+  return btoa(s);
+}
+function saveGame() {
+  try {
+    const data = {
+      player: player,
+      level: level,
+      map: encodeMap(map),
+      enemies: enemies,
+      items: items,
+      explored: encodeExplored(explored),
+      turn: turn,
+      kills: kills,
+      initialEnemyCount: initialEnemyCount
+    };
+    localStorage.setItem('roguelike-save', JSON.stringify(data));
+  } catch(e) {}
+}
+function loadGame() {
+  try {
+    const raw = localStorage.getItem('roguelike-save');
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    player = data.player;
+    level = data.level;
+    map = decodeMap(data.map);
+    enemies = data.enemies;
+    items = data.items;
+    explored = decodeMap(data.explored);
+    turn = data.turn;
+    kills = data.kills || 0;
+    initialEnemyCount = data.initialEnemyCount || enemies.length;
+    camX = player.x;
+    camY = player.y;
+    visible = computeFOV(player.x, player.y, player.fov);
+    for (let i = 0; i < MAP_W * MAP_H; i++) if (visible[i]) explored[i] = 1;
+    return true;
+  } catch(e) { return false; }
+}
+function hasSave() {
+  return !!localStorage.getItem('roguelike-save');
+}
+function clearSave() {
+  localStorage.removeItem('roguelike-save');
+}
+function calcScore() {
+  return player.xp + player.gold * 2 + level * 50 + kills * 10;
+}
+function saveHighScore() {
+  try {
+    let scores = JSON.parse(localStorage.getItem('roguelike-scores') || '[]');
+    scores.push({
+      score: calcScore(),
+      level: level + 1,
+      playerLevel: player.lvl,
+      kills: kills,
+      date: new Date().toISOString().split('T')[0]
+    });
+    scores.sort((a, b) => b.score - a.score);
+    if (scores.length > 10) scores = scores.slice(0, 10);
+    localStorage.setItem('roguelike-scores', JSON.stringify(scores));
+  } catch(e) {}
+}
+function getHighScores() {
+  try {
+    return JSON.parse(localStorage.getItem('roguelike-scores') || '[]');
+  } catch(e) { return []; }
+}
+
+// ============================================================
+// GAME STATE & INITIALIZATION
+// ============================================================
+function addMsg(text) {
+  msgs.unshift({ text: text, age: 0 });
+  if (msgs.length > 8) msgs.pop();
+}
+function ageMessages() {
+  for (const m of msgs) m.age++;
+}
+function getOpenTiles(excludePlayer) {
+  const open = [];
+  for (let y = 1; y < MAP_H - 1; y++) for (let x = 1; x < MAP_W - 1; x++) {
+    const t = map[y * MAP_W + x];
+    if (t === FLOOR || t === WATER) {
+      if (excludePlayer && player && x === player.x && y === player.y) continue;
+      open.push([x, y]);
     }
-    if(acted){turn++;doEnemyTurn();updateFOV()}
+  }
+  return open;
+}
+function spawnEnemies() {
+  enemies = [];
+  const count = 5 + level * 2 + Math.floor(Math.random() * 3);
+  const open = getOpenTiles(true).filter(([x, y]) =>
+    Math.abs(x - player.x) > 5 || Math.abs(y - player.y) > 5
+  );
+  const isBossLevel = (level + 1) % 5 === 0;
+  for (let i = 0; i < count && open.length; i++) {
+    const idx = Math.floor(Math.random() * open.length);
+    const pos = open.splice(idx, 1)[0];
+    const tier = Math.min(Math.floor(Math.random() * (1 + level * 0.5)), ENEMY_DEFS.length - 1);
+    const def = ENEMY_DEFS[tier];
+    const sc = 1 + level * 0.15;
+    const en = {
+      x: pos[0], y: pos[1],
+      name: def.name, ch: def.ch, color: def.color,
+      hp: Math.ceil(def.hp * sc), maxHp: Math.ceil(def.hp * sc),
+      atk: Math.ceil(def.atk * (1 + level * 0.1)),
+      xp: def.xp, boss: false
+    };
+    enemies.push(en);
+  }
+  // spawn boss on boss levels
+  if (isBossLevel && open.length) {
+    const idx = Math.floor(Math.random() * open.length);
+    const pos = open.splice(idx, 1)[0];
+    const bdef = ENEMY_DEFS[Math.floor(Math.random() * ENEMY_DEFS.length)];
+    const sc = 1 + level * 0.15;
+    enemies.push({
+      x: pos[0], y: pos[1],
+      name: "Boss " + bdef.name, ch: bdef.ch, color: bdef.color,
+      hp: Math.ceil(bdef.hp * sc * 3), maxHp: Math.ceil(bdef.hp * sc * 3),
+      atk: Math.floor(bdef.atk * (1 + level * 0.1) * 1.5),
+      xp: bdef.xp * 3, boss: true
+    });
+  }
+  initialEnemyCount = enemies.length;
+}
+function spawnItems() {
+  items = [];
+  const count = 4 + Math.floor(Math.random() * 5);
+  const open = getOpenTiles(true);
+  for (let i = 0; i < count && open.length; i++) {
+    const idx = Math.floor(Math.random() * open.length);
+    const pos = open.splice(idx, 1)[0];
+    // weighted item selection: common items more frequent
+    let defIdx;
+    const r = Math.random();
+    if (r < 0.22) defIdx = 0;        // Health Potion
+    else if (r < 0.27) defIdx = 1;   // Greater Health Potion
+    else if (r < 0.35) defIdx = 2;   // Torch
+    else if (r < 0.42) defIdx = 3;   // Rusty Sword
+    else if (r < 0.47) defIdx = 4;   // Steel Sword
+    else if (r < 0.50) defIdx = 5;   // Enchanted Blade
+    else if (r < 0.56) defIdx = 6;   // Leather Armor
+    else if (r < 0.60) defIdx = 7;   // Chain Mail
+    else if (r < 0.63) defIdx = 8;   // Plate Armor
+    else if (r < 0.78) defIdx = 9;   // Gold
+    else if (r < 0.86) defIdx = 10;  // Scroll of Lightning
+    else if (r < 0.93) defIdx = 11;  // Scroll of Teleport
+    else defIdx = 12;                // Scroll of Mapping
+    const def = ITEM_DEFS[defIdx];
+    let val = def.val;
+    if (def.type === 'heal' && defIdx === 0) val = 15 + Math.floor(Math.random() * 11);
+    if (def.type === 'gold') val = (5 + Math.floor(Math.random() * 16)) * (level + 1);
+    items.push({
+      x: pos[0], y: pos[1],
+      name: def.name, ch: def.ch, color: def.color,
+      type: def.type, val: val, tier: def.tier
+    });
+  }
+}
+function initLevel(fresh) {
+  map = genCave();
+  explored = new Uint8Array(MAP_W * MAP_H);
+  const open = getOpenTiles(false);
+  const start = open[Math.floor(Math.random() * open.length)];
+  if (fresh || !player) {
+    player = {
+      x: start[0], y: start[1],
+      hp: 30, maxHp: 30, atk: 5, def: 0,
+      xp: 0, lvl: 1, fov: 8, gold: 0,
+      inventory: [], weapon: null, armor: null
+    };
+    level = 0; turn = 0; kills = 0;
+    msgs = [];
+    particles = [];
+    damageNumbers = [];
+  } else {
+    player.x = start[0];
+    player.y = start[1];
+  }
+  camX = player.x;
+  camY = player.y;
+  spawnEnemies();
+  spawnItems();
+  visible = computeFOV(player.x, player.y, player.fov);
+  for (let i = 0; i < MAP_W * MAP_H; i++) if (visible[i]) explored[i] = 1;
+  addMsg("Entered cave level " + (level + 1));
+}
+
+// ============================================================
+// GAME LOGIC (TURNS, COMBAT, ITEMS)
+// ============================================================
+function updateFOV() {
+  const flicker = player.fov + (Math.random() - 0.5);
+  visible = computeFOV(player.x, player.y, Math.max(2, flicker));
+  for (let i = 0; i < MAP_W * MAP_H; i++) if (visible[i]) explored[i] = 1;
+}
+function checkLevelUp() {
+  let needed = player.lvl * 25;
+  while (player.xp >= needed) {
+    player.lvl++;
+    player.maxHp += 5;
+    player.hp = Math.min(player.hp + 10, player.maxHp);
+    player.atk += 1;
+    addMsg("Level up! Now level " + player.lvl);
+    playLevelUp();
+    spawnParticles(player.x, player.y, 20, '#ffcc00', 2);
+    needed = player.lvl * 25;
+  }
+}
+function playerAttack(enemy) {
+  const weaponBonus = player.weapon ? player.weapon.val : 0;
+  const dmg = Math.max(1, player.atk + weaponBonus + Math.floor(Math.random() * 3) - Math.floor(Math.random() * 3));
+  enemy.hp -= dmg;
+  playSwordHit();
+  spawnParticles(enemy.x, enemy.y, 4, '#ffffff', 1);
+  damageNumbers.push({ x: enemy.x, y: enemy.y, text: '' + dmg, color: '#ffffff', life: 60, vy: -0.02 });
+  addMsg("Hit " + enemy.name + " for " + dmg + " damage");
+  if (enemy.hp <= 0) {
+    addMsg(enemy.name + " defeated! +" + enemy.xp + " XP");
+    player.xp += enemy.xp;
+    kills++;
+    enemies = enemies.filter(e => e !== enemy);
+    spawnParticles(enemy.x, enemy.y, 12, '#ff4400', 1.5);
+    checkLevelUp();
+  }
+}
+function useItem(idx) {
+  if (idx >= player.inventory.length) return;
+  const it = player.inventory[idx];
+  if (it.type === 'heal') {
+    const healed = Math.min(it.val, player.maxHp - player.hp);
+    player.hp += healed;
+    addMsg("Healed " + healed + " HP");
+    playPickup();
+  } else if (it.type === 'torch') {
+    player.fov += it.val;
+    addMsg("Vision increased by " + it.val + "!");
+    playPickup();
+  } else if (it.type === 'weapon') {
+    player.weapon = { name: it.name, val: it.val, color: it.color };
+    addMsg("Equipped " + it.name + " (+" + it.val + " ATK)");
+    playPickup();
+  } else if (it.type === 'armor') {
+    player.armor = { name: it.name, val: it.val, color: it.color };
+    player.def = it.val;
+    addMsg("Equipped " + it.name + " (+" + it.val + " DEF)");
+    playPickup();
+  } else if (it.type === 'scroll_lightning') {
+    let hitCount = 0;
+    for (const en of enemies) {
+      if (visible[en.y * MAP_W + en.x]) {
+        const d = 8 + Math.floor(Math.random() * 8);
+        en.hp -= d;
+        damageNumbers.push({ x: en.x, y: en.y, text: '' + d, color: '#ff88ff', life: 60, vy: -0.02 });
+        spawnParticles(en.x, en.y, 4, '#ff88ff', 1);
+        hitCount++;
+      }
+    }
+    enemies = enemies.filter(en => en.hp > 0);
+    addMsg("Lightning strikes " + hitCount + " enemies!");
+    playPickup();
+  } else if (it.type === 'scroll_teleport') {
+    const open = getOpenTiles(false);
+    if (open.length) {
+      const dest = open[Math.floor(Math.random() * open.length)];
+      player.x = dest[0]; player.y = dest[1];
+      addMsg("Teleported!");
+      playPickup();
+    }
+  } else if (it.type === 'scroll_map') {
+    for (let i = 0; i < MAP_W * MAP_H; i++) explored[i] = 1;
+    addMsg("The map is revealed!");
+    playPickup();
+  }
+  player.inventory.splice(idx, 1);
+  ageMessages();
+  turn++;
+  doEnemyTurn();
+  updateFOV();
+  updateHUD();
+  updateMsgLog();
+}
+function stairsUnlocked() {
+  return kills >= Math.ceil(initialEnemyCount * 0.5);
+}
+function tryDescend() {
+  if (stairsUnlocked()) {
+    level++;
+    saveGame();
+    initLevel(false);
+    updateHUD();
+  } else {
+    const needed = Math.ceil(initialEnemyCount * 0.5) - kills;
+    addMsg("Kill " + needed + " more enemies to unlock stairs");
+  }
+}
+
+// ============================================================
+// ENEMY AI
+// ============================================================
+function doEnemyTurn() {
+  for (let i = 0; i < enemies.length; i++) {
+    const en = enemies[i];
+    const dist = Math.abs(en.x - player.x) + Math.abs(en.y - player.y);
+    if (dist <= 1) {
+      const dmg = Math.max(1, en.atk - player.def - Math.floor(Math.random() * 2));
+      player.hp -= dmg;
+      addMsg(en.name + " hits you for " + dmg);
+      playEnemyHit();
+      shakeAmount = 4 + dmg * 0.5;
+      damageNumbers.push({ x: player.x, y: player.y, text: '' + dmg, color: '#ff4444', life: 60, vy: -0.02 });
+      spawnParticles(player.x, player.y, 3, '#ff4444', 1);
+      if (player.hp <= 0) {
+        die();
+        return;
+      }
+    } else if (dist < 12 && visible[en.y * MAP_W + en.x]) {
+      const path = bfs(en.x, en.y, player.x, player.y);
+      if (path && path.length > 1) {
+        const nx = path[1][0], ny = path[1][1];
+        if (!enemies.some(o => o !== en && o.x === nx && o.y === ny)) {
+          en.x = nx; en.y = ny;
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+window.addEventListener('keydown', function(e) {
+  // init audio on first interaction
+  ensureAudio();
+
+  if (gameState === 'start' || gameState === 'dead') return;
+
+  if (gameState === 'help') {
+    if (e.key === 'Escape' || e.key === '?' || e.key === 'h' || e.key === 'H') {
+      gameState = 'playing';
+      showOverlay('');
+    }
+    return;
+  }
+
+  if (gameState === 'examining') {
+    let dx = 0, dy = 0;
+    if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
+    if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
+    if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
+    if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
+    if (e.key === 'Escape') { gameState = 'playing'; addMsg("Stopped examining"); updateMsgLog(); return; }
+    if (dx || dy) {
+      const tx = player.x + dx, ty = player.y + dy;
+      const en = enemies.find(e => e.x === tx && e.y === ty);
+      if (en) addMsg(en.name + " - HP:" + en.hp + "/" + en.maxHp + " ATK:" + en.atk + (en.boss ? " [BOSS]" : ""));
+      else addMsg("Nothing there to examine");
+      gameState = 'playing';
+      updateMsgLog();
+    }
     e.preventDefault();
+    return;
   }
-  if(e.key>="1"&&e.key<="9"){
-    var idx=parseInt(e.key)-1;
-    if(idx<player.inventory.length){
-      var it=player.inventory[idx];
-      if(it.type==="heal"){player.hp=Math.min(player.maxHp,player.hp+it.val);msg("Healed "+it.val+" HP")}
-      else if(it.type==="torch"){player.fov+=it.val;msg("Vision increased!")}
-      else if(it.type==="weapon"){player.weapon=it;msg("Equipped "+it.name)}
-      else if(it.type==="armor"){player.armor=it;player.def+=it.val;msg("Equipped "+it.name)}
-      else if(it.type==="scroll"){
-        enemies.forEach(function(en){if(visible[en.y*W+en.x])en.hp-=10});msg("Scroll of lightning!");
+
+  // playing state
+  if (gameState !== 'playing') return;
+
+  let dx = 0, dy = 0, acted = false;
+  if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
+  if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
+  if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
+  if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
+
+  if (dx || dy) {
+    const nx = player.x + dx, ny = player.y + dy;
+    if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return;
+    const enemy = enemies.find(en => en.x === nx && en.y === ny);
+    if (enemy) {
+      playerAttack(enemy);
+      acted = true;
+    } else if (map[ny * MAP_W + nx] !== WALL) {
+      player.x = nx; player.y = ny;
+      playFootstep();
+      acted = true;
+      // pick up items
+      const item = items.find(it => it.x === nx && it.y === ny);
+      if (item) {
+        if (item.type === 'gold') {
+          player.gold += item.val;
+          addMsg("Picked up " + item.val + " gold");
+          playPickup();
+          spawnParticles(nx, ny, 6, item.color, 1);
+        } else if (player.inventory.length < 9) {
+          player.inventory.push(item);
+          addMsg("Picked up " + item.name);
+          playPickup();
+          spawnParticles(nx, ny, 6, item.color, 1);
+        } else {
+          addMsg("Inventory full!");
+        }
+        if (item.type === 'gold' || player.inventory.includes(item)) {
+          items = items.filter(it => it !== item);
+        }
       }
-      player.inventory.splice(idx,1);turn++;doEnemyTurn();
+      // stairs
+      if (map[ny * MAP_W + nx] === STAIR) {
+        tryDescend();
+        e.preventDefault();
+        return;
+      }
     }
+    if (acted) {
+      ageMessages();
+      turn++;
+      doEnemyTurn();
+      updateFOV();
+      updateHUD();
+      updateMsgLog();
+    }
+    e.preventDefault();
+    return;
+  }
+
+  if (e.key >= '1' && e.key <= '9') {
+    useItem(parseInt(e.key) - 1);
+    e.preventDefault();
+    return;
+  }
+
+  if (e.key === 'r' || e.key === 'R') {
+    const enemyVisible = enemies.some(en => visible[en.y * MAP_W + en.x]);
+    if (!enemyVisible && player.hp < player.maxHp) {
+      player.hp = Math.min(player.hp + 1, player.maxHp);
+      addMsg("You rest and recover 1 HP");
+    } else if (enemyVisible) {
+      addMsg("Can't rest with enemies nearby!");
+    } else {
+      addMsg("You wait...");
+    }
+    ageMessages();
+    turn++;
+    doEnemyTurn();
+    updateFOV();
+    updateHUD();
+    updateMsgLog();
+    e.preventDefault();
+    return;
+  }
+
+  if (e.key === 'x' || e.key === 'X') {
+    gameState = 'examining';
+    addMsg("Examine: press a direction key");
+    updateMsgLog();
+    return;
+  }
+
+  if (e.key === 'e' || e.key === 'E') {
+    equipPanelVisible = !equipPanelVisible;
+    document.getElementById('equip-panel').style.display = equipPanelVisible ? 'block' : 'none';
+    updateHUD();
+    return;
+  }
+
+  if (e.key === '?' || e.key === 'h' || e.key === 'H') {
+    gameState = 'help';
+    showOverlay('help-screen');
+    return;
+  }
+
+  if (e.key === 'm' || e.key === 'M') {
+    soundEnabled = !soundEnabled;
+    addMsg("Sound " + (soundEnabled ? "ON" : "OFF"));
+    updateMsgLog();
+    return;
+  }
+
+  if (e.key === 'Escape') {
+    gameState = 'playing';
+    showOverlay('');
+    equipPanelVisible = false;
+    document.getElementById('equip-panel').style.display = 'none';
+    return;
   }
 });
-window.addEventListener("keyup",function(e){keys[e.key]=false});
-window.addEventListener("blur",function(){for(var k in keys)keys[k]=false});
-function checkLevelUp(){
-  var needed=player.lvl*20;
-  while(player.xp>=needed){player.lvl++;player.maxHp+=5;player.hp=Math.min(player.hp+10,player.maxHp);player.atk+=1;
-    msg("Level up! Now level "+player.lvl);needed=player.lvl*20;}
+
+function die() {
+  gameState = 'dead';
+  playDeath();
+  saveHighScore();
+  clearSave();
+  document.getElementById('d-score').textContent = "Score: " + calcScore();
+  document.getElementById('d-level').textContent = "Cave Level " + (level + 1) + " | Player Level " + player.lvl;
+  document.getElementById('d-kills').textContent = "Enemies Slain: " + kills;
+  showOverlay('death-screen');
 }
-function doEnemyTurn(){
-  for(var i=0;i<enemies.length;i++){
-    var en=enemies[i];
-    en.cooldown=(en.cooldown||0)-1;if(en.cooldown>0)continue;
-    var dist=Math.abs(en.x-player.x)+Math.abs(en.y-player.y);
-    if(dist<=1){
-      var dmg=Math.max(1,en.atk-player.def-Math.floor(Math.random()*2));
-      player.hp-=dmg;msg(en.name+" hits you for "+dmg);
-      if(player.hp<=0)die();en.cooldown=en.speed||1;
-    }else if(dist<12&&visible[en.y*W+en.x]){
-      var path=bfs(en.x,en.y,player.x,player.y);
-      if(path&&path.length>1){
-        var nx=path[1][0],ny=path[1][1];
-        if(!enemies.some(function(o){return o!==en&&o.x===nx&&o.y===ny})){en.x=nx;en.y=ny}
+
+function showOverlay(id) {
+  for (const el of document.querySelectorAll('.overlay')) {
+    el.classList.toggle('active', el.id === id);
+  }
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function render(timestamp) {
+  frameTime = timestamp || 0;
+
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, cw, ch);
+
+  if (gameState === 'start') { requestAnimationFrame(render); return; }
+  if (!player) { requestAnimationFrame(render); return; }
+
+  updateCamera();
+  updateParticles();
+  // update damage numbers
+  for (let i = damageNumbers.length - 1; i >= 0; i--) {
+    damageNumbers[i].y += damageNumbers[i].vy;
+    damageNumbers[i].life--;
+    if (damageNumbers[i].life <= 0) damageNumbers.splice(i, 1);
+  }
+
+  playAmbientDrip();
+  // heartbeat when low HP
+  if (player.hp > 0 && player.hp < player.maxHp * 0.25 && Math.floor(frameTime / 1000) % 2 === 0 && Math.floor(frameTime) % 60 < 2) {
+    playHeartbeat();
+  }
+
+  const shakeX = shakeAmount > 0 ? (Math.random() - 0.5) * shakeAmount * 2 : 0;
+  const shakeY = shakeAmount > 0 ? (Math.random() - 0.5) * shakeAmount * 2 : 0;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  const visW = cw / tileW;
+  const visH = ch / tileH;
+  const startX = Math.floor(camX - visW / 2) - 1;
+  const startY = Math.floor(camY - visH / 2) - 1;
+  const endX = Math.ceil(camX + visW / 2) + 1;
+  const endY = Math.ceil(camY + visH / 2) + 1;
+
+  // draw tiles
+  for (let y = Math.max(0, startY); y < Math.min(MAP_H, endY); y++) {
+    for (let x = Math.max(0, startX); x < Math.min(MAP_W, endX); x++) {
+      const idx = y * MAP_W + x;
+      if (!explored[idx]) continue;
+      const lit = visible[idx];
+      const tile = map[idx];
+      const [sx, sy] = worldToScreen(x, y);
+
+      if (tile === WALL) {
+        const hash = (x * 7 + y * 13) % 17;
+        const noise = (hash - 8) * 1;
+        if (lit) {
+          const b = 58 + noise;
+          ctx.fillStyle = 'rgb(' + b + ',' + b + ',' + b + ')';
+        } else {
+          const b = 26 + Math.floor(noise * 0.5);
+          ctx.fillStyle = 'rgb(' + b + ',' + b + ',' + b + ')';
+        }
+      } else if (tile === WATER) {
+        const wave = Math.sin(frameTime * 0.003 + x * 0.5) * 8;
+        if (lit) ctx.fillStyle = 'rgb(26,42,' + Math.floor(58 + wave) + ')';
+        else ctx.fillStyle = 'rgb(15,20,' + Math.floor(35 + wave * 0.5) + ')';
+      } else if (tile === STAIR) {
+        if (lit) {
+          const unlocked = stairsUnlocked();
+          const pulse = unlocked ? Math.sin(frameTime * 0.005) * 30 : 0;
+          const b = Math.floor(170 + pulse);
+          ctx.fillStyle = 'rgb(' + Math.min(255, 204 + Math.floor(pulse * 0.3)) + ',' + b + ',0)';
+        } else {
+          ctx.fillStyle = '#665500';
+        }
+      } else {
+        ctx.fillStyle = lit ? '#1a1a1a' : '#0f0f0f';
       }
-      en.cooldown=en.speed||1;
+      ctx.fillRect(sx, sy, tileW + 1, tileH + 1);
     }
   }
+
+  // torch glow
+  const [plSx, plSy] = worldToScreen(player.x, player.y);
+  const pcx = plSx + tileW / 2, pcy = plSy + tileH / 2;
+  const grd = ctx.createRadialGradient(pcx, pcy, tileW, pcx, pcy, player.fov * tileW);
+  grd.addColorStop(0, 'rgba(255,150,50,0.12)');
+  grd.addColorStop(1, 'rgba(255,150,50,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, cw, ch);
+
+  // stair shimmer particles
+  for (let y = Math.max(0, startY); y < Math.min(MAP_H, endY); y++) {
+    for (let x = Math.max(0, startX); x < Math.min(MAP_W, endX); x++) {
+      if (map[y * MAP_W + x] === STAIR && visible[y * MAP_W + x] && stairsUnlocked() && Math.random() < 0.1) {
+        spawnParticles(x + Math.random(), y + Math.random(), 1, '#ccaa00', 0.5);
+      }
+    }
+  }
+
+  // draw items
+  for (const it of items) {
+    if (!visible[it.y * MAP_W + it.x]) continue;
+    const [sx, sy] = worldToScreen(it.x, it.y);
+    const bob = Math.sin(frameTime * 0.004 + it.x + it.y) * 2;
+    ctx.fillStyle = it.color;
+    ctx.font = Math.floor(tileH * 0.85) + 'px monospace';
+    ctx.fillText(it.ch, sx + tileW * 0.2, sy + tileH * 0.82 + bob);
+  }
+
+  // draw enemies
+  for (const en of enemies) {
+    if (!visible[en.y * MAP_W + en.x]) continue;
+    const [sx, sy] = worldToScreen(en.x, en.y);
+    const fontSize = en.boss ? Math.floor(tileH * 1.4) : Math.floor(tileH * 0.9);
+    ctx.fillStyle = en.color;
+    ctx.font = 'bold ' + fontSize + 'px monospace';
+    const yOff = en.boss ? -tileH * 0.2 : 0;
+    ctx.fillText(en.ch, sx + tileW * 0.15, sy + tileH * 0.85 + yOff);
+    // HP bar
+    const pct = en.hp / en.maxHp;
+    ctx.fillStyle = '#400';
+    ctx.fillRect(sx, sy - 3, tileW, 2);
+    ctx.fillStyle = pct > 0.5 ? '#0a0' : pct > 0.25 ? '#aa0' : '#a00';
+    ctx.fillRect(sx, sy - 3, tileW * pct, 2);
+  }
+
+  // draw player
+  {
+    const [sx, sy] = worldToScreen(player.x, player.y);
+    ctx.save();
+    ctx.shadowColor = '#44aaff';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#44aaff';
+    ctx.font = 'bold ' + Math.floor(tileH * 0.9) + 'px monospace';
+    ctx.fillText('@', sx + tileW * 0.15, sy + tileH * 0.85);
+    ctx.restore();
+  }
+
+  // draw particles
+  for (const p of particles) {
+    const [sx, sy] = worldToScreen(p.x, p.y);
+    const alpha = Math.max(0, p.life / p.maxLife);
+    const sz = p.size * alpha;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
+  }
+  ctx.globalAlpha = 1;
+
+  // draw damage numbers
+  for (const dn of damageNumbers) {
+    const [sx, sy] = worldToScreen(dn.x, dn.y);
+    const alpha = Math.max(0, dn.life / 60);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = dn.color;
+    ctx.font = 'bold 15px monospace';
+    ctx.fillText(dn.text, sx + tileW * 0.2, sy - 4);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  requestAnimationFrame(render);
 }
-function updateFOV(){
-  visible=computeFOV(player.x,player.y,player.fov);
-  for(var i=0;i<W*H;i++)if(visible[i])explored[i]=1;
+
+// ============================================================
+// UI UPDATES (HUD, MINIMAP, MESSAGES)
+// ============================================================
+function updateHUD() {
+  if (!player) return;
+  const wpn = player.weapon ? player.weapon.name + ' (+' + player.weapon.val + ')' : 'None';
+  const arm = player.armor ? player.armor.name + ' (+' + player.armor.val + ')' : 'None';
+  const xpNeeded = player.lvl * 25;
+  const hpPct = Math.max(0, (player.hp / player.maxHp * 100)).toFixed(0);
+  const xpPct = Math.max(0, (player.xp / xpNeeded * 100)).toFixed(0);
+  let html = '<div class="bar-container"><div class="bar-fill bar-hp" style="width:' + hpPct + '%"></div>' +
+    '<div class="bar-label">HP ' + player.hp + '/' + player.maxHp + '</div></div>' +
+    '<div class="bar-container"><div class="bar-fill bar-xp" style="width:' + xpPct + '%"></div>' +
+    '<div class="bar-label">XP ' + player.xp + '/' + xpNeeded + '</div></div>' +
+    '<div class="stat-line">ATK: ' + (player.atk + (player.weapon ? player.weapon.val : 0)) +
+    ' | DEF: ' + player.def + ' | Lv: ' + player.lvl + '</div>' +
+    '<div class="stat-line">Gold: ' + player.gold + ' | Cave: ' + (level + 1) + ' | Turn: ' + turn + '</div>' +
+    '<div class="equip-line">Wpn: ' + wpn + '</div>' +
+    '<div class="equip-line">Arm: ' + arm + '</div>';
+  // inventory
+  if (player.inventory.length > 0) {
+    html += '<div style="margin-top:4px;font-size:11px;color:#888">--- Inventory ---</div>';
+    for (let i = 0; i < player.inventory.length; i++) {
+      const it = player.inventory[i];
+      html += '<div class="inv-line"><span style="color:' + it.color + '">' + (i + 1) + ': ' + it.name + '</span></div>';
+    }
+  }
+  const panel = document.getElementById('hud-panel');
+  if (panel.innerHTML !== html) panel.innerHTML = html;
+
+  // equip panel
+  if (equipPanelVisible) {
+    const ep = document.getElementById('equip-panel');
+    let ehtml = '<div style="color:#c84;margin-bottom:4px">Equipment</div>' +
+      '<div class="equip-line">Weapon: ' + wpn + '</div>' +
+      '<div class="equip-line">Armor: ' + arm + '</div>' +
+      '<div style="margin-top:6px;font-size:11px;color:#666">Kills: ' + kills + '/' + initialEnemyCount + '</div>' +
+      '<div style="font-size:11px;color:#666">Stairs: ' + (stairsUnlocked() ? 'UNLOCKED' : 'LOCKED') + '</div>';
+    ep.innerHTML = ehtml;
+  }
+
+  // minimap
+  updateMinimap();
 }
-function die(){
-  gameOver=true;
-  document.getElementById("death").style.display="flex";
-  document.getElementById("dscore").textContent="XP: "+player.xp+" Gold: "+player.gold;
-  document.getElementById("dlevel").textContent="Reached cave level "+(level+1)+", character level "+player.lvl;
+
+function updateMinimap() {
+  const ms = 1.75;
+  mctx.fillStyle = '#000';
+  mctx.fillRect(0, 0, 140, 105);
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    const idx = y * MAP_W + x;
+    if (!explored[idx]) continue;
+    const tile = map[idx];
+    const lit = visible[idx];
+    if (tile === WALL) mctx.fillStyle = '#444444';
+    else if (tile === WATER) mctx.fillStyle = '#223344';
+    else if (tile === STAIR) mctx.fillStyle = '#ccaa00';
+    else mctx.fillStyle = lit ? '#333333' : '#1a1a1a';
+    mctx.fillRect(x * ms, y * ms, ms, ms);
+  }
+  // stairs dot
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    if (map[y * MAP_W + x] === STAIR && explored[y * MAP_W + x]) {
+      mctx.fillStyle = '#ccaa00';
+      mctx.fillRect(x * ms, y * ms, 2, 2);
+    }
+  }
+  // enemies
+  for (const en of enemies) {
+    if (visible[en.y * MAP_W + en.x]) {
+      mctx.fillStyle = '#ff4444';
+      mctx.fillRect(en.x * ms, en.y * ms, 2, 2);
+    }
+  }
+  // player
+  mctx.fillStyle = '#44aaff';
+  mctx.fillRect(player.x * ms - 1, player.y * ms - 1, 3, 3);
 }
-function restart(){
-  gameOver=false;level=0;player=null;msgs=[];turn=0;
-  document.getElementById("death").style.display="none";initLevel();
-}
-function render(){
-  X.fillStyle="#111";X.fillRect(0,0,cw,ch);
-  for(var y=0;y<H;y++)for(var x=0;x<W;x++){
-    var idx=y*W+x;if(!explored[idx])continue;
-    var lit=visible[idx],tile=map[idx];
-    if(tile===WALL){X.fillStyle=lit?"#555":"#333"}
-    else if(tile===STAIR){X.fillStyle=lit?"#ff0":"#880"}
-    else{X.fillStyle=lit?"#222":"#1a1a1a"}
-    X.fillRect(x*tw,y*th,tw+1,th+1);
+
+function updateMsgLog() {
+  const log = document.getElementById('msg-log');
+  let html = '';
+  for (let i = 0; i < msgs.length; i++) {
+    const opacity = Math.max(0.3, 1 - msgs[i].age * 0.1);
+    html += '<div class="msg-line" style="opacity:' + opacity.toFixed(2) + '">' + msgs[i].text + '</div>';
   }
-  var grd=X.createRadialGradient(player.x*tw+tw/2,player.y*th+th/2,tw,player.x*tw+tw/2,player.y*th+th/2,player.fov*tw);
-  grd.addColorStop(0,"rgba(255,160,50,0.15)");grd.addColorStop(1,"rgba(255,160,50,0)");
-  X.fillStyle=grd;X.fillRect(0,0,cw,ch);
-  for(var i=0;i<items.length;i++){var it=items[i];
-    if(!visible[it.y*W+it.x])continue;
-    X.fillStyle=it.color;X.font=Math.floor(th)+"px monospace";
-    X.fillText(it.ch,it.x*tw+tw*0.2,it.y*th+th*0.85);
-  }
-  for(var i=0;i<enemies.length;i++){var en=enemies[i];
-    if(!visible[en.y*W+en.x])continue;
-    X.fillStyle=en.color;X.font="bold "+Math.floor(th)+"px monospace";
-    X.fillText(en.ch,en.x*tw+tw*0.2,en.y*th+th*0.85);
-    var pct=en.hp/en.maxHp;
-    X.fillStyle="#400";X.fillRect(en.x*tw,en.y*th-3,tw,2);
-    X.fillStyle=pct>0.5?"#0a0":pct>0.25?"#aa0":"#a00";
-    X.fillRect(en.x*tw,en.y*th-3,tw*pct,2);
-  }
-  X.fillStyle="#4af";X.font="bold "+Math.floor(th)+"px monospace";
-  X.fillText("@",player.x*tw+tw*0.2,player.y*th+th*0.85);
-  MX.fillStyle="#000";MX.fillRect(0,0,120,120);var ms=1.5;
-  for(var y=0;y<H;y++)for(var x=0;x<W;x++){
-    if(!explored[y*W+x])continue;
-    MX.fillStyle=map[y*W+x]===WALL?"#444":visible[y*W+x]?"#222":"#1a1a1a";
-    MX.fillRect(x*ms,y*ms,ms,ms);
-  }
-  MX.fillStyle="#4af";MX.fillRect(player.x*ms-1,player.y*ms-1,3,3);
-  for(var i=0;i<enemies.length;i++){var en=enemies[i];if(visible[en.y*W+en.x]){MX.fillStyle="#f44";MX.fillRect(en.x*ms,en.y*ms,2,2)}}
-  var hudStr="HP: "+player.hp+"/"+player.maxHp+" ATK: "+player.atk+" DEF: "+player.def+"<br>"
-    +"Lv: "+player.lvl+" XP: "+player.xp+"/"+(player.lvl*20)+" Gold: "+player.gold+"<br>"
-    +"Cave: "+(level+1)+" Turn: "+turn;
-  if(hudStr!==lastHud){document.getElementById("hud").innerHTML=hudStr;lastHud=hudStr}
-  var invStr="";
-  for(var i=0;i<player.inventory.length;i++){
-    var it=player.inventory[i];
-    invStr+='<span style="color:'+it.color+'">'+(i+1)+": "+it.name+"</span><br>";
-  }
-  if(invStr!==lastInv){document.getElementById("inv").innerHTML=invStr||"No items";lastInv=invStr}
-  if(msgTimer>0){msgTimer--;
-    var msgStr="";for(var i=0;i<msgs.length;i++)msgStr+="<div>"+msgs[i]+"</div>";
-    if(msgStr!==lastMsg){document.getElementById("msg").innerHTML=msgStr;lastMsg=msgStr}
+  if (html !== lastMsgStr) {
+    log.innerHTML = html;
+    lastMsgStr = html;
   }
 }
-function loop(){render();requestAnimationFrame(loop)}
-loop();
+
+function showScores(targetId) {
+  const scores = getHighScores();
+  const el = document.getElementById(targetId);
+  if (!scores.length) { el.innerHTML = ''; return; }
+  let html = '<div style="color:#c84;margin-bottom:4px">High Scores</div><table>';
+  for (let i = 0; i < scores.length; i++) {
+    const s = scores[i];
+    html += '<tr><td style="color:#886">' + (i + 1) + '.</td><td style="color:#cc8">' + s.score +
+      '</td><td>Lv' + s.playerLevel + '</td><td>Cave ' + s.level + '</td><td style="color:#666">' + s.date + '</td></tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+// ASCII title
+const asciiTitle = [
+  " ___ _  _ ___ ___ _  _ ___ _____ ___    ___   ___   ___ ___ ",
+  "|_ _| \\| | __|_ _| \\| |_ _|_   _| __|  / __| /   \\ / | | __|",
+  " | || .` | _| | || .` || |  | | | _|  | (__ | - | V /| _| ",
+  "|___|_|\\_|_| |___|_|\\_|___| |_| |___|  \\___| |_|_|\\_/ |___|"
+].join('\n');
+document.getElementById('ascii-title').textContent = asciiTitle;
+
+// button handlers
+document.getElementById('btn-new').addEventListener('click', function() {
+  ensureAudio();
+  initLevel(true);
+  gameState = 'playing';
+  showOverlay('');
+  updateHUD();
+  updateMsgLog();
+});
+document.getElementById('btn-continue').addEventListener('click', function() {
+  ensureAudio();
+  if (loadGame()) {
+    gameState = 'playing';
+    showOverlay('');
+    updateHUD();
+    updateMsgLog();
+  }
+});
+document.getElementById('btn-help-start').addEventListener('click', function() {
+  gameState = 'help';
+  showOverlay('help-screen');
+});
+document.getElementById('btn-help-close').addEventListener('click', function() {
+  if (gameState === 'help') {
+    if (player && map) { gameState = 'playing'; showOverlay(''); }
+    else { gameState = 'start'; showOverlay('start-screen'); }
+  }
+});
+document.getElementById('btn-restart').addEventListener('click', function() {
+  initLevel(true);
+  gameState = 'playing';
+  showOverlay('');
+  updateHUD();
+  updateMsgLog();
+});
+document.getElementById('btn-scores').addEventListener('click', function() {
+  gameState = 'start';
+  showOverlay('start-screen');
+  showScores('scores-display');
+});
+
+// init start screen
+if (hasSave()) {
+  document.getElementById('btn-continue').style.display = 'inline-block';
+}
+showScores('scores-display');
+showOverlay('start-screen');
+requestAnimationFrame(render);
 </script>
 </body>
 </html>
