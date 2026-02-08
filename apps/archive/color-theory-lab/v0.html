@@ -50,8 +50,6 @@ main{flex:1;padding:20px;max-width:1000px;width:100%;margin:0 auto}
 .slider-row label{font-size:.75rem;color:#888;min-width:20px}
 .slider-row input[type=range]{flex:1;accent-color:#00d2d3}
 .slider-row .val{font-family:monospace;font-size:.8rem;color:#e0e0e0;min-width:36px}
-#wheelCanvas,#slCanvas{cursor:crosshair;display:block}
-#slCanvas{margin-top:8px;border-radius:4px;border:1px solid #2a2f35}
 </style>
 </head>
 <body>
@@ -92,7 +90,7 @@ function renderWheel(){
   const colors=getHarmonies(st.hue,st.sat,st.light);
   return `
     <div class="wheel-area">
-      <div class="wheel-canvas"><canvas id="wheelCanvas" width="280" height="280"></canvas><canvas id="slCanvas" width="280" height="140"></canvas></div>
+      <div class="wheel-canvas"><canvas id="wheelCanvas" width="280" height="280"></canvas></div>
       <div class="harmony-info">
         <div class="slider-row"><label>H</label><input type="range" min="0" max="359" value="${st.hue}" oninput="st.hue=+this.value;save();render()"><span class="val">${st.hue}°</span></div>
         <div class="slider-row"><label>S</label><input type="range" min="0" max="100" value="${st.sat}" oninput="st.sat=+this.value;save();render()"><span class="val">${st.sat}%</span></div>
@@ -121,66 +119,6 @@ function drawWheel(){
     ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
   });
 }
-
-function drawSLPicker(){
-  const c=document.getElementById('slCanvas');if(!c)return;
-  const ctx=c.getContext('2d');const w=c.width,h=c.height;
-  const img=ctx.createImageData(w,h);
-  for(let y=0;y<h;y++){for(let x=0;x<w;x++){
-    const s=x/w*100,l=(1-y/h)*100;
-    const rgb=hslToRgb(st.hue,s,l);
-    const i=(y*w+x)*4;
-    img.data[i]=rgb[0];img.data[i+1]=rgb[1];img.data[i+2]=rgb[2];img.data[i+3]=255;
-  }}
-  ctx.putImageData(img,0,0);
-  const sx=st.sat/100*w,sy=(1-st.light/100)*h;
-  ctx.beginPath();ctx.arc(sx,sy,7,0,Math.PI*2);ctx.strokeStyle='#000';ctx.lineWidth=3;ctx.stroke();
-  ctx.beginPath();ctx.arc(sx,sy,7,0,Math.PI*2);ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
-}
-
-let _wDrag=false,_sDrag=false;
-function _updVis(){
-  drawWheel();drawSLPicker();
-  const rows=document.querySelectorAll('.slider-row');
-  if(rows[0]){rows[0].querySelector('input[type=range]').value=st.hue;rows[0].querySelector('.val').textContent=st.hue+'°'}
-  if(rows[1]){rows[1].querySelector('input[type=range]').value=st.sat;rows[1].querySelector('.val').textContent=st.sat+'%'}
-  if(rows[2]){rows[2].querySelector('input[type=range]').value=st.light;rows[2].querySelector('.val').textContent=st.light+'%'}
-  const colors=getHarmonies(st.hue,st.sat,st.light);
-  document.querySelectorAll('.swatch').forEach((sw,i)=>{
-    if(colors[i]){const rgb=hslToRgb(...colors[i]);const hex=rgbToHex(...rgb);sw.style.background=hex;sw.title=hex;const lb=sw.querySelector('.label');if(lb)lb.textContent=hex}
-  });
-}
-function _wPick(e){
-  const c=document.getElementById('wheelCanvas');if(!c)return;
-  const rect=c.getBoundingClientRect(),cx=rect.width/2,cy=rect.height/2;
-  const ex=e.clientX!=null?e.clientX:(e.touches&&e.touches[0]?e.touches[0].clientX:null);
-  const ey=e.clientY!=null?e.clientY:(e.touches&&e.touches[0]?e.touches[0].clientY:null);
-  if(ex==null)return;
-  const dx=ex-rect.left-cx,dy=ey-rect.top-cy;
-  let a=Math.atan2(dy,dx)*180/Math.PI;if(a<0)a+=360;
-  st.hue=Math.round(a);save();_updVis();
-}
-function _sPick(e){
-  const c=document.getElementById('slCanvas');if(!c)return;
-  const rect=c.getBoundingClientRect();
-  const ex=e.clientX!=null?e.clientX:(e.touches&&e.touches[0]?e.touches[0].clientX:null);
-  const ey=e.clientY!=null?e.clientY:(e.touches&&e.touches[0]?e.touches[0].clientY:null);
-  if(ex==null)return;
-  const px=Math.max(0,Math.min(ex-rect.left,rect.width));
-  const py=Math.max(0,Math.min(ey-rect.top,rect.height));
-  st.sat=Math.round(px/rect.width*100);
-  st.light=Math.round((1-py/rect.height)*100);
-  save();_updVis();
-}
-function setupPickers(){
-  const wc=document.getElementById('wheelCanvas'),sc=document.getElementById('slCanvas');
-  if(wc){wc.onmousedown=e=>{_wDrag=true;_wPick(e)};wc.ontouchstart=e=>{e.preventDefault();_wDrag=true;_wPick(e)}}
-  if(sc){sc.onmousedown=e=>{_sDrag=true;_sPick(e)};sc.ontouchstart=e=>{e.preventDefault();_sDrag=true;_sPick(e)}}
-}
-document.addEventListener('mousemove',e=>{if(_wDrag)_wPick(e);if(_sDrag)_sPick(e)});
-document.addEventListener('mouseup',()=>{if(_wDrag||_sDrag){_wDrag=false;_sDrag=false;render()}});
-document.addEventListener('touchmove',e=>{if(_wDrag){e.preventDefault();_wPick(e)}if(_sDrag){e.preventDefault();_sPick(e)}},{passive:false});
-document.addEventListener('touchend',()=>{if(_wDrag||_sDrag){_wDrag=false;_sDrag=false;render()}});
 
 function renderConverter(){
   const rgb=hslToRgb(st.hue,st.sat,st.light);const hex=rgbToHex(...rgb);
@@ -277,7 +215,7 @@ ${st.palette.map((c,i)=>`  '${i+1}00': '${c}',`).join('\n')}
 
 function render(){
   const app=document.getElementById('app');
-  if(st.tab==='wheel'){app.innerHTML=renderWheel();setTimeout(()=>{drawWheel();drawSLPicker();setupPickers()},10)}
+  if(st.tab==='wheel'){app.innerHTML=renderWheel();setTimeout(drawWheel,10)}
   else if(st.tab==='converter')app.innerHTML=renderConverter();
   else if(st.tab==='contrast')app.innerHTML=renderContrast();
   else app.innerHTML=renderPalette();

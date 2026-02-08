@@ -39,12 +39,6 @@ h3{font-size:.85rem;color:#00d2d3;margin-bottom:8px;margin-top:12px}
 .slider-row input[type=range]{flex:1;accent-color:#00d2d3}
 .slider-row .val{font-family:monospace;font-size:.8rem;color:#00d2d3;min-width:40px}
 @media(max-width:768px){.container{flex-direction:column}.sidebar{width:100%;max-height:50vh}}
-.trace-tip{position:absolute;background:#1a1f25ee;border:1px solid #00d2d3;color:#e0e0e0;padding:6px 10px;border-radius:6px;font-family:monospace;font-size:.78rem;pointer-events:none;z-index:10;white-space:nowrap;display:none;box-shadow:0 2px 12px #0008}
-.trace-tip .tip-fn{color:#00d2d3;font-weight:600}
-.trace-tip .tip-vals{margin-top:2px;color:#aaa;line-height:1.5}
-.zoom-ctrl{position:absolute;bottom:12px;right:12px;display:flex;flex-direction:column;gap:4px;z-index:5}
-.zoom-ctrl button{width:34px;height:34px;background:#161a1ecc;border:1px solid #2a2f35;color:#ccc;border-radius:6px;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);transition:border-color .15s,color .15s}
-.zoom-ctrl button:hover{border-color:#00d2d3;color:#00d2d3}
 </style>
 </head>
 <body>
@@ -54,12 +48,6 @@ h3{font-size:.85rem;color:#00d2d3;margin-bottom:8px;margin-top:12px}
 <div class="canvas-area">
 <canvas id="canvas"></canvas>
 <div class="coords" id="coords">x: 0, y: 0</div>
-<div class="trace-tip" id="traceTip"><span class="tip-fn"></span><div class="tip-vals"></div></div>
-<div class="zoom-ctrl">
-<button id="zoomIn" title="Zoom In">+</button>
-<button id="zoomOut" title="Zoom Out">&minus;</button>
-<button id="zoomFit" title="Reset View">&#8962;</button>
-</div>
 </div>
 </div>
 <script>
@@ -84,60 +72,6 @@ function evalExpr(expr,x){
 function numericalDerivative(expr,x){
   const h=0.0001;
   return(evalExpr(expr,x+h)-evalExpr(expr,x-h))/(2*h);
-}
-
-let tracePoint=null;
-const SNAP_PX=25;
-
-function fmtNum(n){return Math.abs(n)<1e-8?'0':+n.toFixed(4)+''}
-
-function findClosestCurve(sx,sy){
-  const[wx]=toWorld(sx,sy);
-  let best=null,bestDist=SNAP_PX;
-  st.funcs.forEach((fn,i)=>{
-    if(!fn.visible)return;
-    const wy=evalExpr(fn.expr,wx);
-    if(isNaN(wy)||!isFinite(wy))return;
-    const[,fy]=toScreen(wx,wy);
-    const dist=Math.abs(fy-sy);
-    if(dist<bestDist){bestDist=dist;best={idx:i,x:wx,y:wy,deriv:numericalDerivative(fn.expr,wx),color:fn.color,expr:fn.expr}}
-  });
-  return best;
-}
-
-function findRoots(expr){
-  const roots=[],steps=600;
-  let prev=evalExpr(expr,st.xMin);
-  for(let i=1;i<=steps;i++){
-    const x=st.xMin+i/steps*(st.xMax-st.xMin);
-    const cur=evalExpr(expr,x);
-    if(isNaN(prev)||isNaN(cur)){prev=cur;continue}
-    if(prev*cur<0){
-      let lo=x-(st.xMax-st.xMin)/steps,hi=x;
-      for(let j=0;j<40;j++){const mid=(lo+hi)/2;if(evalExpr(expr,mid)*evalExpr(expr,lo)<0)hi=mid;else lo=mid}
-      roots.push((lo+hi)/2);
-    }
-    prev=cur;
-  }
-  return roots;
-}
-
-function findIntersections(e1,e2){
-  const pts=[],steps=600;
-  const diff=x=>evalExpr(e1,x)-evalExpr(e2,x);
-  let prev=diff(st.xMin);
-  for(let i=1;i<=steps;i++){
-    const x=st.xMin+i/steps*(st.xMax-st.xMin);
-    const cur=diff(x);
-    if(isNaN(prev)||isNaN(cur)){prev=cur;continue}
-    if(prev*cur<0){
-      let lo=x-(st.xMax-st.xMin)/steps,hi=x;
-      for(let j=0;j<40;j++){const mid=(lo+hi)/2;if(diff(mid)*diff(lo)<0)hi=mid;else lo=mid}
-      const ix=(lo+hi)/2;pts.push({x:ix,y:evalExpr(e1,ix)});
-    }
-    prev=cur;
-  }
-  return pts;
 }
 
 const canvas=document.getElementById('canvas');
@@ -219,50 +153,6 @@ function draw(){
       ctx.stroke();ctx.setLineDash([]);
     }
   });
-
-  // Root markers
-  st.funcs.forEach(fn=>{
-    if(!fn.visible)return;
-    const roots=findRoots(fn.expr);
-    roots.forEach(rx=>{
-      const[sx,sy]=toScreen(rx,0);
-      ctx.fillStyle=fn.color;ctx.beginPath();ctx.arc(sx,sy,5,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#fff';ctx.font='bold 9px monospace';ctx.textAlign='center';
-      ctx.fillText(fmtNum(rx),sx,sy-9);
-    });
-  });
-
-  // Intersection markers
-  const vis=st.funcs.filter(f=>f.visible);
-  for(let i=0;i<vis.length;i++){
-    for(let j=i+1;j<vis.length;j++){
-      findIntersections(vis[i].expr,vis[j].expr).forEach(p=>{
-        const[sx,sy]=toScreen(p.x,p.y);
-        ctx.save();ctx.translate(sx,sy);ctx.rotate(Math.PI/4);
-        ctx.fillStyle='#ffa500';ctx.fillRect(-4,-4,8,8);
-        ctx.restore();
-        ctx.fillStyle='#fff';ctx.font='9px monospace';ctx.textAlign='center';
-        ctx.fillText('('+fmtNum(p.x)+', '+fmtNum(p.y)+')',sx,sy-10);
-      });
-    }
-  }
-
-  // Trace point + tangent line
-  if(tracePoint){
-    const tp=tracePoint;
-    const[sx,sy]=toScreen(tp.x,tp.y);
-    const slope=tp.deriv;
-    const dx=(st.xMax-st.xMin)*0.12;
-    const[tx1,ty1]=toScreen(tp.x-dx,tp.y-slope*dx);
-    const[tx2,ty2]=toScreen(tp.x+dx,tp.y+slope*dx);
-    ctx.strokeStyle=tp.color+'66';ctx.lineWidth=1.5;ctx.setLineDash([6,3]);
-    ctx.beginPath();ctx.moveTo(tx1,ty1);ctx.lineTo(tx2,ty2);ctx.stroke();ctx.setLineDash([]);
-    ctx.strokeStyle=tp.color+'33';ctx.lineWidth=0.5;
-    ctx.beginPath();ctx.moveTo(sx,0);ctx.lineTo(sx,h);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(0,sy);ctx.lineTo(w,sy);ctx.stroke();
-    ctx.fillStyle=tp.color;ctx.beginPath();ctx.arc(sx,sy,6,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#0e1113';ctx.beginPath();ctx.arc(sx,sy,3,0,Math.PI*2);ctx.fill();
-  }
 }
 
 function renderSidebar(){
@@ -315,29 +205,10 @@ function renderSidebar(){
   document.getElementById('derivToggle').onchange=function(){st.showDerivative=this.checked;save();draw()};
 }
 
-let _traceRAF=0;
 canvas.addEventListener('mousemove',e=>{
   const rect=canvas.getBoundingClientRect();
-  const sx=e.clientX-rect.left,sy=e.clientY-rect.top;
-  const[x,y]=toWorld(sx,sy);
-  document.getElementById('coords').textContent='x: '+x.toFixed(2)+', y: '+y.toFixed(2);
-  if(!dragging){
-    const closest=findClosestCurve(sx,sy);
-    const tip=document.getElementById('traceTip');
-    if(closest){
-      tracePoint=closest;
-      tip.style.display='block';
-      tip.style.left=Math.min(sx+16,rect.width-200)+'px';
-      tip.style.top=Math.max(sy-70,4)+'px';
-      tip.querySelector('.tip-fn').textContent=closest.expr;
-      tip.querySelector('.tip-vals').innerHTML='x = '+fmtNum(closest.x)+'<br>y = '+fmtNum(closest.y)+'<br>f\u2032(x) = '+fmtNum(closest.deriv);
-    }else{
-      tracePoint=null;tip.style.display='none';
-    }
-    if(!_traceRAF){_traceRAF=requestAnimationFrame(()=>{_traceRAF=0;draw()})}
-  }else{
-    tracePoint=null;document.getElementById('traceTip').style.display='none';
-  }
+  const[x,y]=toWorld(e.clientX-rect.left,e.clientY-rect.top);
+  document.getElementById('coords').textContent=`x: ${x.toFixed(2)}, y: ${y.toFixed(2)}`;
 });
 
 let dragging=false,lastX,lastY;
@@ -360,27 +231,6 @@ canvas.addEventListener('wheel',e=>{
   st.yMin=my+(st.yMin-my)*factor;st.yMax=my+(st.yMax-my)*factor;
   save();draw();
 },{passive:false});
-
-canvas.addEventListener('mouseleave',()=>{
-  tracePoint=null;document.getElementById('traceTip').style.display='none';draw();
-});
-
-document.getElementById('zoomIn').onclick=()=>{
-  const cx=(st.xMin+st.xMax)/2,cy=(st.yMin+st.yMax)/2,f=0.8;
-  st.xMin=cx+(st.xMin-cx)*f;st.xMax=cx+(st.xMax-cx)*f;
-  st.yMin=cy+(st.yMin-cy)*f;st.yMax=cy+(st.yMax-cy)*f;
-  save();draw();
-};
-document.getElementById('zoomOut').onclick=()=>{
-  const cx=(st.xMin+st.xMax)/2,cy=(st.yMin+st.yMax)/2,f=1.25;
-  st.xMin=cx+(st.xMin-cx)*f;st.xMax=cx+(st.xMax-cx)*f;
-  st.yMin=cy+(st.yMin-cy)*f;st.yMax=cy+(st.yMax-cy)*f;
-  save();draw();
-};
-document.getElementById('zoomFit').onclick=()=>{
-  st.xMin=-10;st.xMax=10;st.yMin=-5;st.yMax=5;
-  save();draw();renderSidebar();
-};
 
 window.addEventListener('resize',draw);
 renderSidebar();draw();

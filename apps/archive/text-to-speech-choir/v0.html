@@ -152,33 +152,14 @@
             justify-content: center;
         }
 
-        .mouth-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .mouth-label {
-            font-size: 0.6em;
-            color: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
         .mouth {
             width: 50px;
             height: 5px;
             background: var(--accent);
             border-radius: 10px;
-            transition: height 0.1s, background 0.1s, box-shadow 0.1s;
+            transition: height 0.1s;
             margin: 0 10px;
             box-shadow: 0 0 10px var(--accent);
-        }
-
-        .mouth.speaking {
-            background: #ff6b81;
-            box-shadow: 0 0 20px #ff6b81, 0 0 40px rgba(255,107,129,0.3);
         }
 
         .status {
@@ -232,22 +213,10 @@
     
     <div class="container">
         <div class="visualizer" id="visualizer">
-            <div class="mouth-wrapper">
-                <div class="mouth" id="mouth1"></div>
-                <div class="mouth-label">Bass</div>
-            </div>
-            <div class="mouth-wrapper">
-                <div class="mouth" id="mouth2"></div>
-                <div class="mouth-label">Tenor</div>
-            </div>
-            <div class="mouth-wrapper">
-                <div class="mouth" id="mouth3"></div>
-                <div class="mouth-label">Alto</div>
-            </div>
-            <div class="mouth-wrapper">
-                <div class="mouth" id="mouth4"></div>
-                <div class="mouth-label">Soprano</div>
-            </div>
+            <div class="mouth" id="mouth1"></div>
+            <div class="mouth" id="mouth2"></div>
+            <div class="mouth" id="mouth3"></div>
+            <div class="mouth" id="mouth4"></div>
         </div>
 
         <div class="controls">
@@ -266,17 +235,6 @@
 
         <div class="voice-config">
             <div style="margin-bottom: 10px; color: var(--text-dim);">Chord Tuning (Pitch Multipliers)</div>
-            <div class="voice-row" style="margin-bottom:10px">
-                <label>Preset</label>
-                <select id="chordPreset" style="flex-grow:1">
-                    <option value="">— Custom —</option>
-                    <option value="major" selected>Major</option>
-                    <option value="minor">Minor</option>
-                    <option value="dim">Diminished</option>
-                    <option value="aug">Augmented</option>
-                    <option value="cluster">Cluster</option>
-                </select>
-            </div>
             <div class="voice-row">
                 <label>Bass</label>
                 <input type="range" id="pitch1" min="0.1" max="2" step="0.1" value="0.5">
@@ -361,56 +319,6 @@
             speechSynthesis.onvoiceschanged = loadVoices;
         }
 
-        // --- State persistence ---
-        function saveState() {
-            try {
-                const steps = sequencer.querySelectorAll('.step');
-                const data = Array.from(steps).map(function(s) {
-                    return {
-                        text: s.querySelector('.lyric-input').value,
-                        chord: s.querySelector('.chord-select').value,
-                        duration: parseInt(s.querySelector('.duration-select').value)
-                    };
-                });
-                const sliders = [
-                    parseFloat(document.getElementById('pitch1').value),
-                    parseFloat(document.getElementById('pitch2').value),
-                    parseFloat(document.getElementById('pitch3').value),
-                    parseFloat(document.getElementById('pitch4').value)
-                ];
-                localStorage.setItem('tts-choir-state', JSON.stringify({ steps: data, sliders: sliders }));
-            } catch(e) { /* quota exceeded */ }
-        }
-
-        function loadState() {
-            try {
-                var saved = JSON.parse(localStorage.getItem('tts-choir-state'));
-                if (saved && saved.steps && saved.steps.length > 0) {
-                    saved.steps.forEach(function(data) { createStep(data); });
-                    if (saved.sliders) {
-                        for (var i = 0; i < 4; i++) {
-                            var slider = document.getElementById('pitch' + (i + 1));
-                            slider.value = saved.sliders[i];
-                            document.getElementById('val' + (i + 1)).textContent = parseFloat(saved.sliders[i]).toFixed(1);
-                        }
-                    }
-                    return true;
-                }
-            } catch(e) { /* parse error */ }
-            return false;
-        }
-
-        // --- Chord preset → sliders ---
-        function applyChordPreset(chordType) {
-            var pitches = chords[chordType] || chords.major;
-            for (var i = 0; i < 4; i++) {
-                var slider = document.getElementById('pitch' + (i + 1));
-                slider.value = pitches[i];
-                document.getElementById('val' + (i + 1)).textContent = pitches[i].toFixed(1);
-            }
-            saveState();
-        }
-
         function createStep(data = { text: "", chord: "major", duration: 1000 }) {
             const div = document.createElement('div');
             div.className = 'step';
@@ -435,16 +343,7 @@
             div.querySelector('.remove-btn').onclick = () => {
                 div.remove();
                 updateStepNumbers();
-                saveState();
             };
-
-            div.querySelector('.chord-select').addEventListener('change', (e) => {
-                applyChordPreset(e.target.value);
-                document.getElementById('chordPreset').value = e.target.value;
-            });
-
-            div.querySelector('.lyric-input').addEventListener('input', saveState);
-            div.querySelector('.duration-select').addEventListener('change', saveState);
 
             sequencer.appendChild(div);
             updateStepNumbers();
@@ -473,13 +372,17 @@
 
             if (!voice) return;
 
-            // Read live pitch values from the tuning sliders
-            const pitches = [
-                parseFloat(document.getElementById('pitch1').value),
-                parseFloat(document.getElementById('pitch2').value),
-                parseFloat(document.getElementById('pitch3').value),
-                parseFloat(document.getElementById('pitch4').value)
-            ];
+            // Get pitch multipliers from sliders or preset
+            // We'll use the sliders to override the preset if user wants custom tuning
+            // But for now let's use the preset chords logic combined with sliders
+            
+            // Actually, let's just use the preset chords for simplicity of the "Choir" effect
+            // The sliders in the UI are currently just visual or global overrides?
+            // Let's make the sliders control the "Base" tuning of the 4 voices, 
+            // and the chord selection modifies them relative to that?
+            // Or simpler: The chord selection sets the pitches directly.
+            
+            const pitches = chords[chordType] || chords.major;
 
             // Create 4 utterances
             for (let i = 0; i < 4; i++) {
@@ -492,11 +395,9 @@
                 // Visualizer effect
                 utter.onstart = () => {
                     mouths[i].style.height = (20 + Math.random() * 30) + 'px';
-                    mouths[i].classList.add('speaking');
                 };
                 utter.onend = () => {
                     mouths[i].style.height = '5px';
-                    mouths[i].classList.remove('speaking');
                 };
 
                 // Slight delay between voices to create a "chorus" effect and prevent cancellation
@@ -553,42 +454,26 @@
             synth.cancel();
             document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
             document.getElementById('status').textContent = "Stopped";
-            mouths.forEach(m => {
-                m.style.height = '5px';
-                m.classList.remove('speaking');
-            });
+            mouths.forEach(m => m.style.height = '5px');
         };
 
-        document.getElementById('addStepBtn').onclick = () => {
-            createStep();
-            saveState();
-        };
+        document.getElementById('addStepBtn').onclick = () => createStep();
         
         document.getElementById('clearBtn').onclick = () => {
             sequencer.innerHTML = '';
             currentStepIndex = 0;
-            try { localStorage.removeItem('tts-choir-state'); } catch(e) {}
         };
 
-        // Load saved state or initialize with defaults
-        if (!loadState()) {
-            defaultLyrics.forEach(data => createStep(data));
-        }
+        // Initialize with default lyrics
+        defaultLyrics.forEach(data => createStep(data));
 
-        // Pitch slider listeners (live tuning — feeds directly into speakChord)
+        // Pitch slider listeners (live tuning)
         ['pitch1', 'pitch2', 'pitch3', 'pitch4'].forEach((id, idx) => {
             document.getElementById(id).addEventListener('input', (e) => {
-                document.getElementById('val' + (idx+1)).textContent = parseFloat(e.target.value).toFixed(1);
-                document.getElementById('chordPreset').value = '';
-                saveState();
+                document.getElementById('val' + (idx+1)).textContent = e.target.value;
+                // Update the chord definition for 'custom' if we implemented that
+                // For now just visual feedback that tuning is possible
             });
-        });
-
-        // Chord preset dropdown loads values into sliders
-        document.getElementById('chordPreset').addEventListener('change', (e) => {
-            if (e.target.value) {
-                applyChordPreset(e.target.value);
-            }
         });
 
         // Handle page visibility change to stop audio
