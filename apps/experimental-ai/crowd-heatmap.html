@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Crowd Heatmap — RappterZoo</title>
+<meta name="rappterzoo:author" content="copilot-agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental-ai">
+<meta name="rappterzoo:tags" content="visualization,heatmap,canvas,simulation,data">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2025-07-17">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0e1113;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#e0e0e0}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+.overlay{position:fixed;z-index:10;pointer-events:none}
+.overlay *{pointer-events:auto}
+#statsPanel{top:12px;right:12px;width:260px;background:rgba(14,17,19,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px;font-size:13px;transition:transform 0.3s ease,opacity 0.3s ease}
+#statsPanel.collapsed{transform:translateX(calc(100% + 20px));opacity:0;pointer-events:none}
+#statsToggle{position:fixed;top:12px;right:12px;z-index:11;background:rgba(14,17,19,0.8);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#e0e0e0;padding:6px 12px;cursor:pointer;font-size:12px;transition:opacity 0.2s}
+#statsToggle:hover{background:rgba(30,35,40,0.9)}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+.stat-row:last-child{border:none}
+.stat-label{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+.stat-value{color:#fff;font-weight:600;font-size:14px}
+.stat-hot{color:#feca57;font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:228px}
+#catBars{margin-top:8px}
+.cat-bar-row{display:flex;align-items:center;gap:6px;margin:2px 0;font-size:10px}
+.cat-bar-label{width:50px;text-align:right;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.cat-bar{height:6px;border-radius:3px;transition:width 0.5s ease;min-width:2px}
+.cat-bar-count{width:24px;color:#777;font-size:9px;flex-shrink:0}
+#controls{position:fixed;bottom:0;left:0;right:0;z-index:10;background:rgba(14,17,19,0.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,0.06);padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center}
+.ctrl-group{display:flex;align-items:center;gap:6px}
+.ctrl-btn{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#ccc;padding:5px 12px;cursor:pointer;font-size:11px;transition:all 0.15s;white-space:nowrap}
+.ctrl-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
+.ctrl-btn.active{background:rgba(84,160,255,0.2);border-color:rgba(84,160,255,0.4);color:#54a0ff}
+.ctrl-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:0.4px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:80px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:#54a0ff;cursor:pointer}
+#tooltip{position:fixed;z-index:20;background:rgba(14,17,19,0.92);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 12px;font-size:12px;pointer-events:none;opacity:0;transition:opacity 0.15s;max-width:220px;white-space:nowrap}
+#tooltip .tt-title{font-weight:600;color:#fff;margin-bottom:2px}
+#tooltip .tt-cat{font-size:10px;color:#aaa}
+#tooltip .tt-activity{font-size:11px;color:#feca57;margin-top:2px}
+#errorMsg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;background:rgba(14,17,19,0.95);border:1px solid rgba(255,80,80,0.3);border-radius:12px;padding:24px 32px;text-align:center;display:none;font-size:14px;color:#ff8080}
+#loadingMsg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;color:#555;font-size:14px}
+@media(max-width:600px){
+  #statsPanel{width:200px;padding:10px;font-size:11px;top:8px;right:8px}
+  #controls{padding:8px;gap:8px}
+  .ctrl-btn{padding:4px 8px;font-size:10px}
+  input[type=range]{width:60px}
+  .cat-bar-label{width:36px}
+}
+</style>
+</head>
+<body>
+<div id="loadingMsg">Loading ecosystem data…</div>
+<canvas id="c"></canvas>
+<div id="tooltip"><div class="tt-title"></div><div class="tt-cat"></div><div class="tt-activity"></div></div>
+<div id="errorMsg"></div>
+
+<button id="statsToggle" class="overlay">☰ Stats</button>
+<div id="statsPanel" class="overlay">
+  <div class="stat-row"><span class="stat-label">Online Now</span><span class="stat-value" id="sOnline">—</span></div>
+  <div class="stat-row"><span class="stat-label">Players / Apps</span><span class="stat-value" id="sPlayersApps">—</span></div>
+  <div class="stat-row"><span class="stat-label">Active Trails</span><span class="stat-value" id="sTrails">0</span></div>
+  <div class="stat-row"><span class="stat-label">Hottest App</span><div class="stat-hot" id="sHot">—</div></div>
+  <div id="catBars"></div>
+</div>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <button class="ctrl-btn active" id="btnHeatmap">Heatmap</button>
+    <button class="ctrl-btn" id="btnVoronoi">Voronoi</button>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Speed</span>
+    <input type="range" id="sliderSpeed" min="0.5" max="3" step="0.1" value="1">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Trails</span>
+    <input type="range" id="sliderOpacity" min="0" max="1" step="0.05" value="0.7">
+  </div>
+  <div class="ctrl-group">
+    <button class="ctrl-btn" id="btnClear">Clear Trails</button>
+    <button class="ctrl-btn" id="btnPause">⏸ Pause</button>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const ttTitle = tooltip.querySelector('.tt-title');
+const ttCat = tooltip.querySelector('.tt-cat');
+const ttActivity = tooltip.querySelector('.tt-activity');
+const loadingMsg = document.getElementById('loadingMsg');
+const errorMsg = document.getElementById('errorMsg');
+
+let DPR = window.devicePixelRatio || 1;
+let W, H;
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (allApps.length) layoutApps();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// State
+let manifest = null, community = null;
+let allApps = []; // {title, file, category, catKey, color, x, y, r, activity, ratings, comments, plays}
+let catGroups = {}; // catKey -> [appIndex]
+let trails = []; // {from, to, particles:[], color, thickness, life, maxLife}
+let glows = []; // {appIdx, color, radius, life, maxLife}
+let mode = 'heatmap'; // heatmap | voronoi
+let simSpeed = 1, trailOpacity = 0.7, paused = false;
+let voronoiTransition = 0; // 0=heatmap, 1=voronoi
+let hoverApp = -1;
+let mouseX = -1, mouseY = -1;
+let simTimer = 0;
+let playerAppMap = {}; // playerName -> [appIndices]
+let appActivityMap = {}; // appFile -> {ratings, comments, plays}
+
+// Load prefs
+try {
+  const p = JSON.parse(localStorage.getItem('crowdHeatmapPrefs') || '{}');
+  if (p.mode) mode = p.mode;
+  if (p.speed != null) simSpeed = p.speed;
+  if (p.opacity != null) trailOpacity = p.opacity;
+} catch(e) {}
+
+function savePrefs() {
+  try { localStorage.setItem('crowdHeatmapPrefs', JSON.stringify({mode, speed: simSpeed, opacity: trailOpacity})); } catch(e) {}
+}
+
+// Fetch data
+async function loadData() {
+  try {
+    const [mRes, cRes] = await Promise.all([
+      fetch('../manifest.json').then(r => { if(!r.ok) throw new Error('manifest ' + r.status); return r.json(); }),
+      fetch('../community.json').then(r => { if(!r.ok) throw new Error('community ' + r.status); return r.json(); }).catch(() => null)
+    ]);
+    manifest = mRes;
+    community = cRes;
+    loadingMsg.style.display = 'none';
+    processData();
+    layoutApps();
+    updateStats();
+    requestAnimationFrame(loop);
+  } catch(e) {
+    loadingMsg.style.display = 'none';
+    errorMsg.style.display = 'block';
+    errorMsg.textContent = 'Failed to load data: ' + e.message + '. Place this file under apps/experimental-ai/.';
+  }
+}
+
+function processData() {
+  allApps = [];
+  catGroups = {};
+  appActivityMap = {};
+  playerAppMap = {};
+
+  const cats = manifest.categories;
+  for (const key in cats) {
+    const cat = cats[key];
+    catGroups[key] = [];
+    const apps = cat.apps || [];
+    for (const app of apps) {
+      const idx = allApps.length;
+      catGroups[key].push(idx);
+      allApps.push({
+        title: app.title || app.file,
+        file: app.file,
+        category: cat.title || key,
+        catKey: key,
+        color: cat.color || '#888',
+        x: 0, y: 0, r: 8,
+        activity: 0, ratings: 0, comments: 0, plays: 0,
+        voronoiWeight: 1
+      });
+    }
+  }
+
+  if (community) {
+    // Process ratings
+    if (community.ratings) {
+      for (const stem in community.ratings) {
+        const list = community.ratings[stem];
+        const count = list.length;
+        const idx = allApps.findIndex(a => a.file && a.file.replace('.html','') === stem);
+        if (idx >= 0) { allApps[idx].ratings = count; allApps[idx].activity += count; }
+        appActivityMap[stem] = appActivityMap[stem] || {ratings:0,comments:0,plays:0};
+        appActivityMap[stem].ratings = count;
+      }
+    }
+    // Process comments
+    if (community.comments) {
+      for (const stem in community.comments) {
+        const count = community.comments[stem].length;
+        const idx = allApps.findIndex(a => a.file && a.file.replace('.html','') === stem);
+        if (idx >= 0) { allApps[idx].comments = count; allApps[idx].activity += count; }
+        appActivityMap[stem] = appActivityMap[stem] || {ratings:0,comments:0,plays:0};
+        appActivityMap[stem].comments = count;
+      }
+    }
+    // Process activity (played events)
+    if (community.activity) {
+      for (const ev of community.activity) {
+        if (ev.appFile) {
+          const idx = allApps.findIndex(a => a.file === ev.appFile);
+          if (idx >= 0) {
+            if (ev.type === 'played') { allApps[idx].plays++; allApps[idx].activity++; }
+            if (ev.player) {
+              if (!playerAppMap[ev.player]) playerAppMap[ev.player] = new Set();
+              playerAppMap[ev.player].add(idx);
+            }
+          }
+        }
+      }
+    }
+    // Convert sets
+    for (const p in playerAppMap) playerAppMap[p] = Array.from(playerAppMap[p]);
+  }
+
+  // Compute voronoi weights
+  const maxAct = Math.max(1, ...allApps.map(a => a.activity));
+  for (const a of allApps) {
+    a.voronoiWeight = 0.3 + 0.7 * (a.activity / maxAct);
+  }
+}
+
+function layoutApps() {
+  const pad = 60;
+  const controlH = 50;
+  const areaW = W - pad * 2;
+  const areaH = H - pad - controlH - 20;
+  const catKeys = Object.keys(catGroups).filter(k => catGroups[k].length > 0);
+  const totalApps = allApps.length;
+  if (!totalApps) return;
+
+  // Grid layout grouped by category
+  const cols = Math.max(1, Math.ceil(Math.sqrt(totalApps * (areaW / areaH))));
+  const rows = Math.ceil(totalApps / cols);
+  const cellW = areaW / cols;
+  const cellH = areaH / rows;
+  const cellSize = Math.min(cellW, cellH);
+  const r = Math.max(3, Math.min(cellSize * 0.35, 14));
+
+  // Sort apps by category for clustering
+  const sorted = [];
+  for (const key of catKeys) {
+    for (const idx of catGroups[key]) sorted.push(idx);
+  }
+
+  const actualCols = Math.ceil(Math.sqrt(sorted.length * (areaW / areaH)));
+  for (let i = 0; i < sorted.length; i++) {
+    const idx = sorted[i];
+    const col = i % actualCols;
+    const row = Math.floor(i / actualCols);
+    const hexOffset = (row % 2) ? cellSize * 0.4 : 0;
+    allApps[idx].x = pad + col * cellSize + cellSize * 0.5 + hexOffset;
+    allApps[idx].y = pad + row * cellSize + cellSize * 0.5;
+    allApps[idx].r = r;
+  }
+}
+
+// Voronoi (brute-force nearest-site for each pixel block)
+let voronoiCache = null;
+let voronoiDirty = true;
+function computeVoronoi() {
+  if (!voronoiDirty && voronoiCache) return voronoiCache;
+  const blockSize = 6;
+  const bw = Math.ceil(W / blockSize);
+  const bh = Math.ceil(H / blockSize);
+  const cells = new Int16Array(bw * bh);
+  for (let by = 0; by < bh; by++) {
+    const py = by * blockSize + blockSize * 0.5;
+    for (let bx = 0; bx < bw; bx++) {
+      const px = bx * blockSize + blockSize * 0.5;
+      let best = -1, bestD = Infinity;
+      for (let i = 0; i < allApps.length; i++) {
+        const a = allApps[i];
+        const w = a.voronoiWeight || 1;
+        const dx = px - a.x, dy = py - a.y;
+        const d = (dx*dx + dy*dy) / (w * w);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      cells[by * bw + bx] = best;
+    }
+  }
+  voronoiCache = {cells, bw, bh, blockSize};
+  voronoiDirty = false;
+  return voronoiCache;
+}
+
+function drawVoronoi(alpha) {
+  if (alpha <= 0) return;
+  const v = computeVoronoi();
+  const {cells, bw, bh, blockSize} = v;
+  ctx.globalAlpha = alpha * 0.6;
+  for (let by = 0; by < bh; by++) {
+    for (let bx = 0; bx < bw; bx++) {
+      const idx = cells[by * bw + bx];
+      if (idx < 0) continue;
+      const a = allApps[idx];
+      const intensity = 0.15 + 0.5 * Math.min(1, a.activity / Math.max(1, maxActivity * 0.3));
+      ctx.fillStyle = hexToRGBA(a.color, intensity);
+      ctx.fillRect(bx * blockSize, by * blockSize, blockSize, blockSize);
+    }
+  }
+  // Draw borders
+  ctx.globalAlpha = alpha * 0.15;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 0.5;
+  for (let by = 0; by < bh - 1; by++) {
+    for (let bx = 0; bx < bw - 1; bx++) {
+      const idx = cells[by * bw + bx];
+      const right = cells[by * bw + bx + 1];
+      const below = cells[(by+1) * bw + bx];
+      if (idx !== right || idx !== below) {
+        ctx.strokeRect(bx * blockSize, by * blockSize, blockSize, blockSize);
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+let maxActivity = 1;
+function drawHeatmap(alpha) {
+  if (alpha <= 0) return;
+  maxActivity = Math.max(1, ...allApps.map(a => a.activity));
+  ctx.globalAlpha = alpha;
+  for (let i = 0; i < allApps.length; i++) {
+    const a = allApps[i];
+    const intensity = 0.2 + 0.8 * Math.min(1, a.activity / (maxActivity * 0.4));
+    const r = a.r;
+
+    // Background glow
+    const grad = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, r * 2.5);
+    grad.addColorStop(0, hexToRGBA(a.color, intensity * 0.3));
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(a.x - r * 2.5, a.y - r * 2.5, r * 5, r * 5);
+
+    // Cell
+    ctx.beginPath();
+    drawHexagon(ctx, a.x, a.y, r);
+    ctx.fillStyle = hexToRGBA(a.color, intensity);
+    ctx.fill();
+    ctx.strokeStyle = hexToRGBA(a.color, Math.min(1, intensity + 0.3));
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHexagon(ctx, x, y, r) {
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.PI / 3 * i - Math.PI / 6;
+    const px = x + r * Math.cos(angle);
+    const py = y + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function drawCategoryLabels() {
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  const catKeys = Object.keys(catGroups);
+  for (const key of catKeys) {
+    const indices = catGroups[key];
+    if (!indices || !indices.length) continue;
+    let cx = 0, cy = 0, minY = Infinity;
+    for (const idx of indices) {
+      cx += allApps[idx].x;
+      cy += allApps[idx].y;
+      if (allApps[idx].y < minY) minY = allApps[idx].y;
+    }
+    cx /= indices.length;
+    const cat = manifest.categories[key];
+    const label = cat ? cat.title : key;
+    ctx.fillStyle = hexToRGBA(cat ? cat.color : '#888', 0.6);
+    ctx.fillText(label, cx, minY - 12);
+  }
+}
+
+// Glows
+function spawnGlow(appIdx, color) {
+  glows.push({appIdx, color: color || '#feca57', radius: 0, life: 0, maxLife: 2});
+}
+
+function updateGlows(dt) {
+  for (let i = glows.length - 1; i >= 0; i--) {
+    const g = glows[i];
+    g.life += dt * simSpeed;
+    g.radius = g.life / g.maxLife * 60;
+    if (g.life >= g.maxLife) glows.splice(i, 1);
+  }
+}
+
+function drawGlows() {
+  for (const g of glows) {
+    const a = allApps[g.appIdx];
+    if (!a) continue;
+    const progress = g.life / g.maxLife;
+    const alpha = (1 - progress) * 0.4;
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, g.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = hexToRGBA(g.color, alpha);
+    ctx.lineWidth = 2;
+    ctx.shadowColor = g.color;
+    ctx.shadowBlur = 15;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// Trails
+function spawnTrail(fromIdx, toIdx, color, thickness) {
+  const numParticles = 8 + Math.floor(Math.random() * 8);
+  const particles = [];
+  for (let i = 0; i < numParticles; i++) {
+    particles.push({t: -i * 0.08, speed: 0.15 + Math.random() * 0.15});
+  }
+  trails.push({from: fromIdx, to: toIdx, particles, color: color || '#feca57', thickness: thickness || 1.5, life: 0, maxLife: 4 + Math.random() * 2, isGolden: false});
+}
+
+function updateTrails(dt) {
+  for (let i = trails.length - 1; i >= 0; i--) {
+    const t = trails[i];
+    t.life += dt * simSpeed;
+    for (const p of t.particles) {
+      p.t += p.speed * dt * simSpeed;
+      if (p.t > 1) p.t -= 1;
+    }
+    if (t.life >= t.maxLife && !t.isGolden) trails.splice(i, 1);
+  }
+}
+
+function drawTrails() {
+  ctx.globalAlpha = trailOpacity;
+  for (const t of trails) {
+    const a = allApps[t.from], b = allApps[t.to];
+    if (!a || !b) continue;
+    const fadeAlpha = t.isGolden ? 1 : Math.min(1, 1 - (t.life - t.maxLife + 1));
+    if (fadeAlpha <= 0) continue;
+
+    const mx = (a.x + b.x) * 0.5, my = (a.y + b.y) * 0.5;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const cpx = mx - dy * 0.25, cpy = my + dx * 0.25;
+
+    // Draw curve
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
+    ctx.strokeStyle = hexToRGBA(t.color, 0.15 * fadeAlpha);
+    ctx.lineWidth = t.thickness;
+    ctx.shadowColor = t.color;
+    ctx.shadowBlur = t.isGolden ? 12 : 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Draw particles
+    for (const p of t.particles) {
+      if (p.t < 0 || p.t > 1) continue;
+      const tt = p.t;
+      const px = (1-tt)*(1-tt)*a.x + 2*(1-tt)*tt*cpx + tt*tt*b.x;
+      const py = (1-tt)*(1-tt)*a.y + 2*(1-tt)*tt*cpy + tt*tt*b.y;
+      const particleR = t.isGolden ? 3 : 2;
+      ctx.beginPath();
+      ctx.arc(px, py, particleR, 0, Math.PI * 2);
+      ctx.fillStyle = hexToRGBA(t.color, fadeAlpha * 0.8);
+      ctx.shadowColor = t.color;
+      ctx.shadowBlur = t.isGolden ? 10 : 5;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Motion blur tail
+      const prevT = Math.max(0, tt - 0.04);
+      const prevX = (1-prevT)*(1-prevT)*a.x + 2*(1-prevT)*prevT*cpx + prevT*prevT*b.x;
+      const prevY = (1-prevT)*(1-prevT)*a.y + 2*(1-prevT)*prevT*cpy + prevT*prevT*b.y;
+      ctx.beginPath();
+      ctx.moveTo(prevX, prevY);
+      ctx.lineTo(px, py);
+      ctx.strokeStyle = hexToRGBA(t.color, fadeAlpha * 0.3);
+      ctx.lineWidth = particleR;
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Most-traveled path (golden trail)
+let goldenTrail = null;
+function computeGoldenTrail() {
+  // Find pair of apps with most shared players
+  const pairCount = {};
+  for (const player in playerAppMap) {
+    const apps = playerAppMap[player];
+    for (let i = 0; i < apps.length; i++) {
+      for (let j = i + 1; j < apps.length; j++) {
+        const key = Math.min(apps[i], apps[j]) + ':' + Math.max(apps[i], apps[j]);
+        pairCount[key] = (pairCount[key] || 0) + 1;
+      }
+    }
+  }
+  let bestKey = null, bestCount = 0;
+  for (const key in pairCount) {
+    if (pairCount[key] > bestCount) { bestCount = pairCount[key]; bestKey = key; }
+  }
+  if (bestKey && bestCount >= 2) {
+    const [a, b] = bestKey.split(':').map(Number);
+    const particles = [];
+    for (let i = 0; i < 20; i++) {
+      particles.push({t: i / 20, speed: 0.08 + Math.random() * 0.06});
+    }
+    goldenTrail = {from: a, to: b, particles, color: '#ffd700', thickness: 3.5, life: 0, maxLife: Infinity, isGolden: true};
+    trails.push(goldenTrail);
+  }
+}
+
+// Live simulation
+function simulateEvent(dt) {
+  simTimer += dt * simSpeed;
+  const interval = 2.0 + Math.random();
+  if (simTimer < interval) return;
+  simTimer = 0;
+
+  if (!allApps.length) return;
+  const fromIdx = Math.floor(Math.random() * allApps.length);
+  let toIdx = Math.floor(Math.random() * allApps.length);
+  if (toIdx === fromIdx) toIdx = (toIdx + 1) % allApps.length;
+
+  // Random player color
+  const colors = ['#ff6b9d','#4ecdc4','#feca57','#54a0ff','#ff9ff3','#48dbfb','#c9b1ff','#00d2d3','#e91e63','#ffc107'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+
+  spawnTrail(fromIdx, toIdx, color, 1.5);
+  spawnGlow(toIdx, color);
+  spawnGlow(fromIdx, hexToRGBA(color, 0.5));
+}
+
+// Hover detection
+function hitTest(mx, my) {
+  for (let i = allApps.length - 1; i >= 0; i--) {
+    const a = allApps[i];
+    const dx = mx - a.x, dy = my - a.y;
+    if (dx*dx + dy*dy < (a.r + 4) * (a.r + 4)) return i;
+  }
+  return -1;
+}
+
+function onMouseMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+  const hit = hitTest(mouseX, mouseY);
+  hoverApp = hit;
+  if (hit >= 0) {
+    const a = allApps[hit];
+    ttTitle.textContent = a.title;
+    ttCat.textContent = a.category;
+    ttActivity.textContent = `Activity: ${a.activity} (${a.ratings}★ ${a.comments}💬 ${a.plays}▶)`;
+    tooltip.style.opacity = '1';
+    let tx = e.clientX + 14, ty = e.clientY - 10;
+    if (tx + 220 > W) tx = e.clientX - 230;
+    if (ty + 60 > H) ty = e.clientY - 60;
+    tooltip.style.left = tx + 'px';
+    tooltip.style.top = ty + 'px';
+    canvas.style.cursor = 'pointer';
+  } else {
+    tooltip.style.opacity = '0';
+    canvas.style.cursor = 'default';
+  }
+}
+
+canvas.addEventListener('mousemove', onMouseMove);
+canvas.addEventListener('touchmove', function(e) {
+  if (e.touches.length) {
+    const t = e.touches[0];
+    onMouseMove({clientX: t.clientX, clientY: t.clientY});
+  }
+}, {passive: true});
+canvas.addEventListener('mouseleave', function() {
+  tooltip.style.opacity = '0';
+  hoverApp = -1;
+  canvas.style.cursor = 'default';
+});
+
+// Controls
+const btnHeatmap = document.getElementById('btnHeatmap');
+const btnVoronoi = document.getElementById('btnVoronoi');
+const sliderSpeed = document.getElementById('sliderSpeed');
+const sliderOpacity = document.getElementById('sliderOpacity');
+const btnClear = document.getElementById('btnClear');
+const btnPause = document.getElementById('btnPause');
+const statsToggle = document.getElementById('statsToggle');
+const statsPanel = document.getElementById('statsPanel');
+
+sliderSpeed.value = simSpeed;
+sliderOpacity.value = trailOpacity;
+if (mode === 'voronoi') { btnVoronoi.classList.add('active'); btnHeatmap.classList.remove('active'); }
+
+btnHeatmap.onclick = function() {
+  mode = 'heatmap'; btnHeatmap.classList.add('active'); btnVoronoi.classList.remove('active'); savePrefs();
+};
+btnVoronoi.onclick = function() {
+  mode = 'voronoi'; btnVoronoi.classList.add('active'); btnHeatmap.classList.remove('active');
+  voronoiDirty = true; savePrefs();
+};
+sliderSpeed.oninput = function() { simSpeed = parseFloat(this.value); savePrefs(); };
+sliderOpacity.oninput = function() { trailOpacity = parseFloat(this.value); savePrefs(); };
+btnClear.onclick = function() {
+  trails = []; glows = [];
+  if (goldenTrail) { goldenTrail = null; computeGoldenTrail(); }
+};
+btnPause.onclick = function() {
+  paused = !paused;
+  btnPause.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  btnPause.classList.toggle('active', paused);
+};
+
+let statsPanelVisible = true;
+statsToggle.onclick = function() {
+  statsPanelVisible = !statsPanelVisible;
+  statsPanel.classList.toggle('collapsed', !statsPanelVisible);
+  statsToggle.style.opacity = statsPanelVisible ? '0' : '1';
+};
+statsPanel.addEventListener('click', function(e) {
+  if (e.target === statsPanel) {
+    statsPanelVisible = false;
+    statsPanel.classList.add('collapsed');
+    statsToggle.style.opacity = '1';
+  }
+});
+statsToggle.style.opacity = '0';
+
+// Stats
+function updateStats() {
+  if (!manifest) return;
+  const hour = new Date().getHours();
+  const online = community && community.onlineSchedule ? (community.onlineSchedule[hour] || 0) : '—';
+  document.getElementById('sOnline').textContent = online;
+
+  const totalPlayers = community && community.meta ? community.meta.totalPlayers : '?';
+  const totalApps = community && community.meta ? community.meta.totalApps : allApps.length;
+  document.getElementById('sPlayersApps').textContent = totalPlayers + ' / ' + totalApps;
+
+  // Hottest app
+  let hotIdx = 0;
+  for (let i = 1; i < allApps.length; i++) {
+    if (allApps[i].activity > allApps[hotIdx].activity) hotIdx = i;
+  }
+  document.getElementById('sHot').textContent = allApps[hotIdx] ? allApps[hotIdx].title : '—';
+
+  // Category bars
+  const catBars = document.getElementById('catBars');
+  catBars.innerHTML = '';
+  const cats = manifest.categories;
+  const maxCount = Math.max(1, ...Object.values(cats).map(c => c.count || 0));
+  for (const key in cats) {
+    const cat = cats[key];
+    const row = document.createElement('div');
+    row.className = 'cat-bar-row';
+    const shortName = (cat.title || key).replace(/&/g, '').substring(0, 8);
+    row.innerHTML = `<span class="cat-bar-label" title="${cat.title||key}">${shortName}</span><div class="cat-bar" style="width:${Math.round((cat.count||0)/maxCount*80)}px;background:${cat.color||'#888'}"></div><span class="cat-bar-count">${cat.count||0}</span>`;
+    catBars.appendChild(row);
+  }
+}
+
+// Utils
+function hexToRGBA(hex, alpha) {
+  if (hex.startsWith('rgba')) return hex;
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16) || 0;
+  const g = parseInt(h.substring(2, 4), 16) || 0;
+  const b = parseInt(h.substring(4, 6), 16) || 0;
+  return `rgba(${r},${g},${b},${alpha != null ? alpha : 1})`;
+}
+
+// Draw hover highlight
+function drawHover() {
+  if (hoverApp < 0) return;
+  const a = allApps[hoverApp];
+  ctx.beginPath();
+  drawHexagon(ctx, a.x, a.y, a.r + 3);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = '#fff';
+  ctx.shadowBlur = 10;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+// Main loop
+let lastTime = 0;
+function loop(time) {
+  const dt = Math.min(0.05, (time - lastTime) / 1000);
+  lastTime = time;
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0e1113';
+  ctx.fillRect(0, 0, W, H);
+
+  // Transition
+  const targetVT = mode === 'voronoi' ? 1 : 0;
+  voronoiTransition += (targetVT - voronoiTransition) * Math.min(1, dt * 4);
+  if (Math.abs(voronoiTransition - targetVT) < 0.001) voronoiTransition = targetVT;
+
+  // Draw
+  if (voronoiTransition < 1) drawHeatmap(1 - voronoiTransition);
+  if (voronoiTransition > 0) drawVoronoi(voronoiTransition);
+  drawCategoryLabels();
+  drawGlows();
+  drawTrails();
+  drawHover();
+
+  // Update
+  if (!paused) {
+    updateGlows(dt);
+    updateTrails(dt);
+    simulateEvent(dt);
+  }
+
+  // Active trails count
+  document.getElementById('sTrails').textContent = trails.length;
+
+  requestAnimationFrame(loop);
+}
+
+// Spawn initial activity from community data
+function spawnInitialActivity() {
+  if (!community || !community.activity) return;
+  const recent = community.activity.filter(a => a.type === 'played' && a.minutesAgo < 60).slice(0, 15);
+  for (const ev of recent) {
+    const idx = allApps.findIndex(a => a.file === ev.appFile);
+    if (idx >= 0) spawnGlow(idx, ev.playerColor || '#feca57');
+  }
+}
+
+// Init
+loadData().then(() => {
+  spawnInitialActivity();
+  computeGoldenTrail();
+});
+
+})();
+</script>
+</body>
+</html>
