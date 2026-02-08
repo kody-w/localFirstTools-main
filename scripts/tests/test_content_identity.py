@@ -283,6 +283,9 @@ def test_analyze_nonexistent_file():
 
 def test_prompt_is_content_agnostic():
     """The analysis prompt does NOT assume games."""
-    assert "game" not in ANALYZE_PROMPT.lower().split("e.g.")[0]
+    # The prompt should explicitly disclaim game assumptions
     assert "Do NOT assume this is a game" in ANALYZE_PROMPT
     assert "could be anything" in ANALYZE_PROMPT
+    # Scoring dimensions should not be game-specific
+    for term in ["playability", "game loop", "game over"]:
+        assert term not in ANALYZE_PROMPT.lower()

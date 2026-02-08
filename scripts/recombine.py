@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
-"""Genetic Recombination Engine — breed new games from top performers' DNA.
+"""Genetic Recombination Engine — breed new content from top performers' DNA.
 
-Instead of creating games from scratch or linearly molting one game forward,
-this engine extracts "genes" (proven code patterns) from high-scoring apps and
-recombines them into new organisms. Combined with experience-first prompting,
-it produces games with the technical DNA of champions and the soul of an
-emotional target.
+THE MEDIUM IS THE MESSAGE. Instead of creating apps from scratch or linearly
+molting one forward, this engine extracts "traits" (proven patterns) from
+high-scoring apps and recombines them into new organisms. Works with ANY
+content type — games, synths, visualizers, tools — not just games.
 
-Gene Types:
-    render_pipeline  — Canvas setup, clear/draw/update loop
-    physics_engine   — Velocity, gravity, collision, bounce
-    particle_system  — Emitter, spawn, lifetime, fade
-    audio_engine     — Web Audio oscillators, gain nodes, sound design
-    input_handler    — Keyboard/mouse/touch with state tracking
-    state_machine    — Game states, transitions, menus
-    entity_system    — Classes/factories for game objects
-    hud_renderer     — Score display, health bars, status text
-    progression      — Levels, waves, difficulty scaling
-    juice            — Screen shake, flash, combo, feedback
+Two modes:
+  Adaptive (default): Uses content_identity to discover what each parent IS,
+    what techniques it uses, what its strengths are. The LLM figures out what's
+    worth combining. No fixed gene list.
+  Classic (--classic): Uses 10 hardcoded game-specific gene patterns detected
+    via regex. Fast but game-biased.
 
 Usage:
-    python3 scripts/recombine.py                              # Breed 1 game from top donors
-    python3 scripts/recombine.py --count 5                    # Breed 5 games
-    python3 scripts/recombine.py --parents game1.html game2.html  # Specific parents
+    python3 scripts/recombine.py                              # Breed 1 app from top donors
+    python3 scripts/recombine.py --count 5                    # Breed 5 apps
+    python3 scripts/recombine.py --parents app1.html app2.html  # Specific parents
     python3 scripts/recombine.py --experience "discovery"     # Target experience
+    python3 scripts/recombine.py --classic                    # Use regex gene detection
     python3 scripts/recombine.py --dry-run                    # Show plan, don't create
     python3 scripts/recombine.py --list-genes                 # Show gene catalog from top apps
 
@@ -52,6 +47,7 @@ from copilot_utils import (
     save_manifest,
 )
 from rank_games import score_game, grade_from_score
+from content_identity import analyze as _analyze_content
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +256,144 @@ def catalog_genes(top_n: int = 20) -> dict:
     return catalog
 
 
+# ---------------------------------------------------------------------------
+# Adaptive Trait Discovery (content-agnostic, LLM-based)
+# ---------------------------------------------------------------------------
+
+def discover_traits(filepath, content=None):
+    """Discover what an app IS and what patterns it uses, via content_identity.
+
+    Unlike detect_genes() which uses hardcoded game-specific regex patterns,
+    this works with ANY content type. The LLM discovers what's interesting.
+
+    Returns dict with mode, medium, techniques, strengths, weaknesses, scores.
+    Falls back to regex gene detection if LLM unavailable.
+    """
+    identity = _analyze_content(filepath, content=content)
+    if not identity:
+        # LLM unavailable — fall back to regex genes
+        if content is None:
+            content = Path(filepath).read_text(errors="replace")
+        return {
+            "mode": "regex",
+            "medium": "unknown",
+            "techniques": [],
+            "strengths": [],
+            "weaknesses": [],
+            "genes": detect_genes(content),
+        }
+
+    return {
+        "mode": "adaptive",
+        "medium": identity.get("medium", "unknown"),
+        "techniques": identity.get("techniques", []),
+        "strengths": identity.get("strengths", []),
+        "weaknesses": identity.get("weaknesses", []),
+        "improvement_vectors": identity.get("improvement_vectors", []),
+        "scores": {
+            "craft": identity.get("craft_score", 0),
+            "completeness": identity.get("completeness_score", 0),
+            "engagement": identity.get("engagement_score", 0),
+        },
+    }
+
+
+def build_adaptive_synthesis_prompt(parents_data, experience=None,
+                                    target_category=None):
+    """Build synthesis prompt using content identity instead of gene samples.
+
+    THE MEDIUM IS THE MESSAGE. The prompt tells the LLM what each parent IS,
+    what it does well, and asks it to breed something new. No fixed gene list.
+    """
+    parent_sections = []
+    for pd in parents_data:
+        traits = pd.get("traits", {})
+        section = f"### Parent: {pd['file']} (score {pd['score']})\n"
+        section += f"**Medium:** {traits.get('medium', 'unknown')}\n"
+        if traits.get("techniques"):
+            section += f"**Techniques:** {', '.join(traits['techniques'])}\n"
+        if traits.get("strengths"):
+            section += "**Strengths:**\n"
+            for s in traits["strengths"]:
+                section += f"  - {s}\n"
+        if traits.get("weaknesses"):
+            section += "**Weaknesses to avoid in offspring:**\n"
+            for w in traits["weaknesses"]:
+                section += f"  - {w}\n"
+        # Include a content excerpt (the LLM needs to see actual code)
+        content = pd.get("content", "")
+        if content:
+            excerpt = content[:8000]
+            section += f"\n**Source (excerpt):**\n```html\n{excerpt}\n```\n"
+        parent_sections.append(section)
+
+    parents_text = "\n".join(parent_sections)
+
+    experience_text = ""
+    if experience:
+        experience_text = f"""
+## EXPERIENCE TARGET (the SOUL of the creation)
+
+**Emotion:** {experience.get('emotion', 'engaging')}
+**Feeling:** {experience.get('description', '')}
+
+**Design direction:**
+{chr(10).join('- ' + h for h in experience.get('mechanical_hints', []))}
+
+**What to AVOID:**
+{chr(10).join('- ' + a for a in experience.get('anti_patterns', []))}
+
+Let the feeling DRIVE the design decisions. The experience target shapes
+everything — interaction patterns, pacing, visual mood, audio character.
+"""
+
+    cat_hint = ""
+    if target_category:
+        cat_hint = f"\nTarget category: {target_category}\n"
+
+    prompt = f"""You are a content genome synthesizer. You will create a brand-new, original HTML app
+by recombining the best qualities of these parent apps. The offspring should be
+BETTER than either parent — combining their strengths while avoiding their weaknesses.
+
+Do NOT assume this must be a game. It could be anything: a music tool, art generator,
+physics sim, data visualizer, educational tool, or something entirely new. Let the
+parents' DNA guide what the offspring becomes.
+
+CRITICAL RULES:
+- Output ONLY the complete HTML file, nothing else
+- Single self-contained HTML file with ALL CSS and JS inline
+- <!DOCTYPE html>, <title>, <meta name="viewport"> required
+- ZERO external dependencies (no CDNs, no APIs, no external files)
+- Must work offline
+- Must be genuinely compelling and interactive
+- The offspring must feel like a coherent whole, not a Frankenstein of parts
+- Combine the parents' BEST techniques into something that transcends both
+
+## PARENT DNA
+
+{parents_text}
+
+{experience_text}
+{cat_hint}
+
+## SYNTHESIS INSTRUCTIONS
+
+1. Study what each parent IS and what it does well
+2. Identify complementary strengths that would be powerful together
+3. Design an offspring that inherits the best of both parents
+4. The offspring should be recognizably related to its parents but distinctly NEW
+5. Implement completely — this should feel finished, not like a prototype
+6. Add polish: smooth animations, responsive design, satisfying interactions
+7. Ensure it works on both desktop (keyboard) and mobile (touch)
+8. Make it something that would genuinely surprise and delight someone opening it
+
+The bar is high — this offspring is bred from champions.
+
+Output the complete HTML file now:"""
+
+    return prompt
+
+
 def select_parents(count: int = 2, category: str = None) -> list:
     """Select high-scoring donor apps for recombination.
 
@@ -386,9 +520,9 @@ def load_experience(experience_id: str = None):
 
 
 def build_synthesis_prompt(genome: dict, experience: dict = None, target_category: str = None) -> str:
-    """Build the LLM prompt that synthesizes a new game from genome + experience.
+    """Build the LLM prompt that synthesizes a new app from genome + experience.
 
-    This is where genetic recombination meets experience-first design.
+    Classic mode: uses hardcoded gene samples as architectural inspiration.
     """
     # Gene descriptions with code samples
     gene_sections = []
@@ -408,7 +542,7 @@ def build_synthesis_prompt(genome: dict, experience: dict = None, target_categor
     experience_text = ""
     if experience:
         experience_text = f"""
-## EXPERIENCE TARGET (this is the SOUL of the game)
+## EXPERIENCE TARGET (the SOUL of the creation)
 
 **Emotion:** {experience.get('emotion', 'engaging')}
 **Feeling:** {experience.get('description', '')}
@@ -419,8 +553,8 @@ def build_synthesis_prompt(genome: dict, experience: dict = None, target_categor
 **What to AVOID:**
 {chr(10).join('- ' + a for a in experience.get('anti_patterns', []))}
 
-The game mechanics should emerge from this emotional target. Don't just bolt features
-onto a template — let the feeling DRIVE the design decisions.
+Let the feeling DRIVE the design decisions. The experience target shapes
+everything — interaction patterns, pacing, visual mood, audio character.
 """
 
     # Category hint
@@ -428,9 +562,12 @@ onto a template — let the feeling DRIVE the design decisions.
     if target_category:
         cat_hint = f"\nTarget category: {target_category}\n"
 
-    prompt = f"""You are a game genome synthesizer. You will create a brand-new, original HTML game
-by recombining proven code patterns (genes) from top-scoring games, guided by an
+    prompt = f"""You are a content genome synthesizer. You will create a brand-new, original HTML app
+by recombining proven code patterns (genes) from top-scoring apps, guided by an
 emotional experience target.
+
+Do NOT assume this must be a game. The genes come from various content types.
+Let the genetic material guide what the offspring becomes.
 
 CRITICAL RULES:
 - Output ONLY the complete HTML file, nothing else
@@ -438,13 +575,13 @@ CRITICAL RULES:
 - <!DOCTYPE html>, <title>, <meta name="viewport"> required
 - ZERO external dependencies (no CDNs, no APIs, no external files)
 - Must work offline
-- Must be genuinely fun and interactive
+- Must be genuinely compelling and interactive
 - DO NOT copy the gene samples verbatim — use them as INSPIRATION for your own implementation
-- The game must feel like a coherent whole, not a Frankenstein of parts
+- The creation must feel like a coherent whole, not a Frankenstein of parts
 
-## GENETIC MATERIAL (proven patterns from high-scoring games)
+## GENETIC MATERIAL (proven patterns from high-scoring apps)
 
-These are code patterns extracted from the best-performing games in the gallery.
+These are code patterns extracted from the best-performing apps in the gallery.
 Use them as architectural inspiration — adapt the patterns to serve the experience target.
 
 {genes_text}
@@ -454,26 +591,84 @@ Use them as architectural inspiration — adapt the patterns to serve the experi
 
 ## SYNTHESIS INSTRUCTIONS
 
-1. Start with the experience target — what should the player FEEL?
-2. Choose mechanics that serve that feeling (don't just pick the flashiest genes)
-3. Implement a complete game loop: init → update → render → repeat
-4. Include: title screen, gameplay, game over, restart
-5. Add juice: screen shake, particle effects, sound feedback, combo systems
+1. Start with the experience target — what should the user FEEL?
+2. Choose patterns that serve that feeling (don't just pick the flashiest genes)
+3. Implement a complete interaction loop appropriate to the content type
+4. Include proper state management, error handling, and user feedback
+5. Add polish: smooth animations, particle effects, sound feedback, satisfying interactions
 6. Make it visually distinctive — custom color palette, animations, effects
 7. Ensure responsive design (works on mobile)
-8. Add keyboard AND mouse/touch controls
+8. Add keyboard AND mouse/touch controls where appropriate
 
 Create something that would genuinely surprise and delight someone opening it in a browser.
-The bar is high — this game is bred from champions.
+The bar is high — this offspring is bred from champions.
 
 Output the complete HTML file now:"""
 
     return prompt
 
 
+def synthesize_adaptive(parents_data, experience=None, target_category=None,
+                        dry_run=False):
+    """Adaptive synthesis: breed a new app using content identity.
+
+    Instead of fixed gene samples, sends parent identities + content excerpts
+    to the LLM. The LLM discovers what's worth combining.
+
+    Returns dict with: html, filename, title, metadata, lineage
+    """
+    prompt = build_adaptive_synthesis_prompt(parents_data, experience, target_category)
+    parent_files = [pd["file"] for pd in parents_data]
+    traits_used = []
+    for pd in parents_data:
+        traits = pd.get("traits", {})
+        traits_used.extend(traits.get("techniques", []))
+    traits_used = list(set(traits_used))
+
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "prompt_size": len(prompt),
+            "parents": parent_files,
+            "traits_used": traits_used,
+            "experience": experience.get("id") if experience else None,
+        }
+
+    backend = detect_backend()
+    if backend == "unavailable":
+        return {"status": "failed", "reason": "copilot-unavailable"}
+
+    raw = copilot_call(prompt, timeout=180)
+    if not raw:
+        return {"status": "failed", "reason": "copilot-empty-response"}
+
+    html = parse_llm_html(raw)
+    if not html or len(html) < 500:
+        return {"status": "failed", "reason": "output-too-small"}
+
+    if "<!doctype html>" not in html.lower()[:200]:
+        return {"status": "failed", "reason": "missing-doctype"}
+
+    title_match = re.search(r"<title>(.*?)</title>", html)
+    title = title_match.group(1).strip() if title_match else "Untitled Recombinant"
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50]
+    filename = f"{slug}.html"
+
+    return {
+        "status": "success",
+        "html": html,
+        "filename": filename,
+        "title": title,
+        "traits_used": traits_used,
+        "parents": parent_files,
+        "experience": experience.get("id") if experience else None,
+        "size": len(html),
+    }
+
+
 def synthesize_game(genome: dict, experience: dict = None, target_category: str = None,
                     dry_run: bool = False) -> dict:
-    """Use LLM to synthesize a new game from genome + experience target.
+    """Classic synthesis: use regex-detected gene samples to breed a new app.
 
     Returns dict with: html, filename, title, metadata, lineage
     """

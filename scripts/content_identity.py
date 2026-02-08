@@ -14,6 +14,7 @@ import hashlib
 import json
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 from copilot_utils import (
     APPS_DIR,
@@ -95,7 +96,7 @@ Content:
 Return ONLY the JSON object. No explanation."""
 
 
-def analyze(filepath, content=None, use_cache=True) -> dict | None:
+def analyze(filepath, content=None, use_cache=True) -> Optional[dict]:
     """Analyze an HTML file and return its Content Identity.
 
     Returns None if LLM is unavailable. No data is better than bad data.
@@ -192,7 +193,7 @@ def analyze_bulk(filepaths, use_cache=True, verbose=False) -> dict:
     return results
 
 
-def get_improvement_vector(filepath, content=None) -> str | None:
+def get_improvement_vector(filepath, content=None) -> Optional[str]:
     """Get the single most impactful improvement for a file.
 
     Convenience method for the molt pipeline.
@@ -205,7 +206,7 @@ def get_improvement_vector(filepath, content=None) -> str | None:
     return vectors[0] if vectors else None
 
 
-def get_adaptive_scores(filepath, content=None) -> dict | None:
+def get_adaptive_scores(filepath, content=None) -> Optional[dict]:
     """Get the three adaptive dimension scores for a file.
 
     Returns dict with craft_score, completeness_score, engagement_score
