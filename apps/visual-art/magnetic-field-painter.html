@@ -5,322 +5,398 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magnetic Field Painter</title>
     <meta name="description" content="Place invisible magnetic poles and watch thousands of iron filings reveal elegant field topology, flowing like liquid metal along force lines">
+    <meta name="rappterzoo:author" content="RappterZoo">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="particle-physics">
+    <meta name="rappterzoo:tags" content="canvas,physics,magnetic,simulation,particles">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="intermediate">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="3">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #f0ece5; min-height: 100vh; font-family: 'Georgia', serif; color: #4a4540; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; cursor: crosshair; }
+        #skip-link {
+            position: fixed; top: -100px; left: 50%; transform: translateX(-50%);
+            background: #4a4540; color: #fff; padding: 8px 16px; border-radius: 0 0 6px 6px;
+            z-index: 200; font-size: 14px; text-decoration: none;
+            transition: top 0.2s;
+        }
+        #skip-link:focus { top: 0; }
+        #canvas {
+            position: fixed; top: 0; left: 0; cursor: crosshair;
+            will-change: contents;
+        }
         #controls {
             position: fixed; top: 20px; left: 20px; background: rgba(240,236,229,0.95);
             padding: 20px; border-radius: 10px; border: 1px solid rgba(100,90,80,0.3);
             z-index: 100;
         }
-        h3 { margin-bottom: 15px; color: #5a5550; font-weight: normal; }
+        #controls h3 { margin-bottom: 15px; color: #3a3530; font-weight: normal; }
         .control-row { margin: 10px 0; }
-        label { display: block; font-size: 11px; margin-bottom: 5px; opacity: 0.8; }
+        label { display: block; font-size: 11px; margin-bottom: 5px; color: #5a5550; }
         input[type="range"] { width: 140px; }
-        .value { float: right; color: #7a7570; font-size: 12px; }
+        .value { float: right; color: #5a5550; font-size: 12px; }
         button {
             display: block; width: 100%; padding: 10px; margin: 6px 0;
             background: rgba(80,70,60,0.2); border: 1px solid rgba(100,90,80,0.4);
-            color: #5a5550; cursor: pointer; border-radius: 6px; font-family: inherit;
+            color: #3a3530; cursor: pointer; border-radius: 6px; font-family: inherit;
+            font-size: 13px;
         }
+        button:hover { background: rgba(80,70,60,0.3); }
         .pole-row { display: flex; gap: 8px; margin: 10px 0; }
-        .pole-btn { flex: 1; padding: 8px; font-size: 10px; }
+        .pole-row-label { display: block; font-size: 11px; margin-bottom: 5px; color: #5a5550; }
+        .pole-btn { flex: 1; padding: 8px; font-size: 11px; }
         .pole-btn.active { background: rgba(80,70,60,0.4); }
-        #stats { position: fixed; top: 20px; right: 20px; font-size: 12px; color: #6a6560; z-index: 100; text-align: right; }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.5; z-index: 100; }
+        #stats { position: fixed; top: 20px; right: 20px; font-size: 12px; color: #4a4540; z-index: 100; text-align: right; }
+        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #6a6560; z-index: 100; }
+        noscript p { padding: 2em; text-align: center; font-size: 1.2em; }
+        *:focus-visible { outline: 3px solid #3050a0; outline-offset: 2px; }
+        #canvas:focus-visible { outline: 3px solid #3050a0; outline-offset: -3px; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="controls">
+    <a id="skip-link" href="#canvas">Skip to simulation</a>
+    <noscript><p>This application requires JavaScript to simulate magnetic fields.</p></noscript>
+    <canvas id="canvas" tabindex="0" role="img" aria-label="Magnetic field simulation canvas. Click to place magnetic poles. Use keyboard: Enter or Space to place a pole at center, arrow keys to adjust position."></canvas>
+    <aside id="controls" aria-label="Simulation controls">
         <h3>Magnetic Field Painter</h3>
         <div class="control-row">
-            <label>Particle Count <span class="value" id="count-val">2000</span></label>
-            <input type="range" id="count" min="500" max="5000" value="2000">
+            <label for="count">Particle Count <span class="value" id="count-val" aria-hidden="true">2000</span></label>
+            <input type="range" id="count" min="500" max="5000" value="2000" aria-valuemin="500" aria-valuemax="5000" aria-valuenow="2000" aria-valuetext="2000 particles">
         </div>
         <div class="control-row">
-            <label>Field Strength <span class="value" id="strength-val">50</span></label>
-            <input type="range" id="strength" min="20" max="100" value="50">
+            <label for="strength">Field Strength <span class="value" id="strength-val" aria-hidden="true">50</span></label>
+            <input type="range" id="strength" min="20" max="100" value="50" aria-valuemin="20" aria-valuemax="100" aria-valuenow="50" aria-valuetext="50 percent strength">
         </div>
-        <label>Pole Type</label>
-        <div class="pole-row">
-            <button class="pole-btn active" data-pole="north">North (+)</button>
-            <button class="pole-btn" data-pole="south">South (-)</button>
+        <div role="group" aria-labelledby="pole-type-label">
+            <span id="pole-type-label" class="pole-row-label">Pole Type</span>
+            <div class="pole-row" role="radiogroup" aria-labelledby="pole-type-label">
+                <button class="pole-btn active" role="radio" aria-checked="true" data-pole="north">North (+)</button>
+                <button class="pole-btn" role="radio" aria-checked="false" data-pole="south">South (&minus;)</button>
+            </div>
         </div>
-        <button id="field-btn">Toggle Field Lines</button>
+        <button id="field-btn" aria-pressed="false">Toggle Field Lines</button>
         <button id="clear-btn">Clear All</button>
-    </div>
-    <div id="stats">
+    </aside>
+    <section id="stats" aria-live="polite" aria-atomic="true">
         <div>Poles: <span id="pole-count">0</span></div>
         <div>Filings: <span id="filing-count">0</span></div>
         <div>Mode: <span id="view-mode">Particles</span></div>
-    </div>
-    <div id="info">Click to place magnetic poles | Watch iron filings reveal invisible forces</div>
+    </section>
+    <footer id="info" role="status">Click to place magnetic poles | Watch iron filings reveal invisible forces</footer>
     <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let W, H;
-        function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; initFilings(); }
-        resize(); window.onresize = resize;
-        
-        let particleCount = 2000;
-        let fieldStrength = 0.5;
-        let currentPole = 'north';
-        let showFieldLines = false;
-        let time = 0;
-        
-        const poles = [];
-        const filings = [];
-        
-        class Pole {
-            constructor(x, y, type) {
-                this.x = x;
-                this.y = y;
-                this.type = type;
-                this.strength = type === 'north' ? 1 : -1;
-            }
-            
-            draw() {
-                const radius = 15;
-                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, radius * 2);
-                
-                if (this.type === 'north') {
-                    gradient.addColorStop(0, 'rgba(180, 50, 50, 0.8)');
-                    gradient.addColorStop(0.5, 'rgba(180, 50, 50, 0.3)');
-                    gradient.addColorStop(1, 'transparent');
-                } else {
-                    gradient.addColorStop(0, 'rgba(50, 80, 180, 0.8)');
-                    gradient.addColorStop(0.5, 'rgba(50, 80, 180, 0.3)');
-                    gradient.addColorStop(1, 'transparent');
-                }
-                
-                ctx.fillStyle = gradient;
-                ctx.fillRect(this.x - radius * 2, this.y - radius * 2, radius * 4, radius * 4);
-                
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = this.type === 'north' ? '#a03030' : '#3050a0';
-                ctx.fill();
-                
-                ctx.font = 'bold 16px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#fff';
-                ctx.fillText(this.type === 'north' ? '+' : '-', this.x, this.y);
+        // Cache all DOM references upfront
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext('2d');
+        var poleCountEl = document.getElementById('pole-count');
+        var filingCountEl = document.getElementById('filing-count');
+        var viewModeEl = document.getElementById('view-mode');
+        var countValEl = document.getElementById('count-val');
+        var strengthValEl = document.getElementById('strength-val');
+        var countInput = document.getElementById('count');
+        var strengthInput = document.getElementById('strength');
+        var fieldBtn = document.getElementById('field-btn');
+        var clearBtn = document.getElementById('clear-btn');
+        var poleBtns = document.querySelectorAll('.pole-btn');
+        var poleRow = document.querySelector('.pole-row');
+
+        var W, H, cursorX, cursorY;
+        var particleCount = 2000;
+        var fieldStrength = 0.5;
+        var currentPole = 'north';
+        var showFieldLines = false;
+        var time = 0;
+        var poles = [];
+
+        // Flat typed arrays for filing data — eliminates per-particle object/GC overhead
+        var fX, fY, fAngle, fLength, fAlignSpeed, fFieldMag;
+        var filingCt = 0;
+
+        // Debounced resize
+        var resizeTimer = 0;
+        function resize() {
+            W = canvas.width = innerWidth;
+            H = canvas.height = innerHeight;
+            cursorX = W / 2;
+            cursorY = H / 2;
+            initFilings();
+        }
+        function debouncedResize() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(resize, 100);
+        }
+        resize();
+        window.addEventListener('resize', debouncedResize);
+
+        function initFilings() {
+            filingCt = particleCount;
+            fX = new Float32Array(filingCt);
+            fY = new Float32Array(filingCt);
+            fAngle = new Float32Array(filingCt);
+            fLength = new Float32Array(filingCt);
+            fAlignSpeed = new Float32Array(filingCt);
+            fFieldMag = new Float32Array(filingCt);
+            var wRange = W - 100, hRange = H - 100;
+            for (var i = 0; i < filingCt; i++) {
+                fX[i] = 50 + Math.random() * wRange;
+                fY[i] = 50 + Math.random() * hRange;
+                fAngle[i] = Math.random() * Math.PI * 2;
+                fLength[i] = 3 + Math.random() * 4;
+                fAlignSpeed[i] = 0.1 + Math.random() * 0.1;
+                fFieldMag[i] = 0;
             }
         }
-        
-        class Filing {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.angle = Math.random() * Math.PI * 2;
-                this.targetAngle = this.angle;
-                this.length = 3 + Math.random() * 4;
-                this.alignSpeed = 0.1 + Math.random() * 0.1;
+
+        // Single pass: compute field + update angle, cache magnitude for draw
+        function updateFilings() {
+            var pLen = poles.length;
+            if (pLen === 0) {
+                for (var i = 0; i < filingCt; i++) fFieldMag[i] = 0;
+                return;
             }
-            
-            getFieldAtPoint() {
-                let fx = 0, fy = 0;
-                
-                poles.forEach(pole => {
-                    const dx = this.x - pole.x;
-                    const dy = this.y - pole.y;
-                    const distSq = dx * dx + dy * dy;
-                    const dist = Math.sqrt(distSq);
-                    
-                    if (dist < 10) return;
-                    
-                    const strength = (pole.strength * fieldStrength * 1000) / distSq;
-                    fx += (dx / dist) * strength;
-                    fy += (dy / dist) * strength;
-                });
-                
-                return { fx, fy, magnitude: Math.hypot(fx, fy) };
-            }
-            
-            update() {
-                const field = this.getFieldAtPoint();
-                
-                if (field.magnitude > 0.01) {
-                    this.targetAngle = Math.atan2(field.fy, field.fx);
-                    
-                    let angleDiff = this.targetAngle - this.angle;
-                    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                    
-                    if (Math.abs(angleDiff) > Math.PI / 2) {
-                        this.targetAngle += Math.PI;
-                        angleDiff = this.targetAngle - this.angle;
-                        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            var fs = fieldStrength * 1000;
+            var PI = Math.PI, PI2 = PI * 2, halfPI = PI * 0.5;
+            for (var i = 0; i < filingCt; i++) {
+                var px = fX[i], py = fY[i];
+                var fx = 0, fy = 0;
+                for (var j = 0; j < pLen; j++) {
+                    var pole = poles[j];
+                    var dx = px - pole.x, dy = py - pole.y;
+                    var distSq = dx * dx + dy * dy;
+                    if (distSq < 100) continue;
+                    var dist = Math.sqrt(distSq);
+                    var str = (pole.strength * fs) / distSq;
+                    fx += (dx / dist) * str;
+                    fy += (dy / dist) * str;
+                }
+                var mag = Math.sqrt(fx * fx + fy * fy);
+                fFieldMag[i] = mag;
+                if (mag > 0.01) {
+                    var ta = Math.atan2(fy, fx);
+                    var ad = ta - fAngle[i];
+                    if (ad > PI) ad -= PI2; else if (ad < -PI) ad += PI2;
+                    if (ad > halfPI || ad < -halfPI) {
+                        ta += PI;
+                        ad = ta - fAngle[i];
+                        if (ad > PI) ad -= PI2; else if (ad < -PI) ad += PI2;
                     }
-                    
-                    this.angle += angleDiff * this.alignSpeed * Math.min(field.magnitude, 1);
+                    fAngle[i] += ad * fAlignSpeed[i] * (mag < 1 ? mag : 1);
                 }
             }
-            
-            draw() {
-                const field = this.getFieldAtPoint();
-                const intensity = Math.min(1, field.magnitude * 2);
-                
-                const x1 = this.x - Math.cos(this.angle) * this.length;
-                const y1 = this.y - Math.sin(this.angle) * this.length;
-                const x2 = this.x + Math.cos(this.angle) * this.length;
-                const y2 = this.y + Math.sin(this.angle) * this.length;
-                
+        }
+
+        // Batch filings into 3 intensity buckets to minimize stroke calls
+        function drawFilings() {
+            ctx.lineCap = 'round';
+            var bucketWidths = [1.17, 1.5, 2];
+            var bucketColors = [
+                'rgba(62,62,72,0.6)',
+                'rgba(46,46,56,0.72)',
+                'rgba(30,30,40,0.9)'
+            ];
+            for (var b = 0; b < 3; b++) {
                 ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                
-                const gray = 30 + (1 - intensity) * 40;
-                ctx.strokeStyle = "rgba(" + gray + ", " + gray + ", " + (gray + 10) + ", " + (0.5 + intensity * 0.4) + ")";
-                ctx.lineWidth = 1 + intensity;
-                ctx.lineCap = 'round';
+                ctx.lineWidth = bucketWidths[b];
+                ctx.strokeStyle = bucketColors[b];
+                for (var i = 0; i < filingCt; i++) {
+                    var intensity = fFieldMag[i] * 2;
+                    if (intensity > 1) intensity = 1;
+                    var bucket = intensity < 0.33 ? 0 : intensity < 0.66 ? 1 : 2;
+                    if (bucket !== b) continue;
+                    var len = fLength[i];
+                    var cos = Math.cos(fAngle[i]), sin = Math.sin(fAngle[i]);
+                    var x = fX[i], y = fY[i];
+                    ctx.moveTo(x - cos * len, y - sin * len);
+                    ctx.lineTo(x + cos * len, y + sin * len);
+                }
                 ctx.stroke();
             }
         }
-        
-        function initFilings() {
-            filings.length = 0;
-            for (let i = 0; i < particleCount; i++) {
-                filings.push(new Filing(
-                    50 + Math.random() * (W - 100),
-                    50 + Math.random() * (H - 100)
-                ));
+
+        function drawPole(pole) {
+            var x = pole.x, y = pole.y, isNorth = pole.type === 'north';
+            var r = 15, r2 = 30;
+            var gradient = ctx.createRadialGradient(x, y, 0, x, y, r2);
+            if (isNorth) {
+                gradient.addColorStop(0, 'rgba(180, 50, 50, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(180, 50, 50, 0.3)');
+            } else {
+                gradient.addColorStop(0, 'rgba(50, 80, 180, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(50, 80, 180, 0.3)');
             }
+            gradient.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x - r2, y - r2, r2 * 2, r2 * 2);
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = isNorth ? '#a03030' : '#3050a0';
+            ctx.fill();
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.fillText(isNorth ? '+' : '-', x, y);
         }
-        
+
         function drawFieldLines() {
             if (!showFieldLines || poles.length === 0) return;
-            
-            poles.forEach(pole => {
-                if (pole.type !== 'north') return;
-                
-                const lineCount = 12;
-                for (let i = 0; i < lineCount; i++) {
-                    const startAngle = (i / lineCount) * Math.PI * 2;
-                    let x = pole.x + Math.cos(startAngle) * 20;
-                    let y = pole.y + Math.sin(startAngle) * 20;
-                    
+            var pLen = poles.length;
+            for (var pi = 0; pi < pLen; pi++) {
+                var pole = poles[pi];
+                if (pole.type !== 'north') continue;
+                var lineCount = 12;
+                for (var i = 0; i < lineCount; i++) {
+                    var startAngle = (i / lineCount) * Math.PI * 2;
+                    var x = pole.x + Math.cos(startAngle) * 20;
+                    var y = pole.y + Math.sin(startAngle) * 20;
                     ctx.beginPath();
                     ctx.moveTo(x, y);
-                    
-                    for (let step = 0; step < 200; step++) {
-                        let fx = 0, fy = 0;
-                        
-                        poles.forEach(p => {
-                            const dx = x - p.x;
-                            const dy = y - p.y;
-                            const distSq = dx * dx + dy * dy;
-                            const dist = Math.sqrt(distSq);
-                            
-                            if (dist < 5) return;
-                            
-                            const strength = (p.strength * 1000) / distSq;
-                            fx += (dx / dist) * strength;
-                            fy += (dy / dist) * strength;
-                        });
-                        
-                        const mag = Math.hypot(fx, fy);
+                    for (var step = 0; step < 200; step++) {
+                        var fx = 0, fy = 0;
+                        for (var j = 0; j < pLen; j++) {
+                            var p = poles[j];
+                            var dx = x - p.x, dy = y - p.y;
+                            var distSq = dx * dx + dy * dy;
+                            if (distSq < 25) continue;
+                            var dist = Math.sqrt(distSq);
+                            var str = (p.strength * 1000) / distSq;
+                            fx += (dx / dist) * str;
+                            fy += (dy / dist) * str;
+                        }
+                        var mag = Math.sqrt(fx * fx + fy * fy);
                         if (mag < 0.001) break;
-                        
                         x += (fx / mag) * 5;
                         y += (fy / mag) * 5;
-                        
                         if (x < 0 || x > W || y < 0 || y > H) break;
-                        
-                        let hitSouth = false;
-                        poles.forEach(p => {
-                            if (p.type === 'south' && Math.hypot(x - p.x, y - p.y) < 20) {
-                                hitSouth = true;
+                        var hitSouth = false;
+                        for (var j = 0; j < pLen; j++) {
+                            var p = poles[j];
+                            if (p.type === 'south') {
+                                var sdx = x - p.x, sdy = y - p.y;
+                                if (sdx * sdx + sdy * sdy < 400) { hitSouth = true; break; }
                             }
-                        });
-                        
+                        }
                         ctx.lineTo(x, y);
-                        
                         if (hitSouth) break;
                     }
-                    
-                    const gradient = ctx.createLinearGradient(pole.x, pole.y, x, y);
+                    var gradient = ctx.createLinearGradient(pole.x, pole.y, x, y);
                     gradient.addColorStop(0, 'rgba(180, 50, 50, 0.3)');
                     gradient.addColorStop(1, 'rgba(50, 80, 180, 0.3)');
                     ctx.strokeStyle = gradient;
                     ctx.lineWidth = 1;
                     ctx.stroke();
                 }
-            });
+            }
         }
-        
+
         function drawBackground() {
             ctx.fillStyle = '#f0ece5';
             ctx.fillRect(0, 0, W, H);
-            
             ctx.fillStyle = 'rgba(200, 190, 175, 0.2)';
-            for (let i = 0; i < 30; i++) {
-                const x = (i * 73 + time * 0.1) % W;
-                const y = (i * 97) % H;
-                ctx.fillRect(x, y, 2, 1);
+            var t = time * 0.1;
+            for (var i = 0; i < 30; i++) {
+                ctx.fillRect((i * 73 + t) % W, (i * 97) % H, 2, 1);
             }
         }
-        
+
+        var lastPoleCount = -1, lastShowFieldLines = null;
         function updateStats() {
-            document.getElementById('pole-count').textContent = poles.length;
-            document.getElementById('filing-count').textContent = filings.length;
-            document.getElementById('view-mode').textContent = showFieldLines ? 'Field Lines' : 'Particles';
+            if (poles.length !== lastPoleCount || showFieldLines !== lastShowFieldLines) {
+                poleCountEl.textContent = poles.length;
+                filingCountEl.textContent = filingCt;
+                viewModeEl.textContent = showFieldLines ? 'Field Lines' : 'Particles';
+                lastPoleCount = poles.length;
+                lastShowFieldLines = showFieldLines;
+            }
         }
-        
+
         function animate() {
             time += 0.016;
-            
             drawBackground();
             drawFieldLines();
-            
-            filings.forEach(f => {
-                f.update();
-                f.draw();
-            });
-            
-            poles.forEach(p => p.draw());
-            
+            updateFilings();
+            drawFilings();
+            for (var i = 0; i < poles.length; i++) drawPole(poles[i]);
             updateStats();
-            
             requestAnimationFrame(animate);
         }
-        
-        canvas.onclick = e => {
+
+        // --- Event handlers ---
+
+        canvas.addEventListener('click', function(e) {
             if (e.clientX < 200 && e.clientY < 350) return;
-            poles.push(new Pole(e.clientX, e.clientY, currentPole));
-        };
-        
-        document.getElementById('count').oninput = e => {
-            particleCount = parseInt(e.target.value);
-            document.getElementById('count-val').textContent = e.target.value;
-            initFilings();
-        };
-        
-        document.getElementById('strength').oninput = e => {
-            fieldStrength = e.target.value / 100;
-            document.getElementById('strength-val').textContent = e.target.value;
-        };
-        
-        document.querySelectorAll('.pole-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelectorAll('.pole-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentPole = btn.dataset.pole;
-            };
+            poles.push({ x: e.clientX, y: e.clientY, type: currentPole, strength: currentPole === 'north' ? 1 : -1 });
         });
-        
-        document.getElementById('field-btn').onclick = () => {
+
+        canvas.addEventListener('keydown', function(e) {
+            var step = e.shiftKey ? 50 : 20;
+            switch (e.key) {
+                case 'ArrowUp':    cursorY = Math.max(0, cursorY - step); e.preventDefault(); break;
+                case 'ArrowDown':  cursorY = Math.min(H, cursorY + step); e.preventDefault(); break;
+                case 'ArrowLeft':  cursorX = Math.max(0, cursorX - step); e.preventDefault(); break;
+                case 'ArrowRight': cursorX = Math.min(W, cursorX + step); e.preventDefault(); break;
+                case 'Enter':
+                case ' ':
+                    poles.push({ x: cursorX, y: cursorY, type: currentPole, strength: currentPole === 'north' ? 1 : -1 });
+                    e.preventDefault();
+                    break;
+            }
+        });
+
+        // Debounce particle count — initFilings is expensive
+        var countDebounce = 0;
+        countInput.addEventListener('input', function(e) {
+            particleCount = parseInt(e.target.value);
+            countValEl.textContent = e.target.value;
+            e.target.setAttribute('aria-valuenow', e.target.value);
+            e.target.setAttribute('aria-valuetext', e.target.value + ' particles');
+            clearTimeout(countDebounce);
+            countDebounce = setTimeout(initFilings, 80);
+        });
+
+        strengthInput.addEventListener('input', function(e) {
+            fieldStrength = e.target.value / 100;
+            strengthValEl.textContent = e.target.value;
+            e.target.setAttribute('aria-valuenow', e.target.value);
+            e.target.setAttribute('aria-valuetext', e.target.value + ' percent strength');
+        });
+
+        poleBtns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                poleBtns.forEach(function(b) {
+                    b.classList.remove('active');
+                    b.setAttribute('aria-checked', 'false');
+                });
+                btn.classList.add('active');
+                btn.setAttribute('aria-checked', 'true');
+                currentPole = btn.dataset.pole;
+            });
+        });
+
+        poleRow.addEventListener('keydown', function(e) {
+            var btns = Array.from(poleRow.querySelectorAll('.pole-btn'));
+            var idx = btns.indexOf(document.activeElement);
+            if (idx < 0) return;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                var next = btns[(idx + 1) % btns.length];
+                next.focus(); next.click();
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                var prev = btns[(idx - 1 + btns.length) % btns.length];
+                prev.focus(); prev.click();
+            }
+        });
+
+        fieldBtn.addEventListener('click', function() {
             showFieldLines = !showFieldLines;
-        };
-        
-        document.getElementById('clear-btn').onclick = () => {
-            poles.length = 0;
-        };
-        
+            fieldBtn.setAttribute('aria-pressed', showFieldLines ? 'true' : 'false');
+            viewModeEl.textContent = showFieldLines ? 'Field Lines' : 'Particles';
+        });
+
+        clearBtn.addEventListener('click', function() { poles.length = 0; });
+
         initFilings();
         animate();
     </script>

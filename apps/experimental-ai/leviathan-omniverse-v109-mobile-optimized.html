@@ -918,18 +918,37 @@
   };
 
   // ===== 5. STORAGE MANAGER =====
+  // Detect if localStorage is available (blocked by Tracking Prevention in some browsers)
+  const _storageAvailable = (() => {
+    try {
+      const t = '__storage_test__';
+      localStorage.setItem(t, t);
+      localStorage.removeItem(t);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  })();
+
+  // In-memory fallback when localStorage is blocked by Tracking Prevention
+  const _memoryStore = {};
+
   const StorageManager = {
     prefix: 'leviathan-',
 
     save(key, value, options = {}) {
+      const fullKey = this.prefix + key;
+      const payload = JSON.stringify({
+        data: value,
+        timestamp: Date.now(),
+        version: VERSION,
+        temp: !!options.temp
+      });
+      if (!_storageAvailable) {
+        _memoryStore[fullKey] = payload;
+        return true;
+      }
       try {
-        const fullKey = this.prefix + key;
-        const payload = JSON.stringify({
-          data: value,
-          timestamp: Date.now(),
-          version: VERSION,
-          temp: !!options.temp
-        });
         localStorage.setItem(fullKey, payload);
         Logger.debug('STORAGE', `Saved ${fullKey} (${payload.length} bytes)`);
         return true;
@@ -944,14 +963,22 @@
             Logger.error('STORAGE', 'Save failed even after cleanup');
           }
         }
-        Logger.error('STORAGE', 'Save error:', e.message);
-        return false;
+        // Fallback to memory on any storage error
+        _memoryStore[fullKey] = payload;
+        return true;
       }
     },
 
     load(key, defaultValue) {
+      const fullKey = this.prefix + key;
+      if (!_storageAvailable) {
+        const raw = _memoryStore[fullKey];
+        if (!raw) return defaultValue;
+        try { const p = JSON.parse(raw); return p.data !== undefined ? p.data : defaultValue; }
+        catch (e) { return defaultValue; }
+      }
       try {
-        const raw = localStorage.getItem(this.prefix + key);
+        const raw = localStorage.getItem(fullKey);
         if (!raw) return defaultValue;
         const parsed = JSON.parse(raw);
         return parsed.data !== undefined ? parsed.data : defaultValue;
@@ -962,8 +989,10 @@
     },
 
     remove(key) {
+      const fullKey = this.prefix + key;
+      if (!_storageAvailable) { delete _memoryStore[fullKey]; return; }
       try {
-        localStorage.removeItem(this.prefix + key);
+        localStorage.removeItem(fullKey);
       } catch (e) {
         Logger.warn('STORAGE', `Remove error for ${key}`);
       }
@@ -971,12 +1000,20 @@
 
     exportAll() {
       const data = {};
+      if (!_storageAvailable) {
+        for (const [key, val] of Object.entries(_memoryStore)) {
+          if (key.startsWith(this.prefix)) {
+            try { data[key] = JSON.parse(val); } catch (e) { data[key] = val; }
+          }
+        }
+      } else {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key.startsWith(this.prefix)) {
           try { data[key] = JSON.parse(localStorage.getItem(key)); }
           catch (e) { data[key] = localStorage.getItem(key); }
         }
+      }
       }
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -996,7 +1033,9 @@
             const data = JSON.parse(e.target.result);
             for (const [key, value] of Object.entries(data)) {
               if (key.startsWith(this.prefix)) {
-                localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+                const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+                if (!_storageAvailable) { _memoryStore[key] = serialized; }
+                else { localStorage.setItem(key, serialized); }
               }
             }
             Logger.debug('STORAGE', 'Imported all data');
@@ -1012,6 +1051,13 @@
     },
 
     getUsageBytes() {
+      if (!_storageAvailable) {
+        let total = 0;
+        for (const [key, val] of Object.entries(_memoryStore)) {
+          if (key.startsWith(this.prefix)) total += key.length + val.length;
+        }
+        return total * 2;
+      }
       let total = 0;
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -1023,6 +1069,10 @@
     },
 
     performSmartCleanup(neededBytes) {
+      if (!_storageAvailable) {
+        // Memory store doesn't need cleanup but honor the interface
+        return 0;
+      }
       const entries = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
