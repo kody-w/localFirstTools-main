@@ -4,258 +4,879 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hypnagogic Garden</title>
-    <meta name="description" content="Explore the liminal space between waking and sleep with evolving geometric patterns">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0510; min-height: 100vh; font-family: 'Georgia', serif; color: #c0a0d0; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; }
-        #controls {
-            position: fixed; top: 20px; left: 20px; background: rgba(20,10,30,0.9);
-            padding: 20px; border-radius: 15px; border: 1px solid rgba(180,120,200,0.2);
-            z-index: 100;
+        body { background: #0a0510; overflow: hidden; font-family: 'Georgia', serif; }
+        canvas { display: block; }
+        #ui {
+            position: fixed; top: 0; left: 0; right: 0; pointer-events: none;
+            z-index: 10; padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: flex-start;
         }
-        h3 { margin-bottom: 15px; color: #e0c0ff; font-weight: normal; letter-spacing: 2px; }
-        .control-row { margin: 12px 0; }
-        label { display: block; font-size: 11px; margin-bottom: 5px; opacity: 0.7; }
-        input[type="range"] { width: 140px; }
-        .value { float: right; color: #d0a0f0; font-size: 12px; }
-        button {
-            display: block; width: 100%; padding: 10px; margin: 6px 0;
-            background: rgba(100,60,120,0.3); border: 1px solid rgba(180,120,200,0.3);
-            color: #c0a0d0; cursor: pointer; border-radius: 8px; font-family: inherit;
+        #hud-left, #hud-right { pointer-events: auto; }
+        .hud-box {
+            background: rgba(20,10,35,0.85); border: 1px solid rgba(160,100,220,0.3);
+            border-radius: 12px; padding: 12px 18px; backdrop-filter: blur(6px);
         }
-        #state {
-            position: fixed; top: 20px; right: 20px; background: rgba(20,10,30,0.9);
-            padding: 15px 25px; border-radius: 15px; border: 1px solid rgba(180,120,200,0.2);
-            z-index: 100; text-align: center;
+        .hud-label { font-size: 10px; color: rgba(180,140,220,0.7); text-transform: uppercase; letter-spacing: 2px; }
+        .hud-value { font-size: 18px; color: #e0c0ff; margin-top: 2px; }
+        .hud-row { display: flex; gap: 20px; }
+        .bar-container { width: 120px; height: 8px; background: rgba(60,30,80,0.5); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .bar-consciousness { background: linear-gradient(90deg, #4040ff, #c040ff); }
+        .bar-dream { background: linear-gradient(90deg, #40c0ff, #40ffc0); }
+        .bar-health { background: linear-gradient(90deg, #ff4040, #ff8040); }
+        #menu-overlay, #gameover-overlay, #pause-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10,5,20,0.95); z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
-        #state-name { font-size: 14px; letter-spacing: 3px; color: #e0c0ff; }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.4; z-index: 100; letter-spacing: 1px; }
+        .overlay-title {
+            font-size: 48px; color: #e0c0ff; margin-bottom: 10px;
+            text-shadow: 0 0 30px rgba(180,100,255,0.5);
+        }
+        .overlay-subtitle { font-size: 16px; color: rgba(180,140,220,0.7); margin-bottom: 40px; letter-spacing: 3px; }
+        .menu-btn {
+            display: block; width: 260px; padding: 14px 20px; margin: 8px;
+            background: rgba(80,40,120,0.3); border: 1px solid rgba(160,100,220,0.4);
+            color: #c0a0e0; font-size: 16px; font-family: inherit; cursor: pointer;
+            border-radius: 10px; transition: all 0.3s; text-align: center;
+        }
+        .menu-btn:hover { background: rgba(120,60,180,0.4); border-color: rgba(200,140,255,0.6); transform: scale(1.03); }
+        .stat-row { display: flex; justify-content: space-between; width: 300px; padding: 6px 0; color: #c0a0e0; font-size: 14px; border-bottom: 1px solid rgba(160,100,220,0.15); }
+        .stat-val { color: #e0c0ff; }
+        #toolbar {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 8px; z-index: 10; pointer-events: auto;
+        }
+        .tool-btn {
+            width: 56px; height: 56px; border-radius: 12px; border: 2px solid rgba(160,100,220,0.3);
+            background: rgba(30,15,50,0.85); color: #c0a0e0; font-size: 24px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s; position: relative;
+        }
+        .tool-btn.active { border-color: #c060ff; background: rgba(80,30,120,0.6); box-shadow: 0 0 15px rgba(180,80,255,0.3); }
+        .tool-btn:hover { border-color: rgba(200,140,255,0.5); }
+        .tool-label { position: absolute; bottom: -16px; font-size: 9px; white-space: nowrap; letter-spacing: 1px; }
+        .tool-cooldown { position: absolute; top: 2px; right: 4px; font-size: 9px; color: #ff8080; }
+        .hidden { display: none !important; }
+        #difficulty-select { display: flex; gap: 10px; margin: 10px 0 20px; }
+        .diff-btn { padding: 8px 20px; border-radius: 8px; border: 1px solid rgba(160,100,220,0.3); background: rgba(40,20,60,0.5); color: #c0a0e0; cursor: pointer; font-family: inherit; }
+        .diff-btn.selected { border-color: #c060ff; background: rgba(100,40,160,0.5); }
+        #wave-indicator {
+            position: fixed; top: 50%; right: 20px; transform: translateY(-50%);
+            z-index: 10; pointer-events: none; text-align: center;
+        }
+        .wave-text { font-size: 12px; color: rgba(180,140,220,0.5); letter-spacing: 2px; }
+        .wave-num { font-size: 28px; color: #e0c0ff; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="controls">
-        <h3>Hypnagogic</h3>
-        <div class="control-row">
-            <label>Drift Speed <span class="value" id="drift-val">50</span></label>
-            <input type="range" id="drift" min="10" max="100" value="50">
+<canvas id="canvas"></canvas>
+<div id="ui">
+    <div id="hud-left" class="hud-box hidden">
+        <div class="hud-row">
+            <div>
+                <div class="hud-label">Dream Essence</div>
+                <div class="hud-value" id="score-display">0</div>
+            </div>
+            <div>
+                <div class="hud-label">Combo</div>
+                <div class="hud-value" id="combo-display">x1</div>
+            </div>
         </div>
-        <div class="control-row">
-            <label>Pattern Complexity <span class="value" id="complex-val">5</span></label>
-            <input type="range" id="complexity" min="2" max="12" value="5">
-        </div>
-        <div class="control-row">
-            <label>Color Warmth <span class="value" id="warmth-val">50</span></label>
-            <input type="range" id="warmth" min="0" max="100" value="50">
-        </div>
-        <button id="deeper">Drift Deeper</button>
-        <button id="surface">Return to Surface</button>
     </div>
-    <div id="state">
-        <div id="state-name">WAKING</div>
+    <div id="hud-right" class="hud-box hidden">
+        <div>
+            <div class="hud-label">Consciousness</div>
+            <div class="bar-container"><div class="bar-fill bar-consciousness" id="consciousness-bar" style="width:100%"></div></div>
+        </div>
+        <div style="margin-top:8px">
+            <div class="hud-label">Garden Health</div>
+            <div class="bar-container"><div class="bar-fill bar-health" id="health-bar" style="width:100%"></div></div>
+        </div>
+        <div style="margin-top:8px">
+            <div class="hud-label">Dream Level</div>
+            <div class="bar-container"><div class="bar-fill bar-dream" id="dream-bar" style="width:0%"></div></div>
+        </div>
     </div>
-    <div id="info">Between worlds... let go...</div>
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let W, H;
-        function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
-        resize(); window.onresize = resize;
-        
-        let driftSpeed = 0.5;
-        let complexity = 5;
-        let warmth = 50;
-        let consciousnessLevel = 1;
-        let targetConsciousness = 1;
-        let time = 0;
-        let shapes = [];
-        
-        const states = ['WAKING', 'RELAXING', 'DRIFTING', 'HYPNAGOGIC', 'THRESHOLD', 'DREAMING'];
-        
-        class DreamShape {
-            constructor() {
-                this.x = Math.random() * W;
-                this.y = Math.random() * H;
-                this.size = 20 + Math.random() * 100;
-                this.rotation = Math.random() * Math.PI * 2;
-                this.rotSpeed = (Math.random() - 0.5) * 0.01;
-                this.type = Math.floor(Math.random() * 5);
-                this.hue = warmth < 50 ? 240 + Math.random() * 60 : 280 + Math.random() * 80;
-                this.phase = Math.random() * Math.PI * 2;
-                this.depth = Math.random();
-                this.vertices = 3 + Math.floor(Math.random() * 6);
-            }
-            update() {
-                this.rotation += this.rotSpeed * driftSpeed;
-                this.phase += 0.01 * driftSpeed;
-                this.y += (0.5 - this.depth) * driftSpeed * 0.5;
-                this.x += Math.sin(this.phase) * 0.3;
-                
-                if (this.y < -this.size) this.y = H + this.size;
-                if (this.y > H + this.size) this.y = -this.size;
-                if (this.x < -this.size) this.x = W + this.size;
-                if (this.x > W + this.size) this.x = -this.size;
-            }
-            draw() {
-                const alpha = (0.1 + Math.sin(this.phase) * 0.05) * consciousnessLevel * 0.3;
-                const pulse = 1 + Math.sin(this.phase * 2) * 0.2;
-                const size = this.size * pulse;
-                
-                ctx.save();
-                ctx.translate(this.x, this.y);
-                ctx.rotate(this.rotation);
-                ctx.globalAlpha = alpha;
-                
-                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, size);
-                gradient.addColorStop(0, "hsla(" + this.hue + ", 60%, 60%, 0.8)");
-                gradient.addColorStop(0.5, "hsla(" + this.hue + ", 50%, 40%, 0.4)");
-                gradient.addColorStop(1, "transparent");
-                
-                if (this.type === 0) {
-                    ctx.beginPath();
-                    ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
-                    ctx.fillStyle = gradient;
-                    ctx.fill();
-                } else if (this.type === 1) {
-                    ctx.beginPath();
-                    for (let i = 0; i <= this.vertices; i++) {
-                        const angle = (i / this.vertices) * Math.PI * 2;
-                        const r = size / 2;
-                        const px = Math.cos(angle) * r;
-                        const py = Math.sin(angle) * r;
-                        if (i === 0) ctx.moveTo(px, py);
-                        else ctx.lineTo(px, py);
+</div>
+<div id="wave-indicator" class="hidden">
+    <div class="wave-text">WAVE</div>
+    <div class="wave-num" id="wave-num">1</div>
+</div>
+<div id="toolbar" class="hidden">
+    <button class="tool-btn active" data-tool="plant" title="Plant Dream Seed"><span>&#127793;</span><span class="tool-label">PLANT</span></button>
+    <button class="tool-btn" data-tool="water" title="Water with Moonlight"><span>&#127769;</span><span class="tool-label">WATER</span></button>
+    <button class="tool-btn" data-tool="shield" title="Dream Shield"><span>&#128737;</span><span class="tool-label">SHIELD</span><span class="tool-cooldown" id="shield-cd"></span></button>
+    <button class="tool-btn" data-tool="harvest" title="Harvest Essence"><span>&#10024;</span><span class="tool-label">HARVEST</span></button>
+    <button class="tool-btn" data-tool="purify" title="Purify Nightmares"><span>&#128293;</span><span class="tool-label">PURIFY</span><span class="tool-cooldown" id="purify-cd"></span></button>
+</div>
+<div id="menu-overlay">
+    <div class="overlay-title">Hypnagogic Garden</div>
+    <div class="overlay-subtitle">Tend the garden between waking and sleep</div>
+    <div id="difficulty-select">
+        <button class="diff-btn" data-diff="easy">Lucid</button>
+        <button class="diff-btn selected" data-diff="normal">Twilight</button>
+        <button class="diff-btn" data-diff="hard">Nightmare</button>
+    </div>
+    <button class="menu-btn" id="start-btn">Begin Dreaming</button>
+    <button class="menu-btn" id="howto-btn">How to Play</button>
+    <div id="highscore-display" style="margin-top:20px;color:rgba(180,140,220,0.6);font-size:13px"></div>
+</div>
+<div id="gameover-overlay" class="hidden">
+    <div class="overlay-title" id="gameover-title">Dream Ended</div>
+    <div class="overlay-subtitle" id="gameover-sub"></div>
+    <div id="gameover-stats" style="margin-bottom:20px"></div>
+    <button class="menu-btn" id="restart-btn">Dream Again</button>
+    <button class="menu-btn" id="menu-btn">Main Menu</button>
+</div>
+<div id="pause-overlay" class="hidden">
+    <div class="overlay-title">Paused</div>
+    <div class="overlay-subtitle">The garden rests...</div>
+    <button class="menu-btn" id="resume-btn">Resume</button>
+    <button class="menu-btn" id="quit-btn">Quit to Menu</button>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// Audio
+let audioCtx = null;
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function playSound(type, freq, dur) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+function sfxPlant() { playSound('sine', 440, 0.3); playSound('sine', 660, 0.2); }
+function sfxWater() { playSound('sine', 330, 0.5); playSound('triangle', 550, 0.3); }
+function sfxHarvest() { playSound('sine', 880, 0.15); playSound('sine', 1100, 0.1); playSound('sine', 1320, 0.15); }
+function sfxHit() { playSound('sawtooth', 120, 0.15); playSound('square', 80, 0.1); }
+function sfxShield() { playSound('sine', 660, 0.4); playSound('triangle', 880, 0.3); }
+function sfxPurify() { playSound('sawtooth', 200, 0.2); playSound('square', 300, 0.15); playSound('sawtooth', 400, 0.1); }
+function sfxDeath() { playSound('sawtooth', 150, 0.5); playSound('square', 100, 0.7); }
+function sfxLevelUp() { playSound('sine', 440, 0.15); playSound('sine', 550, 0.15); playSound('sine', 660, 0.15); playSound('sine', 880, 0.3); }
+function sfxCombo() { playSound('sine', 660, 0.1); playSound('triangle', 990, 0.15); }
+function sfxBoss() { playSound('square', 80, 0.6); playSound('sawtooth', 60, 0.8); }
+function sfxWin() { for (let i = 0; i < 6; i++) setTimeout(() => playSound('sine', 440 + i * 110, 0.3), i * 150); }
+function sfxMenu() { playSound('sine', 440, 0.15); }
+
+// Game state
+const STATES = { MENU: 0, PLAYING: 1, PAUSED: 2, GAMEOVER: 3 };
+let state = STATES.MENU;
+let difficulty = 'normal';
+let diffMult = { easy: 0.6, normal: 1.0, hard: 1.6 };
+
+let score = 0, combo = 1, comboTimer = 0, maxCombo = 1;
+let consciousness = 100, gardenHealth = 100, dreamLevel = 0;
+let wave = 1, waveTimer = 0, waveSpawnTimer = 0, waveCooldown = false;
+let bossActive = false, bossDefeated = 0;
+let plantsGrown = 0, plantsLost = 0, nightmaresDefeated = 0;
+let totalHarvested = 0;
+let shakeX = 0, shakeY = 0, shakeDecay = 0;
+let selectedTool = 'plant';
+let shieldCooldown = 0, purifyCooldown = 0;
+let shieldActive = false, shieldTimer = 0, shieldX = 0, shieldY = 0, shieldRadius = 80;
+let time = 0, lastTime = 0;
+
+// Entities
+let plants = [], nightmares = [], particles = [], floatingTexts = [];
+
+const PLANT_TYPES = [
+    { name: 'Dream Lily', color: '#c080ff', growTime: 3, essence: 10, maxSize: 20, petals: 6, glow: '#a060dd' },
+    { name: 'Moon Orchid', color: '#60c0ff', growTime: 5, essence: 25, maxSize: 25, petals: 5, glow: '#4090cc' },
+    { name: 'Star Tulip', color: '#ffc060', growTime: 4, essence: 15, maxSize: 18, petals: 4, glow: '#cc9030' },
+    { name: 'Void Rose', color: '#ff60a0', growTime: 7, essence: 40, maxSize: 30, petals: 8, glow: '#cc3070' },
+    { name: 'Ether Fern', color: '#60ff90', growTime: 2, essence: 8, maxSize: 15, petals: 3, glow: '#30cc60' },
+    { name: 'Nebula Bloom', color: '#ff80ff', growTime: 6, essence: 35, maxSize: 28, petals: 7, glow: '#cc50cc' },
+];
+
+const NIGHTMARE_TYPES = [
+    { name: 'Shadow Moth', speed: 1.5, hp: 1, damage: 5, size: 12, color: '#402060', score: 5 },
+    { name: 'Void Worm', speed: 0.8, hp: 3, damage: 10, size: 18, color: '#300840', score: 15 },
+    { name: 'Dream Eater', speed: 1.2, hp: 2, damage: 8, size: 15, color: '#500030', score: 10 },
+    { name: 'Night Crawler', speed: 0.5, hp: 5, damage: 15, size: 22, color: '#201040', score: 20 },
+    { name: 'Phantom Wisp', speed: 2.0, hp: 1, damage: 3, size: 10, color: '#303050', score: 8 },
+    { name: 'Abyssal Horror', speed: 0.6, hp: 20, damage: 25, size: 40, color: '#180030', score: 100, boss: true },
+];
+
+class Plant {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.type = PLANT_TYPES[Math.floor(Math.random() * PLANT_TYPES.length)];
+        this.growth = 0; this.maxGrowth = this.type.growTime;
+        this.size = 0; this.hp = 3; this.maxHp = 3;
+        this.harvested = false; this.watered = false; this.waterBoost = 0;
+        this.phase = Math.random() * Math.PI * 2;
+        this.swayPhase = Math.random() * Math.PI * 2;
+    }
+    update(dt) {
+        this.phase += dt * 2;
+        this.swayPhase += dt * 1.5;
+        const growRate = 1 + (this.watered ? 1.5 : 0);
+        this.growth = Math.min(this.maxGrowth, this.growth + dt * growRate / this.maxGrowth);
+        this.size = (this.growth / this.maxGrowth) * this.type.maxSize;
+        if (this.waterBoost > 0) { this.waterBoost -= dt; if (this.waterBoost <= 0) this.watered = false; }
+    }
+    isFullyGrown() { return this.growth >= this.maxGrowth; }
+    draw() {
+        const s = this.size;
+        if (s < 2) return;
+        const sway = Math.sin(this.swayPhase) * 3;
+        ctx.save();
+        ctx.translate(this.x + sway, this.y);
+        // Stem
+        ctx.strokeStyle = '#2a6a30';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -s * 1.2); ctx.stroke();
+        // Glow
+        if (this.isFullyGrown()) {
+            ctx.shadowColor = this.type.glow;
+            ctx.shadowBlur = 15 + Math.sin(this.phase) * 5;
+        }
+        // Petals
+        const petals = this.type.petals;
+        const petalSize = s * 0.5;
+        for (let i = 0; i < petals; i++) {
+            const angle = (i / petals) * Math.PI * 2 + this.phase * 0.1;
+            const px = Math.cos(angle) * petalSize;
+            const py = -s * 1.2 + Math.sin(angle) * petalSize;
+            ctx.beginPath();
+            ctx.ellipse(px, py, petalSize * 0.5, petalSize * 0.3, angle, 0, Math.PI * 2);
+            ctx.fillStyle = this.type.color;
+            ctx.globalAlpha = 0.7 + this.growth / this.maxGrowth * 0.3;
+            ctx.fill();
+        }
+        // Center
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, -s * 1.2, s * 0.25, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffe080';
+        ctx.fill();
+        // Water indicator
+        if (this.watered) {
+            ctx.fillStyle = 'rgba(100,200,255,0.4)';
+            ctx.beginPath();
+            ctx.arc(0, -s * 1.5 - 8, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // HP bar if damaged
+        if (this.hp < this.maxHp) {
+            const bw = 24;
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(-bw/2, -s * 1.8, bw, 4);
+            ctx.fillStyle = this.hp > 1 ? '#60ff60' : '#ff4040';
+            ctx.fillRect(-bw/2, -s * 1.8, bw * (this.hp / this.maxHp), 4);
+        }
+        ctx.restore();
+    }
+}
+
+class Nightmare {
+    constructor(type, x, y, targetPlant) {
+        this.type = type;
+        this.x = x; this.y = y;
+        this.hp = type.hp * diffMult[difficulty];
+        this.maxHp = this.hp;
+        this.speed = type.speed * diffMult[difficulty];
+        this.target = targetPlant;
+        this.phase = Math.random() * Math.PI * 2;
+        this.dead = false;
+        this.attackTimer = 0;
+        this.wobble = 0;
+    }
+    update(dt) {
+        if (this.dead) return;
+        this.phase += dt * 3;
+        this.wobble += dt * 5;
+        if (this.target && !plants.includes(this.target)) {
+            this.target = plants.length > 0 ? plants[Math.floor(Math.random() * plants.length)] : null;
+        }
+        if (this.target) {
+            const dx = this.target.x - this.x;
+            const dy = this.target.y - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > this.type.size + 10) {
+                this.x += (dx / dist) * this.speed * dt * 60;
+                this.y += (dy / dist) * this.speed * dt * 60;
+            } else {
+                this.attackTimer += dt;
+                if (this.attackTimer > 1) {
+                    this.attackTimer = 0;
+                    this.target.hp -= 1;
+                    sfxHit();
+                    shakeX = (Math.random() - 0.5) * 6;
+                    shakeY = (Math.random() - 0.5) * 6;
+                    shakeDecay = 0.3;
+                    spawnParticles(this.target.x, this.target.y, '#ff4040', 5);
+                    if (this.target.hp <= 0) {
+                        plantsLost++;
+                        gardenHealth -= this.type.damage * 0.5;
+                        spawnParticles(this.target.x, this.target.y, this.target.type.color, 15);
+                        plants.splice(plants.indexOf(this.target), 1);
+                        this.target = null;
                     }
-                    ctx.closePath();
-                    ctx.fillStyle = gradient;
-                    ctx.fill();
-                } else if (this.type === 2) {
-                    for (let i = 0; i < 3; i++) {
-                        ctx.beginPath();
-                        ctx.arc(0, 0, (size / 2) * (1 - i * 0.25), 0, Math.PI * 2);
-                        ctx.strokeStyle = "hsla(" + (this.hue + i * 20) + ", 60%, 60%, " + (0.3 - i * 0.08) + ")";
-                        ctx.lineWidth = 2;
-                        ctx.stroke();
-                    }
-                } else if (this.type === 3) {
-                    ctx.beginPath();
-                    for (let i = 0; i < 100; i++) {
-                        const t = i / 100 * Math.PI * 4;
-                        const r = (t / (Math.PI * 4)) * size / 2;
-                        const px = Math.cos(t) * r;
-                        const py = Math.sin(t) * r;
-                        if (i === 0) ctx.moveTo(px, py);
-                        else ctx.lineTo(px, py);
-                    }
-                    ctx.strokeStyle = "hsla(" + this.hue + ", 60%, 60%, 0.4)";
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
-                } else {
-                    const points = 5 + Math.floor(this.vertices / 2);
-                    ctx.beginPath();
-                    for (let i = 0; i <= points * 2; i++) {
-                        const r = i % 2 === 0 ? size / 2 : size / 4;
-                        const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
-                        const px = Math.cos(angle) * r;
-                        const py = Math.sin(angle) * r;
-                        if (i === 0) ctx.moveTo(px, py);
-                        else ctx.lineTo(px, py);
-                    }
-                    ctx.closePath();
-                    ctx.fillStyle = gradient;
-                    ctx.fill();
                 }
-                
-                ctx.restore();
             }
         }
-        
-        function initShapes() {
-            shapes = [];
-            const count = complexity * 8;
-            for (let i = 0; i < count; i++) {
-                shapes.push(new DreamShape());
+        // Shield check
+        if (shieldActive) {
+            const sdx = this.x - shieldX;
+            const sdy = this.y - shieldY;
+            const sdist = Math.sqrt(sdx * sdx + sdy * sdy);
+            if (sdist < shieldRadius) {
+                this.hp -= dt * 3;
+                this.x += (sdx / sdist) * 3;
+                this.y += (sdy / sdist) * 3;
             }
         }
-        
-        function drawBackground() {
-            const hue1 = warmth < 50 ? 260 : 300;
-            const hue2 = warmth < 50 ? 220 : 280;
-            const darkness = 1 - consciousnessLevel * 0.3;
-            
-            const gradient = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H));
-            gradient.addColorStop(0, "hsl(" + hue1 + ", 30%, " + (15 * darkness) + "%)");
-            gradient.addColorStop(0.5, "hsl(" + ((hue1 + hue2)/2) + ", 25%, " + (10 * darkness) + "%)");
-            gradient.addColorStop(1, "hsl(" + hue2 + ", 20%, " + (5 * darkness) + "%)");
-            
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, W, H);
-            
-            if (consciousnessLevel > 0.5) {
-                for (let i = 0; i < 5; i++) {
-                    const x = W/2 + Math.sin(time * 0.3 + i) * 200;
-                    const y = H/2 + Math.cos(time * 0.2 + i * 1.5) * 150;
-                    const grad = ctx.createRadialGradient(x, y, 0, x, y, 300);
-                    grad.addColorStop(0, "rgba(200, 150, 255, " + (0.03 * consciousnessLevel) + ")");
-                    grad.addColorStop(1, "transparent");
-                    ctx.fillStyle = grad;
-                    ctx.fillRect(0, 0, W, H);
+    }
+    draw() {
+        if (this.dead) return;
+        const s = this.type.size;
+        const wobX = Math.sin(this.wobble) * 3;
+        ctx.save();
+        ctx.translate(this.x + wobX, this.y);
+        // Shadow aura
+        ctx.shadowColor = this.type.color;
+        ctx.shadowBlur = 10 + Math.sin(this.phase) * 5;
+        // Body
+        if (this.type.boss) {
+            // Boss is larger and more elaborate
+            ctx.fillStyle = this.type.color;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2 + this.phase * 0.2;
+                const r = s * (0.8 + Math.sin(angle * 3 + this.phase) * 0.2);
+                const px = Math.cos(angle) * r;
+                const py = Math.sin(angle) * r;
+                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+            }
+            ctx.closePath(); ctx.fill();
+            // Eyes
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ff0040';
+            ctx.beginPath(); ctx.arc(-8, -5, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(8, -5, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(-7, -6, 1.5, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(9, -6, 1.5, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.fillStyle = this.type.color;
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            ctx.arc(0, 0, s, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner glow
+            ctx.fillStyle = 'rgba(255,0,80,0.3)';
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            // Eyes
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ff3060';
+            ctx.beginPath(); ctx.arc(-s*0.3, -s*0.2, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(s*0.3, -s*0.2, 2, 0, Math.PI * 2); ctx.fill();
+        }
+        // HP bar
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+        const bw = s * 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(-bw/2, -s - 10, bw, 4);
+        ctx.fillStyle = '#ff4060';
+        ctx.fillRect(-bw/2, -s - 10, bw * (this.hp / this.maxHp), 4);
+        ctx.restore();
+    }
+}
+
+function spawnParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4 - 2,
+            size: 2 + Math.random() * 3, life: 1, color, decay: 0.02 + Math.random() * 0.02
+        });
+    }
+}
+function spawnFloatingText(x, y, text, color) {
+    floatingTexts.push({ x, y, text, color, life: 1, vy: -1.5 });
+}
+
+// Input
+const keys = {};
+const mouse = { x: 0, y: 0, down: false };
+let touchStart = null;
+
+window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if (e.key === 'Escape') {
+        if (state === STATES.PLAYING) { state = STATES.PAUSED; document.getElementById('pause-overlay').classList.remove('hidden'); sfxMenu(); }
+        else if (state === STATES.PAUSED) resumeGame();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        if (state === STATES.GAMEOVER) startGame();
+    }
+    if (state === STATES.PLAYING) {
+        if (e.key === '1') selectTool('plant');
+        if (e.key === '2') selectTool('water');
+        if (e.key === '3') selectTool('shield');
+        if (e.key === '4') selectTool('harvest');
+        if (e.key === '5') selectTool('purify');
+    }
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('mousedown', e => { mouse.down = true; handleClick(e.clientX, e.clientY); });
+canvas.addEventListener('mouseup', () => { mouse.down = false; });
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault(); initAudio();
+    const t = e.touches[0];
+    mouse.x = t.clientX; mouse.y = t.clientY;
+    touchStart = { x: t.clientX, y: t.clientY };
+    handleClick(t.clientX, t.clientY);
+});
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY;
+});
+canvas.addEventListener('touchend', e => { e.preventDefault(); mouse.down = false; });
+
+function handleClick(x, y) {
+    if (state !== STATES.PLAYING) return;
+    initAudio();
+    if (selectedTool === 'plant') {
+        if (y > H * 0.4 && y < H - 40 && plants.length < 20) {
+            plants.push(new Plant(x, y));
+            sfxPlant();
+            spawnParticles(x, y, '#c0ff80', 6);
+        }
+    } else if (selectedTool === 'water') {
+        plants.forEach(p => {
+            const dx = p.x - x, dy = p.y - y;
+            if (Math.sqrt(dx*dx+dy*dy) < 60) {
+                p.watered = true; p.waterBoost = 5;
+                sfxWater();
+                spawnParticles(p.x, p.y, '#60c0ff', 4);
+            }
+        });
+    } else if (selectedTool === 'harvest') {
+        plants.forEach((p, i) => {
+            if (!p.isFullyGrown()) return;
+            const dx = p.x - x, dy = p.y - y;
+            if (Math.sqrt(dx*dx+dy*dy) < 40) {
+                const essence = Math.floor(p.type.essence * combo);
+                score += essence;
+                totalHarvested++;
+                combo = Math.min(10, combo + 0.5);
+                comboTimer = 3;
+                maxCombo = Math.max(maxCombo, combo);
+                sfxHarvest();
+                if (combo >= 3) sfxCombo();
+                spawnParticles(p.x, p.y, p.type.color, 12);
+                spawnFloatingText(p.x, p.y - 20, '+' + essence, p.type.color);
+                dreamLevel = Math.min(100, dreamLevel + 5);
+                plants.splice(i, 1);
+                plantsGrown++;
+            }
+        });
+    } else if (selectedTool === 'shield') {
+        if (shieldCooldown <= 0) {
+            shieldActive = true; shieldTimer = 3;
+            shieldX = x; shieldY = y;
+            shieldCooldown = 10;
+            sfxShield();
+        }
+    } else if (selectedTool === 'purify') {
+        if (purifyCooldown <= 0) {
+            purifyCooldown = 8;
+            sfxPurify();
+            nightmares.forEach(n => {
+                const dx = n.x - x, dy = n.y - y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 120) {
+                    n.hp -= 3;
+                    spawnParticles(n.x, n.y, '#ff8040', 8);
+                    shakeX = (Math.random() - 0.5) * 8;
+                    shakeY = (Math.random() - 0.5) * 8;
+                    shakeDecay = 0.3;
                 }
-            }
-        }
-        
-        function updateState() {
-            consciousnessLevel += (targetConsciousness - consciousnessLevel) * 0.01;
-            const stateIndex = Math.floor(consciousnessLevel * (states.length - 1));
-            document.getElementById('state-name').textContent = states[Math.min(stateIndex, states.length - 1)];
-        }
-        
-        function animate() {
-            time += 0.01 * driftSpeed;
-            updateState();
-            drawBackground();
-            
-            shapes.forEach(s => {
-                s.hue = warmth < 50 ? 240 + Math.random() * 60 : 280 + s.phase * 30 % 80;
-                s.update();
-                s.draw();
             });
-            
-            if (consciousnessLevel > 0.7) {
-                ctx.fillStyle = "rgba(255, 255, 255, " + ((consciousnessLevel - 0.7) * 0.1 * Math.sin(time * 3)) + ")";
-                ctx.fillRect(0, 0, W, H);
-            }
-            
-            requestAnimationFrame(animate);
+            // Visual burst
+            spawnParticles(x, y, '#ff6020', 20);
         }
-        
-        document.getElementById('drift').oninput = e => {
-            driftSpeed = e.target.value / 100;
-            document.getElementById('drift-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('complexity').oninput = e => {
-            complexity = parseInt(e.target.value);
-            document.getElementById('complex-val').textContent = complexity;
-            initShapes();
-        };
-        
-        document.getElementById('warmth').oninput = e => {
-            warmth = parseInt(e.target.value);
-            document.getElementById('warmth-val').textContent = warmth;
-        };
-        
-        document.getElementById('deeper').onclick = () => {
-            targetConsciousness = Math.min(1, targetConsciousness + 0.2);
-        };
-        
-        document.getElementById('surface').onclick = () => {
-            targetConsciousness = Math.max(0, targetConsciousness - 0.3);
-        };
-        
-        initShapes();
-        animate();
-    </script>
+    }
+}
+
+function selectTool(tool) {
+    selectedTool = tool;
+    document.querySelectorAll('.tool-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tool === tool);
+    });
+}
+
+// UI setup
+document.querySelectorAll('.tool-btn').forEach(b => {
+    b.addEventListener('click', () => { selectTool(b.dataset.tool); sfxMenu(); });
+});
+document.querySelectorAll('.diff-btn').forEach(b => {
+    b.addEventListener('click', () => {
+        difficulty = b.dataset.diff;
+        document.querySelectorAll('.diff-btn').forEach(d => d.classList.toggle('selected', d === b));
+        sfxMenu();
+    });
+});
+document.getElementById('start-btn').addEventListener('click', () => { initAudio(); startGame(); });
+document.getElementById('howto-btn').addEventListener('click', () => {
+    initAudio(); sfxMenu();
+    alert('HYPNAGOGIC GARDEN\n\nPlant dream seeds in the garden (1). Water them with moonlight (2) to grow faster. Harvest fully grown plants (4) for Dream Essence. Defend against nightmares with Shield (3) and Purify (5).\n\nConsciousness decays over time. Harvesting boosts your dream level. Garden health drops when nightmares eat your plants.\n\nGame ends when garden health or consciousness reaches 0.\n\nKeys: 1-5 for tools, ESC to pause, R to restart.');
+});
+document.getElementById('restart-btn').addEventListener('click', () => startGame());
+document.getElementById('menu-btn').addEventListener('click', () => {
+    state = STATES.MENU;
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+});
+document.getElementById('resume-btn').addEventListener('click', resumeGame);
+document.getElementById('quit-btn').addEventListener('click', () => {
+    state = STATES.MENU;
+    document.getElementById('pause-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+    showHUD(false);
+});
+
+function resumeGame() {
+    state = STATES.PLAYING;
+    document.getElementById('pause-overlay').classList.add('hidden');
+    lastTime = performance.now();
+}
+function showHUD(show) {
+    const method = show ? 'remove' : 'add';
+    document.getElementById('hud-left').classList[method]('hidden');
+    document.getElementById('hud-right').classList[method]('hidden');
+    document.getElementById('toolbar').classList[method]('hidden');
+    document.getElementById('wave-indicator').classList[method]('hidden');
+}
+
+function loadHighScores() {
+    try { return JSON.parse(localStorage.getItem('hypnagogic-garden-scores')) || []; } catch { return []; }
+}
+function saveHighScore(s) {
+    const scores = loadHighScores();
+    scores.push({ score: s, difficulty, date: new Date().toISOString() });
+    scores.sort((a, b) => b.score - a.score);
+    localStorage.setItem('hypnagogic-garden-scores', JSON.stringify(scores.slice(0, 10)));
+}
+function displayHighScores() {
+    const scores = loadHighScores();
+    const el = document.getElementById('highscore-display');
+    if (scores.length === 0) { el.textContent = 'No high scores yet'; return; }
+    el.innerHTML = 'Best: ' + scores[0].score + ' (' + scores[0].difficulty + ')';
+}
+
+function startGame() {
+    initAudio();
+    state = STATES.PLAYING;
+    score = 0; combo = 1; comboTimer = 0; maxCombo = 1;
+    consciousness = 100; gardenHealth = 100; dreamLevel = 0;
+    wave = 1; waveTimer = 0; waveSpawnTimer = 0; waveCooldown = false;
+    bossActive = false; bossDefeated = 0;
+    plantsGrown = 0; plantsLost = 0; nightmaresDefeated = 0; totalHarvested = 0;
+    shieldCooldown = 0; purifyCooldown = 0;
+    shieldActive = false; shieldTimer = 0;
+    plants = []; nightmares = []; particles = []; floatingTexts = [];
+    selectedTool = 'plant';
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'plant'));
+    document.getElementById('menu-overlay').classList.add('hidden');
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('pause-overlay').classList.add('hidden');
+    showHUD(true);
+    lastTime = performance.now();
+}
+
+function gameOver(ending) {
+    state = STATES.GAMEOVER;
+    showHUD(false);
+    saveHighScore(score);
+    const titles = {
+        health: 'Garden Withered',
+        consciousness: 'Lost in Dreams',
+        victory: 'Dream Mastery!'
+    };
+    const subs = {
+        health: 'The nightmares consumed your garden...',
+        consciousness: 'You drifted too deep into the void...',
+        victory: 'You achieved the highest dream state!'
+    };
+    document.getElementById('gameover-title').textContent = titles[ending] || 'Dream Ended';
+    document.getElementById('gameover-sub').textContent = subs[ending] || '';
+    const statsEl = document.getElementById('gameover-stats');
+    statsEl.innerHTML = '';
+    const stats = [
+        ['Dream Essence', score],
+        ['Max Combo', 'x' + maxCombo.toFixed(1)],
+        ['Plants Grown', plantsGrown],
+        ['Plants Lost', plantsLost],
+        ['Nightmares Defeated', nightmaresDefeated],
+        ['Waves Survived', wave],
+        ['Bosses Defeated', bossDefeated],
+        ['Difficulty', difficulty.charAt(0).toUpperCase() + difficulty.slice(1)],
+    ];
+    stats.forEach(([label, val]) => {
+        const row = document.createElement('div');
+        row.className = 'stat-row';
+        row.innerHTML = '<span>' + label + '</span><span class="stat-val">' + val + '</span>';
+        statsEl.appendChild(row);
+    });
+    document.getElementById('gameover-overlay').classList.remove('hidden');
+    if (ending === 'victory') sfxWin(); else sfxDeath();
+}
+
+function spawnNightmare() {
+    if (plants.length === 0) return;
+    const target = plants[Math.floor(Math.random() * plants.length)];
+    const side = Math.random();
+    let x, y;
+    if (side < 0.25) { x = -30; y = Math.random() * H; }
+    else if (side < 0.5) { x = W + 30; y = Math.random() * H; }
+    else if (side < 0.75) { x = Math.random() * W; y = -30; }
+    else { x = Math.random() * W; y = H + 30; }
+    const availableTypes = NIGHTMARE_TYPES.filter(t => !t.boss);
+    const maxIdx = Math.min(availableTypes.length, 1 + Math.floor(wave / 3));
+    const typeIdx = Math.floor(Math.random() * maxIdx);
+    nightmares.push(new Nightmare(availableTypes[typeIdx], x, y, target));
+}
+
+function spawnBoss() {
+    const bossType = NIGHTMARE_TYPES.find(t => t.boss);
+    const x = Math.random() < 0.5 ? -50 : W + 50;
+    const y = H * 0.5;
+    const target = plants.length > 0 ? plants[Math.floor(Math.random() * plants.length)] : null;
+    nightmares.push(new Nightmare(bossType, x, y, target));
+    bossActive = true;
+    sfxBoss();
+    spawnFloatingText(W / 2, H / 2 - 50, 'ABYSSAL HORROR APPEARS!', '#ff0040');
+}
+
+// Background
+const bgStars = [];
+for (let i = 0; i < 150; i++) {
+    bgStars.push({ x: Math.random() * 2000, y: Math.random() * 2000, size: Math.random() * 2, phase: Math.random() * Math.PI * 2 });
+}
+
+function drawBackground() {
+    // Gradient sky
+    const gradient = ctx.createLinearGradient(0, 0, 0, H);
+    const dreamFactor = dreamLevel / 100;
+    gradient.addColorStop(0, 'hsl(' + (260 + dreamFactor * 30) + ', 30%, ' + (5 + dreamFactor * 5) + '%)');
+    gradient.addColorStop(0.5, 'hsl(' + (270 + dreamFactor * 20) + ', 25%, ' + (8 + dreamFactor * 4) + '%)');
+    gradient.addColorStop(1, 'hsl(' + (250 + dreamFactor * 10) + ', 20%, ' + (3 + dreamFactor * 3) + '%)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+    // Stars
+    bgStars.forEach(s => {
+        s.phase += 0.01;
+        const alpha = 0.3 + Math.sin(s.phase) * 0.3;
+        ctx.fillStyle = 'rgba(200,180,255,' + alpha + ')';
+        ctx.fillRect(s.x % W, s.y % H, s.size, s.size);
+    });
+    // Ground area
+    const groundGrad = ctx.createLinearGradient(0, H * 0.7, 0, H);
+    groundGrad.addColorStop(0, 'rgba(20,10,30,0)');
+    groundGrad.addColorStop(0.3, 'rgba(15,25,15,0.3)');
+    groundGrad.addColorStop(1, 'rgba(10,20,10,0.5)');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, H * 0.5, W, H * 0.5);
+    // Ambient particles
+    if (dreamLevel > 30) {
+        for (let i = 0; i < dreamLevel * 0.1; i++) {
+            const x = (Math.sin(time * 0.5 + i * 7.3) * 0.5 + 0.5) * W;
+            const y = (Math.cos(time * 0.3 + i * 11.1) * 0.5 + 0.5) * H;
+            ctx.fillStyle = 'rgba(180,120,255,' + (0.1 + dreamFactor * 0.2) + ')';
+            ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+        }
+    }
+}
+
+function drawShield() {
+    if (!shieldActive) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(100,200,255,0.5)';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#60c0ff';
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(shieldX, shieldY, shieldRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(100,200,255,0.08)';
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawCursor() {
+    if (state !== STATES.PLAYING) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(200,160,255,0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, selectedTool === 'purify' ? 120 : selectedTool === 'water' ? 60 : selectedTool === 'shield' ? shieldRadius : 20, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+}
+
+function updateHUD() {
+    document.getElementById('score-display').textContent = score;
+    document.getElementById('combo-display').textContent = 'x' + combo.toFixed(1);
+    document.getElementById('consciousness-bar').style.width = consciousness + '%';
+    document.getElementById('health-bar').style.width = Math.max(0, gardenHealth) + '%';
+    document.getElementById('dream-bar').style.width = dreamLevel + '%';
+    document.getElementById('wave-num').textContent = wave;
+    document.getElementById('shield-cd').textContent = shieldCooldown > 0 ? Math.ceil(shieldCooldown) + 's' : '';
+    document.getElementById('purify-cd').textContent = purifyCooldown > 0 ? Math.ceil(purifyCooldown) + 's' : '';
+}
+
+function update(dt) {
+    time += dt;
+    // Consciousness decay
+    consciousness -= dt * 1.5 * diffMult[difficulty];
+    // Dream level boosts consciousness recovery
+    consciousness += dt * dreamLevel * 0.005;
+    consciousness = Math.max(0, Math.min(100, consciousness));
+    // Combo decay
+    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) { combo = 1; comboTimer = 0; } }
+    // Cooldowns
+    if (shieldCooldown > 0) shieldCooldown -= dt;
+    if (purifyCooldown > 0) purifyCooldown -= dt;
+    // Shield timer
+    if (shieldActive) { shieldTimer -= dt; if (shieldTimer <= 0) shieldActive = false; }
+    // Screen shake
+    if (shakeDecay > 0) {
+        shakeDecay -= dt;
+        shakeX *= 0.9; shakeY *= 0.9;
+    } else { shakeX = 0; shakeY = 0; }
+    // Wave management
+    waveTimer += dt;
+    if (waveTimer > 15 + wave * 2) {
+        wave++;
+        waveTimer = 0;
+        if (wave % 5 === 0) spawnBoss();
+        sfxLevelUp();
+        spawnFloatingText(W / 2, H / 2, 'WAVE ' + wave, '#e0c0ff');
+    }
+    waveSpawnTimer += dt;
+    const spawnRate = Math.max(1, 4 - wave * 0.3);
+    if (waveSpawnTimer > spawnRate && nightmares.length < 5 + wave * 2) {
+        waveSpawnTimer = 0;
+        const count = 1 + Math.floor(wave / 4);
+        for (let i = 0; i < count; i++) spawnNightmare();
+    }
+    // Update plants
+    plants.forEach(p => p.update(dt));
+    // Update nightmares
+    nightmares.forEach(n => n.update(dt));
+    // Remove dead nightmares
+    nightmares = nightmares.filter(n => {
+        if (n.hp <= 0 && !n.dead) {
+            n.dead = true;
+            nightmaresDefeated++;
+            score += Math.floor(n.type.score * combo);
+            spawnParticles(n.x, n.y, '#ff60a0', 12);
+            spawnFloatingText(n.x, n.y, '+' + Math.floor(n.type.score * combo), '#ff60a0');
+            if (n.type.boss) {
+                bossActive = false;
+                bossDefeated++;
+                dreamLevel = Math.min(100, dreamLevel + 20);
+                score += 200;
+                spawnFloatingText(n.x, n.y - 30, 'BOSS SLAIN! +200', '#ffc040');
+            }
+            return false;
+        }
+        return !n.dead;
+    });
+    // Particles
+    particles = particles.filter(p => {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.life -= p.decay;
+        return p.life > 0;
+    });
+    // Floating texts
+    floatingTexts = floatingTexts.filter(t => {
+        t.y += t.vy; t.life -= 0.02;
+        return t.life > 0;
+    });
+    // Dream level decay
+    dreamLevel = Math.max(0, dreamLevel - dt * 0.5);
+    // Check game over
+    if (gardenHealth <= 0) gameOver('health');
+    if (consciousness <= 0) gameOver('consciousness');
+    if (wave >= 25 && nightmares.length === 0 && !bossActive) gameOver('victory');
+}
+
+function render() {
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+    drawBackground();
+    // Plants
+    plants.forEach(p => p.draw());
+    // Nightmares
+    nightmares.forEach(n => n.draw());
+    // Shield
+    drawShield();
+    // Particles
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    // Floating texts
+    floatingTexts.forEach(t => {
+        ctx.globalAlpha = t.life;
+        ctx.fillStyle = t.color;
+        ctx.font = '16px Georgia';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.text, t.x, t.y);
+    });
+    ctx.globalAlpha = 1;
+    // Cursor
+    drawCursor();
+    ctx.restore();
+    updateHUD();
+}
+
+function gameLoop(now) {
+    requestAnimationFrame(gameLoop);
+    if (!lastTime) lastTime = now;
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    if (state === STATES.PLAYING) {
+        update(dt);
+        render();
+    } else if (state === STATES.MENU) {
+        // Animate background on menu
+        time += dt;
+        drawBackground();
+    } else if (state === STATES.PAUSED) {
+        render();
+        ctx.fillStyle = 'rgba(10,5,20,0.3)';
+        ctx.fillRect(0, 0, W, H);
+    }
+}
+
+displayHighScores();
+requestAnimationFrame(gameLoop);
+</script>
 </body>
 </html>

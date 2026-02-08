@@ -4,339 +4,762 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Littoral Lexicon</title>
-    <meta name="description" content="Words become coastal cliffs gradually eroded by waves, revealing linguistic fossils in sedimentary layers">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a1520; min-height: 100vh; font-family: 'Georgia', serif; color: #8090a0; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; }
-        #controls {
-            position: fixed; top: 20px; left: 20px; background: rgba(15,25,35,0.95);
-            padding: 20px; border-radius: 10px; border: 1px solid rgba(100,130,160,0.3);
-            z-index: 100;
+        body { background: #0a1520; overflow: hidden; font-family: 'Georgia', serif; }
+        canvas { display: block; }
+        #ui {
+            position: fixed; top: 0; left: 0; right: 0; pointer-events: none;
+            z-index: 10; padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: flex-start;
         }
-        h3 { margin-bottom: 15px; color: #a0c0d0; font-weight: normal; }
-        .control-row { margin: 10px 0; }
-        label { display: block; font-size: 11px; margin-bottom: 5px; opacity: 0.8; }
-        input[type="range"] { width: 140px; }
-        input[type="text"] { width: 140px; padding: 5px; background: rgba(0,0,0,0.3); border: 1px solid rgba(100,130,160,0.3); color: #a0c0d0; border-radius: 4px; }
-        .value { float: right; color: #b0d0e0; font-size: 12px; }
-        button {
-            display: block; width: 100%; padding: 10px; margin: 6px 0;
-            background: rgba(50,80,100,0.4); border: 1px solid rgba(100,130,160,0.4);
-            color: #90b0c0; cursor: pointer; border-radius: 6px; font-family: inherit;
+        .hud-box {
+            pointer-events: auto;
+            background: rgba(10,20,30,0.85); border: 1px solid rgba(80,130,170,0.3);
+            border-radius: 10px; padding: 10px 16px; backdrop-filter: blur(4px);
         }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.5; z-index: 100; }
+        .hud-label { font-size: 9px; color: rgba(120,170,200,0.6); text-transform: uppercase; letter-spacing: 2px; }
+        .hud-value { font-size: 20px; color: #a0d0e0; }
+        .hud-row { display: flex; gap: 20px; }
+        .bar-wrap { width: 110px; height: 6px; background: rgba(30,60,80,0.5); border-radius: 3px; margin-top: 3px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .bar-integrity { background: linear-gradient(90deg, #ff6040, #40c0ff); }
+        .bar-erosion { background: linear-gradient(90deg, #306080, #ff8040); }
+        #menu-overlay, #gameover-overlay, #pause-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(5,12,20,0.95); z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .overlay-title { font-size: 42px; color: #a0d0e0; margin-bottom: 8px; text-shadow: 0 0 25px rgba(100,180,220,0.4); }
+        .overlay-sub { font-size: 14px; color: rgba(120,170,200,0.5); margin-bottom: 30px; letter-spacing: 3px; }
+        .menu-btn {
+            display: block; width: 250px; padding: 13px; margin: 6px;
+            background: rgba(30,60,80,0.3); border: 1px solid rgba(80,130,170,0.3);
+            color: #90c0d0; font-size: 15px; font-family: inherit; cursor: pointer;
+            border-radius: 8px; transition: all 0.2s; text-align: center;
+        }
+        .menu-btn:hover { background: rgba(40,80,110,0.4); border-color: rgba(100,170,210,0.5); }
+        .stat-row { display: flex; justify-content: space-between; width: 280px; padding: 5px 0; color: #80b0c0; font-size: 13px; border-bottom: 1px solid rgba(80,130,170,0.1); }
+        .stat-val { color: #a0d0e0; }
+        .hidden { display: none !important; }
+        #diff-select { display: flex; gap: 8px; margin: 8px 0 20px; }
+        .diff-btn { padding: 7px 18px; border-radius: 7px; border: 1px solid rgba(80,130,170,0.3); background: rgba(15,30,45,0.5); color: #80b0c0; cursor: pointer; font-family: inherit; }
+        .diff-btn.sel { border-color: #40a0c0; background: rgba(30,70,100,0.5); }
+        #input-area {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 10; pointer-events: auto; text-align: center;
+        }
+        #word-prompt { font-size: 24px; color: #a0d0e0; margin-bottom: 8px; letter-spacing: 4px; min-height: 30px; }
+        #word-input {
+            width: 300px; padding: 10px 16px; font-size: 18px; font-family: inherit;
+            background: rgba(10,25,40,0.9); border: 2px solid rgba(80,130,170,0.4);
+            color: #a0d0e0; border-radius: 8px; text-align: center; letter-spacing: 2px;
+            outline: none;
+        }
+        #word-input:focus { border-color: #40a0c0; box-shadow: 0 0 15px rgba(60,150,200,0.2); }
+        .typed-correct { color: #40c0a0; }
+        .typed-wrong { color: #ff6060; }
+        .typed-pending { color: rgba(160,210,230,0.3); }
+        #wave-display { position: fixed; top: 50%; right: 16px; transform: translateY(-50%); z-index: 10; pointer-events: none; text-align: center; }
+        .wave-label { font-size: 10px; color: rgba(120,170,200,0.4); letter-spacing: 2px; }
+        .wave-num { font-size: 24px; color: #a0d0e0; }
+        #wpm-display { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; font-size: 12px; color: rgba(120,170,200,0.5); letter-spacing: 1px; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="controls">
-        <h3>Littoral Lexicon</h3>
-        <div class="control-row">
-            <input type="text" id="word-input" placeholder="Type a word..." value="ETERNITY">
+<canvas id="canvas"></canvas>
+<div id="ui">
+    <div class="hud-box hidden" id="hud-left">
+        <div class="hud-row">
+            <div><div class="hud-label">Shore Score</div><div class="hud-value" id="score-val">0</div></div>
+            <div><div class="hud-label">Combo</div><div class="hud-value" id="combo-val">x1</div></div>
         </div>
-        <div class="control-row">
-            <label>Wave Intensity <span class="value" id="wave-val">50</span></label>
-            <input type="range" id="wave" min="10" max="100" value="50">
-        </div>
-        <div class="control-row">
-            <label>Erosion Speed <span class="value" id="erosion-val">30</span></label>
-            <input type="range" id="erosion" min="5" max="100" value="30">
-        </div>
-        <button id="carve-btn">Carve Word</button>
-        <button id="storm-btn">Storm Surge</button>
     </div>
-    <div id="info">Type words to become cliffs | Watch them erode over geological time</div>
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let W, H, waterLevel;
-        function resize() { 
-            W = canvas.width = innerWidth; 
-            H = canvas.height = innerHeight;
-            waterLevel = H * 0.7;
+    <div class="hud-box hidden" id="hud-right">
+        <div><div class="hud-label">Cliff Integrity</div><div class="bar-wrap"><div class="bar-fill bar-integrity" id="integrity-bar" style="width:100%"></div></div></div>
+        <div style="margin-top:6px"><div class="hud-label">Erosion Force</div><div class="bar-wrap"><div class="bar-fill bar-erosion" id="erosion-bar" style="width:0%"></div></div></div>
+    </div>
+</div>
+<div id="wave-display" class="hidden"><div class="wave-label">TIDE</div><div class="wave-num" id="tide-num">1</div></div>
+<div id="wpm-display" class="hidden">WPM: <span id="wpm-val">0</span></div>
+<div id="input-area" class="hidden">
+    <div id="word-prompt"></div>
+    <input type="text" id="word-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Type the word...">
+</div>
+<div id="menu-overlay">
+    <div class="overlay-title">Littoral Lexicon</div>
+    <div class="overlay-sub">TYPE WORDS TO DEFEND THE COAST</div>
+    <div id="diff-select">
+        <button class="diff-btn" data-diff="easy">Calm Seas</button>
+        <button class="diff-btn sel" data-diff="normal">Rising Tide</button>
+        <button class="diff-btn" data-diff="hard">Tempest</button>
+    </div>
+    <button class="menu-btn" id="start-btn">Begin Typing</button>
+    <button class="menu-btn" id="help-btn">How to Play</button>
+    <div id="hs-display" style="margin-top:16px;color:rgba(120,170,200,0.5);font-size:12px"></div>
+</div>
+<div id="gameover-overlay" class="hidden">
+    <div class="overlay-title" id="go-title">Coast Eroded</div>
+    <div class="overlay-sub" id="go-sub"></div>
+    <div id="go-stats" style="margin-bottom:16px"></div>
+    <button class="menu-btn" id="retry-btn">Try Again (R)</button>
+    <button class="menu-btn" id="back-btn">Main Menu</button>
+</div>
+<div id="pause-overlay" class="hidden">
+    <div class="overlay-title">Paused</div>
+    <div class="overlay-sub">The tide holds...</div>
+    <button class="menu-btn" id="resume-btn">Resume</button>
+    <button class="menu-btn" id="quit-btn">Quit</button>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H, waterLevel;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; waterLevel = H * 0.65; }
+resize(); window.addEventListener('resize', resize);
+
+// Audio
+let audioCtx = null;
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function snd(type, freq, dur, vol) {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = type; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(vol || 0.1, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+}
+function sfxType() { snd('sine', 400 + Math.random() * 300, 0.08); }
+function sfxWord() { snd('sine', 600, 0.15); snd('sine', 800, 0.1); snd('sine', 1000, 0.08); }
+function sfxWrong() { snd('sawtooth', 150, 0.15); snd('square', 100, 0.1); }
+function sfxWave() { snd('sine', 200, 0.4, 0.08); snd('triangle', 300, 0.3, 0.06); }
+function sfxBuild() { snd('triangle', 500, 0.2); snd('sine', 700, 0.15); }
+function sfxShake() { snd('sawtooth', 80, 0.2); snd('square', 60, 0.15); }
+function sfxCombo() { snd('sine', 880, 0.1); snd('triangle', 1100, 0.08); }
+function sfxBoss() { snd('square', 50, 0.8, 0.15); snd('sawtooth', 40, 1.0, 0.12); }
+function sfxDeath() { snd('sawtooth', 120, 0.5); snd('square', 80, 0.7); }
+function sfxWin() { for (let i = 0; i < 5; i++) setTimeout(() => snd('sine', 400 + i * 120, 0.3), i * 130); }
+function sfxMenu() { snd('sine', 400, 0.12); }
+function sfxLevelUp() { snd('sine', 440, 0.12); snd('sine', 550, 0.1); snd('sine', 660, 0.1); snd('sine', 880, 0.2); }
+
+const ST = { MENU: 0, PLAY: 1, PAUSE: 2, OVER: 3 };
+let state = ST.MENU;
+let diff = 'normal';
+const dMult = { easy: 0.6, normal: 1.0, hard: 1.5 };
+
+// Word pools by difficulty
+const WORDS_EASY = ['shore','wave','tide','sand','reef','kelp','foam','salt','cove','gulf','bay','cape','dock','hull','mast','oar','sail','wake','surf','dune','fish','crab','eel','gull','hawk','kite','seal','clam','mussel','coral','abyss','deep','blue'];
+const WORDS_MED = ['erosion','sediment','current','estuary','maritime','nautical','flotsam','jetsam','barnacle','sandstone','limestone','quartz','obsidian','stalactite','seashore','coastline','undertow','whirlpool','maelstrom','peninsula','archipelago','continental','tectonic','basalt','granite','feldspar','dolomite'];
+const WORDS_HARD = ['lithification','permineralization','diagenesis','transgression','isostasy','paleontology','stratigraphy','geomorphology','sedimentation','crystallography','metamorphism','fossilization','biostratigraphy','paleogeography','micropaleontology'];
+
+let score = 0, combo = 1, comboTimer = 0, maxCombo = 1;
+let cliffIntegrity = 100, erosionForce = 0;
+let tide = 1, tideTimer = 0;
+let wordsTyped = 0, wordsWrong = 0, charsTyped = 0;
+let startTime = 0, wpm = 0;
+let shakeX = 0, shakeY = 0, shakeDec = 0;
+let time = 0, lastTime = 0;
+
+// Current word state
+let currentWord = '';
+let typedSoFar = '';
+let wordQueue = [];
+let wordTimer = 0;
+let wordTimeout = 8; // seconds to type current word
+
+// Cliff data
+let cliffBlocks = [];
+let debris = [];
+let particles = [];
+let texts = [];
+let foam = [];
+let waveCrashTimer = 0;
+
+// Enemies (erosion agents)
+let erosionAgents = [];
+
+const EROSION_TYPES = [
+    { name: 'Spray', speed: 0.8, power: 3, size: 8, color: '#305070', score: 5 },
+    { name: 'Surge', speed: 0.5, power: 5, size: 14, color: '#204060', score: 10 },
+    { name: 'Undertow', speed: 1.2, power: 2, size: 6, color: '#406080', score: 8 },
+    { name: 'Rogue Wave', speed: 0.3, power: 8, size: 20, color: '#203050', score: 15 },
+    { name: 'Storm Surge', speed: 0.4, power: 15, size: 30, color: '#102040', score: 25 },
+    { name: 'Tsunami', speed: 0.2, power: 30, size: 50, color: '#081830', score: 100, boss: true },
+];
+
+class CliffBlock {
+    constructor(x, y, word, hue) {
+        this.x = x; this.y = y;
+        this.word = word;
+        this.width = word.length * 12 + 20;
+        this.height = 30;
+        this.hp = word.length;
+        this.maxHp = this.hp;
+        this.hue = hue;
+        this.phase = Math.random() * Math.PI * 2;
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        // Block
+        const lightness = 20 + 15 * (this.hp / this.maxHp);
+        ctx.fillStyle = 'hsl(' + this.hue + ', 30%, ' + lightness + '%)';
+        ctx.fillRect(-this.width/2, -this.height/2, this.width, this.height);
+        // Border
+        ctx.strokeStyle = 'hsl(' + this.hue + ', 35%, ' + (lightness + 10) + '%)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-this.width/2, -this.height/2, this.width, this.height);
+        // Word text
+        ctx.fillStyle = 'rgba(200,220,240,' + (0.3 + 0.4 * (this.hp / this.maxHp)) + ')';
+        ctx.font = '11px Georgia';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.word, 0, 0);
+        // HP indicator
+        if (this.hp < this.maxHp) {
+            const bw = this.width * 0.8;
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(-bw/2, -this.height/2 - 5, bw, 3);
+            ctx.fillStyle = this.hp > this.maxHp * 0.3 ? '#40a0c0' : '#ff6040';
+            ctx.fillRect(-bw/2, -this.height/2 - 5, bw * (this.hp / this.maxHp), 3);
         }
-        resize(); window.onresize = resize;
-        
-        let waveIntensity = 0.5;
-        let erosionSpeed = 0.3;
-        let time = 0;
-        
-        const cliffs = [];
-        const debris = [];
-        const foam = [];
-        
-        class Cliff {
-            constructor(word, x) {
-                this.word = word;
-                this.x = x;
-                this.baseY = waterLevel;
-                this.erosion = [];
-                this.layers = [];
-                this.debris = [];
-                
-                this.generateLayers();
-                this.generateErosionPoints();
+        ctx.restore();
+    }
+}
+
+class ErosionAgent {
+    constructor(type, x, y) {
+        this.type = type;
+        this.x = x; this.y = y;
+        this.hp = type.power;
+        this.maxHp = type.power;
+        this.speed = type.speed * dMult[diff];
+        this.phase = Math.random() * Math.PI * 2;
+        this.dead = false;
+        this.target = null;
+    }
+    findTarget() {
+        if (cliffBlocks.length === 0) return;
+        let best = null, bestDist = Infinity;
+        cliffBlocks.forEach(b => {
+            const d = Math.hypot(b.x - this.x, b.y - this.y);
+            if (d < bestDist) { bestDist = d; best = b; }
+        });
+        this.target = best;
+    }
+    update(dt) {
+        if (this.dead) return;
+        this.phase += dt * 3;
+        if (!this.target || !cliffBlocks.includes(this.target)) this.findTarget();
+        if (!this.target) return;
+        const dx = this.target.x - this.x;
+        const dy = this.target.y - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > this.type.size + 20) {
+            this.x += (dx / dist) * this.speed * dt * 60;
+            this.y += (dy / dist) * this.speed * dt * 60;
+            // Wave-like vertical motion
+            this.y += Math.sin(this.phase * 2) * 0.5;
+        } else {
+            // Attack cliff
+            this.target.hp -= dt * this.type.power * 0.5 * dMult[diff];
+            if (Math.random() < 0.05) {
+                spawnP(this.target.x, this.target.y, '#6090b0', 3);
+                sfxShake();
+                shakeX = (Math.random() - 0.5) * 3;
+                shakeY = (Math.random() - 0.5) * 3;
+                shakeDec = 0.15;
             }
-            
-            generateLayers() {
-                const colors = [
-                    { h: 35, s: 30, l: 25 },
-                    { h: 30, s: 35, l: 30 },
-                    { h: 25, s: 40, l: 35 },
-                    { h: 40, s: 25, l: 40 },
-                    { h: 35, s: 30, l: 45 }
-                ];
-                
+            if (this.target.hp <= 0) {
+                cliffIntegrity -= 5;
+                spawnP(this.target.x, this.target.y, '#8a7060', 12);
+                spawnText(this.target.x, this.target.y, 'ERODED', '#ff6040');
+                // Create debris
                 for (let i = 0; i < 5; i++) {
-                    this.layers.push({
-                        y: this.baseY - 120 + i * 30,
-                        height: 30,
-                        color: colors[i]
+                    debris.push({
+                        x: this.target.x + (Math.random() - 0.5) * 30,
+                        y: this.target.y,
+                        vx: (Math.random() - 0.5) * 3,
+                        vy: Math.random() * 2,
+                        size: 2 + Math.random() * 4,
+                        life: 1, hue: this.target.hue
                     });
                 }
-            }
-            
-            generateErosionPoints() {
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCanvas.width = 400;
-                tempCanvas.height = 200;
-                
-                tempCtx.fillStyle = 'white';
-                tempCtx.font = 'bold 80px Georgia';
-                tempCtx.textAlign = 'center';
-                tempCtx.textBaseline = 'middle';
-                tempCtx.fillText(this.word, 200, 100);
-                
-                const imageData = tempCtx.getImageData(0, 0, 400, 200);
-                const data = imageData.data;
-                
-                for (let y = 0; y < 200; y += 3) {
-                    for (let x = 0; x < 400; x += 3) {
-                        const i = (y * 400 + x) * 4;
-                        if (data[i] > 128) {
-                            this.erosion.push({
-                                x: this.x - 200 + x,
-                                y: this.baseY - 150 + y,
-                                originalX: this.x - 200 + x,
-                                originalY: this.baseY - 150 + y,
-                                health: 1,
-                                layer: Math.floor(y / 40)
-                            });
-                        }
-                    }
-                }
-            }
-            
-            update() {
-                const waveHeight = Math.sin(time * 2) * 20 * waveIntensity;
-                const currentWaterY = waterLevel + waveHeight;
-                
-                this.erosion.forEach(point => {
-                    if (point.health <= 0) return;
-                    
-                    const distToWater = Math.abs(point.y - currentWaterY);
-                    
-                    if (distToWater < 40 && point.y > currentWaterY - 20) {
-                        const erosionChance = erosionSpeed * 0.0005 * waveIntensity;
-                        if (Math.random() < erosionChance) {
-                            point.health -= 0.1;
-                            
-                            if (point.health <= 0) {
-                                debris.push({
-                                    x: point.x,
-                                    y: point.y,
-                                    vx: (Math.random() - 0.5) * 2,
-                                    vy: Math.random() * 2,
-                                    size: 2 + Math.random() * 3,
-                                    life: 1,
-                                    layer: point.layer
-                                });
-                            }
-                        }
-                    }
-                });
-            }
-            
-            draw() {
-                this.layers.forEach((layer, i) => {
-                    ctx.fillStyle = "hsl(" + layer.color.h + ", " + layer.color.s + "%, " + layer.color.l + "%)";
-                    
-                    const visiblePoints = this.erosion.filter(p => 
-                        p.layer === i && p.health > 0
-                    );
-                    
-                    visiblePoints.forEach(point => {
-                        ctx.globalAlpha = point.health;
-                        ctx.fillRect(point.x - 1, point.y - 1, 4, 4);
-                    });
-                });
-                
-                ctx.globalAlpha = 1;
-                
-                ctx.strokeStyle = 'rgba(80, 60, 40, 0.3)';
-                ctx.lineWidth = 1;
-                this.layers.forEach(layer => {
-                    ctx.beginPath();
-                    ctx.moveTo(this.x - 220, layer.y);
-                    ctx.lineTo(this.x + 220, layer.y);
-                    ctx.stroke();
-                });
+                cliffBlocks.splice(cliffBlocks.indexOf(this.target), 1);
+                this.target = null;
             }
         }
-        
-        function drawOcean() {
-            const gradient = ctx.createLinearGradient(0, waterLevel - 50, 0, H);
-            gradient.addColorStop(0, '#1a3040');
-            gradient.addColorStop(0.3, '#0a2030');
-            gradient.addColorStop(1, '#051520');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, waterLevel - 50, W, H - waterLevel + 50);
-            
-            for (let x = 0; x < W; x += 5) {
-                const waveY = waterLevel + Math.sin(time * 2 + x * 0.02) * 20 * waveIntensity;
-                const waveY2 = waterLevel + Math.sin(time * 1.5 + x * 0.03 + 1) * 15 * waveIntensity;
-                
-                ctx.beginPath();
-                ctx.moveTo(x, waveY);
-                ctx.lineTo(x + 5, waveY + Math.sin(time * 2 + (x + 5) * 0.02) * 20 * waveIntensity);
-                ctx.lineTo(x + 5, H);
-                ctx.lineTo(x, H);
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(20, 60, 90, 0.3)';
-                ctx.fill();
+    }
+    draw() {
+        if (this.dead) return;
+        const s = this.type.size;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.globalAlpha = 0.7;
+        // Wave-like shape
+        if (this.type.boss) {
+            ctx.fillStyle = this.type.color;
+            ctx.beginPath();
+            for (let i = 0; i < 10; i++) {
+                const a = (i / 10) * Math.PI * 2 + this.phase * 0.1;
+                const r = s * (0.7 + Math.sin(a * 4 + this.phase) * 0.3);
+                i === 0 ? ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
             }
-            
-            for (let i = foam.length - 1; i >= 0; i--) {
-                const f = foam[i];
-                f.x += f.vx;
-                f.y += f.vy;
-                f.life -= 0.02;
-                
-                if (f.life <= 0) {
-                    foam.splice(i, 1);
-                    continue;
-                }
-                
-                ctx.beginPath();
-                ctx.arc(f.x, f.y, f.size * f.life, 0, Math.PI * 2);
-                ctx.fillStyle = "rgba(200, 220, 240, " + (f.life * 0.5) + ")";
-                ctx.fill();
+            ctx.closePath(); ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#80c0ff';
+            ctx.beginPath(); ctx.arc(-6, -3, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(6, -3, 3, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.fillStyle = this.type.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, s, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(128,192,255,0.3)';
+            ctx.beginPath();
+            ctx.arc(0, -s*0.2, s*0.4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // HP bar
+        const bw = s * 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(-bw/2, -s - 8, bw, 3);
+        ctx.fillStyle = '#6090b0';
+        ctx.fillRect(-bw/2, -s - 8, bw * (this.hp / this.maxHp), 3);
+        ctx.restore();
+    }
+}
+
+function spawnP(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4 - 1,
+            size: 1.5 + Math.random() * 2, life: 1, color, decay: 0.015 + Math.random() * 0.02
+        });
+    }
+}
+function spawnText(x, y, text, color) {
+    texts.push({ x, y, text, color, life: 1, vy: -1.5 });
+}
+
+function getWord() {
+    const pools = diff === 'easy' ? [WORDS_EASY] : diff === 'hard' ? [WORDS_EASY, WORDS_MED, WORDS_HARD] : [WORDS_EASY, WORDS_MED];
+    const difficultyBias = Math.min(1, tide / 15);
+    const poolIdx = Math.min(pools.length - 1, Math.floor(Math.random() * (1 + difficultyBias * (pools.length - 1))));
+    const pool = pools[poolIdx];
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function setNewWord() {
+    currentWord = getWord();
+    typedSoFar = '';
+    wordTimer = 0;
+    wordTimeout = Math.max(3, 10 - tide * 0.3);
+    renderPrompt();
+}
+
+function renderPrompt() {
+    const el = document.getElementById('word-prompt');
+    let html = '';
+    for (let i = 0; i < currentWord.length; i++) {
+        if (i < typedSoFar.length) {
+            const correct = typedSoFar[i] === currentWord[i];
+            html += '<span class="' + (correct ? 'typed-correct' : 'typed-wrong') + '">' + currentWord[i] + '</span>';
+        } else {
+            html += '<span class="typed-pending">' + currentWord[i] + '</span>';
+        }
+    }
+    el.innerHTML = html;
+}
+
+function addCliffBlock(word) {
+    const hues = [25, 30, 35, 40, 45, 20, 50];
+    const hue = hues[Math.floor(Math.random() * hues.length)];
+    // Find a good position on the cliff face
+    const cliffX = W * 0.5 + (Math.random() - 0.5) * 300;
+    const cliffY = waterLevel - 20 - Math.random() * 120;
+    cliffBlocks.push(new CliffBlock(cliffX, cliffY, word, hue));
+}
+
+// Input
+const input = document.getElementById('word-input');
+input.addEventListener('input', () => {
+    if (state !== ST.PLAY) return;
+    initAudio();
+    const val = input.value.toLowerCase();
+    typedSoFar = val;
+    charsTyped++;
+    renderPrompt();
+    if (val.length > 0 && val[val.length - 1] === currentWord[val.length - 1]) {
+        sfxType();
+    }
+    if (val === currentWord) {
+        // Word completed!
+        const pts = Math.floor(currentWord.length * 10 * combo);
+        score += pts;
+        wordsTyped++;
+        combo = Math.min(10, combo + 0.5);
+        comboTimer = 4;
+        maxCombo = Math.max(maxCombo, combo);
+        sfxWord();
+        if (combo >= 3) sfxCombo();
+        addCliffBlock(currentWord);
+        sfxBuild();
+        spawnText(W / 2, H - 120, '+' + pts, '#40c0a0');
+        cliffIntegrity = Math.min(100, cliffIntegrity + currentWord.length * 0.5);
+        // Damage nearby agents
+        erosionAgents.forEach(a => {
+            a.hp -= currentWord.length * 0.3;
+            if (a.hp <= 0) {
+                a.dead = true;
+                score += Math.floor(a.type.score * combo);
+                spawnP(a.x, a.y, '#80c0e0', 8);
+                spawnText(a.x, a.y, '+' + Math.floor(a.type.score * combo), '#80c0e0');
             }
-            
-            if (Math.random() < waveIntensity * 0.3) {
-                foam.push({
-                    x: Math.random() * W,
-                    y: waterLevel + Math.sin(time * 2) * 20 * waveIntensity,
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: -Math.random() * 2,
-                    size: 2 + Math.random() * 4,
-                    life: 1
-                });
+        });
+        erosionAgents = erosionAgents.filter(a => !a.dead);
+        input.value = '';
+        setNewWord();
+        // Calculate WPM
+        const elapsed = (performance.now() - startTime) / 60000;
+        if (elapsed > 0) wpm = Math.round(wordsTyped / elapsed);
+    } else if (val.length >= currentWord.length) {
+        // Wrong word
+        wordsWrong++;
+        combo = 1;
+        comboTimer = 0;
+        sfxWrong();
+        shakeX = (Math.random() - 0.5) * 5;
+        shakeY = (Math.random() - 0.5) * 5;
+        shakeDec = 0.2;
+        erosionForce = Math.min(100, erosionForce + 5);
+        input.value = '';
+        typedSoFar = '';
+        renderPrompt();
+    }
+});
+
+window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        if (state === ST.PLAY) { state = ST.PAUSE; document.getElementById('pause-overlay').classList.remove('hidden'); sfxMenu(); }
+        else if (state === ST.PAUSE) resumeGame();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        if (state === ST.OVER) startGame();
+    }
+});
+
+// UI wiring
+document.querySelectorAll('.diff-btn').forEach(b => b.addEventListener('click', () => {
+    diff = b.dataset.diff;
+    document.querySelectorAll('.diff-btn').forEach(d => d.classList.toggle('sel', d === b));
+    sfxMenu();
+}));
+document.getElementById('start-btn').addEventListener('click', () => { initAudio(); startGame(); });
+document.getElementById('help-btn').addEventListener('click', () => {
+    initAudio(); sfxMenu();
+    alert('LITTORAL LEXICON\n\nType the displayed word correctly to build cliff blocks and defend the coastline.\n\nCorrect words build cliffs and damage erosion agents. Wrong words increase erosion force.\n\nCliff integrity drops when blocks are eroded. Build combos by typing words correctly in succession.\n\nSurvive 15 tides to achieve Coastal Mastery.\n\nESC to pause, R to restart.');
+});
+document.getElementById('retry-btn').addEventListener('click', startGame);
+document.getElementById('back-btn').addEventListener('click', () => {
+    state = ST.MENU;
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+});
+document.getElementById('resume-btn').addEventListener('click', resumeGame);
+document.getElementById('quit-btn').addEventListener('click', () => {
+    state = ST.MENU;
+    document.getElementById('pause-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+    showHUD(false);
+});
+
+function resumeGame() { state = ST.PLAY; document.getElementById('pause-overlay').classList.add('hidden'); lastTime = performance.now(); input.focus(); }
+function showHUD(show) {
+    const m = show ? 'remove' : 'add';
+    ['hud-left', 'hud-right', 'wave-display', 'input-area', 'wpm-display'].forEach(id => document.getElementById(id).classList[m]('hidden'));
+}
+
+function loadHS() { try { return JSON.parse(localStorage.getItem('littoral-lexicon-scores')) || []; } catch { return []; } }
+function saveHS(s) {
+    const hs = loadHS();
+    hs.push({ score: s, diff, wpm, date: new Date().toISOString() });
+    hs.sort((a, b) => b.score - a.score);
+    localStorage.setItem('littoral-lexicon-scores', JSON.stringify(hs.slice(0, 10)));
+}
+function displayHS() {
+    const hs = loadHS();
+    document.getElementById('hs-display').textContent = hs.length ? 'Best: ' + hs[0].score + ' (' + hs[0].diff + ', ' + (hs[0].wpm || 0) + ' WPM)' : 'No scores yet';
+}
+
+function initCliff() {
+    cliffBlocks = [];
+    const words = ['shore', 'stone', 'cliff', 'rock', 'sand'];
+    for (let i = 0; i < 8; i++) {
+        const word = words[Math.floor(Math.random() * words.length)];
+        const hue = 25 + Math.random() * 20;
+        const x = W * 0.35 + (i % 4) * 80;
+        const y = waterLevel - 30 - Math.floor(i / 4) * 35;
+        cliffBlocks.push(new CliffBlock(x, y, word, hue));
+    }
+}
+
+function startGame() {
+    initAudio();
+    state = ST.PLAY;
+    score = 0; combo = 1; comboTimer = 0; maxCombo = 1;
+    cliffIntegrity = 100; erosionForce = 0;
+    tide = 1; tideTimer = 0;
+    wordsTyped = 0; wordsWrong = 0; charsTyped = 0;
+    wpm = 0; startTime = performance.now();
+    erosionAgents = []; debris = []; particles = []; texts = []; foam = [];
+    initCliff();
+    setNewWord();
+    document.getElementById('menu-overlay').classList.add('hidden');
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('pause-overlay').classList.add('hidden');
+    showHUD(true);
+    input.value = '';
+    input.focus();
+    lastTime = performance.now();
+}
+
+function gameOver(ending) {
+    state = ST.OVER;
+    showHUD(false);
+    saveHS(score);
+    const titles = { eroded: 'Coast Eroded', timeout: 'Swept Away', victory: 'Coastal Mastery!' };
+    const subs = { eroded: 'The sea claimed your cliffs...', timeout: 'The tide was too strong...', victory: 'Your words stand against the ocean!' };
+    document.getElementById('go-title').textContent = titles[ending] || 'Coast Eroded';
+    document.getElementById('go-sub').textContent = subs[ending] || '';
+    const el = document.getElementById('go-stats');
+    el.innerHTML = '';
+    [['Shore Score', score], ['Max Combo', 'x' + maxCombo.toFixed(1)], ['Words Typed', wordsTyped],
+     ['Words Wrong', wordsWrong], ['WPM', wpm], ['Accuracy', wordsTyped > 0 ? Math.round(wordsTyped / (wordsTyped + wordsWrong) * 100) + '%' : '0%'],
+     ['Tides Survived', tide], ['Difficulty', diff.charAt(0).toUpperCase() + diff.slice(1)]
+    ].forEach(([l, v]) => {
+        const r = document.createElement('div');
+        r.className = 'stat-row';
+        r.innerHTML = '<span>' + l + '</span><span class="stat-val">' + v + '</span>';
+        el.appendChild(r);
+    });
+    document.getElementById('gameover-overlay').classList.remove('hidden');
+    ending === 'victory' ? sfxWin() : sfxDeath();
+}
+
+function spawnAgent() {
+    const avail = EROSION_TYPES.filter(t => !t.boss);
+    const maxIdx = Math.min(avail.length, 1 + Math.floor(tide / 3));
+    const type = avail[Math.floor(Math.random() * maxIdx)];
+    const x = -20 - Math.random() * 50;
+    const y = waterLevel + (Math.random() - 0.5) * 60;
+    erosionAgents.push(new ErosionAgent(type, x, y));
+}
+
+function spawnBoss() {
+    const bt = EROSION_TYPES.find(t => t.boss);
+    erosionAgents.push(new ErosionAgent(bt, -60, waterLevel - 20));
+    sfxBoss();
+    spawnText(W / 2, H / 2, 'TSUNAMI APPROACHING!', '#ff4040');
+}
+
+// Background elements
+const bgStars = [];
+for (let i = 0; i < 100; i++) bgStars.push({ x: Math.random() * 2000, y: Math.random() * 1000, s: Math.random() * 1.5, p: Math.random() * Math.PI * 2 });
+
+function drawBg() {
+    // Sky
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, waterLevel);
+    skyGrad.addColorStop(0, '#0a1520');
+    skyGrad.addColorStop(0.5, '#0f2535');
+    skyGrad.addColorStop(1, '#152535');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, W, waterLevel);
+    // Stars
+    bgStars.forEach(s => {
+        s.p += 0.005;
+        ctx.fillStyle = 'rgba(180,200,220,' + (0.2 + Math.sin(s.p) * 0.15) + ')';
+        ctx.fillRect(s.x % W, s.y % (waterLevel * 0.7), s.s, s.s);
+    });
+    // Ocean
+    const oceanGrad = ctx.createLinearGradient(0, waterLevel - 40, 0, H);
+    oceanGrad.addColorStop(0, '#1a3045');
+    oceanGrad.addColorStop(0.3, '#0f2535');
+    oceanGrad.addColorStop(1, '#081520');
+    ctx.fillStyle = oceanGrad;
+    ctx.fillRect(0, waterLevel - 40, W, H - waterLevel + 40);
+    // Waves
+    ctx.strokeStyle = 'rgba(100,160,200,0.15)';
+    ctx.lineWidth = 2;
+    for (let wave = 0; wave < 5; wave++) {
+        ctx.beginPath();
+        for (let x = 0; x < W; x += 5) {
+            const y = waterLevel + wave * 15 + Math.sin(time * 1.5 + x * 0.02 + wave * 0.5) * (8 + erosionForce * 0.1);
+            x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+    // Foam
+    foam = foam.filter(f => {
+        f.x += f.vx; f.y += f.vy; f.life -= 0.015;
+        if (f.life <= 0) return false;
+        ctx.fillStyle = 'rgba(200,220,240,' + (f.life * 0.4) + ')';
+        ctx.beginPath(); ctx.arc(f.x, f.y, f.size * f.life, 0, Math.PI * 2); ctx.fill();
+        return true;
+    });
+    if (Math.random() < 0.3) {
+        foam.push({
+            x: Math.random() * W * 0.4,
+            y: waterLevel + (Math.random() - 0.3) * 20,
+            vx: 0.5 + Math.random(), vy: (Math.random() - 0.5) * 0.5,
+            size: 2 + Math.random() * 4, life: 1
+        });
+    }
+    // Sea floor sediment
+    const floorGrad = ctx.createLinearGradient(0, H - 40, 0, H);
+    floorGrad.addColorStop(0, 'rgba(20,40,30,0)');
+    floorGrad.addColorStop(1, 'rgba(20,40,30,0.3)');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(0, H - 40, W, 40);
+}
+
+function updateHUD() {
+    document.getElementById('score-val').textContent = score;
+    document.getElementById('combo-val').textContent = 'x' + combo.toFixed(1);
+    document.getElementById('integrity-bar').style.width = Math.max(0, cliffIntegrity) + '%';
+    document.getElementById('erosion-bar').style.width = erosionForce + '%';
+    document.getElementById('tide-num').textContent = tide;
+    document.getElementById('wpm-val').textContent = wpm;
+}
+
+function update(dt) {
+    time += dt;
+    // Erosion force rises
+    erosionForce = Math.min(100, erosionForce + dt * 0.3 * dMult[diff]);
+    // Combo decay
+    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) { combo = 1; } }
+    // Shake
+    if (shakeDec > 0) { shakeDec -= dt; shakeX *= 0.9; shakeY *= 0.9; } else { shakeX = 0; shakeY = 0; }
+    // Word timeout
+    wordTimer += dt;
+    if (wordTimer > wordTimeout) {
+        // Time ran out on current word
+        wordsWrong++;
+        erosionForce = Math.min(100, erosionForce + 3);
+        combo = 1;
+        sfxWrong();
+        input.value = '';
+        setNewWord();
+    }
+    // Tide progression
+    tideTimer += dt;
+    if (tideTimer > 20 + tide * 3) {
+        tide++;
+        tideTimer = 0;
+        if (tide % 5 === 0) spawnBoss();
+        sfxLevelUp();
+        spawnText(W / 2, H / 2, 'TIDE ' + tide, '#a0d0e0');
+        const bonus = 100 * tide;
+        score += bonus;
+        spawnText(W / 2, H / 2 + 30, '+' + bonus, '#40c0a0');
+    }
+    // Spawn erosion agents
+    waveCrashTimer += dt;
+    const spawnRate = Math.max(1.5, 5 - tide * 0.2);
+    if (waveCrashTimer > spawnRate && erosionAgents.length < 3 + tide * 2) {
+        waveCrashTimer = 0;
+        spawnAgent();
+    }
+    // Update agents
+    erosionAgents.forEach(a => a.update(dt));
+    erosionAgents = erosionAgents.filter(a => {
+        if (a.hp <= 0 && !a.dead) {
+            a.dead = true;
+            score += Math.floor(a.type.score * combo);
+            spawnP(a.x, a.y, '#80c0e0', 8);
+            if (a.type.boss) {
+                score += 500;
+                erosionForce = Math.max(0, erosionForce - 25);
+                spawnText(a.x, a.y, 'TSUNAMI DEFEATED! +500', '#ffc040');
             }
+            return false;
         }
-        
-        function drawDebris() {
-            const layerColors = [
-                { h: 35, s: 30, l: 25 },
-                { h: 30, s: 35, l: 30 },
-                { h: 25, s: 40, l: 35 },
-                { h: 40, s: 25, l: 40 },
-                { h: 35, s: 30, l: 45 }
-            ];
-            
-            for (let i = debris.length - 1; i >= 0; i--) {
-                const d = debris[i];
-                d.x += d.vx;
-                d.y += d.vy;
-                d.vy += 0.1;
-                d.life -= 0.005;
-                
-                if (d.y > H || d.life <= 0) {
-                    debris.splice(i, 1);
-                    continue;
-                }
-                
-                if (d.y > waterLevel) {
-                    d.vy *= 0.9;
-                    d.vx *= 0.95;
-                }
-                
-                const color = layerColors[d.layer] || layerColors[0];
-                ctx.beginPath();
-                ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
-                ctx.fillStyle = "hsla(" + color.h + ", " + color.s + "%, " + color.l + "%, " + d.life + ")";
-                ctx.fill();
-            }
-        }
-        
-        function drawBackground() {
-            const gradient = ctx.createLinearGradient(0, 0, 0, waterLevel);
-            gradient.addColorStop(0, '#0a1520');
-            gradient.addColorStop(1, '#152535');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, W, waterLevel);
-        }
-        
-        function animate() {
-            time += 0.016;
-            
-            drawBackground();
-            
-            cliffs.forEach(cliff => {
-                cliff.update();
-                cliff.draw();
-            });
-            
-            drawOcean();
-            drawDebris();
-            
-            requestAnimationFrame(animate);
-        }
-        
-        function carveWord() {
-            const word = document.getElementById('word-input').value.toUpperCase() || 'ETERNITY';
-            cliffs.length = 0;
-            debris.length = 0;
-            cliffs.push(new Cliff(word, W / 2));
-        }
-        
-        document.getElementById('wave').oninput = e => {
-            waveIntensity = e.target.value / 100;
-            document.getElementById('wave-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('erosion').oninput = e => {
-            erosionSpeed = e.target.value / 100;
-            document.getElementById('erosion-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('carve-btn').onclick = carveWord;
-        
-        document.getElementById('storm-btn').onclick = () => {
-            waveIntensity = 1;
-            document.getElementById('wave').value = 100;
-            document.getElementById('wave-val').textContent = '100';
-            
-            for (let i = 0; i < 50; i++) {
-                foam.push({
-                    x: Math.random() * W,
-                    y: waterLevel + (Math.random() - 0.5) * 40,
-                    vx: (Math.random() - 0.5) * 5,
-                    vy: -Math.random() * 5,
-                    size: 3 + Math.random() * 6,
-                    life: 1
-                });
-            }
-        };
-        
-        document.getElementById('word-input').onkeypress = e => {
-            if (e.key === 'Enter') carveWord();
-        };
-        
-        carveWord();
-        animate();
-    </script>
+        return !a.dead;
+    });
+    // Debris
+    debris = debris.filter(d => {
+        d.x += d.vx; d.y += d.vy; d.vy += 0.05; d.life -= 0.008;
+        if (d.y > H || d.life <= 0) return false;
+        ctx.fillStyle = 'hsla(' + d.hue + ', 30%, 30%, ' + d.life + ')';
+        ctx.fillRect(d.x, d.y, d.size, d.size);
+        return true;
+    });
+    // Particles
+    particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.03; p.life -= p.decay; return p.life > 0; });
+    texts = texts.filter(t => { t.y += t.vy; t.life -= 0.015; return t.life > 0; });
+    // Natural cliff integrity decay
+    cliffIntegrity -= dt * erosionForce * 0.01;
+    // WPM calc
+    const elapsed = (performance.now() - startTime) / 60000;
+    if (elapsed > 0.1) wpm = Math.round(wordsTyped / elapsed);
+    // Game over checks
+    if (cliffIntegrity <= 0) gameOver('eroded');
+    if (cliffBlocks.length === 0 && cliffIntegrity < 50) gameOver('eroded');
+    if (tide >= 15 && erosionAgents.length === 0) gameOver('victory');
+}
+
+function render() {
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+    drawBg();
+    // Cliff blocks
+    cliffBlocks.forEach(b => b.draw());
+    // Debris rendered in update
+    // Erosion agents
+    erosionAgents.forEach(a => a.draw());
+    // Particles
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    // Texts
+    texts.forEach(t => {
+        ctx.globalAlpha = t.life;
+        ctx.fillStyle = t.color;
+        ctx.font = '14px Georgia';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.text, t.x, t.y);
+    });
+    ctx.globalAlpha = 1;
+    // Word timer bar
+    if (state === ST.PLAY && currentWord) {
+        const tw = 200;
+        const progress = 1 - wordTimer / wordTimeout;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(W/2 - tw/2, H - 50, tw, 4);
+        ctx.fillStyle = progress > 0.3 ? '#40a0c0' : '#ff6040';
+        ctx.fillRect(W/2 - tw/2, H - 50, tw * progress, 4);
+    }
+    ctx.restore();
+    updateHUD();
+}
+
+function loop(now) {
+    requestAnimationFrame(loop);
+    if (!lastTime) lastTime = now;
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    if (state === ST.PLAY) { update(dt); render(); }
+    else if (state === ST.MENU) { time += dt; drawBg(); }
+    else if (state === ST.PAUSE) { render(); ctx.fillStyle = 'rgba(5,12,20,0.3)'; ctx.fillRect(0, 0, W, H); }
+}
+
+displayHS();
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>

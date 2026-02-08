@@ -4,380 +4,863 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Signal Degradation Simulator</title>
-    <meta name="description" content="Draw perfect shapes and watch them dissolve into analog glitch, pixelation, and pure entropy noise">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0c; min-height: 100vh; font-family: 'Courier New', monospace; color: #a0a0b0; overflow: hidden; }
-        #canvas { position: fixed; top: 0; left: 0; cursor: crosshair; }
-        #controls {
-            position: fixed; top: 20px; left: 20px; background: rgba(15,15,20,0.95);
-            padding: 20px; border-radius: 10px; border: 1px solid rgba(100,100,120,0.3);
-            z-index: 100;
+        body { background: #0a0a12; overflow: hidden; font-family: 'Courier New', monospace; }
+        canvas { display: block; }
+        #ui {
+            position: fixed; top: 0; left: 0; right: 0; pointer-events: none;
+            z-index: 10; padding: 10px 20px;
+            display: flex; justify-content: space-between; align-items: flex-start;
         }
-        h3 { margin-bottom: 15px; color: #c0c0d0; font-weight: normal; }
-        .control-row { margin: 10px 0; }
-        label { display: block; font-size: 11px; margin-bottom: 5px; opacity: 0.8; }
-        input[type="range"] { width: 140px; }
-        .value { float: right; color: #8080a0; font-size: 12px; }
-        button {
-            display: block; width: 100%; padding: 10px; margin: 6px 0;
-            background: rgba(60,60,80,0.4); border: 1px solid rgba(100,100,120,0.4);
-            color: #a0a0b0; cursor: pointer; border-radius: 6px;
+        .hud-box {
+            pointer-events: auto;
+            background: rgba(10,10,20,0.85); border: 1px solid rgba(80,120,180,0.3);
+            border-radius: 8px; padding: 10px 16px; backdrop-filter: blur(4px);
         }
-        #entropy-meter {
-            position: fixed; top: 20px; right: 20px; background: rgba(15,15,20,0.95);
-            padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(100,100,120,0.3);
-            z-index: 100; text-align: center;
+        .hud-label { font-size: 9px; color: rgba(100,140,200,0.6); text-transform: uppercase; letter-spacing: 2px; }
+        .hud-value { font-size: 20px; color: #80c0ff; }
+        .hud-row { display: flex; gap: 24px; }
+        .bar-wrap { width: 110px; height: 6px; background: rgba(40,60,80,0.5); border-radius: 3px; margin-top: 3px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .bar-signal { background: linear-gradient(90deg, #ff4040, #40ff80); }
+        .bar-entropy { background: linear-gradient(90deg, #4040ff, #ff40ff); }
+        #menu-overlay, #gameover-overlay, #pause-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(5,5,10,0.95); z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
-        #entropy-bar { width: 100px; height: 10px; background: #1a1a20; border-radius: 5px; margin-top: 10px; overflow: hidden; }
-        #entropy-fill { height: 100%; background: linear-gradient(90deg, #4040ff, #ff4040); width: 0%; transition: width 0.3s; }
-        #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: 0.5; z-index: 100; }
+        .overlay-title {
+            font-size: 36px; color: #80c0ff; margin-bottom: 8px;
+            text-shadow: 0 0 20px rgba(80,140,255,0.4);
+        }
+        .overlay-sub { font-size: 13px; color: rgba(100,140,200,0.5); margin-bottom: 30px; letter-spacing: 3px; }
+        .menu-btn {
+            display: block; width: 240px; padding: 12px; margin: 6px;
+            background: rgba(40,60,100,0.3); border: 1px solid rgba(80,120,180,0.3);
+            color: #80b0e0; font-size: 14px; font-family: inherit; cursor: pointer;
+            border-radius: 8px; transition: all 0.2s; text-align: center;
+        }
+        .menu-btn:hover { background: rgba(60,90,140,0.4); border-color: rgba(100,160,220,0.5); }
+        .stat-row { display: flex; justify-content: space-between; width: 280px; padding: 4px 0; color: #80b0d0; font-size: 13px; border-bottom: 1px solid rgba(80,120,180,0.1); }
+        .stat-val { color: #80c0ff; }
+        .hidden { display: none !important; }
+        #diff-select { display: flex; gap: 8px; margin: 8px 0 20px; }
+        .diff-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid rgba(80,120,180,0.3); background: rgba(20,30,50,0.5); color: #80b0d0; cursor: pointer; font-family: inherit; font-size: 12px; }
+        .diff-btn.sel { border-color: #4080ff; background: rgba(40,60,120,0.5); }
+        #toolbar {
+            position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 6px; z-index: 10; pointer-events: auto;
+        }
+        .tool-btn {
+            padding: 10px 16px; border-radius: 6px; border: 1px solid rgba(80,120,180,0.3);
+            background: rgba(15,20,35,0.85); color: #80b0d0; cursor: pointer;
+            font-family: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+            transition: all 0.2s; position: relative;
+        }
+        .tool-btn.active { border-color: #4080ff; background: rgba(30,50,100,0.6); box-shadow: 0 0 10px rgba(60,100,200,0.2); }
+        .tool-cd { position: absolute; top: -8px; right: 2px; font-size: 9px; color: #ff6060; }
+        #wave-display { position: fixed; top: 50%; right: 16px; transform: translateY(-50%); z-index: 10; pointer-events: none; text-align: center; }
+        .wave-label { font-size: 10px; color: rgba(100,140,200,0.4); letter-spacing: 2px; }
+        .wave-num { font-size: 24px; color: #80c0ff; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="controls">
-        <h3>Entropy Lab</h3>
-        <div class="control-row">
-            <label>Decay Speed <span class="value" id="speed-val">50</span></label>
-            <input type="range" id="speed" min="10" max="100" value="50">
+<canvas id="canvas"></canvas>
+<div id="ui">
+    <div class="hud-box hidden" id="hud-left">
+        <div class="hud-row">
+            <div><div class="hud-label">Integrity</div><div class="hud-value" id="score-val">0</div></div>
+            <div><div class="hud-label">Combo</div><div class="hud-value" id="combo-val">x1</div></div>
         </div>
-        <div class="control-row">
-            <label>Noise Intensity <span class="value" id="noise-val">30</span></label>
-            <input type="range" id="noise" min="0" max="100" value="30">
-        </div>
-        <button id="clear-btn">Clear Canvas</button>
-        <button id="freeze-btn">Freeze Decay</button>
     </div>
-    <div id="entropy-meter">
-        <div style="font-size:12px;color:#8080a0">ENTROPY LEVEL</div>
-        <div id="entropy-bar"><div id="entropy-fill"></div></div>
+    <div class="hud-box hidden" id="hud-right">
+        <div><div class="hud-label">Signal Strength</div><div class="bar-wrap"><div class="bar-fill bar-signal" id="signal-bar" style="width:100%"></div></div></div>
+        <div style="margin-top:6px"><div class="hud-label">Entropy Level</div><div class="bar-wrap"><div class="bar-fill bar-entropy" id="entropy-bar" style="width:0%"></div></div></div>
     </div>
-    <div id="info">Draw shapes | Watch them decay through 5 stages to pure noise</div>
-    <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        let W, H;
-        function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
-        resize(); window.onresize = resize;
-        
-        let decaySpeed = 0.5;
-        let noiseIntensity = 0.3;
-        let frozen = false;
-        let isDrawing = false;
-        let currentPath = [];
-        let shapes = [];
-        let noiseParticles = [];
-        let totalEntropy = 0;
-        
-        class Shape {
-            constructor(points, color) {
-                this.points = points.map(p => ({...p}));
-                this.originalPoints = points.map(p => ({...p}));
-                this.color = color;
-                this.stage = 0;
-                this.decay = 0;
-                this.noise = [];
-                this.glitchOffset = 0;
-                this.ditherPhase = 0;
-                
-                for (let i = 0; i < 20; i++) {
-                    this.noise.push({
-                        x: Math.random() * 100 - 50,
-                        y: Math.random() * 100 - 50,
-                        size: 2 + Math.random() * 5,
-                        speed: Math.random() * 0.02
-                    });
+</div>
+<div id="wave-display" class="hidden"><div class="wave-label">CYCLE</div><div class="wave-num" id="cycle-num">1</div></div>
+<div id="toolbar" class="hidden">
+    <button class="tool-btn active" data-tool="draw">Draw Barrier</button>
+    <button class="tool-btn" data-tool="amplify">Amplify<span class="tool-cd" id="amp-cd"></span></button>
+    <button class="tool-btn" data-tool="purge">Purge<span class="tool-cd" id="purge-cd"></span></button>
+    <button class="tool-btn" data-tool="repair">Repair<span class="tool-cd" id="repair-cd"></span></button>
+</div>
+<div id="menu-overlay">
+    <div class="overlay-title">Signal Degradation</div>
+    <div class="overlay-sub">DEFEND THE SIGNAL FROM ENTROPY</div>
+    <div id="diff-select">
+        <button class="diff-btn" data-diff="easy">Clean</button>
+        <button class="diff-btn sel" data-diff="normal">Noisy</button>
+        <button class="diff-btn" data-diff="hard">Corrupted</button>
+    </div>
+    <button class="menu-btn" id="start-btn">Initialize Signal</button>
+    <button class="menu-btn" id="help-btn">Protocol Guide</button>
+    <div id="hs-display" style="margin-top:16px;color:rgba(100,140,200,0.5);font-size:12px"></div>
+</div>
+<div id="gameover-overlay" class="hidden">
+    <div class="overlay-title" id="go-title">Signal Lost</div>
+    <div class="overlay-sub" id="go-sub"></div>
+    <div id="go-stats" style="margin-bottom:16px"></div>
+    <button class="menu-btn" id="retry-btn">Retry</button>
+    <button class="menu-btn" id="back-btn">Main Menu</button>
+</div>
+<div id="pause-overlay" class="hidden">
+    <div class="overlay-title">Paused</div>
+    <div class="overlay-sub">SIGNAL FROZEN</div>
+    <button class="menu-btn" id="resume-btn">Resume</button>
+    <button class="menu-btn" id="quit-btn">Quit</button>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+// Audio
+let audioCtx = null;
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function snd(type, freq, dur, vol) {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = type; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(vol || 0.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+}
+function sfxDraw() { snd('sine', 300 + Math.random() * 200, 0.1); }
+function sfxBlock() { snd('triangle', 600, 0.15); snd('sine', 800, 0.1); }
+function sfxHit() { snd('sawtooth', 100, 0.15); snd('square', 60, 0.1); }
+function sfxAmplify() { snd('sine', 440, 0.3); snd('sine', 660, 0.2); snd('sine', 880, 0.15); }
+function sfxPurge() { snd('sawtooth', 200, 0.2); snd('square', 300, 0.15); snd('sawtooth', 500, 0.1); }
+function sfxRepair() { snd('sine', 550, 0.3); snd('triangle', 700, 0.2); }
+function sfxDeath() { snd('sawtooth', 120, 0.5); snd('square', 80, 0.7); }
+function sfxWave() { snd('sine', 440, 0.15); snd('sine', 550, 0.12); snd('sine', 660, 0.1); }
+function sfxCombo() { snd('sine', 880, 0.1); snd('triangle', 1100, 0.1); }
+function sfxBoss() { snd('square', 60, 0.7); snd('sawtooth', 40, 0.9); }
+function sfxWin() { for (let i = 0; i < 5; i++) setTimeout(() => snd('sine', 400 + i * 100, 0.3), i * 120); }
+function sfxMenu() { snd('sine', 400, 0.1); }
+function sfxTowerHit() { snd('sawtooth', 150, 0.2); snd('square', 100, 0.15); }
+
+const ST = { MENU: 0, PLAY: 1, PAUSE: 2, OVER: 3 };
+let state = ST.MENU;
+let diff = 'normal';
+const dMult = { easy: 0.6, normal: 1.0, hard: 1.5 };
+
+let score = 0, combo = 1, comboTimer = 0, maxCombo = 1;
+let signalStrength = 100, entropyLevel = 0;
+let cycle = 1, cycleTimer = 0, spawnTimer = 0;
+let bossAlive = false, bossesKilled = 0;
+let glitchesBlocked = 0, towersLost = 0, barriersDrawn = 0;
+let shakeX = 0, shakeY = 0, shakeDec = 0;
+let selectedTool = 'draw';
+let ampCD = 0, purgeCD = 0, repairCD = 0;
+let ampActive = false, ampTimer = 0;
+let time = 0, lastTime = 0;
+
+// Drawing
+let isDrawing = false;
+let currentPath = [];
+
+// Entities
+let towers = [], glitches = [], barriers = [], particles = [], texts = [];
+let noiseField = [];
+
+const TOWER_TYPES = [
+    { name: 'Relay', color: '#40a0ff', radius: 30, hp: 5, signal: 10, pulseRate: 2 },
+    { name: 'Amplifier', color: '#40ffa0', radius: 25, hp: 3, signal: 15, pulseRate: 3 },
+    { name: 'Core', color: '#ffc040', radius: 40, hp: 8, signal: 25, pulseRate: 1.5 },
+];
+
+const GLITCH_TYPES = [
+    { name: 'Static', speed: 1.2, hp: 1, dmg: 1, size: 8, color: '#603060', score: 5 },
+    { name: 'Jitter', speed: 1.8, hp: 1, dmg: 1, size: 6, color: '#604040', score: 8 },
+    { name: 'Dropout', speed: 0.7, hp: 3, dmg: 2, size: 14, color: '#404060', score: 15 },
+    { name: 'Corruption', speed: 1.0, hp: 2, dmg: 2, size: 10, color: '#503050', score: 12 },
+    { name: 'Bit Rot', speed: 0.5, hp: 4, dmg: 3, size: 16, color: '#403040', score: 20 },
+    { name: 'Entropy Beast', speed: 0.4, hp: 15, dmg: 5, size: 35, color: '#200020', score: 100, boss: true },
+];
+
+class Tower {
+    constructor(x, y, type) {
+        this.x = x; this.y = y; this.type = type;
+        this.hp = type.hp; this.maxHp = type.hp;
+        this.phase = Math.random() * Math.PI * 2;
+        this.pulsePhase = 0;
+    }
+    update(dt) {
+        this.phase += dt * 2;
+        this.pulsePhase += dt * this.type.pulseRate;
+    }
+    draw() {
+        const pulse = 1 + Math.sin(this.pulsePhase) * 0.15;
+        const r = this.type.radius * pulse;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        // Signal ring
+        ctx.strokeStyle = this.type.color;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.3 + Math.sin(this.pulsePhase) * 0.15;
+        ctx.beginPath(); ctx.arc(0, 0, r * 2, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 0.15;
+        ctx.beginPath(); ctx.arc(0, 0, r * 3, 0, Math.PI * 2); ctx.stroke();
+        // Body
+        ctx.globalAlpha = 1;
+        ctx.shadowColor = this.type.color;
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = this.type.color;
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
+        // Inner
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.2, 0, Math.PI * 2); ctx.fill();
+        // HP bar
+        ctx.globalAlpha = 1;
+        if (this.hp < this.maxHp) {
+            const bw = 30;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(-bw/2, -r - 12, bw, 4);
+            ctx.fillStyle = this.hp > this.maxHp * 0.3 ? '#40ff80' : '#ff4040';
+            ctx.fillRect(-bw/2, -r - 12, bw * (this.hp / this.maxHp), 4);
+        }
+        ctx.restore();
+    }
+}
+
+class Glitch {
+    constructor(type, x, y) {
+        this.type = type;
+        this.x = x; this.y = y;
+        this.hp = type.hp * dMult[diff];
+        this.maxHp = this.hp;
+        this.speed = type.speed * dMult[diff];
+        this.target = null;
+        this.phase = Math.random() * Math.PI * 2;
+        this.dead = false;
+        this.attackTimer = 0;
+    }
+    findTarget() {
+        if (towers.length === 0) return;
+        let closest = null, closestDist = Infinity;
+        towers.forEach(t => {
+            const d = Math.hypot(t.x - this.x, t.y - this.y);
+            if (d < closestDist) { closestDist = d; closest = t; }
+        });
+        this.target = closest;
+    }
+    update(dt) {
+        if (this.dead) return;
+        this.phase += dt * 4;
+        if (!this.target || !towers.includes(this.target)) this.findTarget();
+        if (!this.target) return;
+        const dx = this.target.x - this.x;
+        const dy = this.target.y - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > this.type.size + this.target.type.radius * 0.5) {
+            this.x += (dx / dist) * this.speed * dt * 60;
+            this.y += (dy / dist) * this.speed * dt * 60;
+            // Jitter effect
+            if (this.type.name === 'Jitter') {
+                this.x += (Math.random() - 0.5) * 3;
+                this.y += (Math.random() - 0.5) * 3;
+            }
+        } else {
+            this.attackTimer += dt;
+            if (this.attackTimer > 0.8) {
+                this.attackTimer = 0;
+                this.target.hp -= this.type.dmg;
+                sfxTowerHit();
+                shakeX = (Math.random() - 0.5) * 5;
+                shakeY = (Math.random() - 0.5) * 5;
+                shakeDec = 0.25;
+                spawnP(this.target.x, this.target.y, '#ff4040', 4);
+                if (this.target.hp <= 0) {
+                    towersLost++;
+                    signalStrength -= this.target.type.signal;
+                    spawnP(this.target.x, this.target.y, this.target.type.color, 15);
+                    spawnText(this.target.x, this.target.y, 'TOWER LOST', '#ff4040');
+                    towers.splice(towers.indexOf(this.target), 1);
+                    this.target = null;
                 }
             }
-            update() {
-                if (frozen) return;
-                
-                this.decay += 0.001 * decaySpeed;
-                this.stage = Math.min(4, Math.floor(this.decay * 5));
-                
-                if (this.stage >= 1) {
-                    this.points.forEach((p, i) => {
-                        p.x += (Math.random() - 0.5) * this.decay * 2;
-                        p.y += (Math.random() - 0.5) * this.decay * 2;
-                    });
+        }
+        // Check barrier collision
+        barriers.forEach((b, bi) => {
+            if (b.points.length < 2) return;
+            for (let i = 0; i < b.points.length - 1; i++) {
+                const p1 = b.points[i], p2 = b.points[i + 1];
+                const d = distToSegment(this.x, this.y, p1.x, p1.y, p2.x, p2.y);
+                if (d < this.type.size + 5) {
+                    this.hp -= (ampActive ? 2 : 1);
+                    b.hits++;
+                    b.life -= 0.1;
+                    spawnP(this.x, this.y, '#4080ff', 3);
+                    sfxBlock();
+                    shakeX = (Math.random() - 0.5) * 3;
+                    shakeY = (Math.random() - 0.5) * 3;
+                    shakeDec = 0.15;
+                    // Push back
+                    if (this.target) {
+                        const pdx = this.x - this.target.x;
+                        const pdy = this.y - this.target.y;
+                        const pdist = Math.hypot(pdx, pdy) || 1;
+                        this.x += (pdx / pdist) * 15;
+                        this.y += (pdy / pdist) * 15;
+                    }
+                    break;
                 }
-                
-                if (this.stage >= 2) {
-                    this.glitchOffset = Math.sin(Date.now() * 0.01) * this.decay * 20;
-                }
-                
-                if (this.stage >= 3) {
-                    this.ditherPhase += 0.1;
-                }
-                
-                if (this.stage >= 4 && Math.random() < 0.1 * decaySpeed) {
-                    const center = this.getCenter();
-                    noiseParticles.push({
-                        x: center.x + (Math.random() - 0.5) * 100,
-                        y: center.y + (Math.random() - 0.5) * 100,
-                        vx: (Math.random() - 0.5) * 2,
-                        vy: (Math.random() - 0.5) * 2,
-                        size: 1 + Math.random() * 3,
-                        life: 1,
-                        color: this.color
-                    });
-                }
-                
-                this.noise.forEach(n => {
-                    n.x += Math.sin(Date.now() * n.speed) * 0.5;
-                    n.y += Math.cos(Date.now() * n.speed) * 0.5;
-                });
             }
-            getCenter() {
-                const avgX = this.points.reduce((s, p) => s + p.x, 0) / this.points.length;
-                const avgY = this.points.reduce((s, p) => s + p.y, 0) / this.points.length;
-                return {x: avgX, y: avgY};
+        });
+    }
+    draw() {
+        if (this.dead) return;
+        const s = this.type.size;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.shadowColor = this.type.color;
+        ctx.shadowBlur = 8;
+        if (this.type.boss) {
+            // Boss: complex glitch shape
+            ctx.fillStyle = this.type.color;
+            ctx.beginPath();
+            for (let i = 0; i < 12; i++) {
+                const a = (i / 12) * Math.PI * 2 + this.phase * 0.15;
+                const r = s * (0.7 + Math.sin(a * 5 + this.phase) * 0.3);
+                i === 0 ? ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
             }
-            draw() {
-                if (this.points.length < 2) return;
-                
-                const alpha = Math.max(0.1, 1 - this.decay);
-                const center = this.getCenter();
-                
-                ctx.save();
-                
-                if (this.stage >= 2) {
-                    ctx.translate(this.glitchOffset, 0);
-                }
-                
-                ctx.beginPath();
-                ctx.moveTo(this.points[0].x, this.points[0].y);
-                for (let i = 1; i < this.points.length; i++) {
-                    ctx.lineTo(this.points[i].x, this.points[i].y);
-                }
-                
-                let strokeColor = this.color;
-                let lineWidth = 3;
-                
-                if (this.stage === 0) {
-                    strokeColor = this.color;
-                } else if (this.stage === 1) {
-                    const r = parseInt(this.color.slice(1, 3), 16);
-                    const g = parseInt(this.color.slice(3, 5), 16);
-                    const b = parseInt(this.color.slice(5, 7), 16);
-                    const noise = Math.random() * 30;
-                    strokeColor = "rgb(" + Math.min(255, r + noise) + "," + Math.min(255, g + noise) + "," + Math.min(255, b + noise) + ")";
-                } else if (this.stage === 2) {
-                    ctx.setLineDash([5, 3]);
-                    strokeColor = "rgba(" + 
-                        parseInt(this.color.slice(1, 3), 16) + "," +
-                        parseInt(this.color.slice(3, 5), 16) + "," +
-                        parseInt(this.color.slice(5, 7), 16) + "," + alpha + ")";
-                } else if (this.stage === 3) {
-                    lineWidth = 1 + Math.sin(this.ditherPhase) * 2;
-                    strokeColor = "rgba(128, 128, 128, " + alpha + ")";
-                } else {
-                    strokeColor = "rgba(80, 80, 80, " + (alpha * 0.5) + ")";
-                }
-                
-                ctx.strokeStyle = strokeColor;
-                ctx.lineWidth = lineWidth;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-                ctx.stroke();
-                
-                if (this.stage >= 1) {
-                    for (let i = 0; i < this.decay * 10; i++) {
-                        const px = this.points[Math.floor(Math.random() * this.points.length)];
-                        if (px) {
-                            ctx.fillStyle = "rgba(255, 100, 100, " + (0.3 * (1 - this.decay)) + ")";
-                            ctx.fillRect(px.x + (Math.random() - 0.5) * 20, px.y + (Math.random() - 0.5) * 20, 2, 2);
-                        }
+            ctx.closePath(); ctx.fill();
+            // Boss eyes
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ff0060';
+            ctx.beginPath(); ctx.arc(-8, -4, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(8, -4, 4, 0, Math.PI * 2); ctx.fill();
+        } else {
+            // Regular glitch: pixelated square pattern
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = this.type.color;
+            const sz = s * 2;
+            for (let dx = -sz/2; dx < sz/2; dx += 4) {
+                for (let dy = -sz/2; dy < sz/2; dy += 4) {
+                    if (Math.random() < 0.6) {
+                        ctx.fillRect(dx, dy, 3, 3);
                     }
                 }
-                
-                if (this.stage >= 3) {
-                    this.noise.forEach(n => {
-                        ctx.beginPath();
-                        ctx.arc(center.x + n.x, center.y + n.y, n.size, 0, Math.PI * 2);
-                        ctx.fillStyle = "rgba(100, 100, 120, " + (this.decay * 0.5) + ")";
-                        ctx.fill();
-                    });
-                }
-                
-                if (this.stage >= 2) {
-                    for (let i = 0; i < 3; i++) {
-                        const scanY = center.y + (Math.random() - 0.5) * 100;
-                        ctx.fillStyle = "rgba(255, 255, 255, " + (0.1 * this.decay) + ")";
-                        ctx.fillRect(center.x - 50, scanY, 100, 1);
-                    }
-                }
-                
-                ctx.restore();
             }
-            isDecayed() {
-                return this.decay >= 1;
-            }
+            ctx.globalAlpha = 1;
         }
-        
-        function getRandomColor() {
-            const hue = Math.floor(Math.random() * 360);
-            return "hsl(" + hue + ", 70%, 60%)";
+        // HP bar
+        ctx.shadowBlur = 0;
+        const bw = s * 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(-bw/2, -s - 8, bw, 3);
+        ctx.fillStyle = '#ff4060';
+        ctx.fillRect(-bw/2, -s - 8, bw * (this.hp / this.maxHp), 3);
+        ctx.restore();
+    }
+}
+
+class Barrier {
+    constructor(points) {
+        this.points = points.map(p => ({...p}));
+        this.life = 1; this.hits = 0; this.phase = 0;
+    }
+    update(dt) {
+        this.phase += dt;
+        this.life -= dt * 0.03; // Barriers decay naturally
+    }
+    draw() {
+        if (this.points.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(60,140,255,' + (this.life * 0.6) + ')';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#4080ff';
+        ctx.shadowBlur = 10 * this.life;
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let i = 1; i < this.points.length; i++) {
+            ctx.lineTo(this.points[i].x, this.points[i].y);
         }
-        
-        function hslToHex(hsl) {
-            const match = hsl.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
-            if (!match) return '#888888';
-            
-            let h = parseInt(match[1]) / 360;
-            let s = parseInt(match[2]) / 100;
-            let l = parseInt(match[3]) / 100;
-            
-            let r, g, b;
-            if (s === 0) {
-                r = g = b = l;
-            } else {
-                const hue2rgb = (p, q, t) => {
-                    if (t < 0) t += 1;
-                    if (t > 1) t -= 1;
-                    if (t < 1/6) return p + (q - p) * 6 * t;
-                    if (t < 1/2) return q;
-                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-                    return p;
-                };
-                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-                const p = 2 * l - q;
-                r = hue2rgb(p, q, h + 1/3);
-                g = hue2rgb(p, q, h);
-                b = hue2rgb(p, q, h - 1/3);
-            }
-            
-            const toHex = x => {
-                const hex = Math.round(x * 255).toString(16);
-                return hex.length === 1 ? '0' + hex : hex;
-            };
-            
-            return '#' + toHex(r) + toHex(g) + toHex(b);
-        }
-        
-        function drawBackground() {
-            ctx.fillStyle = '#0a0a0c';
-            ctx.fillRect(0, 0, W, H);
-            
-            if (noiseIntensity > 0) {
-                for (let i = 0; i < noiseIntensity * 100; i++) {
-                    const x = Math.random() * W;
-                    const y = Math.random() * H;
-                    const brightness = Math.random() * 30;
-                    ctx.fillStyle = "rgb(" + brightness + "," + brightness + "," + brightness + ")";
-                    ctx.fillRect(x, y, 1, 1);
-                }
-            }
-        }
-        
-        function updateEntropy() {
-            totalEntropy = shapes.reduce((sum, s) => sum + s.decay, 0) / Math.max(1, shapes.length);
-            document.getElementById('entropy-fill').style.width = (totalEntropy * 100) + '%';
-        }
-        
-        function animate() {
-            drawBackground();
-            
-            shapes.forEach(s => {
-                s.update();
-                s.draw();
-            });
-            
-            shapes = shapes.filter(s => !s.isDecayed());
-            
-            noiseParticles = noiseParticles.filter(p => {
-                p.x += p.vx;
-                p.y += p.vy;
-                p.life -= 0.02;
-                
+        ctx.stroke();
+        // Sparks along barrier
+        if (this.hits > 0) {
+            for (let i = 0; i < this.points.length; i += 3) {
+                const p = this.points[i];
+                ctx.fillStyle = 'rgba(100,180,255,' + (this.life * 0.3) + ')';
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-                ctx.fillStyle = "rgba(100, 100, 120, " + p.life + ")";
+                ctx.arc(p.x + Math.sin(this.phase * 5 + i) * 3, p.y + Math.cos(this.phase * 4 + i) * 3, 2, 0, Math.PI * 2);
                 ctx.fill();
-                
-                return p.life > 0;
-            });
-            
-            if (isDrawing && currentPath.length > 0) {
-                ctx.beginPath();
-                ctx.moveTo(currentPath[0].x, currentPath[0].y);
-                for (let i = 1; i < currentPath.length; i++) {
-                    ctx.lineTo(currentPath[i].x, currentPath[i].y);
-                }
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 3;
-                ctx.lineCap = 'round';
-                ctx.stroke();
             }
-            
-            updateEntropy();
-            requestAnimationFrame(animate);
         }
-        
-        canvas.onmousedown = e => {
-            isDrawing = true;
-            currentPath = [{x: e.clientX, y: e.clientY}];
-        };
-        
-        canvas.onmousemove = e => {
-            if (isDrawing) {
-                currentPath.push({x: e.clientX, y: e.clientY});
+        ctx.restore();
+    }
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - x1, py - y1);
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function spawnP(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4,
+            size: 1.5 + Math.random() * 2, life: 1, color, decay: 0.02 + Math.random() * 0.02
+        });
+    }
+}
+function spawnText(x, y, text, color) {
+    texts.push({ x, y, text, color, life: 1, vy: -1.5 });
+}
+
+// Initialize noise field
+function initNoise() {
+    noiseField = [];
+    for (let i = 0; i < 100; i++) {
+        noiseField.push({ x: Math.random() * W, y: Math.random() * H, size: 1 + Math.random() * 2, phase: Math.random() * Math.PI * 2 });
+    }
+}
+
+// Input
+const keys = {};
+const mouse = { x: W/2, y: H/2 };
+
+window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if (e.key === 'Escape') {
+        if (state === ST.PLAY) { state = ST.PAUSE; document.getElementById('pause-overlay').classList.remove('hidden'); sfxMenu(); }
+        else if (state === ST.PAUSE) resumeGame();
+    }
+    if (e.key === 'r' || e.key === 'R') { if (state === ST.OVER) startGame(); }
+    if (state === ST.PLAY) {
+        if (e.key === '1') selectTool('draw');
+        if (e.key === '2') selectTool('amplify');
+        if (e.key === '3') selectTool('purge');
+        if (e.key === '4') selectTool('repair');
+    }
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; if (isDrawing) currentPath.push({x: e.clientX, y: e.clientY}); });
+canvas.addEventListener('mousedown', e => {
+    initAudio();
+    if (state !== ST.PLAY) return;
+    if (selectedTool === 'draw') {
+        isDrawing = true;
+        currentPath = [{x: e.clientX, y: e.clientY}];
+    } else {
+        handleToolClick(e.clientX, e.clientY);
+    }
+});
+canvas.addEventListener('mouseup', () => {
+    if (isDrawing && currentPath.length > 3) {
+        barriers.push(new Barrier(currentPath));
+        barriersDrawn++;
+        sfxDraw();
+    }
+    isDrawing = false; currentPath = [];
+});
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault(); initAudio();
+    if (state !== ST.PLAY) return;
+    const t = e.touches[0];
+    mouse.x = t.clientX; mouse.y = t.clientY;
+    if (selectedTool === 'draw') {
+        isDrawing = true;
+        currentPath = [{x: t.clientX, y: t.clientY}];
+    } else {
+        handleToolClick(t.clientX, t.clientY);
+    }
+});
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    mouse.x = t.clientX; mouse.y = t.clientY;
+    if (isDrawing) currentPath.push({x: t.clientX, y: t.clientY});
+});
+canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (isDrawing && currentPath.length > 3) {
+        barriers.push(new Barrier(currentPath));
+        barriersDrawn++;
+        sfxDraw();
+    }
+    isDrawing = false; currentPath = [];
+});
+
+function handleToolClick(x, y) {
+    if (selectedTool === 'amplify' && ampCD <= 0) {
+        ampActive = true; ampTimer = 5; ampCD = 12;
+        sfxAmplify();
+        spawnP(x, y, '#40ffa0', 15);
+        spawnText(x, y, 'AMPLIFIED!', '#40ffa0');
+    } else if (selectedTool === 'purge' && purgeCD <= 0) {
+        purgeCD = 10;
+        sfxPurge();
+        glitches.forEach(g => {
+            const d = Math.hypot(g.x - x, g.y - y);
+            if (d < 150) {
+                g.hp -= 4;
+                spawnP(g.x, g.y, '#ff8040', 6);
             }
-        };
-        
-        canvas.onmouseup = e => {
-            if (isDrawing && currentPath.length > 2) {
-                const color = hslToHex(getRandomColor());
-                shapes.push(new Shape(currentPath, color));
+        });
+        spawnP(x, y, '#ff6030', 20);
+        shakeX = (Math.random() - 0.5) * 8;
+        shakeY = (Math.random() - 0.5) * 8;
+        shakeDec = 0.3;
+    } else if (selectedTool === 'repair' && repairCD <= 0) {
+        repairCD = 15;
+        sfxRepair();
+        towers.forEach(t => {
+            const d = Math.hypot(t.x - x, t.y - y);
+            if (d < 100) {
+                t.hp = Math.min(t.maxHp, t.hp + 2);
+                spawnP(t.x, t.y, '#40ff80', 8);
+                spawnText(t.x, t.y - 20, 'REPAIRED', '#40ff80');
             }
-            isDrawing = false;
-            currentPath = [];
-        };
-        
-        canvas.ontouchstart = e => {
-            e.preventDefault();
-            isDrawing = true;
-            currentPath = [{x: e.touches[0].clientX, y: e.touches[0].clientY}];
-        };
-        
-        canvas.ontouchmove = e => {
-            e.preventDefault();
-            if (isDrawing) {
-                currentPath.push({x: e.touches[0].clientX, y: e.touches[0].clientY});
+        });
+    }
+}
+
+function selectTool(tool) {
+    selectedTool = tool;
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+}
+
+// UI wiring
+document.querySelectorAll('.tool-btn').forEach(b => b.addEventListener('click', () => { selectTool(b.dataset.tool); sfxMenu(); }));
+document.querySelectorAll('.diff-btn').forEach(b => b.addEventListener('click', () => {
+    diff = b.dataset.diff;
+    document.querySelectorAll('.diff-btn').forEach(d => d.classList.toggle('sel', d === b));
+    sfxMenu();
+}));
+document.getElementById('start-btn').addEventListener('click', () => { initAudio(); startGame(); });
+document.getElementById('help-btn').addEventListener('click', () => {
+    initAudio(); sfxMenu();
+    alert('SIGNAL DEGRADATION SIMULATOR\n\nDraw barriers (1) between glitches and your signal towers. Barriers block and damage approaching entropy.\n\nAmplify (2): Doubles barrier damage for 5s.\nPurge (3): AOE damage blast.\nRepair (4): Heal nearby towers.\n\nSignal strength drops when towers fall. Entropy rises over time.\n\nSurvive 20 cycles to achieve Signal Mastery.\n\nKeys: 1-4 tools, ESC pause, R restart.');
+});
+document.getElementById('retry-btn').addEventListener('click', startGame);
+document.getElementById('back-btn').addEventListener('click', () => {
+    state = ST.MENU;
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+});
+document.getElementById('resume-btn').addEventListener('click', resumeGame);
+document.getElementById('quit-btn').addEventListener('click', () => {
+    state = ST.MENU;
+    document.getElementById('pause-overlay').classList.add('hidden');
+    document.getElementById('menu-overlay').classList.remove('hidden');
+    showHUD(false);
+});
+
+function resumeGame() { state = ST.PLAY; document.getElementById('pause-overlay').classList.add('hidden'); lastTime = performance.now(); }
+function showHUD(show) {
+    const m = show ? 'remove' : 'add';
+    ['hud-left', 'hud-right', 'toolbar', 'wave-display'].forEach(id => document.getElementById(id).classList[m]('hidden'));
+}
+
+function loadHS() { try { return JSON.parse(localStorage.getItem('signal-deg-scores')) || []; } catch { return []; } }
+function saveHS(s) {
+    const hs = loadHS();
+    hs.push({ score: s, diff, date: new Date().toISOString() });
+    hs.sort((a, b) => b.score - a.score);
+    localStorage.setItem('signal-deg-scores', JSON.stringify(hs.slice(0, 10)));
+}
+function displayHS() {
+    const hs = loadHS();
+    document.getElementById('hs-display').textContent = hs.length ? 'Best: ' + hs[0].score + ' (' + hs[0].diff + ')' : 'No scores yet';
+}
+
+function placeTowers() {
+    towers = [];
+    // Place towers in a pattern
+    const cx = W / 2, cy = H / 2;
+    towers.push(new Tower(cx, cy, TOWER_TYPES[2])); // Core in center
+    const radius = 150;
+    for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        towers.push(new Tower(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, TOWER_TYPES[0]));
+    }
+    for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
+        towers.push(new Tower(cx + Math.cos(a) * radius * 1.8, cy + Math.sin(a) * radius * 1.8, TOWER_TYPES[1]));
+    }
+}
+
+function startGame() {
+    initAudio();
+    state = ST.PLAY;
+    score = 0; combo = 1; comboTimer = 0; maxCombo = 1;
+    signalStrength = 100; entropyLevel = 0;
+    cycle = 1; cycleTimer = 0; spawnTimer = 0;
+    bossAlive = false; bossesKilled = 0;
+    glitchesBlocked = 0; towersLost = 0; barriersDrawn = 0;
+    ampCD = 0; purgeCD = 0; repairCD = 0;
+    ampActive = false; ampTimer = 0;
+    glitches = []; barriers = []; particles = []; texts = [];
+    selectedTool = 'draw';
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === 'draw'));
+    placeTowers();
+    initNoise();
+    document.getElementById('menu-overlay').classList.add('hidden');
+    document.getElementById('gameover-overlay').classList.add('hidden');
+    document.getElementById('pause-overlay').classList.add('hidden');
+    showHUD(true);
+    lastTime = performance.now();
+}
+
+function gameOver(ending) {
+    state = ST.OVER;
+    showHUD(false);
+    saveHS(score);
+    const titles = { lost: 'Signal Lost', entropy: 'Total Entropy', victory: 'Signal Mastery!' };
+    const subs = { lost: 'All towers have fallen...', entropy: 'Entropy consumed everything...', victory: 'You maintained perfect signal integrity!' };
+    document.getElementById('go-title').textContent = titles[ending] || 'Signal Lost';
+    document.getElementById('go-sub').textContent = subs[ending] || '';
+    const el = document.getElementById('go-stats');
+    el.innerHTML = '';
+    [['Integrity Score', score], ['Max Combo', 'x' + maxCombo.toFixed(1)], ['Barriers Drawn', barriersDrawn],
+     ['Glitches Blocked', glitchesBlocked], ['Towers Lost', towersLost], ['Cycles Survived', cycle],
+     ['Bosses Defeated', bossesKilled], ['Difficulty', diff.charAt(0).toUpperCase() + diff.slice(1)]
+    ].forEach(([l, v]) => {
+        const r = document.createElement('div');
+        r.className = 'stat-row';
+        r.innerHTML = '<span>' + l + '</span><span class="stat-val">' + v + '</span>';
+        el.appendChild(r);
+    });
+    document.getElementById('gameover-overlay').classList.remove('hidden');
+    ending === 'victory' ? sfxWin() : sfxDeath();
+}
+
+function spawnGlitch() {
+    if (towers.length === 0) return;
+    const side = Math.random();
+    let x, y;
+    if (side < 0.25) { x = -20; y = Math.random() * H; }
+    else if (side < 0.5) { x = W + 20; y = Math.random() * H; }
+    else if (side < 0.75) { x = Math.random() * W; y = -20; }
+    else { x = Math.random() * W; y = H + 20; }
+    const avail = GLITCH_TYPES.filter(t => !t.boss);
+    const maxIdx = Math.min(avail.length, 1 + Math.floor(cycle / 3));
+    glitches.push(new Glitch(avail[Math.floor(Math.random() * maxIdx)], x, y));
+}
+
+function spawnBoss() {
+    const bt = GLITCH_TYPES.find(t => t.boss);
+    const x = Math.random() < 0.5 ? -40 : W + 40;
+    glitches.push(new Glitch(bt, x, H / 2));
+    bossAlive = true;
+    sfxBoss();
+    spawnText(W / 2, H / 2, 'ENTROPY BEAST!', '#ff0060');
+}
+
+// Background
+const bgDots = [];
+for (let i = 0; i < 200; i++) bgDots.push({ x: Math.random() * 2000, y: Math.random() * 2000, s: Math.random() * 1.5, p: Math.random() * Math.PI * 2 });
+
+function drawBg() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    const ef = entropyLevel / 100;
+    g.addColorStop(0, 'hsl(' + (220 + ef * 40) + ', 15%, ' + (4 + ef * 3) + '%)');
+    g.addColorStop(1, 'hsl(' + (240 + ef * 20) + ', 10%, ' + (2 + ef * 2) + '%)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // Grid
+    ctx.strokeStyle = 'rgba(60,80,120,' + (0.08 - ef * 0.05) + ')';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    // Stars/dots
+    bgDots.forEach(d => {
+        d.p += 0.008;
+        ctx.fillStyle = 'rgba(80,120,180,' + (0.2 + Math.sin(d.p) * 0.15) + ')';
+        ctx.fillRect(d.x % W, d.y % H, d.s, d.s);
+    });
+    // Noise field
+    if (entropyLevel > 20) {
+        noiseField.forEach(n => {
+            n.x += Math.sin(time + n.phase) * 0.5;
+            n.y += Math.cos(time * 0.7 + n.phase) * 0.5;
+            n.x = ((n.x % W) + W) % W;
+            n.y = ((n.y % H) + H) % H;
+            ctx.fillStyle = 'rgba(100,60,120,' + (ef * 0.3) + ')';
+            ctx.fillRect(n.x, n.y, n.size, n.size);
+        });
+    }
+}
+
+function drawDrawingPath() {
+    if (!isDrawing || currentPath.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(60,140,255,0.7)';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#4080ff';
+    ctx.shadowBlur = 8;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(currentPath[0].x, currentPath[0].y);
+    for (let i = 1; i < currentPath.length; i++) ctx.lineTo(currentPath[i].x, currentPath[i].y);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawCursor() {
+    if (state !== ST.PLAY || selectedTool === 'draw') return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(80,140,220,0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    const r = selectedTool === 'purge' ? 150 : selectedTool === 'repair' ? 100 : 30;
+    ctx.beginPath(); ctx.arc(mouse.x, mouse.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+}
+
+function updateHUD() {
+    document.getElementById('score-val').textContent = score;
+    document.getElementById('combo-val').textContent = 'x' + combo.toFixed(1);
+    document.getElementById('signal-bar').style.width = Math.max(0, signalStrength) + '%';
+    document.getElementById('entropy-bar').style.width = entropyLevel + '%';
+    document.getElementById('cycle-num').textContent = cycle;
+    document.getElementById('amp-cd').textContent = ampCD > 0 ? Math.ceil(ampCD) + 's' : '';
+    document.getElementById('purge-cd').textContent = purgeCD > 0 ? Math.ceil(purgeCD) + 's' : '';
+    document.getElementById('repair-cd').textContent = repairCD > 0 ? Math.ceil(repairCD) + 's' : '';
+}
+
+function update(dt) {
+    time += dt;
+    // Entropy rises
+    entropyLevel = Math.min(100, entropyLevel + dt * 0.5 * dMult[diff]);
+    // Signal strength from towers
+    const totalSignal = towers.reduce((s, t) => s + t.type.signal, 0);
+    signalStrength = Math.min(100, Math.max(0, totalSignal * (100 / (TOWER_TYPES[2].signal + 4 * TOWER_TYPES[0].signal + 3 * TOWER_TYPES[1].signal))));
+    // Combo decay
+    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) { combo = 1; } }
+    // Cooldowns
+    if (ampCD > 0) ampCD -= dt;
+    if (purgeCD > 0) purgeCD -= dt;
+    if (repairCD > 0) repairCD -= dt;
+    if (ampActive) { ampTimer -= dt; if (ampTimer <= 0) ampActive = false; }
+    // Shake
+    if (shakeDec > 0) { shakeDec -= dt; shakeX *= 0.9; shakeY *= 0.9; } else { shakeX = 0; shakeY = 0; }
+    // Wave
+    cycleTimer += dt;
+    if (cycleTimer > 12 + cycle * 1.5) {
+        cycle++;
+        cycleTimer = 0;
+        if (cycle % 5 === 0) spawnBoss();
+        sfxWave();
+        spawnText(W / 2, H / 2, 'CYCLE ' + cycle, '#80c0ff');
+        // Bonus score for surviving
+        const bonus = 50 * cycle;
+        score += bonus;
+        spawnText(W / 2, H / 2 + 30, '+' + bonus + ' INTEGRITY', '#40ffa0');
+    }
+    spawnTimer += dt;
+    const rate = Math.max(0.8, 3 - cycle * 0.15);
+    if (spawnTimer > rate && glitches.length < 8 + cycle * 2) {
+        spawnTimer = 0;
+        const cnt = 1 + Math.floor(cycle / 3);
+        for (let i = 0; i < cnt; i++) spawnGlitch();
+    }
+    // Update entities
+    towers.forEach(t => t.update(dt));
+    glitches.forEach(g => g.update(dt));
+    barriers.forEach(b => b.update(dt));
+    // Remove dead barriers
+    barriers = barriers.filter(b => b.life > 0);
+    // Remove dead glitches
+    glitches = glitches.filter(g => {
+        if (g.hp <= 0 && !g.dead) {
+            g.dead = true;
+            glitchesBlocked++;
+            const pts = Math.floor(g.type.score * combo);
+            score += pts;
+            combo = Math.min(8, combo + 0.3);
+            comboTimer = 3;
+            maxCombo = Math.max(maxCombo, combo);
+            if (combo >= 2.5) sfxCombo();
+            spawnP(g.x, g.y, '#ff60a0', 10);
+            spawnText(g.x, g.y, '+' + pts, '#ff80c0');
+            if (g.type.boss) {
+                bossAlive = false;
+                bossesKilled++;
+                score += 300;
+                entropyLevel = Math.max(0, entropyLevel - 20);
+                spawnText(g.x, g.y - 25, 'BOSS PURGED! +300', '#ffc040');
             }
-        };
-        
-        canvas.ontouchend = e => {
-            if (isDrawing && currentPath.length > 2) {
-                const color = hslToHex(getRandomColor());
-                shapes.push(new Shape(currentPath, color));
-            }
-            isDrawing = false;
-            currentPath = [];
-        };
-        
-        document.getElementById('speed').oninput = e => {
-            decaySpeed = e.target.value / 100;
-            document.getElementById('speed-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('noise').oninput = e => {
-            noiseIntensity = e.target.value / 100;
-            document.getElementById('noise-val').textContent = e.target.value;
-        };
-        
-        document.getElementById('clear-btn').onclick = () => {
-            shapes = [];
-            noiseParticles = [];
-        };
-        
-        document.getElementById('freeze-btn').onclick = () => {
-            frozen = !frozen;
-            document.getElementById('freeze-btn').textContent = frozen ? 'Resume Decay' : 'Freeze Decay';
-        };
-        
-        animate();
-    </script>
+            return false;
+        }
+        return !g.dead;
+    });
+    // Particles
+    particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life -= p.decay; return p.life > 0; });
+    texts = texts.filter(t => { t.y += t.vy; t.life -= 0.02; return t.life > 0; });
+    // Game over checks
+    if (towers.length === 0) gameOver('lost');
+    if (entropyLevel >= 100) gameOver('entropy');
+    if (cycle >= 20 && glitches.length === 0 && !bossAlive) gameOver('victory');
+}
+
+function render() {
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+    drawBg();
+    // Barriers
+    barriers.forEach(b => b.draw());
+    // Towers
+    towers.forEach(t => t.draw());
+    // Glitches
+    glitches.forEach(g => g.draw());
+    // Drawing path
+    drawDrawingPath();
+    // Amplify indicator
+    if (ampActive) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(60,255,160,0.15)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
+        ctx.strokeRect(10, 10, W - 20, H - 20);
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+    // Particles
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+    });
+    ctx.globalAlpha = 1;
+    // Texts
+    texts.forEach(t => {
+        ctx.globalAlpha = t.life;
+        ctx.fillStyle = t.color;
+        ctx.font = '14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.text, t.x, t.y);
+    });
+    ctx.globalAlpha = 1;
+    drawCursor();
+    ctx.restore();
+    updateHUD();
+}
+
+function loop(now) {
+    requestAnimationFrame(loop);
+    if (!lastTime) lastTime = now;
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    if (state === ST.PLAY) { update(dt); render(); }
+    else if (state === ST.MENU) { time += dt; drawBg(); }
+    else if (state === ST.PAUSE) { render(); ctx.fillStyle = 'rgba(5,5,10,0.3)'; ctx.fillRect(0, 0, W, H); }
+}
+
+displayHS();
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
