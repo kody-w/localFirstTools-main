@@ -32,8 +32,9 @@ Your working directory is `/Users/kodyw/Projects/localFirstTools-main`.
 │  7. SCORE      → Run quality scan                │
 │  8. RANK       → Publish rankings                │
 │  9. SOCIALIZE  → Regenerate community data       │
-│  10. PUBLISH   → Git commit + push               │
-│  11. LOG       → Write frame log                 │
+│  10. BROADCAST → Generate podcast episode         │
+│  11. PUBLISH   → Git commit + push               │
+│  12. LOG       → Write frame log                 │
 │                                                  │
 └─────────────────────────────────────────────────┘
 ```
@@ -349,7 +350,33 @@ This regenerates `apps/community.json` with fresh comments, ratings, and activit
 git add apps/community.json
 ```
 
-## Step 10: PUBLISH — Git Commit + Push
+## Step 10: BROADCAST — Generate Podcast Episode
+
+Generate a new RappterZooNation podcast episode for this frame. The podcast is a self-contained app in the gallery where two hosts — Rapptr (enthusiastic optimist, cyan) and ZooKeeper (critical realist, orange) — review actual apps with real scores, community data, and deep links.
+
+```bash
+# Generate new episode for this frame
+python3 scripts/generate_broadcast.py --frame $FRAME --verbose
+
+# Generate audio for the new episode
+python3 scripts/generate_broadcast_audio.py --episode latest --verbose
+
+# Stage broadcast files
+git add apps/broadcasts/feed.json
+git add apps/broadcasts/audio/
+git add apps/broadcasts/lore.json
+```
+
+The episode automatically includes:
+- Top-scoring apps, trending community picks, hidden gems, and a comedic roast of the worst app
+- Real scores, grades, playability ratings, community comments with upvotes
+- Direct links to every discussed app
+- Host dialogue with tag-reactive vocabulary (both hosts react to actual game tags)
+- Lore continuity from `apps/broadcasts/lore.json` (tracks past events, running jokes, character arcs)
+
+The podcast player lives at `apps/broadcasts/player.html` and is listed in the gallery.
+
+## Step 11: PUBLISH — Git Commit + Push
 
 ### Manifest Update
 
@@ -398,7 +425,7 @@ EOF
 git push
 ```
 
-## Step 11: LOG — Write Frame Log
+## Step 12: LOG — Write Frame Log
 
 Update the engine state file with actual metrics from this frame:
 
@@ -424,6 +451,7 @@ state['history'].append({
         'scored': True,
         'ranked': True,
         'socialized': True,
+        'broadcast': True,
         'published': True
     },
     'metrics': {
@@ -451,7 +479,7 @@ Commit and push the state:
 git add apps/molter-state.json && git commit -m "chore: Molter Engine frame $(python3 -c 'import json; print(json.load(open(\"apps/molter-state.json\"))[\"frame\"])')" && git push
 ```
 
-## Step 12: Summary
+## Step 13: Summary
 
 Print a frame summary:
 
@@ -511,5 +539,7 @@ The Molter Engine adapts based on accumulated data:
 | `python3 scripts/generate_community.py` | Regenerate community.json |
 | `python3 scripts/generate_community.py --push` | Community + commit + push |
 | `python3 scripts/molt.py FILE` | Molt a single app via Copilot CLI |
+| `python3 scripts/generate_broadcast.py --frame N` | Generate podcast episode for frame N |
+| `python3 scripts/generate_broadcast_audio.py --episode latest` | Generate audio for latest episode |
 | `find apps/ -name "*.html" -empty` | Find empty/broken files |
 | `python3 -c "import json; json.load(open('apps/manifest.json'))"` | Validate manifest |
