@@ -1,886 +1,560 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Workflow System</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs/loader.min.js"></script>
-    <style>
-        .workflow-step {
-            transition: all 0.3s ease;
-        }
-        .editor-container {
-            height: 300px;
-            border: 1px solid #ccc;
-            margin-bottom: 10px;
-        }
-        .drag-handle {
-            cursor: move;
-        }
-        .step-expanded {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Pipeline</title>
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="canvas,game,puzzle,neural,audio,ai">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="2">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh}
+canvas{display:block;width:100%;height:100%}
+#hud{position:absolute;top:0;left:0;right:0;padding:8px 16px;display:flex;justify-content:space-between;font:13px monospace;background:linear-gradient(180deg,rgba(13,17,23,0.95),transparent);pointer-events:none;z-index:5}
+.hv{color:#58a6ff;font-weight:bold}.hw{color:#f85149}.hg{color:#3fb950}.hy{color:#d29922}
+#overlay{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(13,17,23,0.94);z-index:20;transition:opacity 0.3s}
+#overlay.hide{opacity:0;pointer-events:none}
+#overlay h1{font-size:2.4rem;color:#58a6ff;text-shadow:0 0 40px rgba(88,166,255,0.4);margin-bottom:8px}
+#overlay h2{font-size:1.1rem;color:#8b949e;margin-bottom:20px;font-weight:normal}
+.btn{background:linear-gradient(135deg,#161b22,#21262d);border:1px solid #30363d;color:#c9d1d9;padding:10px 28px;margin:4px;font-size:0.95rem;border-radius:8px;cursor:pointer;transition:all 0.2s}
+.btn:hover{border-color:#58a6ff;box-shadow:0 0 15px rgba(88,166,255,0.2);transform:scale(1.03)}
+.btn.sel{border-color:#58a6ff;background:#161b22;box-shadow:0 0 12px rgba(88,166,255,0.3)}
+.info{font-size:0.8rem;color:#8b949e;margin-top:14px;text-align:center;line-height:1.7}
+.info span{color:#58a6ff}
+.help{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font:0.72rem monospace;color:#484f58;z-index:5;pointer-events:none}
+</style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <header class="mb-10">
-            <h1 class="text-3xl font-bold text-gray-800">Agent Workflow System</h1>
-            <p class="text-gray-600 mt-2">Design sequential agent workflows with specific tools for each step</p>
-        </header>
+<body>
+<div id="hud">
+<div>LEVEL <span class="hv" id="h-lv">1</span> | SIGNALS <span class="hv" id="h-sig">0</span>/<span id="h-req">5</span></div>
+<div>SCORE <span class="hy" id="h-sc">0</span> | COMBO <span class="hv" id="h-co">x1</span></div>
+<div>TIME <span class="hv" id="h-tm">60</span> | LIVES <span class="hw" id="h-lv2">3</span></div>
+</div>
+<canvas id="c"></canvas>
+<div id="overlay">
+<h1>NEURAL PIPELINE</h1>
+<h2>Route signals through neural networks to train the AI</h2>
+<div>
+<button class="btn sel" onclick="setDiff(0)">Easy</button>
+<button class="btn" onclick="setDiff(1)">Normal</button>
+<button class="btn" onclick="setDiff(2)">Hard</button>
+</div>
+<button class="btn" style="margin-top:12px;min-width:180px" onclick="startGame()">BEGIN TRAINING</button>
+<div class="info" id="stats"></div>
+</div>
+<div class="help">CLICK nodes to rotate connections | SPACE to send signal | ESC pause | R restart</div>
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d');
+let W,H;function resize(){W=C.width=innerWidth;H=C.height=innerHeight}
+addEventListener('resize',resize);resize();
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left Panel: Available Agents -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-xl font-semibold mb-4 flex items-center">
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                    </svg>
-                    Available Agents
-                </h2>
-                <div class="space-y-3" id="available-agents">
-                    <!-- Agents will be populated here -->
-                </div>
-                <div class="mt-6">
-                    <h3 class="text-lg font-medium mb-2">Import/Export</h3>
-                    <div class="flex flex-col space-y-3">
-                        <div class="flex">
-                            <input type="file" id="agent-import" class="hidden" accept=".json,.py">
-                            <label for="agent-import" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded cursor-pointer flex-grow text-center">
-                                Import Agent
-                            </label>
-                            <span id="agent-file-name" class="ml-3 self-center text-sm text-gray-600 overflow-hidden text-ellipsis max-w-xs"></span>
-                        </div>
-                        <div class="flex">
-                            <input type="file" id="workflow-import" class="hidden" accept=".json">
-                            <label for="workflow-import" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded cursor-pointer flex-grow text-center">
-                                Import Workflow
-                            </label>
-                            <span id="workflow-file-name" class="ml-3 self-center text-sm text-gray-600 overflow-hidden text-ellipsis max-w-xs"></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+// Audio
+const AC=window.AudioContext||window.webkitAudioContext;let ac=null;
+function ia(){if(!ac)ac=new AC()}
+function snd(f,d,t='sine',v=0.12){
+  if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();
+  o.type=t;o.frequency.value=f;g.gain.setValueAtTime(v,ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+d);
+  o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d);
+}
+function sfxClick(){snd(880,0.08);snd(1100,0.06,'triangle',0.08)}
+function sfxSignal(){snd(440,0.15);snd(660,0.1,'triangle',0.08)}
+function sfxSuccess(){snd(523,0.15);setTimeout(()=>snd(659,0.15),80);setTimeout(()=>snd(784,0.2),160)}
+function sfxFail(){snd(200,0.3,'sawtooth',0.1);snd(150,0.2,'square',0.08)}
+function sfxLevel(){snd(440,0.2);setTimeout(()=>snd(554,0.2),100);setTimeout(()=>snd(659,0.2),200);setTimeout(()=>snd(880,0.3),300)}
+function sfxCombo(){snd(1200,0.12);snd(1500,0.08,'triangle',0.08)}
+function sfxBoss(){snd(100,0.5,'sawtooth',0.15);snd(80,0.4,'square',0.1)}
 
-            <!-- Middle Panel: Workflow Builder -->
-            <div class="col-span-2">
-                <div class="bg-white rounded-lg shadow p-6 mb-6">
-                    <h2 class="text-xl font-semibold mb-4 flex items-center">
-                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
-                        </svg>
-                        Workflow Builder
-                    </h2>
-                    <div class="flex mb-4">
-                        <input type="text" id="workflow-name" placeholder="Workflow Name" class="flex-grow border rounded px-3 py-2 mr-2">
-                        <button id="save-workflow" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
-                            Save Workflow
-                        </button>
-                    </div>
-                    
-                    <div id="workflow-steps" class="space-y-4">
-                        <!-- Workflow steps will be added here -->
-                        <div class="bg-gray-100 rounded-lg p-6 text-center text-gray-500 border-2 border-dashed">
-                            Drag agents from the left panel to build your workflow
-                        </div>
-                    </div>
-                    
-                    <div class="mt-4 flex justify-between">
-                        <button id="export-workflow" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
-                            Export Workflow
-                        </button>
-                        <div>
-                            <button id="add-step-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded mr-2">
-                                + Add Step
-                            </button>
-                            <button id="run-workflow" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded">
-                                Run Workflow
-                            </button>
-                        </div>
-                    </div>
-                </div>
+// State
+let diff=1,state='menu',score=0,combo=1,comboTimer=0,level=1,lives=3;
+let timeLeft=60,signalsSent=0,signalsReq=5,frameN=0;
+let grid=[],signals=[],particles=[],nodes=[];
+let shakeX=0,shakeY=0,shakeDur=0;
+let highScore=parseInt(localStorage.getItem('np_hs')||'0');
+let bestLevel=parseInt(localStorage.getItem('np_bl')||'0');
+let totalSignals=parseInt(localStorage.getItem('np_ts')||'0');
 
-                <!-- Execution Results -->
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h2 class="text-xl font-semibold mb-4 flex items-center">
-                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                        </svg>
-                        Execution Results
-                    </h2>
-                    <div id="execution-results" class="border rounded p-4 h-64 overflow-auto bg-gray-50 font-mono text-sm">
-                        <!-- Execution results will be displayed here -->
-                        <div class="text-gray-400 italic">Results will appear here after running the workflow</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+// Node types
+const TYPES=['relay','gate','splitter','filter','amplifier','scrambler'];
+const COLORS={relay:'#58a6ff',gate:'#3fb950',splitter:'#d29922',filter:'#f78166',amplifier:'#bc8cff',scrambler:'#f85149',source:'#79c0ff',target:'#56d364'};
 
-        <!-- Step Configuration Modal -->
-        <div id="step-config-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-            <div class="bg-white rounded-lg shadow-lg max-w-4xl w-full max-h-screen overflow-auto">
-                <div class="p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-2xl font-bold" id="modal-title">Configure Step</h2>
-                        <button id="close-modal" class="text-gray-500 hover:text-gray-700">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                            </svg>
-                        </button>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2" for="step-name">
-                            Step Name
-                        </label>
-                        <input type="text" id="step-name" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2" for="agent-select">
-                            Select Agent
-                        </label>
-                        <select id="agent-select" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-                            <!-- Agents will be populated here -->
-                        </select>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">
-                            Available Skills
-                        </label>
-                        <div id="skill-checkboxes" class="max-h-40 overflow-y-auto border rounded p-3">
-                            <!-- Skills will be populated here -->
-                            <div class="text-gray-400 italic">Select an agent to see available skills</div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">
-                            System Prompt
-                        </label>
-                        <div id="system-prompt-editor" class="editor-container"></div>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">
-                            Mock Parameters
-                        </label>
-                        <div id="mock-params-editor" class="editor-container"></div>
-                    </div>
-                    
-                    <div class="flex justify-end">
-                        <button id="save-step-config" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
-                            Save Configuration
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+class Node{
+  constructor(gx,gy,type){
+    this.gx=gx;this.gy=gy;this.type=type;
+    this.rotation=Math.floor(Math.random()*4);
+    this.connections=this.getBaseConnections();
+    this.pulse=0;this.active=false;this.size=0;this.targetSize=1;
+    this.hovered=false;
+  }
+  getBaseConnections(){
+    switch(this.type){
+      case'relay':return[0,2]; // straight through
+      case'gate':return[0,1,2]; // T shape
+      case'splitter':return[0,1,2,3]; // all 4
+      case'filter':return[0,1]; // L shape
+      case'amplifier':return[0,2]; // straight but boosts
+      case'scrambler':return[1,3]; // perpendicular
+      case'source':return[2]; // down only
+      case'target':return[0]; // up only
+      default:return[0,2];
+    }
+  }
+  getRotatedConnections(){
+    return this.connections.map(c=>(c+this.rotation)%4);
+  }
+  hasConnection(dir){
+    return this.getRotatedConnections().includes(dir);
+  }
+  rotate(){
+    if(this.type==='source'||this.type==='target')return;
+    this.rotation=(this.rotation+1)%4;
+    this.pulse=1;
+    sfxClick();
+  }
+  getScreenPos(){
+    const gs=Math.min(W,H-60)/(Math.max(gridW,gridH)+2);
+    const ox=(W-gridW*gs)/2,oy=(H-gridH*gs)/2+20;
+    return{x:ox+this.gx*gs+gs/2,y:oy+this.gy*gs+gs/2,s:gs*0.4};
+  }
+  update(dt){
+    this.pulse=Math.max(0,this.pulse-dt*3);
+    this.size+=(this.targetSize-this.size)*0.15;
+  }
+  draw(){
+    const p=this.getScreenPos();
+    const sc=this.size*(1+this.pulse*0.15);
+    const col=COLORS[this.type];
+    X.save();X.translate(p.x,p.y);
+    // Glow
+    if(this.active||this.hovered){
+      X.globalAlpha=0.15;X.fillStyle=col;
+      X.beginPath();X.arc(0,0,p.s*1.8*sc,0,Math.PI*2);X.fill();
+    }
+    // Body
+    X.globalAlpha=0.85;X.fillStyle=this.hovered?'#30363d':'#161b22';
+    X.strokeStyle=col;X.lineWidth=2;
+    const r=p.s*sc;
+    if(this.type==='source'||this.type==='target'){
+      X.beginPath();X.arc(0,0,r,0,Math.PI*2);X.fill();X.stroke();
+    }else{
+      X.fillRect(-r,-r,r*2,r*2);X.strokeRect(-r,-r,r*2,r*2);
+    }
+    // Draw connection ports
+    const dirs=this.getRotatedConnections();
+    const offsets=[[0,-1],[1,0],[0,1],[-1,0]]; // up,right,down,left
+    for(let d of dirs){
+      const ox=offsets[d][0]*r*0.9,oy=offsets[d][1]*r*0.9;
+      X.fillStyle=col;X.globalAlpha=0.9;
+      X.beginPath();X.arc(ox,oy,4*sc,0,Math.PI*2);X.fill();
+      // Connection line to edge
+      X.strokeStyle=col;X.lineWidth=2;X.globalAlpha=0.4;
+      X.beginPath();X.moveTo(0,0);X.lineTo(ox,oy);X.stroke();
+    }
+    // Type icon
+    X.globalAlpha=1;X.fillStyle=col;X.font=`bold ${Math.floor(10*sc)}px monospace`;X.textAlign='center';X.textBaseline='middle';
+    const icons={relay:'=',gate:'T',splitter:'+',filter:'L',amplifier:'A',scrambler:'X',source:'S',target:'T'};
+    X.fillText(icons[this.type]||'?',0,1);
+    X.restore();
+  }
+}
 
-    <script>
-        // Sample data for available agents - will be populated from backend in production
-        const availableAgents = [
-            {
-                name: "Dynamics365CRUD",
-                description: "Performs CRUD operations with Dynamics 365 Web API.",
-                skills: ["create", "read", "update", "delete", "query"],
-                parameters: {
-                    operation: { type: "string", enum: ["create", "read", "update", "delete", "query"] },
-                    entity: { type: "string" },
-                    data: { type: "string" },
-                    record_id: { type: "string" },
-                    fetchxml: { type: "string" },
-                    select: { type: "string" }
-                }
-            },
-            {
-                name: "ContextMemory",
-                description: "Recalls and provides context based on stored memories.",
-                skills: ["recall"],
-                parameters: {
-                    user_guid: { type: "string" }
-                }
-            },
-            {
-                name: "ManageMemory",
-                description: "Manages memories in a JSON-based storage system.",
-                skills: ["create"],
-                parameters: {
-                    data: { type: "object" },
-                    conversation_id: { type: "string" },
-                    session_id: { type: "string" },
-                    user_guid: { type: "string" },
-                    conversation_context: { type: "string" },
-                    companion_id: { type: "string" },
-                    mood: { type: "string" },
-                    theme: { type: "string" }
-                }
-            },
-            {
-                name: "EmailDrafting",
-                description: "Drafts and sends emails.",
-                skills: ["draft", "send"],
-                parameters: {
-                    subject: { type: "string" },
-                    to: { type: "string" },
-                    cc: { type: "array" },
-                    bcc: { type: "array" },
-                    body: { type: "string" },
-                    attachments: { type: "array" },
-                    importance: { type: "string", enum: ["low", "normal", "high"] }
-                }
-            },
-            {
-                name: "LearnNewAgent",
-                description: "Creates a new Python agent file.",
-                skills: ["create"],
-                parameters: {
-                    agent_name: { type: "string" },
-                    python_implementation: { type: "string" }
-                }
-            }
-        ];
-
-        let workflowSteps = [];
-        let systemPromptEditor, mockParamsEditor;
-        let currentStepIndex = -1;
-
-        // Initialize Monaco editors
-        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs' }});
-        require(['vs/editor/editor.main'], function() {
-            systemPromptEditor = monaco.editor.create(document.getElementById('system-prompt-editor'), {
-                value: 'You are a helpful assistant focused on this specific task.',
-                language: 'markdown',
-                minimap: { enabled: false },
-                lineNumbers: 'on',
-                theme: 'vs'
-            });
-            
-            mockParamsEditor = monaco.editor.create(document.getElementById('mock-params-editor'), {
-                value: '{\n  // Add mock parameters here if needed\n}',
-                language: 'json',
-                minimap: { enabled: false },
-                lineNumbers: 'on',
-                theme: 'vs'
-            });
-        });
-
-        // Populate available agents
-        function populateAvailableAgents() {
-            const agentsContainer = document.getElementById('available-agents');
-            agentsContainer.innerHTML = '';
-            
-            availableAgents.forEach(agent => {
-                const agentCard = document.createElement('div');
-                agentCard.className = 'bg-gray-50 border rounded p-3 cursor-move';
-                agentCard.draggable = true;
-                agentCard.dataset.agent = JSON.stringify(agent);
-                
-                agentCard.innerHTML = `
-                    <div class="font-medium">${agent.name}</div>
-                    <div class="text-sm text-gray-600">${agent.description}</div>
-                    <div class="text-xs text-gray-500 mt-1">Skills: ${agent.skills.join(', ')}</div>
-                `;
-                
-                agentCard.addEventListener('dragstart', handleDragStart);
-                agentsContainer.appendChild(agentCard);
-            });
+class Signal{
+  constructor(node,dir,strength){
+    this.node=node;this.dir=dir;this.strength=strength||1;
+    this.progress=0;this.speed=1.5+diff*0.3;
+    this.alive=true;this.color='#58a6ff';
+    this.trail=[];
+  }
+  update(dt){
+    this.progress+=this.speed*dt;
+    if(this.progress>=1){
+      this.progress=0;
+      // Move to next node
+      const offsets=[[0,-1],[1,0],[0,1],[-1,0]];
+      const dx=offsets[this.dir][0],dy=offsets[this.dir][1];
+      const ngx=this.node.gx+dx,ngy=this.node.gy+dy;
+      // Find next node
+      const next=nodes.find(n=>n.gx===ngx&&n.gy===ngy);
+      if(!next){this.alive=false;return}
+      // Check if next node accepts from opposite direction
+      const inDir=(this.dir+2)%4;
+      if(!next.hasConnection(inDir)){
+        this.alive=false;sfxFail();
+        const p=next.getScreenPos();
+        spawnParticles(p.x,p.y,8,'#f85149');
+        return;
+      }
+      // Process node
+      this.node=next;
+      if(next.type==='target'){
+        // Signal reached target!
+        this.alive=false;
+        signalsSent++;totalSignals++;
+        score+=100*combo*this.strength;
+        combo++;comboTimer=4;
+        if(combo>2)sfxCombo();
+        sfxSuccess();
+        const p=next.getScreenPos();
+        spawnParticles(p.x,p.y,15,'#56d364');
+        shake(3,0.15);
+        next.pulse=1;next.active=true;
+        setTimeout(()=>{next.active=false},500);
+        return;
+      }
+      // Pick next direction from node's connections (exclude incoming)
+      const conns=next.getRotatedConnections().filter(c=>c!==inDir);
+      if(conns.length===0){this.alive=false;return}
+      if(next.type==='splitter'&&conns.length>1){
+        // Split into multiple signals
+        for(let i=1;i<conns.length;i++){
+          signals.push(new Signal(next,conns[i],this.strength));
         }
+      }
+      if(next.type==='amplifier')this.strength=Math.min(3,this.strength+0.5);
+      if(next.type==='scrambler'){
+        this.dir=conns[Math.floor(Math.random()*conns.length)];
+      }else{
+        this.dir=conns[0];
+      }
+      next.pulse=0.5;
+      snd(300+next.gy*80,0.05,'sine',0.04);
+    }
+    // Trail
+    const p=this.getScreenPos();
+    this.trail.push({x:p.x,y:p.y,life:0.5});
+  }
+  getScreenPos(){
+    const p1=this.node.getScreenPos();
+    const offsets=[[0,-1],[1,0],[0,1],[-1,0]];
+    const gs=Math.min(W,H-60)/(Math.max(gridW,gridH)+2);
+    const dx=offsets[this.dir][0]*gs*this.progress;
+    const dy=offsets[this.dir][1]*gs*this.progress;
+    return{x:p1.x+dx,y:p1.y+dy};
+  }
+  draw(){
+    // Trail
+    for(let i=this.trail.length-1;i>=0;i--){
+      let t=this.trail[i];t.life-=0.02;
+      if(t.life<=0){this.trail.splice(i,1);continue}
+      X.fillStyle=this.color;X.globalAlpha=t.life*0.5;
+      X.beginPath();X.arc(t.x,t.y,3,0,Math.PI*2);X.fill();
+    }
+    // Signal dot
+    const p=this.getScreenPos();
+    X.globalAlpha=1;X.fillStyle='#fff';
+    X.beginPath();X.arc(p.x,p.y,5+this.strength*2,0,Math.PI*2);X.fill();
+    X.fillStyle=this.color;X.globalAlpha=0.5;
+    X.beginPath();X.arc(p.x,p.y,8+this.strength*3,0,Math.PI*2);X.fill();
+    X.globalAlpha=1;
+  }
+}
 
-        // Populate agent select in modal
-        function populateAgentSelect() {
-            const select = document.getElementById('agent-select');
-            select.innerHTML = '<option value="">Select an agent</option>';
-            
-            availableAgents.forEach(agent => {
-                const option = document.createElement('option');
-                option.value = agent.name;
-                option.textContent = agent.name;
-                select.appendChild(option);
-            });
-            
-            select.addEventListener('change', updateSkillCheckboxes);
-        }
+class Particle{
+  constructor(x,y,col){
+    this.x=x;this.y=y;this.color=col;
+    const a=Math.random()*Math.PI*2,s=40+Math.random()*120;
+    this.vx=Math.cos(a)*s;this.vy=Math.sin(a)*s;
+    this.life=0.3+Math.random()*0.4;this.maxLife=this.life;
+    this.size=1+Math.random()*3;
+  }
+  update(dt){this.x+=this.vx*dt;this.y+=this.vy*dt;this.life-=dt;this.vx*=0.94;this.vy*=0.94}
+  draw(){
+    X.fillStyle=this.color;X.globalAlpha=this.life/this.maxLife;
+    X.fillRect(this.x-this.size/2,this.y-this.size/2,this.size,this.size);
+    X.globalAlpha=1;
+  }
+}
 
-        // Update skill checkboxes based on selected agent
-        function updateSkillCheckboxes() {
-            const agentName = document.getElementById('agent-select').value;
-            const skillsContainer = document.getElementById('skill-checkboxes');
-            
-            if (!agentName) {
-                skillsContainer.innerHTML = '<div class="text-gray-400 italic">Select an agent to see available skills</div>';
-                return;
-            }
-            
-            const agent = availableAgents.find(a => a.name === agentName);
-            skillsContainer.innerHTML = '';
-            
-            if (agent && agent.skills.length > 0) {
-                agent.skills.forEach(skill => {
-                    const div = document.createElement('div');
-                    div.className = 'mb-2';
-                    
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.id = `skill-${skill}`;
-                    checkbox.name = `skill-${skill}`;
-                    checkbox.value = skill;
-                    checkbox.className = 'mr-2';
-                    checkbox.checked = true; // Default to checked
-                    
-                    const label = document.createElement('label');
-                    label.htmlFor = `skill-${skill}`;
-                    label.textContent = skill;
-                    
-                    div.appendChild(checkbox);
-                    div.appendChild(label);
-                    skillsContainer.appendChild(div);
-                });
-            } else {
-                skillsContainer.innerHTML = '<div class="text-gray-400 italic">No skills available for this agent</div>';
-            }
-            
-            // Update mock parameters editor with template for the selected agent
-            updateMockParams(agent);
-        }
+function spawnParticles(x,y,n,col){for(let i=0;i<n;i++)particles.push(new Particle(x,y,col))}
+function shake(a,d){shakeX=a;shakeY=a;shakeDur=d}
 
-        // Update mock parameters based on selected agent
-        function updateMockParams(agent) {
-            if (!agent || !agent.parameters) {
-                mockParamsEditor.setValue('{\n  // No parameters available for this agent\n}');
-                return;
-            }
-            
-            const mockParams = {};
-            for (const [key, value] of Object.entries(agent.parameters)) {
-                if (value.enum && value.enum.length > 0) {
-                    mockParams[key] = value.enum[0];
-                } else if (value.type === 'string') {
-                    mockParams[key] = "";
-                } else if (value.type === 'array') {
-                    mockParams[key] = [];
-                } else if (value.type === 'object') {
-                    mockParams[key] = {};
-                }
-            }
-            
-            mockParamsEditor.setValue(JSON.stringify(mockParams, null, 2));
-        }
+// Grid generation
+let gridW=5,gridH=5;
+function generateLevel(){
+  nodes=[];signals=[];particles=[];
+  gridW=4+Math.min(3,Math.floor(level/3));
+  gridH=4+Math.min(3,Math.floor(level/3));
+  signalsSent=0;
+  signalsReq=3+level+diff*2;
+  timeLeft=60+level*5-diff*15;
 
-        // Handle drag start for agent cards
-        function handleDragStart(e) {
-            e.dataTransfer.setData('text/plain', e.target.dataset.agent);
-            e.dataTransfer.effectAllowed = 'copy';
-        }
+  // Place source nodes at top
+  const numSources=1+Math.floor(level/5);
+  for(let i=0;i<numSources;i++){
+    const sx=Math.floor(gridW/(numSources+1)*(i+1));
+    nodes.push(new Node(sx,0,'source'));
+  }
 
-        // Initialize workflow steps container
-        function initWorkflowSteps() {
-            const container = document.getElementById('workflow-steps');
-            
-            container.addEventListener('dragover', e => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-                
-                const dragOverItem = e.target.closest('.workflow-step');
-                if (dragOverItem) {
-                    // Add highlight to indicate drop position
-                    dragOverItem.classList.add('bg-blue-50');
-                }
-            });
-            
-            container.addEventListener('dragleave', e => {
-                const dragLeaveItem = e.target.closest('.workflow-step');
-                if (dragLeaveItem) {
-                    dragLeaveItem.classList.remove('bg-blue-50');
-                }
-            });
-            
-            container.addEventListener('drop', e => {
-                e.preventDefault();
-                
-                // Remove any highlighting
-                document.querySelectorAll('.workflow-step').forEach(step => {
-                    step.classList.remove('bg-blue-50');
-                });
-                
-                // Get drop position
-                const dropTarget = e.target.closest('.workflow-step');
-                const dropPosition = dropTarget ? Array.from(container.children).indexOf(dropTarget) : -1;
-                
-                try {
-                    const agentData = JSON.parse(e.dataTransfer.getData('text/plain'));
-                    if (agentData) {
-                        addWorkflowStep(agentData, dropPosition);
-                    }
-                } catch (error) {
-                    console.error('Error adding workflow step:', error);
-                }
-            });
-        }
+  // Place target nodes at bottom
+  const numTargets=1+Math.floor(level/4);
+  for(let i=0;i<numTargets;i++){
+    const tx=Math.floor(gridW/(numTargets+1)*(i+1));
+    nodes.push(new Node(tx,gridH-1,'target'));
+  }
 
-        // Add a new workflow step
-        function addWorkflowStep(agentData, position = -1) {
-            const step = {
-                id: Date.now().toString(),
-                name: `${agentData.name} Step`,
-                agent: agentData.name,
-                skills: [...agentData.skills],
-                systemPrompt: 'You are a helpful assistant focused on this specific task.',
-                mockParams: {},
-                enabled: true
-            };
-            
-            // Add mock parameters based on agent
-            if (agentData.parameters) {
-                for (const [key, value] of Object.entries(agentData.parameters)) {
-                    if (value.enum && value.enum.length > 0) {
-                        step.mockParams[key] = value.enum[0];
-                    } else if (value.type === 'string') {
-                        step.mockParams[key] = "";
-                    } else if (value.type === 'array') {
-                        step.mockParams[key] = [];
-                    } else if (value.type === 'object') {
-                        step.mockParams[key] = {};
-                    }
-                }
-            }
-            
-            // Insert at specified position or add to end
-            if (position !== -1 && position < workflowSteps.length) {
-                workflowSteps.splice(position, 0, step);
-            } else {
-                workflowSteps.push(step);
-            }
-            
-            renderWorkflowSteps();
-        }
+  // Fill middle with random nodes
+  for(let y=1;y<gridH-1;y++){
+    for(let x=0;x<gridW;x++){
+      if(Math.random()<0.7+diff*0.05){
+        const typeIdx=Math.floor(Math.random()*TYPES.length);
+        const n=new Node(x,y,TYPES[typeIdx]);
+        n.targetSize=1;n.size=0;
+        nodes.push(n);
+      }
+    }
+  }
 
-        // Render all workflow steps
-        function renderWorkflowSteps() {
-            const container = document.getElementById('workflow-steps');
-            
-            // Clear empty state if needed
-            if (workflowSteps.length > 0) {
-                container.innerHTML = '';
-            }
-            
-            // Render each step
-            workflowSteps.forEach((step, index) => {
-                const stepElement = document.createElement('div');
-                stepElement.className = 'workflow-step bg-white border rounded-lg shadow-sm hover:shadow';
-                stepElement.dataset.stepId = step.id;
-                
-                const agentData = availableAgents.find(a => a.name === step.agent) || { description: 'Unknown agent' };
-                
-                stepElement.innerHTML = `
-                    <div class="flex items-center p-4">
-                        <div class="drag-handle mr-3 text-gray-400">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path>
-                            </svg>
-                        </div>
-                        <div class="flex-grow">
-                            <div class="font-medium">${step.name}</div>
-                            <div class="text-sm text-gray-600">${agentData.description}</div>
-                        </div>
-                        <div class="flex">
-                            <button class="edit-step-btn text-blue-500 hover:text-blue-700 mr-2" data-index="${index}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                </svg>
-                            </button>
-                            <button class="toggle-step-btn ${step.enabled ? 'text-green-500' : 'text-gray-400'} hover:text-green-700 mr-2" data-index="${index}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                            </button>
-                            <button class="delete-step-btn text-red-500 hover:text-red-700" data-index="${index}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="step-details p-4 pt-0 hidden">
-                        <div class="border-t my-2"></div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <div class="text-sm font-medium text-gray-700 mb-1">Enabled Skills:</div>
-                                <div class="text-sm text-gray-600">${step.skills.join(', ')}</div>
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-700 mb-1">Mock Parameters:</div>
-                                <div class="text-sm text-gray-600 overflow-hidden text-ellipsis">${JSON.stringify(step.mockParams).substring(0, 50)}...</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                container.appendChild(stepElement);
-                
-                // Add event listeners
-                const editBtn = stepElement.querySelector('.edit-step-btn');
-                const toggleBtn = stepElement.querySelector('.toggle-step-btn');
-                const deleteBtn = stepElement.querySelector('.delete-step-btn');
-                
-                editBtn.addEventListener('click', () => editStep(parseInt(editBtn.dataset.index)));
-                toggleBtn.addEventListener('click', () => toggleStep(parseInt(toggleBtn.dataset.index)));
-                deleteBtn.addEventListener('click', () => deleteStep(parseInt(deleteBtn.dataset.index)));
-                
-                // Make step draggable
-                stepElement.draggable = true;
-                stepElement.addEventListener('dragstart', handleStepDragStart);
-            });
-            
-            // Add empty state if no steps
-            if (workflowSteps.length === 0) {
-                container.innerHTML = `
-                    <div class="bg-gray-100 rounded-lg p-6 text-center text-gray-500 border-2 border-dashed">
-                        Drag agents from the left panel to build your workflow
-                    </div>
-                `;
-            }
-        }
+  // Boss level every 5 levels - add scrambler nodes
+  if(level%5===0){
+    sfxBoss();
+    for(let i=0;i<2+diff;i++){
+      const bx=Math.floor(Math.random()*gridW);
+      const by=1+Math.floor(Math.random()*(gridH-2));
+      if(!nodes.find(n=>n.gx===bx&&n.gy===by)){
+        nodes.push(new Node(bx,by,'scrambler'));
+      }
+    }
+  }
 
-        // Handle dragging workflow steps
-        function handleStepDragStart(e) {
-            const stepId = e.target.closest('.workflow-step').dataset.stepId;
-            e.dataTransfer.setData('application/step-id', stepId);
-            e.dataTransfer.effectAllowed = 'move';
-        }
+  sfxLevel();
+}
 
-        // Edit a workflow step
-        function editStep(index) {
-            currentStepIndex = index;
-            const step = workflowSteps[index];
-            
-            document.getElementById('step-name').value = step.name;
-            document.getElementById('agent-select').value = step.agent;
-            
-            // Update skill checkboxes
-            updateSkillCheckboxes();
-            
-            // Set selected skills
-            setTimeout(() => {
-                document.querySelectorAll('#skill-checkboxes input[type="checkbox"]').forEach(checkbox => {
-                    checkbox.checked = step.skills.includes(checkbox.value);
-                });
-            }, 100);
-            
-            // Set system prompt and mock parameters
-            systemPromptEditor.setValue(step.systemPrompt);
-            mockParamsEditor.setValue(JSON.stringify(step.mockParams, null, 2));
-            
-            // Show modal
-            document.getElementById('step-config-modal').classList.remove('hidden');
-        }
+function sendSignal(){
+  const sources=nodes.filter(n=>n.type==='source');
+  if(sources.length===0)return;
+  const src=sources[Math.floor(Math.random()*sources.length)];
+  const dirs=src.getRotatedConnections();
+  if(dirs.length>0){
+    signals.push(new Signal(src,dirs[0],1));
+    sfxSignal();
+    src.pulse=1;
+  }
+}
 
-        // Toggle step enabled state
-        function toggleStep(index) {
-            workflowSteps[index].enabled = !workflowSteps[index].enabled;
-            renderWorkflowSteps();
-        }
+// Input
+let mx=0,my=0;
+C.addEventListener('click',e=>{
+  if(state!=='playing')return;
+  ia();mx=e.clientX;my=e.clientY;
+  // Find clicked node
+  for(let n of nodes){
+    const p=n.getScreenPos();
+    if(Math.hypot(mx-p.x,my-p.y)<p.s*1.5){
+      n.rotate();return;
+    }
+  }
+});
+C.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});
 
-        // Delete a workflow step
-        function deleteStep(index) {
-            if (confirm('Are you sure you want to delete this step?')) {
-                workflowSteps.splice(index, 1);
-                renderWorkflowSteps();
-            }
-        }
+document.addEventListener('keydown',e=>{
+  if(e.key===' '&&state==='playing'){e.preventDefault();sendSignal()}
+  if(e.key==='Escape'){
+    if(state==='playing'){state='paused';showOverlay('pause')}
+    else if(state==='paused'){state='playing';document.getElementById('overlay').classList.add('hide')}
+  }
+  if(e.key==='r'||e.key==='R'){if(state==='gameover')startGame()}
+});
 
-        // Save step configuration
-        function saveStepConfig() {
-            if (currentStepIndex === -1) return;
-            
-            const step = workflowSteps[currentStepIndex];
-            step.name = document.getElementById('step-name').value;
-            step.agent = document.getElementById('agent-select').value;
-            
-            // Get selected skills
-            step.skills = Array.from(document.querySelectorAll('#skill-checkboxes input[type="checkbox"]:checked'))
-                .map(checkbox => checkbox.value);
-            
-            // Get system prompt and mock parameters
-            step.systemPrompt = systemPromptEditor.getValue();
-            
-            try {
-                step.mockParams = JSON.parse(mockParamsEditor.getValue());
-            } catch (error) {
-                alert('Invalid JSON in mock parameters');
-                return;
-            }
-            
-            // Close modal and update UI
-            document.getElementById('step-config-modal').classList.add('hidden');
-            renderWorkflowSteps();
-        }
+// Touch
+C.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  if(state!=='playing')return;
+  ia();
+  const t=e.touches[0];mx=t.clientX;my=t.clientY;
+  for(let n of nodes){
+    const p=n.getScreenPos();
+    if(Math.hypot(mx-p.x,my-p.y)<p.s*2){n.rotate();return}
+  }
+  sendSignal();
+},{passive:false});
 
-        // Run the workflow
-        function runWorkflow() {
-            const enabledSteps = workflowSteps.filter(step => step.enabled);
-            
-            if (enabledSteps.length === 0) {
-                alert('No enabled steps to run');
-                return;
-            }
-            
-            const resultsContainer = document.getElementById('execution-results');
-            resultsContainer.innerHTML = '';
-            
-            // Add workflow name and timestamp
-            const workflowName = document.getElementById('workflow-name').value || 'Unnamed Workflow';
-            const timestamp = new Date().toLocaleString();
-            
-            resultsContainer.innerHTML += `
-                <div class="font-bold">${workflowName}</div>
-                <div class="text-gray-500 text-xs mb-2">Started at ${timestamp}</div>
-            `;
-            
-            // Simulate running each step
-            enabledSteps.forEach((step, index) => {
-                const stepResult = document.createElement('div');
-                stepResult.className = 'mb-4 pb-2 border-b';
-                
-                stepResult.innerHTML = `
-                    <div class="flex items-center">
-                        <span class="inline-block w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-center font-semibold mr-2">${index + 1}</span>
-                        <span class="font-medium">${step.name}</span>
-                    </div>
-                    <div class="text-gray-600 text-sm ml-8 mt-1">Agent: ${step.agent}</div>
-                    <div class="text-gray-600 text-sm ml-8">Status: <span class="text-green-600">Completed</span></div>
-                    <div class="bg-gray-100 p-2 rounded mt-2 text-sm ml-8 overflow-x-auto">
-                        <pre>Mock result for ${step.agent} using skills: ${step.skills.join(', ')}</pre>
-                    </div>
-                `;
-                
-                resultsContainer.appendChild(stepResult);
-            });
-            
-            // Add completion message
-            resultsContainer.innerHTML += `
-                <div class="text-green-600 font-semibold mt-2">✓ Workflow completed successfully</div>
-                <div class="text-gray-500 text-xs">Completed at ${new Date().toLocaleString()}</div>
-            `;
-        }
+// Game loop
+let lastT=0;
+function loop(time){
+  requestAnimationFrame(loop);
+  const dt=Math.min(0.05,(time-lastT)/1000);lastT=time;
 
-        // Export workflow to JSON file
-        function exportWorkflow() {
-            const workflowName = document.getElementById('workflow-name').value || 'unnamed_workflow';
-            const sanitizedName = workflowName.replace(/\s+/g, '_').toLowerCase();
-            
-            const workflowData = {
-                name: workflowName,
-                created: new Date().toISOString(),
-                steps: workflowSteps,
-                metadata: {
-                    version: '1.0',
-                    application: 'Agent Workflow System'
-                }
-            };
-            
-            const dataStr = JSON.stringify(workflowData, null, 2);
-            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-            
-            const exportLink = document.createElement('a');
-            exportLink.setAttribute('href', dataUri);
-            exportLink.setAttribute('download', `${sanitizedName}.json`);
-            document.body.appendChild(exportLink);
-            exportLink.click();
-            document.body.removeChild(exportLink);
-        }
+  if(state==='menu'||state==='paused'||state==='gameover'){drawGame();return}
 
-        // Import workflow from JSON file
-        function importWorkflow(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            // Update filename display
-            document.getElementById('workflow-file-name').textContent = file.name;
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const workflowData = JSON.parse(e.target.result);
-                    
-                    // Validate basic structure
-                    if (!workflowData.steps || !Array.isArray(workflowData.steps)) {
-                        throw new Error('Invalid workflow format: missing steps array');
-                    }
-                    
-                    // Set workflow name
-                    document.getElementById('workflow-name').value = workflowData.name || 'Imported Workflow';
-                    
-                    // Import steps
-                    workflowSteps = workflowData.steps;
-                    renderWorkflowSteps();
-                    
-                    // Show success message
-                    alert(`Successfully imported workflow "${workflowData.name}" with ${workflowData.steps.length} steps`);
-                } catch (error) {
-                    alert(`Error importing workflow: ${error.message}`);
-                }
-            };
-            reader.readAsText(file);
-        }
+  frameN++;
+  comboTimer-=dt;if(comboTimer<=0){combo=1;comboTimer=0}
+  timeLeft-=dt;
 
-        // Import agent from JSON or Python file
-        function importAgent(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            // Update filename display
-            document.getElementById('agent-file-name').textContent = file.name;
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    if (file.name.endsWith('.json')) {
-                        // JSON import
-                        const agentData = JSON.parse(e.target.result);
-                        
-                        // Validate basic structure
-                        if (!agentData.name || !agentData.description) {
-                            throw new Error('Invalid agent format: missing required fields');
-                        }
-                        
-                        // Check if agent already exists
-                        const existingIndex = availableAgents.findIndex(a => a.name === agentData.name);
-                        if (existingIndex !== -1) {
-                            if (confirm(`Agent "${agentData.name}" already exists. Replace it?`)) {
-                                availableAgents[existingIndex] = agentData;
-                            }
-                        } else {
-                            availableAgents.push(agentData);
-                        }
-                        
-                        // Refresh UI
-                        populateAvailableAgents();
-                        populateAgentSelect();
-                        
-                        alert(`Successfully imported agent "${agentData.name}"`);
-                    } else if (file.name.endsWith('.py')) {
-                        // Python import - parse class structure
-                        const pythonCode = e.target.result;
-                        
-                        // Extract agent name from Python class
-                        const classMatch = pythonCode.match(/class\s+(\w+)Agent\s*\(/);
-                        if (!classMatch) {
-                            throw new Error('Could not find agent class definition');
-                        }
-                        
-                        const agentName = classMatch[1];
-                        
-                        // Extract description
-                        const descriptionMatch = pythonCode.match(/\"description\":\s*\"([^\"]+)\"/);
-                        const description = descriptionMatch ? descriptionMatch[1] : 'Imported Python agent';
-                        
-                        // Extract skills from function definitions
-                        const functionMatches = pythonCode.match(/def\s+(\w+)\s*\(/g) || [];
-                        const skills = functionMatches
-                            .map(match => match.replace(/def\s+/, '').replace(/\s*\($/, ''))
-                            .filter(name => name !== '__init__' && name !== 'perform');
-                        
-                        // Create simple agent definition
-                        const agentData = {
-                            name: agentName,
-                            description,
-                            skills: skills.length > 0 ? skills : ['perform'],
-                            parameters: {},
-                            source: 'python',
-                            pythonCode
-                        };
-                        
-                        // Add to available agents
-                        const existingIndex = availableAgents.findIndex(a => a.name === agentData.name);
-                        if (existingIndex !== -1) {
-                            if (confirm(`Agent "${agentData.name}" already exists. Replace it?`)) {
-                                availableAgents[existingIndex] = agentData;
-                            }
-                        } else {
-                            availableAgents.push(agentData);
-                        }
-                        
-                        // Refresh UI
-                        populateAvailableAgents();
-                        populateAgentSelect();
-                        
-                        alert(`Successfully imported Python agent "${agentData.name}" with ${agentData.skills.length} skills`);
-                    } else {
-                        throw new Error('Unsupported file type');
-                    }
-                } catch (error) {
-                    alert(`Error importing agent: ${error.message}`);
-                }
-            };
-            reader.readAsText(file);
-        }
+  // Shake
+  if(shakeDur>0){shakeDur-=dt;shakeX*=0.9;shakeY*=0.9}else{shakeX=0;shakeY=0}
 
-        // Event Listeners
-        document.addEventListener('DOMContentLoaded', () => {
-            populateAvailableAgents();
-            populateAgentSelect();
-            initWorkflowSteps();
-            
-            // Modal events
-            document.getElementById('close-modal').addEventListener('click', () => {
-                document.getElementById('step-config-modal').classList.add('hidden');
-            });
-            
-            document.getElementById('save-step-config').addEventListener('click', saveStepConfig);
-            
-            // Add step button
-            document.getElementById('add-step-btn').addEventListener('click', () => {
-                // Create empty step and open editor
-                workflowSteps.push({
-                    id: Date.now().toString(),
-                    name: 'New Step',
-                    agent: '',
-                    skills: [],
-                    systemPrompt: 'You are a helpful assistant focused on this specific task.',
-                    mockParams: {},
-                    enabled: true
-                });
-                
-                renderWorkflowSteps();
-                editStep(workflowSteps.length - 1);
-            });
-            
-            // Run workflow button
-            document.getElementById('run-workflow').addEventListener('click', runWorkflow);
-            
-            // Save workflow button
-            document.getElementById('save-workflow').addEventListener('click', () => {
-                const name = document.getElementById('workflow-name').value;
-                if (!name) {
-                    alert('Please enter a workflow name');
-                    return;
-                }
-                
-                // Save to local storage
-                const savedWorkflows = JSON.parse(localStorage.getItem('savedWorkflows') || '{}');
-                savedWorkflows[name] = {
-                    name,
-                    steps: workflowSteps,
-                    lastModified: new Date().toISOString()
-                };
-                
-                localStorage.setItem('savedWorkflows', JSON.stringify(savedWorkflows));
-                alert(`Workflow "${name}" saved successfully`);
-            });
-            
-            // Export workflow button
-            document.getElementById('export-workflow').addEventListener('click', exportWorkflow);
-            
-            // Import workflow file input
-            document.getElementById('workflow-import').addEventListener('change', importWorkflow);
-            
-            // Import agent file input
-            document.getElementById('agent-import').addEventListener('change', importAgent);
-        });
-    </script>
+  // Update nodes
+  for(let n of nodes){
+    n.update(dt);
+    const p=n.getScreenPos();
+    n.hovered=Math.hypot(mx-p.x,my-p.y)<p.s*1.5;
+  }
+
+  // Update signals
+  for(let i=signals.length-1;i>=0;i--){
+    signals[i].update(dt);
+    if(!signals[i].alive){signals.splice(i,1)}
+  }
+
+  // Update particles
+  for(let i=particles.length-1;i>=0;i--){
+    particles[i].update(dt);
+    if(particles[i].life<=0)particles.splice(i,1);
+  }
+
+  // Level complete
+  if(signalsSent>=signalsReq){
+    level++;score+=500*level;
+    if(level>bestLevel){bestLevel=level;localStorage.setItem('np_bl',bestLevel)}
+    generateLevel();
+  }
+
+  // Time up
+  if(timeLeft<=0){
+    lives--;
+    if(lives<=0){
+      state='gameover';
+      if(score>highScore){highScore=score;localStorage.setItem('np_hs',highScore)}
+      localStorage.setItem('np_ts',totalSignals);
+      showOverlay('gameover');
+    }else{
+      timeLeft=60+level*5-diff*15;
+      sfxFail();shake(5,0.2);
+    }
+  }
+
+  // HUD
+  document.getElementById('h-lv').textContent=level;
+  document.getElementById('h-sig').textContent=signalsSent;
+  document.getElementById('h-req').textContent=signalsReq;
+  document.getElementById('h-sc').textContent=score.toLocaleString();
+  document.getElementById('h-co').textContent='x'+combo;
+  document.getElementById('h-tm').textContent=Math.ceil(timeLeft);
+  document.getElementById('h-tm').className=timeLeft<10?'hw':'hv';
+  document.getElementById('h-lv2').textContent=lives;
+
+  drawGame();
+}
+
+function drawGame(){
+  X.save();
+  X.translate(shakeX*(Math.random()-0.5)*2,shakeY*(Math.random()-0.5)*2);
+
+  // Background
+  X.fillStyle='#0d1117';X.fillRect(0,0,W,H);
+
+  // Grid lines
+  const gs=Math.min(W,H-60)/(Math.max(gridW,gridH)+2);
+  const ox=(W-gridW*gs)/2,oy=(H-gridH*gs)/2+20;
+  X.strokeStyle='#161b22';X.lineWidth=1;
+  for(let x=0;x<=gridW;x++){X.beginPath();X.moveTo(ox+x*gs,oy);X.lineTo(ox+x*gs,oy+gridH*gs);X.stroke()}
+  for(let y=0;y<=gridH;y++){X.beginPath();X.moveTo(ox,oy+y*gs);X.lineTo(ox+gridW*gs,oy+y*gs);X.stroke()}
+
+  // Grid cell backgrounds
+  X.fillStyle='#0d111788';
+  for(let y=0;y<gridH;y++){
+    for(let x=0;x<gridW;x++){
+      X.fillRect(ox+x*gs+1,oy+y*gs+1,gs-2,gs-2);
+    }
+  }
+
+  // Draw connections between connected adjacent nodes
+  X.strokeStyle='#21262d';X.lineWidth=2;
+  for(let n of nodes){
+    const dirs=n.getRotatedConnections();
+    const offsets=[[0,-1],[1,0],[0,1],[-1,0]];
+    for(let d of dirs){
+      const ngx=n.gx+offsets[d][0],ngy=n.gy+offsets[d][1];
+      const neighbor=nodes.find(m=>m.gx===ngx&&m.gy===ngy);
+      if(neighbor&&neighbor.hasConnection((d+2)%4)){
+        const p1=n.getScreenPos(),p2=neighbor.getScreenPos();
+        X.strokeStyle=COLORS[n.type]+'44';X.lineWidth=3;
+        X.beginPath();X.moveTo(p1.x,p1.y);X.lineTo(p2.x,p2.y);X.stroke();
+      }
+    }
+  }
+
+  // Draw nodes
+  for(let n of nodes)n.draw();
+
+  // Draw signals
+  for(let s of signals)s.draw();
+
+  // Draw particles
+  for(let p of particles)p.draw();
+
+  // Progress bar
+  if(state==='playing'){
+    const pw=200,ph=4,px=W/2-pw/2,py=H-20;
+    X.fillStyle='#21262d';X.fillRect(px,py,pw,ph);
+    X.fillStyle='#3fb950';X.fillRect(px,py,pw*Math.min(1,signalsSent/signalsReq),ph);
+  }
+
+  // Combo
+  if(combo>1){
+    X.fillStyle='#d29922';X.font='bold 22px monospace';X.textAlign='center';
+    X.globalAlpha=Math.min(1,comboTimer/2);
+    X.fillText('COMBO x'+combo,W/2,65);
+    X.globalAlpha=1;
+  }
+
+  // Level indicator for boss
+  if(level%5===0&&state==='playing'){
+    X.fillStyle='#f85149';X.font='bold 14px monospace';X.textAlign='center';
+    X.globalAlpha=0.5+Math.sin(frameN*0.1)*0.3;
+    X.fillText('BOSS LEVEL',W/2,H-35);
+    X.globalAlpha=1;
+  }
+
+  X.restore();
+}
+
+function showOverlay(mode){
+  const ov=document.getElementById('overlay');
+  ov.classList.remove('hide');
+  const h1=ov.querySelector('h1'),h2=ov.querySelector('h2'),st=document.getElementById('stats');
+  if(mode==='gameover'){
+    h1.textContent='TRAINING FAILED';h1.style.color='#f85149';
+    h2.textContent='The neural network could not converge';
+    let ending='';
+    if(level>=15)ending='ENDING: Master Architect -- The AI achieved near-sentience before failure.';
+    else if(level>=10)ending='ENDING: Signal Expert -- You pushed the boundaries of neural routing.';
+    else if(level>=5)ending='ENDING: Pipeline Builder -- A solid foundation was laid.';
+    else ending='ENDING: First Contact -- The neurons barely fired.';
+    st.innerHTML='Score: <span>'+score.toLocaleString()+'</span> | Level: <span>'+level+'</span><br>'+
+      'High Score: <span>'+highScore.toLocaleString()+'</span> | Best Level: <span>'+bestLevel+'</span><br>'+
+      'Total Signals: <span>'+totalSignals+'</span><br><br>'+
+      '<span style="color:#d29922">'+ending+'</span>';
+  }else if(mode==='pause'){
+    h1.textContent='PAUSED';h1.style.color='#58a6ff';
+    h2.textContent='Press ESC to resume';
+    st.innerHTML='Level: <span>'+level+'</span> | Score: <span>'+score.toLocaleString()+'</span>';
+  }else{
+    h1.textContent='NEURAL PIPELINE';h1.style.color='#58a6ff';
+    h2.textContent='Route signals through neural networks to train the AI';
+    st.innerHTML='High Score: <span>'+highScore.toLocaleString()+'</span> | Best Level: <span>'+bestLevel+'</span>';
+  }
+}
+
+function setDiff(d){
+  diff=d;
+  document.querySelectorAll('.btn').forEach((b,i)=>{if(i<3)b.classList.toggle('sel',i===d)});
+}
+
+function startGame(){
+  ia();state='playing';score=0;combo=1;comboTimer=0;level=1;lives=3;
+  generateLevel();
+  document.getElementById('overlay').classList.add('hide');
+}
+
+showOverlay('menu');
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
