@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="generative_art">
+<meta name="rappterzoo:tags" content="canvas,generative,aurora,procedural,audio,particles,atmosphere">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Aurora Dreamer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  overflow: hidden;
+  font-family: 'Courier New', monospace;
+  color: #aaccaa;
+  user-select: none;
+}
+canvas { display: block; }
+
+#title-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, #000510 0%, #001020 40%, #051530 70%, #0a1a20 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: opacity 2s ease;
+}
+#title-screen h1 {
+  font-size: 3.5rem;
+  background: linear-gradient(90deg, #40ffaa, #60aaff, #ff60cc, #40ffaa);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s ease infinite;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.4rem;
+}
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+#title-screen p {
+  color: #5588aa;
+  font-size: 0.95rem;
+  margin-bottom: 2rem;
+  text-align: center;
+  max-width: 480px;
+  line-height: 1.6;
+}
+.btn {
+  background: linear-gradient(135deg, #0a2030, #051525);
+  border: 1px solid #2a5060;
+  color: #60ccaa;
+  padding: 12px 40px;
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+  margin: 6px;
+}
+.btn:hover {
+  background: linear-gradient(135deg, #0f3040, #0a2030);
+  border-color: #40aa80;
+  box-shadow: 0 0 25px rgba(60,200,160,0.2);
+  transform: translateY(-2px);
+}
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  font-size: 0.78rem;
+  color: #4a7a6a;
+  line-height: 1.7;
+  pointer-events: none;
+}
+#hud span { color: #60ccaa; }
+#controls {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  background: rgba(5,15,25,0.85);
+  border: 1px solid #1a3040;
+  border-radius: 8px;
+  padding: 14px;
+  width: 230px;
+  backdrop-filter: blur(10px);
+}
+#controls h3 {
+  color: #60ccaa;
+  font-size: 0.85rem;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #1a3040;
+  padding-bottom: 5px;
+}
+.ctrl-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 5px 0;
+  font-size: 0.72rem;
+}
+.ctrl-row label { color: #4a7a6a; }
+.ctrl-row input[type="range"] {
+  width: 95px;
+  accent-color: #40aa80;
+}
+.ctrl-row select {
+  background: #0a1a25;
+  color: #60ccaa;
+  border: 1px solid #1a3040;
+  padding: 2px 5px;
+  font-size: 0.7rem;
+  border-radius: 3px;
+}
+#pause-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  z-index: 50;
+}
+#pause-overlay h2 { color: #60ccaa; font-size: 2.2rem; }
+#info-bar {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #3a5a5a;
+  font-size: 0.7rem;
+  z-index: 20;
+  pointer-events: none;
+}
+@media (max-width: 768px) {
+  #title-screen h1 { font-size: 2rem; }
+  #controls { width: 180px; font-size: 0.68rem; padding: 10px; }
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="title-screen">
+  <h1>AURORA DREAMER</h1>
+  <p>Procedural aurora borealis. Flowing curtains of magnetized light dance across a starfield. Move your mouse to influence the solar wind.</p>
+  <div>
+    <button class="btn" onclick="start('calm')">Calm Night</button>
+    <button class="btn" onclick="start('storm')">Solar Storm</button>
+    <button class="btn" onclick="start('psychedelic')">Psychedelic</button>
+  </div>
+  <p style="margin-top:1rem;font-size:0.72rem;color:#3a5a5a;">Mouse: solar wind | Scroll: altitude | Space: pause | S: save | R: reset</p>
+</div>
+
+<div id="hud">
+  <div>Solar Wind: <span id="hud-wind">0</span> km/s</div>
+  <div>Kp Index: <span id="hud-kp">0</span></div>
+  <div>Curtains: <span id="hud-curtains">0</span></div>
+  <div>Particles: <span id="hud-particles">0</span></div>
+  <div>Altitude: <span id="hud-alt">100</span> km</div>
+</div>
+
+<div id="controls">
+  <h3>Aurora Controls</h3>
+  <div class="ctrl-row">
+    <label>Wind Speed</label>
+    <input type="range" id="ctrl-wind" min="1" max="10" value="5">
+  </div>
+  <div class="ctrl-row">
+    <label>Curtain Count</label>
+    <input type="range" id="ctrl-curtains" min="2" max="12" value="5">
+  </div>
+  <div class="ctrl-row">
+    <label>Brightness</label>
+    <input type="range" id="ctrl-bright" min="1" max="10" value="6">
+  </div>
+  <div class="ctrl-row">
+    <label>Wave Speed</label>
+    <input type="range" id="ctrl-wave" min="1" max="10" value="5">
+  </div>
+  <div class="ctrl-row">
+    <label>Color Mode</label>
+    <select id="ctrl-color">
+      <option value="natural">Natural</option>
+      <option value="neon">Neon</option>
+      <option value="pastel">Pastel</option>
+      <option value="monochrome">Monochrome</option>
+      <option value="fire">Solar Fire</option>
+    </select>
+  </div>
+  <div class="ctrl-row">
+    <label>Stars</label>
+    <input type="checkbox" id="ctrl-stars" checked>
+  </div>
+  <div class="ctrl-row">
+    <label>Sound</label>
+    <input type="checkbox" id="ctrl-sound" checked>
+  </div>
+  <div style="margin-top:10px;text-align:center;">
+    <button class="btn" style="padding:5px 14px;font-size:0.7rem;" onclick="resetAurora()">Reset</button>
+    <button class="btn" style="padding:5px 14px;font-size:0.7rem;" onclick="saveImage()">Save</button>
+  </div>
+</div>
+
+<div id="pause-overlay">
+  <h2>PAUSED</h2>
+  <p style="color:#4a7a6a;margin-bottom:1rem;">Press Space or ESC to resume</p>
+  <button class="btn" onclick="togglePause()">Resume</button>
+</div>
+
+<div id="info-bar">Move mouse to guide solar wind | Scroll to change altitude</div>
+
+<script>
+// ==================== AUDIO ====================
+class AuroraAudio {
+  constructor() {
+    this.ctx = null;
+    this.initialized = false;
+    this.enabled = true;
+    this.master = null;
+    this.drones = [];
+    this.windNoise = null;
+  }
+
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.12;
+
+      // Reverb
+      const conv = this.ctx.createConvolver();
+      const len = this.ctx.sampleRate * 4;
+      const imp = this.ctx.createBuffer(2, len, this.ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = imp.getChannelData(ch);
+        for (let i = 0; i < len; i++) {
+          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+        }
+      }
+      conv.buffer = imp;
+
+      const wet = this.ctx.createGain();
+      wet.gain.value = 0.4;
+      const dry = this.ctx.createGain();
+      dry.gain.value = 0.6;
+
+      this.master.connect(dry);
+      this.master.connect(conv);
+      conv.connect(wet);
+      dry.connect(this.ctx.destination);
+      wet.connect(this.ctx.destination);
+
+      this.startDrones();
+      this.startWindNoise();
+      this.initialized = true;
+    } catch(e) {}
+  }
+
+  startDrones() {
+    const notes = [55, 82.41, 110, 164.81, 220];
+    notes.forEach((freq, i) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = i < 2 ? 'sine' : 'triangle';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.015 / (i + 1);
+
+      const lfo = this.ctx.createOscillator();
+      const lfoG = this.ctx.createGain();
+      lfo.frequency.value = 0.03 + i * 0.01;
+      lfoG.gain.value = 0.008;
+      lfo.connect(lfoG);
+      lfoG.connect(gain.gain);
+      lfo.start();
+
+      const lfo2 = this.ctx.createOscillator();
+      const lfo2G = this.ctx.createGain();
+      lfo2.frequency.value = 0.07 + i * 0.02;
+      lfo2G.gain.value = freq * 0.01;
+      lfo2.connect(lfo2G);
+      lfo2G.connect(osc.frequency);
+      lfo2.start();
+
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start();
+      this.drones.push({ osc, gain, lfo, lfo2 });
+    });
+  }
+
+  startWindNoise() {
+    const bufferSize = 2 * this.ctx.sampleRate;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+    noise.loop = true;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 200;
+    filter.Q.value = 0.5;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0.02;
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.master);
+    noise.start();
+
+    this.windNoise = { noise, filter, gain };
+  }
+
+  updateWind(intensity) {
+    if (!this.initialized || !this.windNoise) return;
+    this.windNoise.gain.gain.linearRampToValueAtTime(
+      0.01 + intensity * 0.04, this.ctx.currentTime + 0.1
+    );
+    this.windNoise.filter.frequency.linearRampToValueAtTime(
+      150 + intensity * 300, this.ctx.currentTime + 0.1
+    );
+  }
+
+  playShimmer(x, w) {
+    if (!this.initialized || !this.enabled) return;
+    const pan = (x / w) * 2 - 1;
+    const freq = 400 + Math.random() * 800;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const panner = this.ctx.createStereoPanner();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, this.ctx.currentTime + 1);
+    gain.gain.setValueAtTime(0.02, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1);
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    osc.connect(gain);
+    gain.connect(panner);
+    panner.connect(this.master);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 1);
+  }
+
+  setEnabled(v) {
+    this.enabled = v;
+    if (this.master) this.master.gain.value = v ? 0.12 : 0;
+  }
+}
+
+// ==================== STARS ====================
+class Star {
+  constructor(w, h) {
+    this.x = Math.random() * w;
+    this.y = Math.random() * h * 0.7;
+    this.size = Math.random() * 2;
+    this.brightness = 0.3 + Math.random() * 0.7;
+    this.twinkleSpeed = 0.01 + Math.random() * 0.03;
+    this.twinklePhase = Math.random() * Math.PI * 2;
+  }
+
+  draw(ctx, t) {
+    const twinkle = this.brightness * (0.7 + 0.3 * Math.sin(t * this.twinkleSpeed + this.twinklePhase));
+    ctx.fillStyle = `rgba(255,255,255,${twinkle})`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ==================== AURORA CURTAIN ====================
+class AuroraCurtain {
+  constructor(index, total, w, h, colorMode) {
+    this.index = index;
+    this.w = w;
+    this.h = h;
+    this.segments = 80;
+    this.points = [];
+    this.baseY = h * 0.15 + (index / total) * h * 0.35;
+    this.amplitude = 30 + Math.random() * 60;
+    this.frequency = 0.003 + Math.random() * 0.005;
+    this.speed = 0.3 + Math.random() * 0.4;
+    this.phase = Math.random() * Math.PI * 2;
+    this.heightVar = 80 + Math.random() * 120;
+    this.alpha = 0.1 + Math.random() * 0.15;
+    this.colorOffset = index * 0.3;
+    this.wavePhases = [];
+    for (let i = 0; i < 5; i++) {
+      this.wavePhases.push({
+        freq: this.frequency * (1 + i * 0.7),
+        amp: this.amplitude / (1 + i * 0.5),
+        speed: this.speed * (0.8 + i * 0.3),
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+    this.setColor(colorMode);
+  }
+
+  setColor(mode) {
+    const idx = this.index;
+    switch (mode) {
+      case 'natural':
+        this.colors = [
+          { r: 40, g: 255, b: 140 },
+          { r: 60, g: 200, b: 255 },
+          { r: 180, g: 60, b: 200 },
+          { r: 255, g: 60, b: 100 }
+        ];
+        break;
+      case 'neon':
+        this.colors = [
+          { r: 0, g: 255, b: 200 },
+          { r: 255, g: 0, b: 200 },
+          { r: 0, g: 150, b: 255 },
+          { r: 255, g: 255, b: 0 }
+        ];
+        break;
+      case 'pastel':
+        this.colors = [
+          { r: 180, g: 255, b: 200 },
+          { r: 200, g: 180, b: 255 },
+          { r: 255, g: 200, b: 220 },
+          { r: 200, g: 240, b: 255 }
+        ];
+        break;
+      case 'monochrome':
+        this.colors = [
+          { r: 60, g: 255, b: 160 },
+          { r: 40, g: 220, b: 130 },
+          { r: 80, g: 200, b: 140 },
+          { r: 50, g: 180, b: 120 }
+        ];
+        break;
+      case 'fire':
+        this.colors = [
+          { r: 255, g: 80, b: 20 },
+          { r: 255, g: 160, b: 40 },
+          { r: 255, g: 40, b: 60 },
+          { r: 255, g: 200, b: 60 }
+        ];
+        break;
+      default:
+        this.colors = [
+          { r: 40, g: 255, b: 140 },
+          { r: 60, g: 200, b: 255 },
+          { r: 180, g: 60, b: 200 },
+          { r: 255, g: 60, b: 100 }
+        ];
+    }
+    this.colorA = this.colors[idx % this.colors.length];
+    this.colorB = this.colors[(idx + 1) % this.colors.length];
+  }
+
+  update(t, windX, windY, waveSpeed, windIntensity) {
+    this.points = [];
+    for (let i = 0; i <= this.segments; i++) {
+      const ratio = i / this.segments;
+      const x = ratio * this.w;
+
+      let y = this.baseY;
+      for (const wp of this.wavePhases) {
+        y += Math.sin(x * wp.freq + t * wp.speed * waveSpeed + wp.phase) * wp.amp;
+      }
+
+      // Wind influence
+      y += windY * 20 * Math.sin(ratio * Math.PI);
+      const xOffset = windX * 30 * Math.sin(ratio * Math.PI + t * 0.5);
+
+      // Height variation
+      const heightPulse = 1 + 0.3 * Math.sin(t * 0.2 + ratio * 3);
+      const curtainH = this.heightVar * heightPulse * (1 + windIntensity * 0.3);
+
+      // Brightness variation
+      const brightPulse = 0.5 + 0.5 * Math.sin(t * 0.3 + ratio * 5 + this.phase);
+
+      this.points.push({
+        x: x + xOffset,
+        topY: y,
+        botY: y + curtainH,
+        bright: brightPulse,
+        ratio: ratio
+      });
+    }
+  }
+
+  draw(ctx, t, brightness) {
+    if (this.points.length < 2) return;
+
+    for (let i = 0; i < this.points.length - 1; i++) {
+      const p = this.points[i];
+      const pn = this.points[i + 1];
+
+      const colorT = (Math.sin(t * 0.1 + p.ratio * 2 + this.colorOffset) + 1) / 2;
+      const r = Math.round(this.colorA.r + (this.colorB.r - this.colorA.r) * colorT);
+      const g = Math.round(this.colorA.g + (this.colorB.g - this.colorA.g) * colorT);
+      const b = Math.round(this.colorA.b + (this.colorB.b - this.colorA.b) * colorT);
+
+      const alpha = this.alpha * p.bright * brightness * 0.1;
+
+      const grad = ctx.createLinearGradient(0, p.topY, 0, p.botY);
+      grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+      grad.addColorStop(0.1, `rgba(${r},${g},${b},${alpha * 0.5})`);
+      grad.addColorStop(0.3, `rgba(${r},${g},${b},${alpha})`);
+      grad.addColorStop(0.6, `rgba(${r},${g},${b},${alpha * 0.6})`);
+      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.topY);
+      ctx.lineTo(pn.x, pn.topY);
+      ctx.lineTo(pn.x, pn.botY);
+      ctx.lineTo(p.x, p.botY);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+}
+
+// ==================== CHARGED PARTICLE ====================
+class ChargedParticle {
+  constructor(w, h) {
+    this.x = Math.random() * w;
+    this.y = h * 0.1 + Math.random() * h * 0.5;
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = (Math.random() - 0.5) * 1;
+    this.size = 1 + Math.random() * 2;
+    this.life = 1;
+    this.decay = 0.002 + Math.random() * 0.005;
+    this.hue = Math.random() * 360;
+    this.trail = [];
+    this.maxTrail = 10 + Math.floor(Math.random() * 15);
+  }
+
+  update(windX, windY) {
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+
+    this.vx += windX * 0.01 + (Math.random() - 0.5) * 0.1;
+    this.vy += windY * 0.01 + (Math.random() - 0.5) * 0.1;
+    this.vx *= 0.99;
+    this.vy *= 0.99;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life -= this.decay;
+    this.hue += 0.5;
+    return this.life > 0;
+  }
+
+  draw(ctx) {
+    if (this.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+      ctx.lineTo(this.x, this.y);
+      ctx.strokeStyle = `hsla(${this.hue},80%,70%,${this.life * 0.3})`;
+      ctx.lineWidth = this.size * 0.5;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = `hsla(${this.hue},80%,80%,${this.life * 0.8})`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ==================== MAIN SIMULATION ====================
+class AuroraSim {
+  constructor() {
+    this.canvas = document.getElementById('canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.w = window.innerWidth;
+    this.h = window.innerHeight;
+    this.canvas.width = this.w;
+    this.canvas.height = this.h;
+
+    this.audio = new AuroraAudio();
+    this.paused = false;
+    this.started = false;
+    this.mode = 'calm';
+    this.t = 0;
+    this.frame = 0;
+
+    // Mouse / wind
+    this.mouseX = this.w / 2;
+    this.mouseY = this.h / 2;
+    this.windX = 0;
+    this.windY = 0;
+    this.windIntensity = 0;
+
+    // Settings
+    this.settings = {
+      windSpeed: 5,
+      curtainCount: 5,
+      brightness: 6,
+      waveSpeed: 5,
+      colorMode: 'natural',
+      showStars: true,
+      soundEnabled: true
+    };
+
+    this.stars = [];
+    this.curtains = [];
+    this.particles = [];
+    this.altitude = 100;
+
+    // Kp index simulation
+    this.kpIndex = 3;
+    this.kpTarget = 3;
+
+    this.setupEvents();
+    this.setupControls();
+    this.loadState();
+  }
+
+  setupEvents() {
+    window.addEventListener('resize', () => {
+      this.w = window.innerWidth;
+      this.h = window.innerHeight;
+      this.canvas.width = this.w;
+      this.canvas.height = this.h;
+      this.regenerateStars();
+    });
+
+    this.canvas.addEventListener('mousemove', (e) => {
+      this.mouseX = e.clientX;
+      this.mouseY = e.clientY;
+    });
+
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.altitude += e.deltaY > 0 ? -5 : 5;
+      this.altitude = Math.max(50, Math.min(400, this.altitude));
+      document.getElementById('hud-alt').textContent = Math.round(this.altitude);
+    }, { passive: false });
+
+    // Touch
+    this.canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        this.mouseX = e.touches[0].clientX;
+        this.mouseY = e.touches[0].clientY;
+      }
+    }, { passive: false });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Escape') {
+        e.preventDefault();
+        this.togglePause();
+      } else if (e.key === 'r' || e.key === 'R') {
+        this.reset();
+      } else if (e.key === 's' || e.key === 'S') {
+        this.saveImage();
+      }
+    });
+  }
+
+  setupControls() {
+    document.getElementById('ctrl-wind').addEventListener('input', (e) => {
+      this.settings.windSpeed = parseInt(e.target.value);
+    });
+    document.getElementById('ctrl-curtains').addEventListener('input', (e) => {
+      this.settings.curtainCount = parseInt(e.target.value);
+      this.regenerateCurtains();
+    });
+    document.getElementById('ctrl-bright').addEventListener('input', (e) => {
+      this.settings.brightness = parseInt(e.target.value);
+    });
+    document.getElementById('ctrl-wave').addEventListener('input', (e) => {
+      this.settings.waveSpeed = parseInt(e.target.value);
+    });
+    document.getElementById('ctrl-color').addEventListener('change', (e) => {
+      this.settings.colorMode = e.target.value;
+      this.curtains.forEach(c => c.setColor(e.target.value));
+    });
+    document.getElementById('ctrl-stars').addEventListener('change', (e) => {
+      this.settings.showStars = e.target.checked;
+    });
+    document.getElementById('ctrl-sound').addEventListener('change', (e) => {
+      this.settings.soundEnabled = e.target.checked;
+      this.audio.setEnabled(e.target.checked);
+    });
+  }
+
+  regenerateStars() {
+    this.stars = [];
+    const count = Math.floor(this.w * this.h / 2000);
+    for (let i = 0; i < count; i++) {
+      this.stars.push(new Star(this.w, this.h));
+    }
+  }
+
+  regenerateCurtains() {
+    this.curtains = [];
+    const count = this.settings.curtainCount;
+    for (let i = 0; i < count; i++) {
+      this.curtains.push(new AuroraCurtain(i, count, this.w, this.h, this.settings.colorMode));
+    }
+  }
+
+  initMode(mode) {
+    this.mode = mode;
+    switch (mode) {
+      case 'calm':
+        this.settings.windSpeed = 3;
+        this.settings.curtainCount = 4;
+        this.settings.brightness = 5;
+        this.settings.waveSpeed = 3;
+        this.kpTarget = 3;
+        break;
+      case 'storm':
+        this.settings.windSpeed = 8;
+        this.settings.curtainCount = 8;
+        this.settings.brightness = 8;
+        this.settings.waveSpeed = 7;
+        this.kpTarget = 7;
+        break;
+      case 'psychedelic':
+        this.settings.windSpeed = 6;
+        this.settings.curtainCount = 10;
+        this.settings.brightness = 9;
+        this.settings.waveSpeed = 9;
+        this.settings.colorMode = 'neon';
+        this.kpTarget = 9;
+        break;
+    }
+    document.getElementById('ctrl-wind').value = this.settings.windSpeed;
+    document.getElementById('ctrl-curtains').value = this.settings.curtainCount;
+    document.getElementById('ctrl-bright').value = this.settings.brightness;
+    document.getElementById('ctrl-wave').value = this.settings.waveSpeed;
+    document.getElementById('ctrl-color').value = this.settings.colorMode;
+
+    this.regenerateStars();
+    this.regenerateCurtains();
+  }
+
+  togglePause() {
+    this.paused = !this.paused;
+    document.getElementById('pause-overlay').style.display = this.paused ? 'flex' : 'none';
+  }
+
+  reset() {
+    this.t = 0;
+    this.particles = [];
+    this.regenerateCurtains();
+    this.regenerateStars();
+  }
+
+  saveImage() {
+    const link = document.createElement('a');
+    link.download = 'aurora-' + Date.now() + '.png';
+    link.href = this.canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  saveState() {
+    try {
+      localStorage.setItem('aurora-dreamer-state', JSON.stringify({
+        mode: this.mode,
+        settings: this.settings,
+        altitude: this.altitude
+      }));
+    } catch(e) {}
+  }
+
+  loadState() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('aurora-dreamer-state'));
+      if (saved) {
+        this.altitude = saved.altitude || 100;
+        if (saved.settings) {
+          Object.assign(this.settings, saved.settings);
+        }
+      }
+    } catch(e) {}
+  }
+
+  update() {
+    if (this.paused) return;
+    this.t += 0.016;
+    this.frame++;
+
+    // Wind from mouse position
+    const targetWindX = (this.mouseX / this.w - 0.5) * 2 * this.settings.windSpeed * 0.1;
+    const targetWindY = (this.mouseY / this.h - 0.5) * 2 * this.settings.windSpeed * 0.1;
+    this.windX += (targetWindX - this.windX) * 0.05;
+    this.windY += (targetWindY - this.windY) * 0.05;
+    this.windIntensity = Math.sqrt(this.windX * this.windX + this.windY * this.windY);
+
+    // Update Kp index
+    this.kpIndex += (this.kpTarget - this.kpIndex) * 0.01;
+    if (Math.random() < 0.005) {
+      this.kpTarget = Math.max(1, Math.min(9, this.kpTarget + (Math.random() - 0.5) * 2));
+    }
+
+    // Update curtains
+    for (const c of this.curtains) {
+      c.update(this.t, this.windX, this.windY, this.settings.waveSpeed * 0.2, this.windIntensity);
+    }
+
+    // Spawn particles
+    const spawnRate = this.settings.windSpeed * 0.3;
+    if (Math.random() < spawnRate * 0.1) {
+      this.particles.push(new ChargedParticle(this.w, this.h));
+    }
+
+    // Update particles
+    this.particles = this.particles.filter(p => {
+      const alive = p.update(this.windX, this.windY);
+      if (p.x < -50 || p.x > this.w + 50 || p.y < -50 || p.y > this.h + 50) return false;
+      return alive;
+    });
+
+    // Limit particles
+    if (this.particles.length > 500) {
+      this.particles = this.particles.slice(-400);
+    }
+
+    // Audio
+    this.audio.updateWind(this.windIntensity);
+    if (this.frame % 120 === 0) {
+      this.audio.playShimmer(this.mouseX, this.w);
+    }
+
+    // HUD
+    document.getElementById('hud-wind').textContent = Math.round(300 + this.windIntensity * 400);
+    document.getElementById('hud-kp').textContent = this.kpIndex.toFixed(1);
+    document.getElementById('hud-curtains').textContent = this.curtains.length;
+    document.getElementById('hud-particles').textContent = this.particles.length;
+
+    // Save periodically
+    if (this.frame % 600 === 0) this.saveState();
+  }
+
+  draw() {
+    const ctx = this.ctx;
+
+    // Sky gradient based on altitude
+    const altFactor = (this.altitude - 50) / 350;
+    const skyTop = [0 + altFactor * 5, 3 + altFactor * 5, 15 + altFactor * 10];
+    const skyMid = [2, 10 + altFactor * 10, 30 + altFactor * 15];
+    const skyBot = [5, 15, 25];
+
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, this.h);
+    skyGrad.addColorStop(0, `rgb(${skyTop[0]},${skyTop[1]},${skyTop[2]})`);
+    skyGrad.addColorStop(0.5, `rgb(${skyMid[0]},${skyMid[1]},${skyMid[2]})`);
+    skyGrad.addColorStop(1, `rgb(${skyBot[0]},${skyBot[1]},${skyBot[2]})`);
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, this.w, this.h);
+
+    // Stars
+    if (this.settings.showStars) {
+      for (const s of this.stars) {
+        s.draw(ctx, this.t);
+      }
+    }
+
+    // Horizon landscape silhouette
+    ctx.beginPath();
+    ctx.moveTo(0, this.h);
+    const horizonY = this.h * 0.85;
+    for (let x = 0; x <= this.w; x += 5) {
+      const y = horizonY +
+        Math.sin(x * 0.005) * 20 +
+        Math.sin(x * 0.012) * 10 +
+        Math.sin(x * 0.003) * 30;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(this.w, this.h);
+    ctx.closePath();
+    ctx.fillStyle = '#050a0f';
+    ctx.fill();
+
+    // Trees silhouette
+    for (let x = 0; x < this.w; x += 8 + Math.random() * 12) {
+      const baseY = horizonY +
+        Math.sin(x * 0.005) * 20 +
+        Math.sin(x * 0.012) * 10 +
+        Math.sin(x * 0.003) * 30;
+      const treeH = 15 + Math.random() * 40;
+      ctx.fillStyle = '#030508';
+      ctx.beginPath();
+      ctx.moveTo(x, baseY);
+      ctx.lineTo(x + 3, baseY - treeH);
+      ctx.lineTo(x + 6, baseY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Aurora curtains (with blending)
+    ctx.globalCompositeOperation = 'screen';
+    for (const c of this.curtains) {
+      c.draw(ctx, this.t, this.settings.brightness);
+    }
+
+    // Particles
+    for (const p of this.particles) {
+      p.draw(ctx);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Horizon glow (reflection of aurora on landscape)
+    const reflGrad = ctx.createLinearGradient(0, horizonY - 30, 0, horizonY + 20);
+    reflGrad.addColorStop(0, 'rgba(40,200,120,0)');
+    reflGrad.addColorStop(0.5, `rgba(40,200,120,${0.02 * this.settings.brightness * 0.1})`);
+    reflGrad.addColorStop(1, 'rgba(40,200,120,0)');
+    ctx.fillStyle = reflGrad;
+    ctx.fillRect(0, horizonY - 30, this.w, 50);
+
+    // Atmospheric glow at top
+    const topGlow = ctx.createRadialGradient(this.w / 2, 0, 0, this.w / 2, 0, this.w * 0.6);
+    topGlow.addColorStop(0, `rgba(40,150,100,${0.03 * this.settings.brightness * 0.1})`);
+    topGlow.addColorStop(1, 'rgba(40,150,100,0)');
+    ctx.fillStyle = topGlow;
+    ctx.fillRect(0, 0, this.w, this.h * 0.5);
+  }
+
+  run() {
+    const loop = () => {
+      this.update();
+      this.draw();
+      requestAnimationFrame(loop);
+    };
+    loop();
+  }
+}
+
+// ==================== GLOBAL ====================
+let sim;
+
+function start(mode) {
+  sim = new AuroraSim();
+  sim.started = true;
+  sim.audio.init();
+  sim.initMode(mode);
+
+  const title = document.getElementById('title-screen');
+  title.style.opacity = '0';
+  setTimeout(() => { title.style.display = 'none'; }, 2000);
+
+  sim.run();
+}
+
+function resetAurora() { if (sim) sim.reset(); }
+function togglePause() { if (sim) sim.togglePause(); }
+function saveImage() { if (sim) sim.saveImage(); }
+
+// Title screen ambient animation
+(function() {
+  const c = document.getElementById('canvas');
+  const ctx = c.getContext('2d');
+  c.width = window.innerWidth;
+  c.height = window.innerHeight;
+  const w = c.width, h = c.height;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#000510');
+  grad.addColorStop(0.4, '#001020');
+  grad.addColorStop(1, '#0a1a20');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Simple stars
+  for (let i = 0; i < 200; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.random() * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * w, Math.random() * h * 0.7, Math.random() * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Simple aurora hint
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < 3; i++) {
+    const y = h * 0.2 + i * h * 0.1;
+    const grad2 = ctx.createLinearGradient(0, y, 0, y + 100);
+    grad2.addColorStop(0, 'rgba(40,255,140,0)');
+    grad2.addColorStop(0.3, 'rgba(40,255,140,0.03)');
+    grad2.addColorStop(0.7, 'rgba(60,200,255,0.02)');
+    grad2.addColorStop(1, 'rgba(60,200,255,0)');
+    ctx.fillStyle = grad2;
+    ctx.fillRect(0, y, w, 100);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+})();
+</script>
+</body>
+</html>

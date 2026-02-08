@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Color Theory Lab</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e1113;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{background:#161a1e;padding:12px 20px;border-bottom:1px solid #2a2f35;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:1.3rem;color:#00d2d3}
+.tabs{display:flex;gap:6px;margin-left:auto}
+.tab{background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.8rem}
+.tab.active{background:#00d2d3;color:#0e1113;border-color:#00d2d3}
+main{flex:1;padding:20px;max-width:1000px;width:100%;margin:0 auto}
+.section{display:none}.section.active{display:block}
+.wheel-area{display:flex;gap:24px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+.wheel-canvas{flex-shrink:0}
+.harmony-info{flex:1;min-width:250px}
+.swatch-row{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
+.swatch{width:60px;height:60px;border-radius:8px;border:2px solid #2a2f35;cursor:pointer;position:relative;transition:transform .2s}
+.swatch:hover{transform:scale(1.1)}
+.swatch .label{position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:.65rem;color:#888;white-space:nowrap}
+.harmony-btns{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap}
+.harm-btn{background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:.8rem}
+.harm-btn.active{background:#00d2d3;color:#0e1113;border-color:#00d2d3}
+.converter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.conv-card{background:#161a1e;border:1px solid #2a2f35;border-radius:8px;padding:16px}
+.conv-card h4{color:#00d2d3;font-size:.85rem;margin-bottom:8px}
+.field{margin-bottom:8px}
+.field label{display:block;font-size:.72rem;color:#888;margin-bottom:2px}
+.field input{width:100%;background:#0e1113;border:1px solid #2a2f35;color:#e0e0e0;padding:6px 8px;border-radius:4px;font-family:monospace;font-size:.9rem}
+.field input:focus{outline:none;border-color:#00d2d3}
+.preview-box{width:100%;height:80px;border-radius:8px;border:1px solid #2a2f35;margin:12px 0}
+.contrast-section{display:flex;gap:16px;flex-wrap:wrap}
+.contrast-card{flex:1;min-width:280px;background:#161a1e;border:1px solid #2a2f35;border-radius:8px;padding:16px}
+.contrast-preview{border-radius:8px;padding:20px;text-align:center;margin:12px 0;font-size:1rem;line-height:1.6}
+.contrast-result{text-align:center;font-size:1.5rem;font-weight:bold;margin:8px 0}
+.contrast-result.pass{color:#2ecc71}
+.contrast-result.fail{color:#ff6347}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:bold;margin:2px}
+.badge.pass{background:#2ecc7133;color:#2ecc71;border:1px solid #2ecc71}
+.badge.fail{background:#ff634733;color:#ff6347;border:1px solid #ff6347}
+.palette-row{display:flex;border-radius:8px;overflow:hidden;height:80px;margin:12px 0}
+.palette-col{flex:1;display:flex;align-items:flex-end;justify-content:center;padding:6px;font-size:.7rem;font-family:monospace;cursor:pointer}
+.gen-btns{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.btn{background:#00d2d3;color:#0e1113;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:600;font-size:.8rem}
+.btn:hover{opacity:.9}
+.slider-row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.slider-row label{font-size:.75rem;color:#888;min-width:20px}
+.slider-row input[type=range]{flex:1;accent-color:#00d2d3}
+.slider-row .val{font-family:monospace;font-size:.8rem;color:#e0e0e0;min-width:36px}
+</style>
+</head>
+<body>
+<header>
+<h1>🎨 Color Theory Lab</h1>
+<div class="tabs">
+<div class="tab active" data-tab="wheel">Color Wheel</div>
+<div class="tab" data-tab="converter">Converter</div>
+<div class="tab" data-tab="contrast">Contrast</div>
+<div class="tab" data-tab="palette">Palette</div>
+</div>
+</header>
+<main id="app"></main>
+<script>
+let st=JSON.parse(localStorage.getItem('color_lab')||'null')||{tab:'wheel',hue:0,sat:100,light:50,harmony:'complementary',fg:'#FFFFFF',bg:'#0e1113',palette:[]};
+function save(){localStorage.setItem('color_lab',JSON.stringify(st))}
+
+function hslToRgb(h,s,l){s/=100;l/=100;const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h/30)%12;return l-a*Math.max(Math.min(k-3,9-k,1),-1)};return[Math.round(f(0)*255),Math.round(f(8)*255),Math.round(f(4)*255)]}
+function rgbToHex(r,g,b){return'#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('').toUpperCase()}
+function hexToRgb(hex){const m=hex.replace('#','').match(/.{2}/g);return m?m.map(v=>parseInt(v,16)):[0,0,0]}
+function rgbToHsl(r,g,b){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b),l=(max+min)/2;let h=0,s=0;if(max!==min){const d=max-min;s=l>.5?d/(2-max-min):d/(max+min);if(max===r)h=((g-b)/d+(g<b?6:0))*60;else if(max===g)h=((b-r)/d+2)*60;else h=((r-g)/d+4)*60}return[Math.round(h),Math.round(s*100),Math.round(l*100)]}
+function luminance(r,g,b){const a=[r,g,b].map(v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)});return a[0]*.2126+a[1]*.7152+a[2]*.0722}
+function contrastRatio(rgb1,rgb2){const l1=luminance(...rgb1)+.05,l2=luminance(...rgb2)+.05;return l1>l2?l1/l2:l2/l1}
+
+function getHarmonies(h,s,l){
+  const hm={
+    complementary:[[h,s,l],[(h+180)%360,s,l]],
+    analogous:[[h,s,l],[(h+30)%360,s,l],[(h-30+360)%360,s,l]],
+    triadic:[[h,s,l],[(h+120)%360,s,l],[(h+240)%360,s,l]],
+    'split-complementary':[[h,s,l],[(h+150)%360,s,l],[(h+210)%360,s,l]],
+    tetradic:[[h,s,l],[(h+90)%360,s,l],[(h+180)%360,s,l],[(h+270)%360,s,l]],
+    monochromatic:[[h,s,l],[h,s,Math.max(l-20,10)],[h,s,Math.min(l+20,90)],[h,Math.max(s-30,10),l]]
+  };
+  return hm[st.harmony]||hm.complementary;
+}
+
+function renderWheel(){
+  const colors=getHarmonies(st.hue,st.sat,st.light);
+  return `
+    <div class="wheel-area">
+      <div class="wheel-canvas"><canvas id="wheelCanvas" width="280" height="280"></canvas></div>
+      <div class="harmony-info">
+        <div class="slider-row"><label>H</label><input type="range" min="0" max="359" value="${st.hue}" oninput="st.hue=+this.value;save();render()"><span class="val">${st.hue}°</span></div>
+        <div class="slider-row"><label>S</label><input type="range" min="0" max="100" value="${st.sat}" oninput="st.sat=+this.value;save();render()"><span class="val">${st.sat}%</span></div>
+        <div class="slider-row"><label>L</label><input type="range" min="0" max="100" value="${st.light}" oninput="st.light=+this.value;save();render()"><span class="val">${st.light}%</span></div>
+        <div class="harmony-btns">${['complementary','analogous','triadic','split-complementary','tetradic','monochromatic'].map(h=>`<div class="harm-btn ${st.harmony===h?'active':''}" onclick="st.harmony='${h}';save();render()">${h}</div>`).join('')}</div>
+        <h4 style="color:#00d2d3;font-size:.85rem;margin:8px 0">Harmony Colors</h4>
+        <div class="swatch-row">${colors.map(([h,s,l])=>{const rgb=hslToRgb(h,s,l);const hex=rgbToHex(...rgb);return `<div class="swatch" style="background:${hex}" title="${hex}" onclick="navigator.clipboard.writeText('${hex}')"><span class="label">${hex}</span></div>`}).join('')}</div>
+      </div>
+    </div>`;
+}
+
+function drawWheel(){
+  const c=document.getElementById('wheelCanvas');if(!c)return;
+  const ctx=c.getContext('2d');const cx=140,cy=140,r=130;
+  ctx.clearRect(0,0,280,280);
+  for(let a=0;a<360;a++){
+    const rad=a*Math.PI/180;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,rad,rad+Math.PI/180+.01);ctx.closePath();
+    ctx.fillStyle=`hsl(${a},${st.sat}%,${st.light}%)`;ctx.fill();
+  }
+  ctx.beginPath();ctx.arc(cx,cy,r*.3,0,Math.PI*2);ctx.fillStyle='#0e1113';ctx.fill();
+  const colors=getHarmonies(st.hue,st.sat,st.light);
+  colors.forEach(([h])=>{
+    const rad=h*Math.PI/180;const px=cx+Math.cos(rad)*r*.65,py=cy+Math.sin(rad)*r*.65;
+    ctx.beginPath();ctx.arc(px,py,8,0,Math.PI*2);ctx.fillStyle=`hsl(${h},${st.sat}%,${st.light}%)`;ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+  });
+}
+
+function renderConverter(){
+  const rgb=hslToRgb(st.hue,st.sat,st.light);const hex=rgbToHex(...rgb);
+  return `
+    <div class="preview-box" style="background:${hex}"></div>
+    <div class="converter-grid">
+      <div class="conv-card"><h4>HEX</h4><div class="field"><input value="${hex}" oninput="const r=hexToRgb(this.value);if(r[0]!==undefined){const h=rgbToHsl(...r);st.hue=h[0];st.sat=h[1];st.light=h[2];save();render()}"></div></div>
+      <div class="conv-card"><h4>RGB</h4>
+        <div class="field"><label>R</label><input type="number" min="0" max="255" value="${rgb[0]}" oninput="const h=rgbToHsl(+this.value,${rgb[1]},${rgb[2]});st.hue=h[0];st.sat=h[1];st.light=h[2];save();render()"></div>
+        <div class="field"><label>G</label><input type="number" min="0" max="255" value="${rgb[1]}" oninput="const h=rgbToHsl(${rgb[0]},+this.value,${rgb[2]});st.hue=h[0];st.sat=h[1];st.light=h[2];save();render()"></div>
+        <div class="field"><label>B</label><input type="number" min="0" max="255" value="${rgb[2]}" oninput="const h=rgbToHsl(${rgb[0]},${rgb[1]},+this.value);st.hue=h[0];st.sat=h[1];st.light=h[2];save();render()"></div>
+      </div>
+      <div class="conv-card"><h4>HSL</h4>
+        <div class="field"><label>Hue</label><input type="number" min="0" max="359" value="${st.hue}" oninput="st.hue=+this.value;save();render()"></div>
+        <div class="field"><label>Saturation</label><input type="number" min="0" max="100" value="${st.sat}" oninput="st.sat=+this.value;save();render()"></div>
+        <div class="field"><label>Lightness</label><input type="number" min="0" max="100" value="${st.light}" oninput="st.light=+this.value;save();render()"></div>
+      </div>
+      <div class="conv-card"><h4>CSS</h4>
+        <div class="field"><label>HEX</label><input value="${hex}" readonly onclick="this.select();navigator.clipboard.writeText(this.value)"></div>
+        <div class="field"><label>RGB</label><input value="rgb(${rgb.join(', ')})" readonly onclick="this.select();navigator.clipboard.writeText(this.value)"></div>
+        <div class="field"><label>HSL</label><input value="hsl(${st.hue}, ${st.sat}%, ${st.light}%)" readonly onclick="this.select();navigator.clipboard.writeText(this.value)"></div>
+      </div>
+    </div>`;
+}
+
+function renderContrast(){
+  const fgRgb=hexToRgb(st.fg),bgRgb=hexToRgb(st.bg);
+  const ratio=contrastRatio(fgRgb,bgRgb);
+  const aaLarge=ratio>=3,aaNormal=ratio>=4.5,aaaLarge=ratio>=4.5,aaaNormal=ratio>=7;
+  return `
+    <div class="contrast-section">
+      <div class="contrast-card">
+        <h4 style="color:#00d2d3">Foreground</h4>
+        <div class="field"><input type="color" value="${st.fg}" style="width:100%;height:40px;border:none;cursor:pointer" oninput="st.fg=this.value;save();render()"></div>
+        <div class="field"><input value="${st.fg}" oninput="st.fg=this.value;save();render()"></div>
+      </div>
+      <div class="contrast-card">
+        <h4 style="color:#00d2d3">Background</h4>
+        <div class="field"><input type="color" value="${st.bg}" style="width:100%;height:40px;border:none;cursor:pointer" oninput="st.bg=this.value;save();render()"></div>
+        <div class="field"><input value="${st.bg}" oninput="st.bg=this.value;save();render()"></div>
+      </div>
+    </div>
+    <div class="contrast-preview" style="background:${st.bg};color:${st.fg};border:1px solid #2a2f35">
+      <div style="font-size:1.5rem;font-weight:bold">Large Text (18px+)</div>
+      <div style="font-size:.9rem">Normal text at regular size for reading body content.</div>
+    </div>
+    <div class="contrast-result ${ratio>=4.5?'pass':'fail'}">${ratio.toFixed(2)}:1</div>
+    <div style="text-align:center">
+      <span class="badge ${aaNormal?'pass':'fail'}">AA Normal ${aaNormal?'✓':'✗'}</span>
+      <span class="badge ${aaLarge?'pass':'fail'}">AA Large ${aaLarge?'✓':'✗'}</span>
+      <span class="badge ${aaaNormal?'pass':'fail'}">AAA Normal ${aaaNormal?'✓':'✗'}</span>
+      <span class="badge ${aaaLarge?'pass':'fail'}">AAA Large ${aaaLarge?'✓':'✗'}</span>
+    </div>
+    <div style="margin-top:16px;text-align:center"><button class="btn" onclick="const t=st.fg;st.fg=st.bg;st.bg=t;save();render()">⇄ Swap Colors</button></div>`;
+}
+
+function genPalette(type){
+  const base=st.hue;
+  if(type==='mono')st.palette=Array.from({length:5},(_,i)=>{const l=20+i*15;return rgbToHex(...hslToRgb(base,st.sat,l))});
+  else if(type==='warm')st.palette=[0,15,30,45,60].map(h=>rgbToHex(...hslToRgb((base+h)%360,st.sat,st.light)));
+  else if(type==='cool')st.palette=[180,200,220,240,260].map(h=>rgbToHex(...hslToRgb(h,60,50)));
+  else if(type==='random')st.palette=Array.from({length:5},()=>rgbToHex(...hslToRgb(Math.random()*360,50+Math.random()*50,40+Math.random()*30)));
+  else if(type==='pastel')st.palette=Array.from({length:5},(_,i)=>rgbToHex(...hslToRgb((base+i*72)%360,50,80)));
+  save();render();
+}
+
+function renderPalette(){
+  if(!st.palette.length)genPalette('mono');
+  return `
+    <div class="gen-btns">
+      <button class="btn" onclick="genPalette('mono')">Monochromatic</button>
+      <button class="btn" onclick="genPalette('warm')">Warm</button>
+      <button class="btn" onclick="genPalette('cool')">Cool</button>
+      <button class="btn" onclick="genPalette('pastel')">Pastel</button>
+      <button class="btn" onclick="genPalette('random')">Random</button>
+    </div>
+    <div class="palette-row">${st.palette.map((c,i)=>{
+      const rgb=hexToRgb(c);const lum=luminance(...rgb);
+      return `<div class="palette-col" style="background:${c};color:${lum>.5?'#000':'#fff'}" onclick="navigator.clipboard.writeText('${c}')" title="Click to copy">${c}</div>`;
+    }).join('')}</div>
+    <div style="margin-top:16px">
+      <h4 style="color:#00d2d3;font-size:.85rem;margin-bottom:8px">CSS Variables</h4>
+      <pre style="background:#161a1e;padding:12px;border-radius:6px;font-size:.8rem;color:#ccc;overflow-x:auto">:root {
+${st.palette.map((c,i)=>`  --color-${i+1}: ${c};`).join('\n')}
+}</pre>
+    </div>
+    <div style="margin-top:16px">
+      <h4 style="color:#00d2d3;font-size:.85rem;margin-bottom:8px">Tailwind Config</h4>
+      <pre style="background:#161a1e;padding:12px;border-radius:6px;font-size:.8rem;color:#ccc;overflow-x:auto">colors: {
+${st.palette.map((c,i)=>`  '${i+1}00': '${c}',`).join('\n')}
+}</pre>
+    </div>`;
+}
+
+function render(){
+  const app=document.getElementById('app');
+  if(st.tab==='wheel'){app.innerHTML=renderWheel();setTimeout(drawWheel,10)}
+  else if(st.tab==='converter')app.innerHTML=renderConverter();
+  else if(st.tab==='contrast')app.innerHTML=renderContrast();
+  else app.innerHTML=renderPalette();
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.classList.toggle('active',t.dataset.tab===st.tab);
+    t.onclick=()=>{st.tab=t.dataset.tab;save();render()};
+  });
+}
+render();
+</script>
+</body>
+</html>

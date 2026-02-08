@@ -4,407 +4,859 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Genetic Art Breeder</title>
-    <meta name="description" content="Evolve unique SVG creatures using genetic algorithms. Select your favorites and breed new generations.">
+    <meta name="rappterzoo:author" content="RappterZoo">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="generative-art">
+    <meta name="rappterzoo:tags" content="genetic,algorithm,svg,creatures,evolution,breeding,procedural-audio">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2025-01-01">
+    <meta name="rappterzoo:generation" content="4">
+    <meta name="description" content="Evolve unique SVG creatures using genetic algorithms with scoring, generations, combo breeding, and procedural audio">
     <style>
         :root {
-            --bg: #1a1a1a;
-            --card-bg: #2a2a2a;
-            --highlight: #00ff9d;
-            --text: #e0e0e0;
+            --bg: #0f0f14;
+            --card: #1a1a24;
+            --hl: #00ff9d;
+            --txt: #e0e0e0;
+            --border: #2a2a3a;
         }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            background: var(--bg);
+            color: var(--txt);
             min-height: 100vh;
+            overflow-x: hidden;
         }
-        header {
-            text-align: center;
-            margin-bottom: 20px;
+        canvas { position: fixed; top: 0; left: 0; z-index: 0; pointer-events: none; }
+        #ui { position: relative; z-index: 1; }
+
+        /* Title Screen */
+        #title-screen {
+            position: fixed; inset: 0;
+            background: radial-gradient(ellipse, #1a1a30, #0f0f14);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 1000; transition: opacity 0.8s;
         }
-        h1 { margin: 0; color: var(--highlight); }
-        p { color: #888; max-width: 600px; }
-        
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            justify-content: center;
+        #title-screen h1 { font-size: clamp(28px, 5vw, 48px); color: var(--hl); margin-bottom: 10px; }
+        #title-screen p { color: #888; max-width: 500px; text-align: center; margin-bottom: 30px; }
+
+        /* Buttons */
+        .mbtn {
+            padding: 14px 40px; margin: 8px;
+            background: linear-gradient(180deg, #1a3a2a, #0a2a1a);
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            color: var(--hl); font-size: 16px;
+            cursor: pointer; border-radius: 8px;
+            transition: all 0.3s; font-family: inherit;
         }
-        
-        button {
-            background: #333;
-            color: #fff;
-            border: 1px solid #555;
+        .mbtn:hover {
+            background: linear-gradient(180deg, #2a5a3a, #1a4a2a);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 255, 157, 0.2);
+        }
+        .btn {
+            padding: 8px 18px; background: #222;
+            border: 1px solid var(--border);
+            color: var(--txt); cursor: pointer;
+            border-radius: 6px; font-size: 13px;
+            transition: all 0.2s; font-family: inherit;
+        }
+        .btn:hover { background: #333; border-color: var(--hl); }
+        .btn.primary { background: var(--hl); color: #000; border: none; font-weight: bold; }
+        .btn.primary:hover { background: #00cc7d; transform: scale(1.05); }
+
+        /* HUD */
+        #hud {
+            position: fixed; top: 0; left: 0; right: 0;
+            display: none; justify-content: space-between;
             padding: 10px 20px;
-            cursor: pointer;
-            border-radius: 5px;
-            font-size: 1rem;
-            transition: all 0.2s;
+            background: linear-gradient(180deg, rgba(15, 15, 20, 0.95), transparent);
+            z-index: 50;
         }
-        button:hover { background: #444; border-color: var(--highlight); }
-        button.primary {
-            background: var(--highlight);
-            color: #000;
-            border: none;
-            font-weight: bold;
+        .hs {
+            display: flex; flex-direction: column;
+            align-items: center; color: #888;
+            font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
         }
-        button.primary:hover {
-            background: #00cc7d;
-            transform: scale(1.05);
-        }
-        
-        #population-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 15px;
-            width: 100%;
-            max-width: 1200px;
-        }
-        
-        .creature-card {
-            background: var(--card-bg);
-            border: 2px solid transparent;
-            border-radius: 10px;
-            padding: 10px;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
-        }
-        
-        .creature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-        }
-        
-        .creature-card.selected {
-            border-color: var(--highlight);
-            background: #2a3a3a;
-            box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
-        }
-        
-        .creature-card.selected::after {
-            content: '❤️';
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            font-size: 1.2rem;
-        }
-        
-        svg {
-            width: 100%;
-            height: 130px;
-            overflow: visible;
+        .hv { font-size: 20px; color: var(--hl); }
+
+        /* Controls */
+        #controls {
+            display: none; padding: 10px 20px;
+            background: var(--card); border-bottom: 1px solid var(--border);
+            gap: 10px; align-items: center;
+            flex-wrap: wrap; justify-content: center;
         }
 
-        .stats {
-            font-size: 0.7rem;
-            color: #666;
-            margin-top: 5px;
-            font-family: monospace;
+        /* Creature Grid */
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 15px; padding: 20px;
+            max-width: 1200px; margin: 0 auto;
         }
-        
-        #generation-info {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.8);
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid #333;
+        .creature {
+            background: var(--card); border: 2px solid transparent;
+            border-radius: 10px; padding: 10px;
+            cursor: pointer; transition: all 0.2s;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .creature:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        .creature.sel {
+            border-color: var(--hl); background: #1a2a2a;
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.3);
+        }
+        .creature svg { width: 100%; height: 130px; overflow: visible; }
+        .stats { font-size: 11px; color: #666; margin-top: 5px; font-family: monospace; }
+        .fitness { font-size: 12px; color: var(--hl); margin-top: 3px; font-weight: bold; }
+
+        /* Pause Overlay */
+        #pause-overlay {
+            position: fixed; inset: 0;
+            background: rgba(15, 15, 20, 0.9);
+            display: none; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 500;
+        }
+        #pause-overlay h2 { color: var(--hl); font-size: 32px; margin-bottom: 20px; }
+
+        /* Difficulty Selector */
+        .diff-sel { display: flex; gap: 10px; margin-bottom: 20px; }
+        .diff {
+            padding: 10px 24px;
+            background: rgba(0, 255, 157, 0.1);
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            color: var(--hl); cursor: pointer;
+            border-radius: 6px; font-family: inherit; transition: all 0.3s;
+        }
+        .diff.sel { background: var(--hl); color: #000; }
+
+        /* Combo + Notifications */
+        #combo {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px; color: var(--hl);
+            text-shadow: 0 0 30px rgba(0, 255, 157, 0.5);
+            opacity: 0; transition: opacity 0.3s;
+            pointer-events: none; z-index: 300;
+        }
+        #notifs { position: fixed; top: 70px; right: 20px; z-index: 200; }
+        .notif {
+            background: rgba(15, 15, 20, 0.95);
+            border: 1px solid var(--border);
+            padding: 10px 16px; border-radius: 8px;
+            color: var(--txt); font-size: 13px;
+            transform: translateX(120%); transition: transform 0.4s;
+            max-width: 260px; margin-bottom: 8px;
+        }
+        .notif.show { transform: translateX(0); }
+
+        @media (max-width: 600px) {
+            #grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; padding: 10px; }
+            .hv { font-size: 16px; }
         }
     </style>
 </head>
 <body>
-    <header>
+<canvas id="bgc"></canvas>
+<div id="ui">
+    <div id="title-screen">
         <h1>Genetic Art Breeder</h1>
-        <p>Select your favorite creatures (2 or more) and click "Evolve" to breed the next generation. Traits are passed down with random mutations.</p>
-    </header>
-
-    <div class="controls">
-        <button class="primary" onclick="evolve()">🧬 Evolve Generation</button>
-        <button onclick="randomize()">🎲 Randomize All</button>
-        <button onclick="toggleAutoSelect()">🤖 Auto-Select Best</button>
-        <div style="display: flex; align-items: center; gap: 5px;">
-            <label for="mutation-rate">Mutation Rate:</label>
-            <input type="range" id="mutation-rate" min="0" max="100" value="10">
+        <p>Select creatures, evolve them, score points for mutations and rare traits.</p>
+        <div class="diff-sel">
+            <button class="diff sel" data-d="easy">Casual</button>
+            <button class="diff" data-d="normal">Breeder</button>
+            <button class="diff" data-d="hard">Geneticist</button>
+        </div>
+        <button class="mbtn" id="startBtn">Begin Evolution</button>
+        <button class="mbtn" id="contBtn" style="display:none">Continue</button>
+    </div>
+    <div id="hud">
+        <div class="hs"><span class="hv" id="hudScore">0</span>Score</div>
+        <div class="hs"><span class="hv" id="hudGen">1</span>Gen</div>
+        <div class="hs"><span class="hv" id="hudCombo">0</span>Combo</div>
+        <div class="hs"><span class="hv" id="hudBest">0</span>Best</div>
+        <div class="hs"><span class="hv" id="hudMuts">0</span>Muts</div>
+    </div>
+    <div id="controls">
+        <button class="btn primary" id="evoBtn">Evolve</button>
+        <button class="btn" id="rndBtn">Random</button>
+        <button class="btn" id="autoBtn">Auto-Select</button>
+        <div style="display:flex;align-items:center;gap:8px">
+            <label style="font-size:12px;color:#888">Mutation:</label>
+            <input type="range" id="mutRange" min="0" max="100" value="15">
         </div>
     </div>
+    <div id="grid"></div>
+    <div id="pause-overlay">
+        <h2>Paused</h2>
+        <button class="mbtn" id="resBtn">Resume</button>
+        <button class="mbtn" id="quitBtn">Save and Quit</button>
+    </div>
+    <div id="combo"></div>
+    <div id="notifs"></div>
+</div>
+<script>
+(function() {
+    "use strict";
 
-    <div id="population-grid"></div>
-    
-    <div id="generation-info">Generation: <span id="gen-count">1</span></div>
+    /* ── Constants ── */
+    var POPULATION_SIZE = 18;
+    var GENE_COUNT = 12;
+    var STORAGE_KEY = 'gab:s';
 
-    <script>
-        // --- Configuration ---
-        const POPULATION_SIZE = 18;
-        const GENOME_SIZE = 12; // Number of genes
-        
-        // --- Genetic Engine ---
-        
-        class Genome {
-            constructor(genes) {
-                if (genes) {
-                    this.genes = genes;
+    /* ── Cached DOM Elements ── */
+    var dom = {
+        canvas: document.getElementById('bgc'),
+        grid: document.getElementById('grid'),
+        titleScreen: document.getElementById('title-screen'),
+        hud: document.getElementById('hud'),
+        controls: document.getElementById('controls'),
+        pauseOverlay: document.getElementById('pause-overlay'),
+        combo: document.getElementById('combo'),
+        notifs: document.getElementById('notifs'),
+        hudScore: document.getElementById('hudScore'),
+        hudGen: document.getElementById('hudGen'),
+        hudCombo: document.getElementById('hudCombo'),
+        hudBest: document.getElementById('hudBest'),
+        hudMuts: document.getElementById('hudMuts'),
+        mutRange: document.getElementById('mutRange'),
+        startBtn: document.getElementById('startBtn'),
+        contBtn: document.getElementById('contBtn'),
+        resBtn: document.getElementById('resBtn'),
+        quitBtn: document.getElementById('quitBtn'),
+        evoBtn: document.getElementById('evoBtn'),
+        rndBtn: document.getElementById('rndBtn'),
+        autoBtn: document.getElementById('autoBtn')
+    };
+
+    var ctx = dom.canvas.getContext('2d');
+    var canvasW = 0;
+    var canvasH = 0;
+
+    /* ── Audio Engine ── */
+    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+    var audioCtx = null;
+
+    function initAudio() {
+        if (!audioCtx) {
+            try {
+                audioCtx = new AudioCtx();
+            } catch (e) {
+                audioCtx = null;
+            }
+        }
+    }
+
+    function createTone(type, freq, endFreq, gain, duration, delay) {
+        if (!audioCtx) { return; }
+        try {
+            var now = audioCtx.currentTime + (delay || 0);
+            var osc = audioCtx.createOscillator();
+            var gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, now);
+            osc.frequency.exponentialRampToValueAtTime(endFreq, now + duration * 0.6);
+            gainNode.gain.setValueAtTime(gain, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+            osc.start(now);
+            osc.stop(now + duration);
+        } catch (e) {
+            /* Audio failure is non-critical */
+        }
+    }
+
+    function playSound(type, param) {
+        if (!audioCtx) { return; }
+        if (type === 's') {
+            createTone('sine', 600, 800, 0.08, 0.12);
+        } else if (type === 'e') {
+            createTone('triangle', 300, 900, 0.1, 0.4);
+        } else if (type === 'r') {
+            /* Rare trait fanfare: three ascending tones */
+            for (var i = 0; i < 3; i++) {
+                createTone('sine', 500 + i * 200, 700 + i * 250, 0.08, 0.3, i * 0.12);
+            }
+        } else if (type === 'c') {
+            var p = param || 0;
+            createTone('square', 400 + p * 60, 700 + p * 80, 0.04, 0.1);
+        } else if (type === 'm') {
+            createTone('sine', 500, 700, 0.06, 0.1);
+        }
+    }
+
+    /* ── Genome: stores creature traits as float array ── */
+    function Genome(genes) {
+        if (genes) {
+            this.genes = genes;
+        } else {
+            this.genes = new Float32Array(GENE_COUNT);
+            for (var i = 0; i < GENE_COUNT; i++) {
+                this.genes[i] = Math.random();
+            }
+        }
+    }
+
+    Genome.prototype.copy = function() {
+        return new Genome(new Float32Array(this.genes));
+    };
+
+    Genome.prototype.mutate = function(rate) {
+        for (var i = 0; i < GENE_COUNT; i++) {
+            if (Math.random() < rate) {
+                if (Math.random() < 0.5) {
+                    this.genes[i] += (Math.random() - 0.5) * 0.2;
                 } else {
-                    this.genes = new Float32Array(GENOME_SIZE);
-                    for (let i = 0; i < GENOME_SIZE; i++) {
-                        this.genes[i] = Math.random();
-                    }
+                    this.genes[i] = Math.random();
                 }
+                this.genes[i] = Math.max(0, Math.min(1, this.genes[i]));
             }
+        }
+    };
 
-            copy() {
-                return new Genome(new Float32Array(this.genes));
-            }
+    Genome.crossover = function(parentA, parentB) {
+        var child = new Float32Array(GENE_COUNT);
+        var crossPoint = Math.floor(Math.random() * GENE_COUNT);
+        for (var i = 0; i < GENE_COUNT; i++) {
+            child[i] = i < crossPoint ? parentA.genes[i] : parentB.genes[i];
+        }
+        return new Genome(child);
+    };
 
-            mutate(rate) {
-                for (let i = 0; i < GENOME_SIZE; i++) {
-                    if (Math.random() < rate) {
-                        // Small tweak or full randomization?
-                        if (Math.random() < 0.5) {
-                            this.genes[i] += (Math.random() - 0.5) * 0.2; // Tweak
-                        } else {
-                            this.genes[i] = Math.random(); // New value
-                        }
-                        // Clamp
-                        this.genes[i] = Math.max(0, Math.min(1, this.genes[i]));
-                    }
-                }
-            }
+    /* Fitness: weighted sum of gene values rewarding diversity and complexity */
+    Genome.prototype.fitness = function() {
+        var g = this.genes;
+        var f = 0;
+        f += g[3] * 30;            // body size contribution
+        f += g[6] * 15;            // eye size
+        f += (g[7] / 8) * 20;     // limb count (normalized)
+        f += g[11] * 15;           // detail/complexity
+        f += Math.abs(g[0] - 0.5) * 20; // hue distance from midpoint
+        return Math.round(f);
+    };
 
-            static crossover(parentA, parentB) {
-                const newGenes = new Float32Array(GENOME_SIZE);
-                const midpoint = Math.floor(Math.random() * GENOME_SIZE);
-                
-                for (let i = 0; i < GENOME_SIZE; i++) {
-                    if (i < midpoint) {
-                        newGenes[i] = parentA.genes[i];
-                    } else {
-                        newGenes[i] = parentB.genes[i];
-                    }
-                }
-                return new Genome(newGenes);
+    /* ── Creature: decodes genome into visual traits and renders SVG ── */
+    function Creature(genome) {
+        this.genome = genome;
+        this.traits = this.decode(genome);
+    }
+
+    Creature.prototype.decode = function(genome) {
+        var g = genome.genes;
+        return {
+            hue: Math.floor(g[0] * 360),
+            sat: 50 + g[1] * 50,
+            lit: 40 + g[2] * 40,
+            bodySize: 30 + g[3] * 30,
+            bodyShape: Math.floor(g[4] * 3),
+            eyeCount: Math.floor(g[5] * 4) + 1,
+            eyeSize: 5 + g[6] * 10,
+            limbCount: Math.floor(g[7] * 8),
+            limbLen: 20 + g[8] * 40,
+            limbType: Math.floor(g[9] * 3),
+            symmetry: g[10] > 0.5 ? 'r' : 'b',
+            detail: g[11]
+        };
+    };
+
+    Creature.prototype.renderEye = function(x, y, size) {
+        return '<g transform="translate(' + x + ',' + y + ')">' +
+            '<circle r="' + size + '" fill="#fff"/>' +
+            '<circle r="' + (size * 0.4) + '" fill="#000"/>' +
+            '<circle cx="' + (size * 0.15) + '" cy="' + (-size * 0.15) + '" r="' + (size * 0.15) + '" fill="#fff"/>' +
+            '</g>';
+    };
+
+    Creature.prototype.render = function() {
+        var t = this.traits;
+        var color = 'hsl(' + t.hue + ',' + t.sat + '%,' + t.lit + '%)';
+        var svg = '<g transform="translate(75,65)">';
+
+        /* Limbs radiate outward from center */
+        var limbCount = Math.max(t.limbCount, 1);
+        var angleStep = (Math.PI * 2) / limbCount;
+        for (var i = 0; i < t.limbCount; i++) {
+            var angle = i * angleStep;
+            if (t.symmetry === 'b' && i % 2 === 0) { angle = -angle; }
+            var endX = Math.cos(angle) * (t.bodySize + t.limbLen);
+            var endY = Math.sin(angle) * (t.bodySize + t.limbLen);
+
+            if (t.limbType === 0) {
+                svg += '<line x1="0" y1="0" x2="' + endX + '" y2="' + endY + '" stroke="' + color + '" stroke-width="4" stroke-linecap="round"/>';
+            } else if (t.limbType === 1) {
+                var mx = endX * 0.5 + Math.sin(angle * 5) * 10;
+                var my = endY * 0.5 + Math.cos(angle * 5) * 10;
+                svg += '<path d="M0,0 Q' + mx + ',' + my + ' ' + endX + ',' + endY + '" stroke="' + color + '" stroke-width="4" fill="none" stroke-linecap="round"/>';
+            } else {
+                var jx = endX * 0.6;
+                var jy = endY * 0.6;
+                svg += '<polyline points="0,0 ' + jx + ',' + jy + ' ' + endX + ',' + endY + '" stroke="' + color + '" stroke-width="4" fill="none" stroke-linecap="round"/>';
             }
         }
 
-        // --- Creature Renderer ---
-
-        class Creature {
-            constructor(genome) {
-                this.genome = genome;
-                this.traits = this.decode(genome);
+        /* Body shape */
+        if (t.bodyShape === 0) {
+            svg += '<circle r="' + t.bodySize + '" fill="' + color + '"/>';
+        } else if (t.bodyShape === 1) {
+            var rectSize = t.bodySize * 1.6;
+            svg += '<rect x="' + (-rectSize / 2) + '" y="' + (-rectSize / 2) + '" width="' + rectSize + '" height="' + rectSize + '" rx="10" fill="' + color + '"/>';
+        } else {
+            var points = [];
+            var sides = 3 + Math.floor(t.detail * 4);
+            for (var j = 0; j < sides; j++) {
+                var a = (j / sides) * Math.PI * 2;
+                points.push(Math.cos(a) * t.bodySize + ',' + Math.sin(a) * t.bodySize);
             }
+            svg += '<polygon points="' + points.join(' ') + '" fill="' + color + '"/>';
+        }
 
-            decode(g) {
-                const genes = g.genes;
-                return {
-                    hue: Math.floor(genes[0] * 360),
-                    saturation: 50 + genes[1] * 50,
-                    lightness: 40 + genes[2] * 40,
-                    bodySize: 30 + genes[3] * 30,
-                    bodyShape: Math.floor(genes[4] * 3), // 0: Circle, 1: Rect, 2: Poly
-                    eyeCount: Math.floor(genes[5] * 4) + 1, // 1-4 eyes
-                    eyeSize: 5 + genes[6] * 10,
-                    limbCount: Math.floor(genes[7] * 8), // 0-7 limbs
-                    limbLength: 20 + genes[8] * 40,
-                    limbType: Math.floor(genes[9] * 3), // 0: Line, 1: Tentacle, 2: Joint
-                    symmetry: genes[10] > 0.5 ? 'radial' : 'bilateral',
-                    detail: genes[11] // Extra decoration
-                };
-            }
-
-            render() {
-                const t = this.traits;
-                const color = `hsl(${t.hue}, ${t.saturation}%, ${t.lightness}%)`;
-                const eyeColor = `hsl(${(t.hue + 180) % 360}, 80%, 90%)`;
-                
-                let svg = `<g transform="translate(75, 65)">`; // Center in 150x130 box
-
-                // Limbs
-                const angleStep = (Math.PI * 2) / t.limbCount;
-                for (let i = 0; i < t.limbCount; i++) {
-                    let angle = i * angleStep;
-                    if (t.symmetry === 'bilateral') {
-                        // Constrain angles for bilateral
-                        angle = (Math.PI / (t.limbCount + 1)) * (i + 1) + Math.PI/2; 
-                        // Mirror logic handled by drawing twice or just using radial for simplicity in this demo
-                        // Let's stick to radial distribution but modified for bilateral look
-                        if (i % 2 === 0) angle = -angle;
-                    }
-
-                    const x2 = Math.cos(angle) * (t.bodySize + t.limbLength);
-                    const y2 = Math.sin(angle) * (t.bodySize + t.limbLength);
-                    
-                    let limbPath = '';
-                    if (t.limbType === 0) { // Straight
-                        limbPath = `<line x1="0" y1="0" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="4" stroke-linecap="round" />`;
-                    } else if (t.limbType === 1) { // Wavy
-                        const mx = x2 * 0.5 + Math.sin(angle * 5) * 10;
-                        const my = y2 * 0.5 + Math.cos(angle * 5) * 10;
-                        limbPath = `<path d="M0,0 Q${mx},${my} ${x2},${y2}" stroke="${color}" stroke-width="4" fill="none" stroke-linecap="round" />`;
-                    } else { // Jointed
-                        const jx = x2 * 0.6;
-                        const jy = y2 * 0.6;
-                        limbPath = `<polyline points="0,0 ${jx},${jy} ${x2},${y2}" stroke="${color}" stroke-width="4" fill="none" stroke-linecap="round" />`;
-                    }
-                    svg += limbPath;
-                }
-
-                // Body
-                if (t.bodyShape === 0) {
-                    svg += `<circle r="${t.bodySize}" fill="${color}" />`;
-                } else if (t.bodyShape === 1) {
-                    const s = t.bodySize * 1.6;
-                    svg += `<rect x="${-s/2}" y="${-s/2}" width="${s}" height="${s}" rx="10" fill="${color}" />`;
-                } else {
-                    const points = [];
-                    const sides = 3 + Math.floor(t.detail * 4);
-                    for (let i = 0; i < sides; i++) {
-                        const a = (i / sides) * Math.PI * 2;
-                        points.push(`${Math.cos(a) * t.bodySize},${Math.sin(a) * t.bodySize}`);
-                    }
-                    svg += `<polygon points="${points.join(' ')}" fill="${color}" />`;
-                }
-
-                // Eyes
-                const eyeOffset = t.bodySize * 0.4;
-                if (t.eyeCount === 1) {
-                    svg += this.renderEye(0, 0, t.eyeSize, eyeColor);
-                } else {
-                    for (let i = 0; i < t.eyeCount; i++) {
-                        const a = (i / t.eyeCount) * Math.PI * 2 - Math.PI/2;
-                        // For bilateral, adjust
-                        const ex = Math.cos(a) * eyeOffset;
-                        const ey = Math.sin(a) * eyeOffset;
-                        svg += this.renderEye(ex, ey, t.eyeSize, eyeColor);
-                    }
-                }
-
-                svg += `</g>`;
-                return svg;
-            }
-
-            renderEye(x, y, size, color) {
-                return `
-                    <g transform="translate(${x}, ${y})">
-                        <circle r="${size}" fill="#fff" />
-                        <circle r="${size * 0.4}" fill="#000" />
-                        <circle cx="${size * 0.15}" cy="${-size * 0.15}" r="${size * 0.15}" fill="#fff" />
-                    </g>
-                `;
+        /* Eyes positioned around center of body */
+        var eyeOffset = t.bodySize * 0.4;
+        if (t.eyeCount === 1) {
+            svg += this.renderEye(0, 0, t.eyeSize);
+        } else {
+            for (var k = 0; k < t.eyeCount; k++) {
+                var eyeAngle = (k / t.eyeCount) * Math.PI * 2 - Math.PI / 2;
+                svg += this.renderEye(
+                    Math.cos(eyeAngle) * eyeOffset,
+                    Math.sin(eyeAngle) * eyeOffset,
+                    t.eyeSize
+                );
             }
         }
 
-        // --- App Logic ---
+        svg += '</g>';
+        return svg;
+    };
 
-        let population = [];
-        let selectedIndices = new Set();
-        let generation = 1;
+    /* ── Game State ── */
+    var state = {
+        phase: 'title',
+        difficulty: 'easy',
+        score: 0,
+        generation: 1,
+        combo: 0,
+        comboTimer: 0,
+        bestFitness: 0,
+        mutations: 0,
+        population: [],
+        selected: new Set(),
+        highScore: 0,
+        shake: { x: 0, y: 0, intensity: 0 },
+        particles: [],
+        time: 0
+    };
 
-        function init() {
-            randomize();
+    /* ── Canvas Setup ── */
+    function resizeCanvas() {
+        canvasW = dom.canvas.width = innerWidth;
+        canvasH = dom.canvas.height = innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    /* ── Background Rendering ── */
+    function drawBackground() {
+        ctx.fillStyle = '#0f0f14';
+        ctx.fillRect(0, 0, canvasW, canvasH);
+
+        /* Floating ambient orbs */
+        ctx.fillStyle = 'rgba(0,255,157,0.02)';
+        for (var i = 0; i < 20; i++) {
+            var x = Math.sin(state.time * 0.3 + i) * canvasW * 0.3 + canvasW / 2;
+            var y = Math.cos(state.time * 0.2 + i * 0.5) * canvasH * 0.3 + canvasH / 2;
+            ctx.beginPath();
+            ctx.arc(x, y, 50 + i * 10, 0, Math.PI * 2);
+            ctx.fill();
         }
 
-        function randomize() {
-            population = [];
-            selectedIndices.clear();
-            generation = 1;
-            updateGenCount();
-            
-            for (let i = 0; i < POPULATION_SIZE; i++) {
-                population.push(new Genome());
+        /* Update and draw particles */
+        for (var j = state.particles.length - 1; j >= 0; j--) {
+            var p = state.particles[j];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.02;
+            p.life -= 0.02;
+            if (p.life <= 0) {
+                state.particles.splice(j, 1);
+                continue;
             }
-            renderGrid();
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0,255,157,' + (p.life * 0.5) + ')';
+            ctx.fill();
         }
+    }
 
-        function renderGrid() {
-            const grid = document.getElementById('population-grid');
-            grid.innerHTML = '';
-            
-            population.forEach((genome, index) => {
-                const creature = new Creature(genome);
-                const card = document.createElement('div');
-                card.className = `creature-card ${selectedIndices.has(index) ? 'selected' : ''}`;
-                card.onclick = () => toggleSelection(index);
-                
-                card.innerHTML = `
-                    <svg viewBox="0 0 150 130">${creature.render()}</svg>
-                    <div class="stats">DNA: ${genome.genes[0].toFixed(2)}...</div>
-                `;
-                
-                grid.appendChild(card);
+    function spawnParticles(x, y, count) {
+        for (var i = 0; i < count; i++) {
+            state.particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 5,
+                vy: (Math.random() - 0.5) * 5 - 2,
+                size: 2 + Math.random() * 3,
+                life: 0.5 + Math.random() * 0.5
             });
         }
+    }
 
-        function toggleSelection(index) {
-            if (selectedIndices.has(index)) {
-                selectedIndices.delete(index);
-            } else {
-                selectedIndices.add(index);
+    /* ── Population Management ── */
+    function initPopulation() {
+        state.population = [];
+        state.selected.clear();
+        for (var i = 0; i < POPULATION_SIZE; i++) {
+            state.population.push(new Genome());
+        }
+        renderGrid();
+    }
+
+    function renderGrid() {
+        dom.grid.innerHTML = '';
+        if (state.population.length === 0) { return; }
+
+        state.population.forEach(function(genome, index) {
+            var creature = new Creature(genome);
+            var fit = genome.fitness();
+            var card = document.createElement('div');
+            card.className = 'creature' + (state.selected.has(index) ? ' sel' : '');
+            card.innerHTML =
+                '<svg viewBox="0 0 150 130">' + creature.render() + '</svg>' +
+                '<div class="fitness">Fitness: ' + fit + '</div>' +
+                '<div class="stats">Gen ' + state.generation + ' #' + (index + 1) + '</div>';
+
+            card.addEventListener('click', function() {
+                initAudio();
+                if (state.selected.has(index)) {
+                    state.selected.delete(index);
+                } else {
+                    state.selected.add(index);
+                }
+                playSound('s');
+                renderGrid();
+            });
+
+            dom.grid.appendChild(card);
+            if (fit > state.bestFitness) {
+                state.bestFitness = fit;
+                updateHUD();
             }
-            renderGrid();
+        });
+    }
+
+    /* ── Evolution ── */
+    function evolve() {
+        if (state.selected.size < 2) {
+            showNotification('Select 2+ parents!');
+            return;
+        }
+        initAudio();
+
+        var parents = Array.from(state.selected).map(function(i) { return state.population[i]; });
+        var nextGen = [];
+
+        /* Preserve top parents unchanged */
+        nextGen.push(parents[0].copy());
+        if (parents.length > 1) { nextGen.push(parents[1].copy()); }
+
+        var mutationRate = dom.mutRange.value / 100;
+        var mutationCount = 0;
+
+        /* Fill remaining slots via crossover + mutation */
+        while (nextGen.length < POPULATION_SIZE) {
+            var p1 = parents[Math.floor(Math.random() * parents.length)];
+            var p2 = parents[Math.floor(Math.random() * parents.length)];
+            var child = Genome.crossover(p1, p2);
+            var oldGenes = Array.prototype.slice.call(child.genes);
+            child.mutate(mutationRate);
+            for (var i = 0; i < GENE_COUNT; i++) {
+                if (child.genes[i] !== oldGenes[i]) { mutationCount++; }
+            }
+            nextGen.push(child);
         }
 
-        function evolve() {
-            if (selectedIndices.size < 2) {
-                alert("Please select at least 2 parents to breed!");
-                return;
-            }
+        state.mutations += mutationCount;
+        state.population = nextGen;
+        state.selected.clear();
+        state.generation++;
 
-            const parents = Array.from(selectedIndices).map(i => population[i]);
-            const nextGen = [];
-            
-            // Elitism: Keep the best parents? Let's keep the top 2 unchanged
-            nextGen.push(parents[0].copy());
-            if (parents.length > 1) nextGen.push(parents[1].copy());
+        /* Score: best fitness × generation, multiplied by combo streak */
+        var bestFit = 0;
+        for (var j = 0; j < state.population.length; j++) {
+            var f = state.population[j].fitness();
+            if (f > bestFit) { bestFit = f; }
+        }
+        var points = bestFit * state.generation;
+        state.combo++;
+        state.comboTimer = 5;
+        if (state.combo > 1) {
+            points = Math.floor(points * (1 + state.combo * 0.3));
+        }
+        state.score += points;
 
-            const mutationRate = document.getElementById('mutation-rate').value / 100;
-
-            // Fill the rest
-            while (nextGen.length < POPULATION_SIZE) {
-                // Tournament selection or random from pool?
-                // Let's just pick two random parents from the selected pool
-                const p1 = parents[Math.floor(Math.random() * parents.length)];
-                const p2 = parents[Math.floor(Math.random() * parents.length)];
-                
-                const child = Genome.crossover(p1, p2);
-                child.mutate(mutationRate);
-                nextGen.push(child);
-            }
-
-            population = nextGen;
-            selectedIndices.clear();
-            generation++;
-            updateGenCount();
-            renderGrid();
+        if (bestFit > 80) {
+            playSound('r');
+            state.shake.intensity = 8;
+            spawnParticles(canvasW / 2, canvasH / 2, 30);
+            showNotification('EXCEPTIONAL! Fitness ' + bestFit);
+        } else {
+            playSound('e');
+            spawnParticles(canvasW / 2, canvasH / 2, 15);
         }
 
-        function updateGenCount() {
-            document.getElementById('gen-count').textContent = generation;
+        if (state.combo >= 3) {
+            playSound('c', state.combo);
+            showCombo(state.combo + 'x COMBO!');
         }
 
-        function toggleAutoSelect() {
-            // Just for fun, select random 3
-            selectedIndices.clear();
-            for(let i=0; i<3; i++) {
-                selectedIndices.add(Math.floor(Math.random() * POPULATION_SIZE));
+        renderGrid();
+        updateHUD();
+        saveGame();
+    }
+
+    function autoSelect() {
+        state.selected.clear();
+        var indexed = state.population.map(function(g, i) {
+            return { index: i, fit: g.fitness() };
+        });
+        indexed.sort(function(a, b) { return b.fit - a.fit; });
+
+        /* Difficulty determines how many top creatures are auto-selected */
+        var count = state.difficulty === 'hard' ? 2 : (state.difficulty === 'normal' ? 3 : 4);
+        for (var i = 0; i < count && i < indexed.length; i++) {
+            state.selected.add(indexed[i].index);
+        }
+        renderGrid();
+        playSound('m');
+    }
+
+    /* ── UI Feedback ── */
+    function showCombo(text) {
+        dom.combo.textContent = text;
+        dom.combo.style.opacity = '1';
+        setTimeout(function() {
+            dom.combo.style.opacity = '0';
+        }, 1200);
+    }
+
+    function showNotification(text) {
+        var el = document.createElement('div');
+        el.className = 'notif';
+        el.textContent = text;
+        dom.notifs.appendChild(el);
+        setTimeout(function() { el.classList.add('show'); }, 50);
+        setTimeout(function() {
+            el.classList.remove('show');
+            setTimeout(function() {
+                if (el.parentNode) { el.parentNode.removeChild(el); }
+            }, 400);
+        }, 3000);
+    }
+
+    function updateHUD() {
+        dom.hudScore.textContent = state.score;
+        dom.hudGen.textContent = state.generation;
+        dom.hudCombo.textContent = state.combo > 0 ? state.combo + 'x' : '0';
+        dom.hudBest.textContent = state.bestFitness;
+        dom.hudMuts.textContent = state.mutations;
+    }
+
+    /* ── Persistence ── */
+    function saveGame() {
+        try {
+            var data = {
+                sc: state.score,
+                gn: state.generation,
+                bf: state.bestFitness,
+                mu: state.mutations,
+                df: state.difficulty,
+                po: state.population.map(function(g) { return Array.prototype.slice.call(g.genes); }),
+                hi: Math.max(state.highScore, state.score)
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (e) {
+            /* Storage full or unavailable */
+        }
+    }
+
+    function loadGame() {
+        try {
+            var raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) { return false; }
+            var data = JSON.parse(raw);
+            if (!data || typeof data !== 'object') { return false; }
+            state.score = data.sc || 0;
+            state.generation = data.gn || 1;
+            state.bestFitness = data.bf || 0;
+            state.mutations = data.mu || 0;
+            state.difficulty = data.df || 'easy';
+            state.highScore = data.hi || 0;
+            if (Array.isArray(data.po) && data.po.length > 0) {
+                state.population = data.po.map(function(g) {
+                    return new Genome(new Float32Array(g));
+                });
             }
-            renderGrid();
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /* ── Game Loop ── */
+    var lastTime = 0;
+
+    function gameLoop(timestamp) {
+        var dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+        lastTime = timestamp;
+        state.time += dt;
+        drawBackground();
+
+        /* Combo timer decay: reset combo when timer expires */
+        if (state.phase === 'playing' && state.comboTimer > 0) {
+            state.comboTimer -= dt;
+            if (state.comboTimer <= 0) {
+                state.combo = 0;
+                updateHUD();
+            }
         }
 
-        // Start
-        init();
+        /* Screen shake decay */
+        if (state.shake.intensity > 0) {
+            state.shake.intensity *= 0.9;
+            if (state.shake.intensity < 0.1) { state.shake.intensity = 0; }
+            dom.grid.style.transform = 'translateX(' + ((Math.random() - 0.5) * state.shake.intensity) + 'px)';
+        }
 
-    </script>
+        requestAnimationFrame(gameLoop);
+    }
+
+    /* ── Screen Transitions ── */
+    function showGameUI() {
+        dom.titleScreen.style.opacity = '0';
+        setTimeout(function() {
+            dom.titleScreen.style.display = 'none';
+        }, 800);
+        dom.hud.style.display = 'flex';
+        dom.controls.style.display = 'flex';
+    }
+
+    function hideGameUI() {
+        dom.pauseOverlay.style.display = 'none';
+        dom.hud.style.display = 'none';
+        dom.controls.style.display = 'none';
+        dom.grid.innerHTML = '';
+        dom.titleScreen.style.display = 'flex';
+        dom.titleScreen.style.opacity = '1';
+    }
+
+    function startNewGame() {
+        initAudio();
+        state.phase = 'playing';
+        state.score = 0;
+        state.generation = 1;
+        state.combo = 0;
+        state.comboTimer = 0;
+        state.bestFitness = 0;
+        state.mutations = 0;
+        showGameUI();
+        initPopulation();
+        updateHUD();
+    }
+
+    function continueGame() {
+        initAudio();
+        state.phase = 'playing';
+        showGameUI();
+        renderGrid();
+        updateHUD();
+    }
+
+    function quitGame() {
+        state.phase = 'title';
+        saveGame();
+        hideGameUI();
+        setupTitleScreen();
+    }
+
+    function togglePause() {
+        if (state.phase === 'playing') {
+            state.phase = 'paused';
+            dom.pauseOverlay.style.display = 'flex';
+            playSound('m');
+            saveGame();
+        } else if (state.phase === 'paused') {
+            state.phase = 'playing';
+            dom.pauseOverlay.style.display = 'none';
+            playSound('m');
+        }
+    }
+
+    /* ── Title Screen Setup ── */
+    function setupTitleScreen() {
+        var hasSave = loadGame();
+        dom.contBtn.style.display = (hasSave && state.generation > 1) ? 'block' : 'none';
+        document.querySelectorAll('.diff').forEach(function(btn) {
+            btn.classList.toggle('sel', btn.dataset.d === state.difficulty);
+        });
+    }
+
+    /* ── Event Listeners ── */
+    dom.startBtn.addEventListener('click', startNewGame);
+    dom.contBtn.addEventListener('click', continueGame);
+    dom.resBtn.addEventListener('click', function() {
+        state.phase = 'playing';
+        dom.pauseOverlay.style.display = 'none';
+        playSound('m');
+    });
+    dom.quitBtn.addEventListener('click', quitGame);
+    dom.evoBtn.addEventListener('click', evolve);
+    dom.rndBtn.addEventListener('click', function() {
+        initPopulation();
+        playSound('m');
+    });
+    dom.autoBtn.addEventListener('click', autoSelect);
+
+    document.querySelectorAll('.diff').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            state.difficulty = btn.dataset.d;
+            document.querySelectorAll('.diff').forEach(function(b) {
+                b.classList.remove('sel');
+            });
+            btn.classList.add('sel');
+            playSound('m');
+        });
+    });
+
+    window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            togglePause();
+        }
+        if (state.phase === 'playing') {
+            if (e.key === 'e') { evolve(); }
+            else if (e.key === 'r') {
+                initPopulation();
+                state.generation = 1;
+                state.score = 0;
+                state.combo = 0;
+                state.bestFitness = 0;
+                state.mutations = 0;
+                updateHUD();
+            }
+            else if (e.key === 'a') { autoSelect(); }
+        }
+    });
+
+    /* ── Initialize ── */
+    setupTitleScreen();
+    requestAnimationFrame(gameLoop);
+})();
+</script>
 </body>
 </html>

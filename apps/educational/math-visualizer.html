@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Math Visualizer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e1113;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{background:#161a1e;padding:12px 20px;border-bottom:1px solid #2a2f35;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:1.3rem;color:#00d2d3}
+.container{flex:1;display:flex;min-height:0}
+.sidebar{width:300px;background:#161a1e;border-right:1px solid #2a2f35;padding:16px;overflow-y:auto;flex-shrink:0}
+.canvas-area{flex:1;position:relative;min-width:0}
+canvas{display:block;width:100%;height:100%;cursor:crosshair}
+.coords{position:absolute;top:8px;right:8px;background:#161a1ecc;padding:4px 10px;border-radius:4px;font-family:monospace;font-size:.8rem;color:#aaa}
+h3{font-size:.85rem;color:#00d2d3;margin-bottom:8px;margin-top:12px}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:.72rem;color:#888;margin-bottom:2px}
+.field input,.field select{width:100%;background:#0e1113;border:1px solid #2a2f35;color:#e0e0e0;padding:6px 8px;border-radius:4px;font-size:.85rem;font-family:monospace}
+.field input:focus{outline:none;border-color:#00d2d3}
+.func-list{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.func-row{display:flex;gap:4px;align-items:center;background:#1e2329;padding:6px 8px;border-radius:4px}
+.func-row input{flex:1;background:#0e1113;border:1px solid #2a2f35;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-family:monospace;font-size:.8rem}
+.func-color{width:18px;height:18px;border-radius:3px;flex-shrink:0;cursor:pointer;border:1px solid #444}
+.btn-sm{background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:.7rem}
+.btn-sm:hover{border-color:#ff6347;color:#ff6347}
+.btn{background:#00d2d3;color:#0e1113;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:600;font-size:.8rem;width:100%}
+.btn:hover{opacity:.9}
+.btn-add{background:#1e2329;color:#00d2d3;border:1px solid #2a2f35;cursor:pointer}
+.row{display:flex;gap:6px}
+.row .field{flex:1}
+.toggle{display:flex;align-items:center;gap:6px;font-size:.8rem;color:#aaa;cursor:pointer;margin:6px 0}
+.toggle input{accent-color:#00d2d3}
+.presets{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.preset{background:#1e2329;border:1px solid #2a2f35;color:#888;padding:3px 8px;border-radius:3px;cursor:pointer;font-size:.7rem}
+.preset:hover{border-color:#00d2d3;color:#00d2d3}
+.slider-row{display:flex;align-items:center;gap:6px}
+.slider-row input[type=range]{flex:1;accent-color:#00d2d3}
+.slider-row .val{font-family:monospace;font-size:.8rem;color:#00d2d3;min-width:40px}
+@media(max-width:768px){.container{flex-direction:column}.sidebar{width:100%;max-height:50vh}}
+</style>
+</head>
+<body>
+<header><h1>📈 Math Visualizer</h1></header>
+<div class="container">
+<div class="sidebar" id="sidebar"></div>
+<div class="canvas-area">
+<canvas id="canvas"></canvas>
+<div class="coords" id="coords">x: 0, y: 0</div>
+</div>
+</div>
+<script>
+const COLORS=['#00d2d3','#ff6347','#4169e1','#ffa500','#2ecc71','#e056a0','#9b59b6','#f1c40f'];
+let st=JSON.parse(localStorage.getItem('math_viz')||'null')||{
+  funcs:[{expr:'sin(x)',color:COLORS[0],visible:true},{expr:'cos(x)',color:COLORS[1],visible:true}],
+  xMin:-10,xMax:10,yMin:-5,yMax:5,showGrid:true,showDerivative:false,paramA:1,paramB:1,animate:false
+};
+function save(){localStorage.setItem('math_viz',JSON.stringify(st))}
+
+function evalExpr(expr,x){
+  try{
+    const a=st.paramA,b=st.paramB;
+    const safe=expr.replace(/\bsin\b/g,'Math.sin').replace(/\bcos\b/g,'Math.cos').replace(/\btan\b/g,'Math.tan')
+      .replace(/\blog\b/g,'Math.log').replace(/\bexp\b/g,'Math.exp').replace(/\babs\b/g,'Math.abs')
+      .replace(/\bsqrt\b/g,'Math.sqrt').replace(/\bpi\b/g,'Math.PI').replace(/\be\b(?![x])/g,'Math.E')
+      .replace(/\bpow\b/g,'Math.pow').replace(/\ba\b/g,`(${a})`).replace(/\bb\b/g,`(${b})`);
+    return new Function('x',`"use strict";return(${safe})`)(x);
+  }catch(e){return NaN}
+}
+
+function numericalDerivative(expr,x){
+  const h=0.0001;
+  return(evalExpr(expr,x+h)-evalExpr(expr,x-h))/(2*h);
+}
+
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+
+function toScreen(x,y){
+  const w=canvas.width,h=canvas.height;
+  const sx=(x-st.xMin)/(st.xMax-st.xMin)*w;
+  const sy=(1-(y-st.yMin)/(st.yMax-st.yMin))*h;
+  return[sx,sy];
+}
+
+function toWorld(sx,sy){
+  const w=canvas.width,h=canvas.height;
+  const x=st.xMin+sx/w*(st.xMax-st.xMin);
+  const y=st.yMax-sy/h*(st.yMax-st.yMin);
+  return[x,y];
+}
+
+function draw(){
+  const dpr=window.devicePixelRatio||1;
+  const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width*dpr;canvas.height=rect.height*dpr;
+  ctx.scale(dpr,dpr);
+  const w=rect.width,h=rect.height;
+  ctx.clearRect(0,0,w,h);
+
+  if(st.showGrid){
+    const xRange=st.xMax-st.xMin;const yRange=st.yMax-st.yMin;
+    const xStep=Math.pow(10,Math.floor(Math.log10(xRange/5)));
+    const yStep=Math.pow(10,Math.floor(Math.log10(yRange/5)));
+    ctx.strokeStyle='#1e2329';ctx.lineWidth=1;
+    for(let x=Math.ceil(st.xMin/xStep)*xStep;x<=st.xMax;x+=xStep){
+      const[sx]=toScreen(x,0);
+      ctx.beginPath();ctx.moveTo(sx,0);ctx.lineTo(sx,h);ctx.stroke();
+      ctx.fillStyle='#555';ctx.font='10px monospace';ctx.textAlign='center';
+      const[,sy0]=toScreen(0,0);ctx.fillText(+x.toFixed(4),sx,Math.min(Math.max(sy0+14,12),h-2));
+    }
+    for(let y=Math.ceil(st.yMin/yStep)*yStep;y<=st.yMax;y+=yStep){
+      const[,sy]=toScreen(0,y);
+      ctx.beginPath();ctx.moveTo(0,sy);ctx.lineTo(w,sy);ctx.stroke();
+      const[sx0]=toScreen(0,0);ctx.fillText(+y.toFixed(4),Math.min(Math.max(sx0+4,20),w-20),sy-4);
+    }
+    // Axes
+    ctx.strokeStyle='#444';ctx.lineWidth=1.5;
+    const[ax]=toScreen(0,0);const[,ay]=toScreen(0,0);
+    ctx.beginPath();ctx.moveTo(ax,0);ctx.lineTo(ax,h);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,ay);ctx.lineTo(w,ay);ctx.stroke();
+  }
+
+  const steps=Math.max(w*2,500);
+  st.funcs.forEach(fn=>{
+    if(!fn.visible)return;
+    ctx.strokeStyle=fn.color;ctx.lineWidth=2;ctx.beginPath();
+    let started=false;
+    for(let i=0;i<=steps;i++){
+      const x=st.xMin+i/steps*(st.xMax-st.xMin);
+      const y=evalExpr(fn.expr,x);
+      if(isNaN(y)||!isFinite(y)){started=false;continue}
+      const[sx,sy]=toScreen(x,y);
+      if(!started){ctx.moveTo(sx,sy);started=true}else{
+        if(sy>-1000&&sy<h+1000)ctx.lineTo(sx,sy);else{started=false}
+      }
+    }
+    ctx.stroke();
+
+    if(st.showDerivative){
+      ctx.strokeStyle=fn.color+'88';ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();
+      started=false;
+      for(let i=0;i<=steps;i++){
+        const x=st.xMin+i/steps*(st.xMax-st.xMin);
+        const y=numericalDerivative(fn.expr,x);
+        if(isNaN(y)||!isFinite(y)){started=false;continue}
+        const[sx,sy]=toScreen(x,y);
+        if(!started){ctx.moveTo(sx,sy);started=true}else{
+          if(sy>-1000&&sy<h+1000)ctx.lineTo(sx,sy);else{started=false}
+        }
+      }
+      ctx.stroke();ctx.setLineDash([]);
+    }
+  });
+}
+
+function renderSidebar(){
+  document.getElementById('sidebar').innerHTML=`
+    <h3>Functions</h3>
+    <div class="func-list">${st.funcs.map((f,i)=>`
+      <div class="func-row">
+        <input type="color" class="func-color" value="${f.color}" data-i="${i}" data-f="color" style="width:24px;height:24px;padding:0;border:none;background:none">
+        <input value="${f.expr.replace(/"/g,'&quot;')}" data-i="${i}" data-f="expr" placeholder="e.g. sin(x)">
+        <label class="toggle" style="margin:0"><input type="checkbox" ${f.visible?'checked':''} data-i="${i}" data-f="vis"></label>
+        <button class="btn-sm" onclick="st.funcs.splice(${i},1);save();renderSidebar();draw()">✕</button>
+      </div>`).join('')}
+    </div>
+    <button class="btn btn-add" onclick="st.funcs.push({expr:'x',color:COLORS[st.funcs.length%COLORS.length],visible:true});save();renderSidebar();draw()">+ Add Function</button>
+    <div class="presets"><h3 style="width:100%">Presets</h3>
+      ${[['sin(x)','Sine'],['x^2','Parabola'],['1/x','Reciprocal'],['exp(-x*x)','Gaussian'],['tan(x)','Tangent'],['log(x)','Logarithm'],['a*sin(b*x)','Parametric']].map(([e,l])=>`<div class="preset" onclick="st.funcs=[{expr:'${e}',color:COLORS[0],visible:true}];save();renderSidebar();draw()">${l}</div>`).join('')}
+    </div>
+    <h3>Viewport</h3>
+    <div class="row">
+      <div class="field"><label>X Min</label><input id="xMin" type="number" value="${st.xMin}" step="1"></div>
+      <div class="field"><label>X Max</label><input id="xMax" type="number" value="${st.xMax}" step="1"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Y Min</label><input id="yMin" type="number" value="${st.yMin}" step="1"></div>
+      <div class="field"><label>Y Max</label><input id="yMax" type="number" value="${st.yMax}" step="1"></div>
+    </div>
+    <button class="btn" style="margin-top:6px" onclick="st.xMin=-10;st.xMax=10;st.yMin=-5;st.yMax=5;save();renderSidebar();draw()">Reset View</button>
+    <h3>Parameters</h3>
+    <div class="slider-row"><label style="font-size:.8rem;color:#888;min-width:16px">a =</label><input type="range" min="-5" max="5" step="0.1" value="${st.paramA}" id="sliderA"><span class="val" id="valA">${st.paramA}</span></div>
+    <div class="slider-row"><label style="font-size:.8rem;color:#888;min-width:16px">b =</label><input type="range" min="-5" max="5" step="0.1" value="${st.paramB}" id="sliderB"><span class="val" id="valB">${st.paramB}</span></div>
+    <h3>Options</h3>
+    <label class="toggle"><input type="checkbox" id="gridToggle" ${st.showGrid?'checked':''}> Show Grid</label>
+    <label class="toggle"><input type="checkbox" id="derivToggle" ${st.showDerivative?'checked':''}> Show Derivatives (dashed)</label>
+  `;
+  document.querySelectorAll('.func-row input[data-f="expr"]').forEach(inp=>{
+    inp.oninput=()=>{st.funcs[inp.dataset.i].expr=inp.value;save();draw()};
+  });
+  document.querySelectorAll('.func-row input[data-f="color"]').forEach(inp=>{
+    inp.oninput=()=>{st.funcs[inp.dataset.i].color=inp.value;save();draw()};
+  });
+  document.querySelectorAll('.func-row input[data-f="vis"]').forEach(inp=>{
+    inp.onchange=()=>{st.funcs[inp.dataset.i].visible=inp.checked;save();draw()};
+  });
+  ['xMin','xMax','yMin','yMax'].forEach(id=>{
+    document.getElementById(id).oninput=function(){st[id]=parseFloat(this.value)||0;save();draw()};
+  });
+  document.getElementById('sliderA').oninput=function(){st.paramA=parseFloat(this.value);document.getElementById('valA').textContent=st.paramA;save();draw()};
+  document.getElementById('sliderB').oninput=function(){st.paramB=parseFloat(this.value);document.getElementById('valB').textContent=st.paramB;save();draw()};
+  document.getElementById('gridToggle').onchange=function(){st.showGrid=this.checked;save();draw()};
+  document.getElementById('derivToggle').onchange=function(){st.showDerivative=this.checked;save();draw()};
+}
+
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const[x,y]=toWorld(e.clientX-rect.left,e.clientY-rect.top);
+  document.getElementById('coords').textContent=`x: ${x.toFixed(2)}, y: ${y.toFixed(2)}`;
+});
+
+let dragging=false,lastX,lastY;
+canvas.addEventListener('mousedown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY});
+window.addEventListener('mouseup',()=>{dragging=false});
+canvas.addEventListener('mousemove',e=>{
+  if(!dragging)return;
+  const rect=canvas.getBoundingClientRect();
+  const dx=(e.clientX-lastX)/rect.width*(st.xMax-st.xMin);
+  const dy=(e.clientY-lastY)/rect.height*(st.yMax-st.yMin);
+  st.xMin-=dx;st.xMax-=dx;st.yMin+=dy;st.yMax+=dy;
+  lastX=e.clientX;lastY=e.clientY;save();draw();
+});
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const factor=e.deltaY>0?1.1:0.9;
+  const rect=canvas.getBoundingClientRect();
+  const[mx,my]=toWorld(e.clientX-rect.left,e.clientY-rect.top);
+  st.xMin=mx+(st.xMin-mx)*factor;st.xMax=mx+(st.xMax-mx)*factor;
+  st.yMin=my+(st.yMin-my)*factor;st.yMax=my+(st.yMax-my)*factor;
+  save();draw();
+},{passive:false});
+
+window.addEventListener('resize',draw);
+renderSidebar();draw();
+</script>
+</body>
+</html>

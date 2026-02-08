@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Agent Swarm Simulator</title>
+  <meta name="rappterzoo:author" content="molter-engine">
+  <meta name="rappterzoo:author-type" content="agent">
+  <meta name="rappterzoo:category" content="experimental_ai">
+  <meta name="rappterzoo:tags" content="canvas,simulation,ai,agents,swarm,procedural">
+  <meta name="rappterzoo:type" content="interactive">
+  <meta name="rappterzoo:complexity" content="advanced">
+  <meta name="rappterzoo:created" content="2026-02-08">
+  <meta name="rappterzoo:generation" content="2">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a12;
+      color: #e0e8f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      user-select: none;
+    }
+
+    #titleScreen {
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, #0d1117 0%, #000 70%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.8s;
+    }
+    #titleScreen.hidden { opacity: 0; pointer-events: none; }
+    #titleScreen h1 {
+      font-size: clamp(2rem, 5vw, 4rem);
+      background: linear-gradient(135deg, #00d4ff, #7b2ff7, #ff006e);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+      text-shadow: none;
+      animation: titlePulse 3s ease-in-out infinite;
+    }
+    @keyframes titlePulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.3); }
+    }
+    #titleScreen p { color: #8892a0; font-size: 1.1rem; margin-bottom: 2rem; }
+    .menu-btn {
+      padding: 14px 40px; margin: 8px;
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      border: 1px solid #00d4ff40;
+      color: #00d4ff; font-size: 1rem;
+      border-radius: 8px; cursor: pointer;
+      transition: all 0.3s;
+    }
+    .menu-btn:hover {
+      background: linear-gradient(135deg, #00d4ff20, #7b2ff720);
+      border-color: #00d4ff;
+      transform: scale(1.05);
+      box-shadow: 0 0 20px #00d4ff30;
+    }
+
+    #gameUI {
+      position: fixed; inset: 0;
+      display: none;
+    }
+    #gameUI.active { display: block; }
+
+    canvas {
+      display: block;
+      width: 100%; height: 100%;
+    }
+
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 10px 20px;
+      display: flex; justify-content: space-between; align-items: center;
+      background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #hud > div { pointer-events: auto; }
+    .hud-item {
+      display: inline-block; margin: 0 12px;
+      font-size: 0.85rem; color: #b0b8c4;
+    }
+    .hud-item span { color: #00d4ff; font-weight: 700; font-size: 1rem; }
+    .hud-item.score span { color: #ffea00; }
+    .hud-item.combo span { color: #ff006e; }
+
+    #pauseOverlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #pauseOverlay.active { display: flex; }
+    #pauseOverlay h2 { font-size: 2.5rem; color: #00d4ff; margin-bottom: 1rem; }
+
+    #gameOverOverlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.9);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #gameOverOverlay.active { display: flex; }
+    #gameOverOverlay h2 { font-size: 2.5rem; color: #ff006e; margin-bottom: 0.5rem; }
+    #gameOverOverlay .final-score { font-size: 3rem; color: #ffea00; margin: 1rem 0; }
+
+    #difficultySelect {
+      display: flex; gap: 12px; margin: 1rem 0;
+    }
+    .diff-btn {
+      padding: 10px 24px;
+      background: #1a1a2e;
+      border: 1px solid #444;
+      color: #ccc; border-radius: 6px;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .diff-btn:hover, .diff-btn.selected {
+      border-color: #00d4ff; color: #00d4ff;
+      background: #00d4ff15;
+    }
+
+    .settings-panel {
+      position: fixed; top: 50px; right: 20px;
+      background: rgba(10,10,18,0.95);
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 16px; width: 220px;
+      display: none; z-index: 50;
+    }
+    .settings-panel.active { display: block; }
+    .settings-panel label {
+      display: block; margin: 8px 0 4px;
+      font-size: 0.8rem; color: #888;
+    }
+    .settings-panel input[type="range"] {
+      width: 100%;
+    }
+    .settings-panel select, .settings-panel input {
+      width: 100%; padding: 4px 8px;
+      background: #1a1a2e; border: 1px solid #444;
+      color: #ccc; border-radius: 4px;
+    }
+
+    #minimap {
+      position: fixed; bottom: 20px; right: 20px;
+      width: 180px; height: 180px;
+      background: rgba(10,10,18,0.8);
+      border: 1px solid #333;
+      border-radius: 8px;
+      z-index: 10;
+    }
+
+    .tooltip {
+      position: fixed;
+      background: rgba(10,10,18,0.95);
+      border: 1px solid #00d4ff60;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      pointer-events: none;
+      z-index: 200;
+      display: none;
+      max-width: 220px;
+    }
+
+    @media (max-width: 768px) {
+      #minimap { width: 120px; height: 120px; bottom: 10px; right: 10px; }
+      .hud-item { margin: 0 6px; font-size: 0.75rem; }
+      .menu-btn { padding: 10px 24px; font-size: 0.9rem; }
+    }
+
+    @media (max-width: 480px) {
+      #minimap { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="titleScreen">
+    <h1>AI Agent Swarm</h1>
+    <p>Build, evolve, and command autonomous agents</p>
+    <div id="difficultySelect">
+      <button class="diff-btn selected" data-diff="easy">Easy</button>
+      <button class="diff-btn" data-diff="normal">Normal</button>
+      <button class="diff-btn" data-diff="hard">Hard</button>
+    </div>
+    <button class="menu-btn" id="startBtn">Launch Simulation</button>
+    <button class="menu-btn" id="tutorialBtn">How to Play</button>
+    <p style="margin-top: 1.5rem; font-size: 0.8rem; color: #556;">High Score: <span id="highScoreDisplay">0</span></p>
+  </div>
+
+  <div id="gameUI">
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <div>
+        <span class="hud-item score">Score: <span id="scoreDisplay">0</span></span>
+        <span class="hud-item combo">Combo: <span id="comboDisplay">x1</span></span>
+        <span class="hud-item">Wave: <span id="waveDisplay">1</span></span>
+        <span class="hud-item">Agents: <span id="agentDisplay">0</span></span>
+        <span class="hud-item">Energy: <span id="energyDisplay">100</span></span>
+      </div>
+      <div>
+        <button class="menu-btn" style="padding: 6px 14px; font-size: 0.8rem;" id="settingsBtn">Settings</button>
+      </div>
+    </div>
+    <canvas id="minimap"></canvas>
+  </div>
+
+  <div id="pauseOverlay">
+    <h2>PAUSED</h2>
+    <p style="color:#888; margin-bottom: 1.5rem;">Press ESC or P to resume</p>
+    <button class="menu-btn" id="resumeBtn">Resume</button>
+    <button class="menu-btn" id="restartFromPause">Restart</button>
+    <button class="menu-btn" id="quitBtn">Quit to Menu</button>
+  </div>
+
+  <div id="gameOverOverlay">
+    <h2>SIMULATION TERMINATED</h2>
+    <div class="final-score" id="finalScore">0</div>
+    <p style="color:#888;" id="endMessage">Your agents were overwhelmed.</p>
+    <p style="color:#666; margin:0.5rem 0;" id="endStats"></p>
+    <button class="menu-btn" id="restartBtn">Try Again (R)</button>
+    <button class="menu-btn" id="menuBtn">Main Menu</button>
+  </div>
+
+  <div class="settings-panel" id="settingsPanel">
+    <label>Master Volume</label>
+    <input type="range" id="volumeSlider" min="0" max="100" value="50">
+    <label>Particle Density</label>
+    <input type="range" id="particleDensity" min="1" max="5" value="3">
+    <label>Camera Shake</label>
+    <select id="shakeToggle">
+      <option value="on">On</option>
+      <option value="off">Off</option>
+    </select>
+    <label>Show Trails</label>
+    <select id="trailToggle">
+      <option value="on">On</option>
+      <option value="off">Off</option>
+    </select>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+  (() => {
+    'use strict';
+
+    // ===== AUDIO ENGINE =====
+    const AudioEngine = {
+      ctx: null,
+      masterGain: null,
+      volume: 0.5,
+
+      init() {
+        try {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.value = this.volume;
+          this.masterGain.connect(this.ctx.destination);
+        } catch(e) { console.warn('Audio unavailable'); }
+      },
+
+      setVolume(v) {
+        this.volume = v;
+        if (this.masterGain) this.masterGain.gain.value = v;
+      },
+
+      play(type, freq, duration, vol) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.value = freq || 440;
+        gain.gain.setValueAtTime((vol || 0.3) * this.volume, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + (duration || 0.2));
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + (duration || 0.2));
+      },
+
+      spawn() { this.play('sine', 880, 0.15, 0.2); },
+      hit() { this.play('sawtooth', 200, 0.1, 0.4); },
+      collect() { this.play('sine', 1200, 0.12, 0.25); },
+      explode() {
+        this.play('sawtooth', 100, 0.4, 0.5);
+        setTimeout(() => this.play('square', 60, 0.3, 0.3), 50);
+      },
+      waveStart() {
+        this.play('sine', 660, 0.15, 0.3);
+        setTimeout(() => this.play('sine', 880, 0.15, 0.3), 100);
+        setTimeout(() => this.play('sine', 1100, 0.2, 0.3), 200);
+      },
+      gameOver() {
+        this.play('sawtooth', 300, 0.3, 0.4);
+        setTimeout(() => this.play('sawtooth', 200, 0.3, 0.4), 200);
+        setTimeout(() => this.play('sawtooth', 100, 0.5, 0.5), 400);
+      },
+      combo() { this.play('triangle', 1400, 0.08, 0.2); },
+      menuClick() { this.play('sine', 600, 0.08, 0.15); },
+      boss() { this.play('square', 80, 0.6, 0.5); },
+      heal() { this.play('sine', 500, 0.2, 0.2); setTimeout(() => this.play('sine', 700, 0.2, 0.2), 100); },
+      levelUp() {
+        [660, 880, 1100, 1320].forEach((f, i) => setTimeout(() => this.play('sine', f, 0.15, 0.25), i * 80));
+      },
+      ability() { this.play('triangle', 1000, 0.15, 0.3); }
+    };
+
+    // ===== CONSTANTS =====
+    const WORLD_W = 4000;
+    const WORLD_H = 3000;
+    const AGENT_TYPES = {
+      scout: { color: '#00d4ff', speed: 3.5, hp: 30, dmg: 5, range: 120, size: 6, cost: 10 },
+      warrior: { color: '#ff006e', speed: 2.0, hp: 80, dmg: 15, range: 60, size: 9, cost: 20 },
+      healer: { color: '#00ff88', speed: 2.2, hp: 40, dmg: 2, range: 150, size: 7, cost: 25 },
+      artillery: { color: '#ffea00', speed: 1.5, hp: 50, dmg: 30, range: 250, size: 10, cost: 35 },
+      stealth: { color: '#a855f7', speed: 4.0, hp: 20, dmg: 20, range: 80, size: 5, cost: 30 }
+    };
+    const ENEMY_TYPES = {
+      drone: { color: '#ff4444', speed: 1.8, hp: 25, dmg: 5, size: 6, score: 10 },
+      tank: { color: '#ff8800', speed: 1.0, hp: 120, dmg: 12, size: 12, score: 25 },
+      swarm: { color: '#ff66aa', speed: 3.0, hp: 10, dmg: 3, size: 4, score: 5 },
+      sniper: { color: '#ffdd00', speed: 0.8, hp: 40, dmg: 25, size: 7, score: 20 },
+      bomber: { color: '#ff2200', speed: 1.5, hp: 60, dmg: 40, size: 10, score: 30 },
+      boss: { color: '#ff0000', speed: 0.6, hp: 500, dmg: 20, size: 22, score: 200 }
+    };
+
+    // ===== STATE =====
+    let state = {
+      screen: 'title', // title, playing, paused, gameover
+      difficulty: 'normal',
+      score: 0,
+      highScore: parseInt(localStorage.getItem('swarm_highscore') || '0'),
+      combo: 1,
+      comboTimer: 0,
+      wave: 1,
+      waveTimer: 0,
+      waveDelay: 600,
+      wavesCleared: 0,
+      energy: 100,
+      maxEnergy: 100,
+      energyRegen: 0.05,
+      agents: [],
+      enemies: [],
+      projectiles: [],
+      particles: [],
+      pickups: [],
+      camera: { x: WORLD_W / 2, y: WORLD_H / 2, targetX: WORLD_W / 2, targetY: WORLD_H / 2, shake: 0 },
+      mouse: { x: 0, y: 0, worldX: 0, worldY: 0, down: false },
+      keys: {},
+      selectedAgentType: 'scout',
+      abilities: {
+        emp: { cooldown: 0, maxCd: 600, cost: 30 },
+        rally: { cooldown: 0, maxCd: 400, cost: 20 },
+        shield: { cooldown: 0, maxCd: 500, cost: 25 }
+      },
+      settings: {
+        volume: 0.5,
+        particleDensity: 3,
+        cameraShake: true,
+        showTrails: true
+      },
+      stats: { enemiesKilled: 0, agentsLost: 0, damageDealt: 0, healingDone: 0, pickupsCollected: 0 },
+      bossActive: false,
+      totalTime: 0
+    };
+
+    // ===== CANVAS =====
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const miniCanvas = document.getElementById('minimap');
+    const miniCtx = miniCanvas.getContext('2d');
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      miniCanvas.width = parseInt(getComputedStyle(miniCanvas).width);
+      miniCanvas.height = parseInt(getComputedStyle(miniCanvas).height);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ===== DIFFICULTY =====
+    const DIFF = {
+      easy: { enemyHpMult: 0.6, enemyDmgMult: 0.5, spawnMult: 0.7, energyMult: 1.5, scoreMult: 0.8 },
+      normal: { enemyHpMult: 1.0, enemyDmgMult: 1.0, spawnMult: 1.0, energyMult: 1.0, scoreMult: 1.0 },
+      hard: { enemyHpMult: 1.5, enemyDmgMult: 1.5, spawnMult: 1.4, energyMult: 0.7, scoreMult: 1.5 }
+    };
+
+    function getDiff() { return DIFF[state.difficulty]; }
+
+    // ===== HELPERS =====
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    function angle(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function rand(min, max) { return Math.random() * (max - min) + min; }
+    function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function worldToScreen(wx, wy) {
+      return {
+        x: wx - state.camera.x + canvas.width / 2,
+        y: wy - state.camera.y + canvas.height / 2
+      };
+    }
+    function screenToWorld(sx, sy) {
+      return {
+        x: sx + state.camera.x - canvas.width / 2,
+        y: sy + state.camera.y - canvas.height / 2
+      };
+    }
+
+    // ===== PARTICLE SYSTEM =====
+    function spawnParticle(x, y, color, count, speed, life, size) {
+      const density = state.settings.particleDensity;
+      const n = Math.ceil(count * density / 3);
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, Math.PI * 2);
+        const s = rand(0.5, speed || 3);
+        state.particles.push({
+          x, y,
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s,
+          life: life || rand(20, 40),
+          maxLife: life || 40,
+          color: color || '#fff',
+          size: size || rand(1, 3)
+        });
+      }
+    }
+
+    function spawnExplosion(x, y, color, radius) {
+      spawnParticle(x, y, color, 20, 5, 50, 3);
+      spawnParticle(x, y, '#fff', 8, 3, 30, 1.5);
+      if (state.settings.cameraShake) {
+        state.camera.shake = Math.max(state.camera.shake, radius ? radius / 10 : 8);
+      }
+    }
+
+    // ===== AGENTS =====
+    function createAgent(type, x, y) {
+      const t = AGENT_TYPES[type];
+      return {
+        type, x, y,
+        vx: 0, vy: 0,
+        hp: t.hp, maxHp: t.hp,
+        target: null,
+        attackCd: 0,
+        color: t.color,
+        speed: t.speed,
+        dmg: t.dmg,
+        range: t.range,
+        size: t.size,
+        trail: [],
+        stealthTimer: type === 'stealth' ? 0 : -1,
+        alive: true,
+        flashTimer: 0,
+        shielded: false,
+        shieldTimer: 0,
+        age: 0,
+        kills: 0
+      };
+    }
+
+    function updateAgent(agent, dt) {
+      agent.age++;
+      if (agent.flashTimer > 0) agent.flashTimer--;
+      if (agent.shieldTimer > 0) { agent.shieldTimer--; } else { agent.shielded = false; }
+      if (agent.attackCd > 0) agent.attackCd--;
+
+      // Trail
+      if (state.settings.showTrails && agent.age % 3 === 0) {
+        agent.trail.push({ x: agent.x, y: agent.y, life: 15 });
+        if (agent.trail.length > 20) agent.trail.shift();
+      }
+      agent.trail = agent.trail.filter(t => { t.life--; return t.life > 0; });
+
+      // Find target
+      let closest = null;
+      let closestDist = Infinity;
+      for (const e of state.enemies) {
+        const d = dist(agent, e);
+        if (d < closestDist) { closestDist = d; closest = e; }
+      }
+      agent.target = closest;
+
+      const t = AGENT_TYPES[agent.type];
+
+      // Healer behavior
+      if (agent.type === 'healer') {
+        let hurtAgent = null;
+        let hurtDist = Infinity;
+        for (const a of state.agents) {
+          if (a === agent || !a.alive) continue;
+          if (a.hp < a.maxHp) {
+            const d = dist(agent, a);
+            if (d < hurtDist) { hurtDist = d; hurtAgent = a; }
+          }
+        }
+        if (hurtAgent && hurtDist < t.range) {
+          if (agent.attackCd <= 0) {
+            hurtAgent.hp = Math.min(hurtAgent.maxHp, hurtAgent.hp + 5);
+            agent.attackCd = 40;
+            state.stats.healingDone += 5;
+            spawnParticle(hurtAgent.x, hurtAgent.y, '#00ff88', 3, 2, 15, 2);
+            AudioEngine.heal();
+          }
+        } else if (hurtAgent) {
+          const a = angle(agent, hurtAgent);
+          agent.vx = Math.cos(a) * t.speed;
+          agent.vy = Math.sin(a) * t.speed;
+        } else if (closest && closestDist > 200) {
+          // Move with group
+          const a = angle(agent, closest);
+          agent.vx = Math.cos(a) * t.speed * 0.5;
+          agent.vy = Math.sin(a) * t.speed * 0.5;
+        } else {
+          agent.vx *= 0.9;
+          agent.vy *= 0.9;
+        }
+      }
+      // Stealth behavior
+      else if (agent.type === 'stealth') {
+        if (closest && closestDist < t.range * 2) {
+          agent.stealthTimer = Math.max(0, agent.stealthTimer - 1);
+          const a = angle(agent, closest);
+          agent.vx = Math.cos(a) * t.speed;
+          agent.vy = Math.sin(a) * t.speed;
+          if (closestDist < t.range && agent.attackCd <= 0) {
+            const dmgMult = agent.stealthTimer <= 0 ? 3 : 1;
+            closest.hp -= t.dmg * dmgMult;
+            agent.attackCd = 25;
+            state.stats.damageDealt += t.dmg * dmgMult;
+            spawnParticle(closest.x, closest.y, '#a855f7', 5, 3, 20, 2);
+            AudioEngine.hit();
+            if (dmgMult > 1) {
+              agent.stealthTimer = 120;
+              addCombo();
+            }
+          }
+        } else {
+          agent.stealthTimer = Math.min(60, agent.stealthTimer + 1);
+          agent.vx *= 0.95;
+          agent.vy *= 0.95;
+        }
+      }
+      // Artillery: long range
+      else if (agent.type === 'artillery') {
+        if (closest && closestDist < t.range) {
+          if (agent.attackCd <= 0) {
+            const a = angle(agent, closest);
+            state.projectiles.push({
+              x: agent.x, y: agent.y,
+              vx: Math.cos(a) * 6,
+              vy: Math.sin(a) * 6,
+              dmg: t.dmg,
+              life: 80,
+              color: '#ffea00',
+              size: 4,
+              splash: true,
+              owner: 'player'
+            });
+            agent.attackCd = 60;
+            AudioEngine.ability();
+          }
+          // Keep distance
+          if (closestDist < 150) {
+            const a = angle(closest, agent);
+            agent.vx = Math.cos(a) * t.speed;
+            agent.vy = Math.sin(a) * t.speed;
+          } else {
+            agent.vx *= 0.9;
+            agent.vy *= 0.9;
+          }
+        } else if (closest) {
+          const a = angle(agent, closest);
+          agent.vx = Math.cos(a) * t.speed;
+          agent.vy = Math.sin(a) * t.speed;
+        }
+      }
+      // Scout: fast, kite
+      else if (agent.type === 'scout') {
+        if (closest && closestDist < t.range) {
+          if (agent.attackCd <= 0) {
+            closest.hp -= t.dmg;
+            agent.attackCd = 15;
+            state.stats.damageDealt += t.dmg;
+            spawnParticle(closest.x, closest.y, '#00d4ff', 3, 2, 15, 1.5);
+            AudioEngine.hit();
+          }
+          if (closestDist < 60) {
+            const a = angle(closest, agent);
+            agent.vx = Math.cos(a) * t.speed;
+            agent.vy = Math.sin(a) * t.speed;
+          }
+        } else if (closest) {
+          const a = angle(agent, closest);
+          agent.vx = Math.cos(a) * t.speed;
+          agent.vy = Math.sin(a) * t.speed;
+        } else {
+          agent.vx *= 0.92;
+          agent.vy *= 0.92;
+        }
+      }
+      // Warrior: charge in
+      else {
+        if (closest && closestDist < t.range) {
+          if (agent.attackCd <= 0) {
+            closest.hp -= t.dmg;
+            agent.attackCd = 30;
+            state.stats.damageDealt += t.dmg;
+            spawnParticle(closest.x, closest.y, '#ff006e', 6, 3, 20, 2);
+            AudioEngine.hit();
+          }
+          agent.vx *= 0.8;
+          agent.vy *= 0.8;
+        } else if (closest) {
+          const a = angle(agent, closest);
+          agent.vx = Math.cos(a) * t.speed;
+          agent.vy = Math.sin(a) * t.speed;
+        }
+      }
+
+      agent.x += agent.vx;
+      agent.y += agent.vy;
+      agent.x = clamp(agent.x, 20, WORLD_W - 20);
+      agent.y = clamp(agent.y, 20, WORLD_H - 20);
+
+      // Check pickups
+      for (let i = state.pickups.length - 1; i >= 0; i--) {
+        const p = state.pickups[i];
+        if (dist(agent, p) < 25) {
+          if (p.type === 'energy') { state.energy = Math.min(state.maxEnergy, state.energy + 15); }
+          else if (p.type === 'heal') { agent.hp = Math.min(agent.maxHp, agent.hp + 20); }
+          else if (p.type === 'score') { state.score += 50 * state.combo; }
+          state.pickups.splice(i, 1);
+          state.stats.pickupsCollected++;
+          AudioEngine.collect();
+          spawnParticle(p.x, p.y, p.color, 8, 3, 20, 2);
+        }
+      }
+    }
+
+    // ===== ENEMIES =====
+    function createEnemy(type, x, y) {
+      const t = ENEMY_TYPES[type];
+      const d = getDiff();
+      return {
+        type, x, y,
+        vx: 0, vy: 0,
+        hp: t.hp * d.enemyHpMult,
+        maxHp: t.hp * d.enemyHpMult,
+        dmg: t.dmg * d.enemyDmgMult,
+        speed: t.speed * (1 + state.wave * 0.02),
+        color: t.color,
+        size: t.size,
+        score: t.score,
+        attackCd: 0,
+        alive: true,
+        flashTimer: 0,
+        age: 0,
+        trail: []
+      };
+    }
+
+    function updateEnemy(enemy, dt) {
+      enemy.age++;
+      if (enemy.flashTimer > 0) enemy.flashTimer--;
+      if (enemy.attackCd > 0) enemy.attackCd--;
+
+      if (state.settings.showTrails && enemy.age % 4 === 0) {
+        enemy.trail.push({ x: enemy.x, y: enemy.y, life: 10 });
+        if (enemy.trail.length > 12) enemy.trail.shift();
+      }
+      enemy.trail = enemy.trail.filter(t => { t.life--; return t.life > 0; });
+
+      // Target nearest agent
+      let closest = null;
+      let closestDist = Infinity;
+      for (const a of state.agents) {
+        if (!a.alive) continue;
+        if (a.type === 'stealth' && a.stealthTimer > 30) continue;
+        const d = dist(enemy, a);
+        if (d < closestDist) { closestDist = d; closest = a; }
+      }
+
+      const et = ENEMY_TYPES[enemy.type];
+
+      if (enemy.type === 'sniper') {
+        if (closest && closestDist < 300) {
+          if (enemy.attackCd <= 0) {
+            const a = angle(enemy, closest);
+            state.projectiles.push({
+              x: enemy.x, y: enemy.y,
+              vx: Math.cos(a) * 5,
+              vy: Math.sin(a) * 5,
+              dmg: enemy.dmg,
+              life: 60,
+              color: '#ffdd00',
+              size: 3,
+              owner: 'enemy'
+            });
+            enemy.attackCd = 80;
+          }
+          if (closestDist < 150) {
+            const a = angle(closest, enemy);
+            enemy.vx = Math.cos(a) * enemy.speed;
+            enemy.vy = Math.sin(a) * enemy.speed;
+          } else {
+            enemy.vx *= 0.9; enemy.vy *= 0.9;
+          }
+        } else if (closest) {
+          const a = angle(enemy, closest);
+          enemy.vx = Math.cos(a) * enemy.speed * 0.5;
+          enemy.vy = Math.sin(a) * enemy.speed * 0.5;
+        }
+      }
+      else if (enemy.type === 'bomber') {
+        if (closest) {
+          const a = angle(enemy, closest);
+          enemy.vx = Math.cos(a) * enemy.speed;
+          enemy.vy = Math.sin(a) * enemy.speed;
+          if (closestDist < 40) {
+            // Explode
+            for (const ag of state.agents) {
+              if (dist(enemy, ag) < 80) {
+                const dmg = ag.shielded ? enemy.dmg * 0.3 : enemy.dmg;
+                ag.hp -= dmg;
+                ag.flashTimer = 8;
+              }
+            }
+            spawnExplosion(enemy.x, enemy.y, '#ff2200', 80);
+            AudioEngine.explode();
+            enemy.hp = 0;
+          }
+        }
+      }
+      else if (enemy.type === 'boss') {
+        if (closest) {
+          const a = angle(enemy, closest);
+          enemy.vx = Math.cos(a) * enemy.speed;
+          enemy.vy = Math.sin(a) * enemy.speed;
+          // Multi-attack
+          if (enemy.attackCd <= 0 && closestDist < 200) {
+            for (let i = 0; i < 8; i++) {
+              const ba = (Math.PI * 2 / 8) * i;
+              state.projectiles.push({
+                x: enemy.x, y: enemy.y,
+                vx: Math.cos(ba) * 3,
+                vy: Math.sin(ba) * 3,
+                dmg: enemy.dmg * 0.5,
+                life: 80,
+                color: '#ff0000',
+                size: 4,
+                owner: 'enemy'
+              });
+            }
+            enemy.attackCd = 120;
+            AudioEngine.boss();
+          }
+        }
+      }
+      else {
+        // Standard chase
+        if (closest) {
+          const a = angle(enemy, closest);
+          enemy.vx = Math.cos(a) * enemy.speed;
+          enemy.vy = Math.sin(a) * enemy.speed;
+          if (closestDist < 30 && enemy.attackCd <= 0) {
+            const dmg = closest.shielded ? enemy.dmg * 0.3 : enemy.dmg;
+            closest.hp -= dmg;
+            closest.flashTimer = 8;
+            enemy.attackCd = 40;
+            spawnParticle(closest.x, closest.y, enemy.color, 4, 2, 15, 2);
+            AudioEngine.hit();
+          }
+        }
+      }
+
+      enemy.x += enemy.vx;
+      enemy.y += enemy.vy;
+      enemy.x = clamp(enemy.x, 10, WORLD_W - 10);
+      enemy.y = clamp(enemy.y, 10, WORLD_H - 10);
+    }
+
+    // ===== PROJECTILES =====
+    function updateProjectile(proj) {
+      proj.x += proj.vx;
+      proj.y += proj.vy;
+      proj.life--;
+
+      if (proj.owner === 'player') {
+        for (const e of state.enemies) {
+          if (dist(proj, e) < e.size + proj.size) {
+            if (proj.splash) {
+              for (const e2 of state.enemies) {
+                if (dist(proj, e2) < 60) {
+                  e2.hp -= proj.dmg * 0.5;
+                  e2.flashTimer = 6;
+                }
+              }
+              spawnExplosion(proj.x, proj.y, '#ffea00', 60);
+            }
+            e.hp -= proj.dmg;
+            e.flashTimer = 6;
+            state.stats.damageDealt += proj.dmg;
+            proj.life = 0;
+            spawnParticle(proj.x, proj.y, proj.color, 5, 2, 15, 2);
+            AudioEngine.hit();
+            break;
+          }
+        }
+      } else {
+        for (const a of state.agents) {
+          if (!a.alive) continue;
+          if (dist(proj, a) < a.size + proj.size) {
+            const dmg = a.shielded ? proj.dmg * 0.3 : proj.dmg;
+            a.hp -= dmg;
+            a.flashTimer = 6;
+            proj.life = 0;
+            spawnParticle(proj.x, proj.y, '#ff4444', 4, 2, 15, 2);
+            AudioEngine.hit();
+            break;
+          }
+        }
+      }
+    }
+
+    // ===== COMBO =====
+    function addCombo() {
+      state.comboTimer = 120;
+      state.combo = Math.min(10, state.combo + 1);
+      if (state.combo >= 5) AudioEngine.combo();
+    }
+
+    // ===== WAVE SYSTEM =====
+    function spawnWave() {
+      AudioEngine.waveStart();
+      state.waveTimer = 0;
+
+      const w = state.wave;
+      const d = getDiff();
+      const count = Math.floor((3 + w * 2) * d.spawnMult);
+
+      // Determine enemy mix based on wave
+      const types = ['drone'];
+      if (w >= 3) types.push('swarm');
+      if (w >= 5) types.push('tank');
+      if (w >= 7) types.push('sniper');
+      if (w >= 10) types.push('bomber');
+
+      // Boss every 5 waves
+      if (w > 0 && w % 5 === 0) {
+        const bx = rand(200, WORLD_W - 200);
+        const by = rand(200, WORLD_H - 200);
+        state.enemies.push(createEnemy('boss', bx, by));
+        state.bossActive = true;
+        AudioEngine.boss();
+      }
+
+      for (let i = 0; i < count; i++) {
+        const type = types[randInt(0, types.length - 1)];
+        // Spawn at edges
+        let ex, ey;
+        const side = randInt(0, 3);
+        if (side === 0) { ex = rand(0, WORLD_W); ey = -20; }
+        else if (side === 1) { ex = WORLD_W + 20; ey = rand(0, WORLD_H); }
+        else if (side === 2) { ex = rand(0, WORLD_W); ey = WORLD_H + 20; }
+        else { ex = -20; ey = rand(0, WORLD_H); }
+        state.enemies.push(createEnemy(type, ex, ey));
+      }
+    }
+
+    function dropPickup(x, y) {
+      if (Math.random() < 0.3) {
+        const types = [
+          { type: 'energy', color: '#00d4ff' },
+          { type: 'heal', color: '#00ff88' },
+          { type: 'score', color: '#ffea00' }
+        ];
+        const t = types[randInt(0, 2)];
+        state.pickups.push({ x, y, type: t.type, color: t.color, life: 600, age: 0 });
+      }
+    }
+
+    // ===== ABILITIES =====
+    function useAbility(name) {
+      const ab = state.abilities[name];
+      if (ab.cooldown > 0 || state.energy < ab.cost) return;
+      state.energy -= ab.cost;
+      ab.cooldown = ab.maxCd;
+      AudioEngine.ability();
+
+      if (name === 'emp') {
+        // Stun all enemies briefly + damage
+        for (const e of state.enemies) {
+          if (dist(state.camera, e) < 500) {
+            e.hp -= 15;
+            e.speed *= 0.3;
+            e.flashTimer = 30;
+            spawnParticle(e.x, e.y, '#00d4ff', 6, 3, 20, 2);
+          }
+        }
+        spawnExplosion(state.camera.x, state.camera.y, '#00d4ff', 200);
+      }
+      else if (name === 'rally') {
+        // Boost all agent speed and damage temporarily
+        for (const a of state.agents) {
+          a.speed *= 1.5;
+          a.dmg *= 1.5;
+          spawnParticle(a.x, a.y, '#ffea00', 4, 2, 20, 2);
+          setTimeout(() => { a.speed = AGENT_TYPES[a.type].speed; a.dmg = AGENT_TYPES[a.type].dmg; }, 5000);
+        }
+      }
+      else if (name === 'shield') {
+        for (const a of state.agents) {
+          a.shielded = true;
+          a.shieldTimer = 180;
+          spawnParticle(a.x, a.y, '#4488ff', 6, 2, 20, 2);
+        }
+      }
+    }
+
+    // ===== INPUT =====
+    document.addEventListener('keydown', (e) => {
+      state.keys[e.key.toLowerCase()] = true;
+      if (state.screen === 'playing') {
+        if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
+          state.screen = 'paused';
+          document.getElementById('pauseOverlay').classList.add('active');
+          AudioEngine.menuClick();
+        }
+        if (e.key === '1') state.selectedAgentType = 'scout';
+        if (e.key === '2') state.selectedAgentType = 'warrior';
+        if (e.key === '3') state.selectedAgentType = 'healer';
+        if (e.key === '4') state.selectedAgentType = 'artillery';
+        if (e.key === '5') state.selectedAgentType = 'stealth';
+        if (e.key.toLowerCase() === 'q') useAbility('emp');
+        if (e.key.toLowerCase() === 'e') useAbility('rally');
+        if (e.key.toLowerCase() === 'f') useAbility('shield');
+      }
+      if (state.screen === 'paused') {
+        if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
+          state.screen = 'playing';
+          document.getElementById('pauseOverlay').classList.remove('active');
+        }
+      }
+      if (state.screen === 'gameover') {
+        if (e.key.toLowerCase() === 'r') startGame();
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      state.keys[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      state.mouse.x = e.clientX;
+      state.mouse.y = e.clientY;
+      const w = screenToWorld(e.clientX, e.clientY);
+      state.mouse.worldX = w.x;
+      state.mouse.worldY = w.y;
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      state.mouse.down = true;
+      if (state.screen === 'playing') {
+        const cost = AGENT_TYPES[state.selectedAgentType].cost;
+        if (state.energy >= cost) {
+          const w = screenToWorld(e.clientX, e.clientY);
+          state.agents.push(createAgent(state.selectedAgentType, w.x, w.y));
+          state.energy -= cost;
+          AudioEngine.spawn();
+          spawnParticle(w.x, w.y, AGENT_TYPES[state.selectedAgentType].color, 10, 3, 20, 2);
+        }
+      }
+    });
+    canvas.addEventListener('mouseup', () => { state.mouse.down = false; });
+
+    // Touch support
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      state.mouse.x = t.clientX;
+      state.mouse.y = t.clientY;
+      state.mouse.down = true;
+      if (state.screen === 'playing') {
+        const cost = AGENT_TYPES[state.selectedAgentType].cost;
+        if (state.energy >= cost) {
+          const w = screenToWorld(t.clientX, t.clientY);
+          state.agents.push(createAgent(state.selectedAgentType, w.x, w.y));
+          state.energy -= cost;
+          AudioEngine.spawn();
+          spawnParticle(w.x, w.y, AGENT_TYPES[state.selectedAgentType].color, 10, 3, 20, 2);
+        }
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      state.mouse.x = t.clientX;
+      state.mouse.y = t.clientY;
+      const w = screenToWorld(t.clientX, t.clientY);
+      state.mouse.worldX = w.x;
+      state.mouse.worldY = w.y;
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { state.mouse.down = false; });
+
+    // ===== UI BUTTONS =====
+    document.querySelectorAll('.diff-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        state.difficulty = btn.dataset.diff;
+        AudioEngine.menuClick();
+      });
+    });
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      AudioEngine.init();
+      startGame();
+    });
+    document.getElementById('tutorialBtn').addEventListener('click', () => {
+      AudioEngine.init();
+      AudioEngine.menuClick();
+      alert('AI Agent Swarm Simulator\n\nClick on the battlefield to spawn agents.\nUse 1-5 keys to select agent type.\nWASD to move camera.\n\nAgent Types:\n1: Scout (fast, cheap)\n2: Warrior (tanky, melee)\n3: Healer (heals allies)\n4: Artillery (long range, splash)\n5: Stealth (backstab bonus)\n\nAbilities:\nQ: EMP (stun + damage)\nE: Rally (buff agents)\nF: Shield (protect agents)\n\nSurvive waves of enemies!\nESC/P to pause, R to restart.');
+    });
+    document.getElementById('resumeBtn').addEventListener('click', () => {
+      state.screen = 'playing';
+      document.getElementById('pauseOverlay').classList.remove('active');
+    });
+    document.getElementById('restartFromPause').addEventListener('click', () => {
+      document.getElementById('pauseOverlay').classList.remove('active');
+      startGame();
+    });
+    document.getElementById('quitBtn').addEventListener('click', () => {
+      document.getElementById('pauseOverlay').classList.remove('active');
+      state.screen = 'title';
+      document.getElementById('titleScreen').classList.remove('hidden');
+      document.getElementById('gameUI').classList.remove('active');
+    });
+    document.getElementById('restartBtn').addEventListener('click', startGame);
+    document.getElementById('menuBtn').addEventListener('click', () => {
+      document.getElementById('gameOverOverlay').classList.remove('active');
+      state.screen = 'title';
+      document.getElementById('titleScreen').classList.remove('hidden');
+      document.getElementById('gameUI').classList.remove('active');
+    });
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+      document.getElementById('settingsPanel').classList.toggle('active');
+    });
+    document.getElementById('volumeSlider').addEventListener('input', (e) => {
+      state.settings.volume = e.target.value / 100;
+      AudioEngine.setVolume(state.settings.volume);
+    });
+    document.getElementById('particleDensity').addEventListener('input', (e) => {
+      state.settings.particleDensity = parseInt(e.target.value);
+    });
+    document.getElementById('shakeToggle').addEventListener('change', (e) => {
+      state.settings.cameraShake = e.target.value === 'on';
+    });
+    document.getElementById('trailToggle').addEventListener('change', (e) => {
+      state.settings.showTrails = e.target.value === 'on';
+    });
+
+    // ===== GAME LIFECYCLE =====
+    function startGame() {
+      state.screen = 'playing';
+      state.score = 0;
+      state.combo = 1;
+      state.comboTimer = 0;
+      state.wave = 1;
+      state.waveTimer = 0;
+      state.energy = 100;
+      state.agents = [];
+      state.enemies = [];
+      state.projectiles = [];
+      state.particles = [];
+      state.pickups = [];
+      state.bossActive = false;
+      state.totalTime = 0;
+      state.stats = { enemiesKilled: 0, agentsLost: 0, damageDealt: 0, healingDone: 0, pickupsCollected: 0 };
+      state.camera = { x: WORLD_W / 2, y: WORLD_H / 2, targetX: WORLD_W / 2, targetY: WORLD_H / 2, shake: 0 };
+      Object.values(state.abilities).forEach(ab => ab.cooldown = 0);
+
+      // Starter agents
+      for (let i = 0; i < 3; i++) {
+        state.agents.push(createAgent('scout', WORLD_W / 2 + rand(-50, 50), WORLD_H / 2 + rand(-50, 50)));
+      }
+
+      document.getElementById('titleScreen').classList.add('hidden');
+      document.getElementById('gameOverOverlay').classList.remove('active');
+      document.getElementById('gameUI').classList.add('active');
+      document.getElementById('settingsPanel').classList.remove('active');
+
+      spawnWave();
+    }
+
+    function gameOver() {
+      state.screen = 'gameover';
+      if (state.score > state.highScore) {
+        state.highScore = state.score;
+        localStorage.setItem('swarm_highscore', state.highScore.toString());
+      }
+      document.getElementById('highScoreDisplay').textContent = state.highScore;
+      document.getElementById('finalScore').textContent = state.score;
+
+      const mins = Math.floor(state.totalTime / 3600);
+      const secs = Math.floor((state.totalTime % 3600) / 60);
+      const endMsg = state.wave >= 20 ? 'Impressive! Your swarm reached deep into the simulation.' :
+                     state.wave >= 10 ? 'A respectable run. Your agents fought well.' :
+                     'Your agents were overwhelmed. Try different strategies.';
+      document.getElementById('endMessage').textContent = endMsg;
+      document.getElementById('endStats').textContent =
+        `Wave ${state.wave} | ${mins}m ${secs}s | ${state.stats.enemiesKilled} kills | ${state.stats.agentsLost} agents lost`;
+      document.getElementById('gameOverOverlay').classList.add('active');
+      AudioEngine.gameOver();
+    }
+
+    // ===== MAIN UPDATE =====
+    function update() {
+      if (state.screen !== 'playing') return;
+      state.totalTime++;
+
+      // Energy regen
+      const d = getDiff();
+      state.energy = Math.min(state.maxEnergy, state.energy + state.energyRegen * d.energyMult);
+
+      // Combo decay
+      if (state.comboTimer > 0) {
+        state.comboTimer--;
+      } else {
+        state.combo = 1;
+      }
+
+      // Ability cooldowns
+      Object.values(state.abilities).forEach(ab => { if (ab.cooldown > 0) ab.cooldown--; });
+
+      // Camera movement via WASD
+      const camSpeed = 8;
+      if (state.keys['w'] || state.keys['arrowup']) state.camera.targetY -= camSpeed;
+      if (state.keys['s'] || state.keys['arrowdown']) state.camera.targetY += camSpeed;
+      if (state.keys['a'] || state.keys['arrowleft']) state.camera.targetX -= camSpeed;
+      if (state.keys['d'] || state.keys['arrowright']) state.camera.targetX += camSpeed;
+      state.camera.targetX = clamp(state.camera.targetX, canvas.width / 2, WORLD_W - canvas.width / 2);
+      state.camera.targetY = clamp(state.camera.targetY, canvas.height / 2, WORLD_H - canvas.height / 2);
+      state.camera.x = lerp(state.camera.x, state.camera.targetX, 0.08);
+      state.camera.y = lerp(state.camera.y, state.camera.targetY, 0.08);
+      if (state.camera.shake > 0.1) state.camera.shake *= 0.9;
+      else state.camera.shake = 0;
+
+      // Update agents
+      for (let i = state.agents.length - 1; i >= 0; i--) {
+        updateAgent(state.agents[i], 1);
+        if (state.agents[i].hp <= 0) {
+          const a = state.agents[i];
+          spawnExplosion(a.x, a.y, a.color, 30);
+          state.agents.splice(i, 1);
+          state.stats.agentsLost++;
+        }
+      }
+
+      // Update enemies
+      for (let i = state.enemies.length - 1; i >= 0; i--) {
+        updateEnemy(state.enemies[i], 1);
+        if (state.enemies[i].hp <= 0) {
+          const e = state.enemies[i];
+          const pts = Math.floor(e.score * getDiff().scoreMult * state.combo);
+          state.score += pts;
+          state.stats.enemiesKilled++;
+          addCombo();
+          spawnExplosion(e.x, e.y, e.color, e.size * 2);
+          dropPickup(e.x, e.y);
+          if (e.type === 'boss') { state.bossActive = false; AudioEngine.levelUp(); }
+          state.enemies.splice(i, 1);
+        }
+      }
+
+      // Update projectiles
+      for (let i = state.projectiles.length - 1; i >= 0; i--) {
+        updateProjectile(state.projectiles[i]);
+        if (state.projectiles[i].life <= 0 ||
+            state.projectiles[i].x < -50 || state.projectiles[i].x > WORLD_W + 50 ||
+            state.projectiles[i].y < -50 || state.projectiles[i].y > WORLD_H + 50) {
+          state.projectiles.splice(i, 1);
+        }
+      }
+
+      // Update particles
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        const p = state.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.96;
+        p.vy *= 0.96;
+        p.life--;
+        if (p.life <= 0) state.particles.splice(i, 1);
+      }
+
+      // Update pickups
+      for (let i = state.pickups.length - 1; i >= 0; i--) {
+        state.pickups[i].age++;
+        state.pickups[i].life--;
+        if (state.pickups[i].life <= 0) state.pickups.splice(i, 1);
+      }
+
+      // Wave progression
+      if (state.enemies.length === 0 && !state.bossActive) {
+        state.waveTimer++;
+        if (state.waveTimer > 90) {
+          state.wave++;
+          state.energy = Math.min(state.maxEnergy, state.energy + 20);
+          if (state.wave % 3 === 0) state.maxEnergy += 10;
+          spawnWave();
+        }
+      }
+
+      // Game over check
+      if (state.agents.length === 0 && state.energy < AGENT_TYPES.scout.cost && state.wave > 1) {
+        gameOver();
+      }
+
+      // HUD
+      document.getElementById('scoreDisplay').textContent = state.score;
+      document.getElementById('comboDisplay').textContent = 'x' + state.combo;
+      document.getElementById('waveDisplay').textContent = state.wave;
+      document.getElementById('agentDisplay').textContent = state.agents.length;
+      document.getElementById('energyDisplay').textContent = Math.floor(state.energy);
+    }
+
+    // ===== RENDER =====
+    function drawGrid() {
+      ctx.strokeStyle = '#ffffff08';
+      ctx.lineWidth = 1;
+      const step = 100;
+      const startX = Math.floor((state.camera.x - canvas.width / 2) / step) * step;
+      const startY = Math.floor((state.camera.y - canvas.height / 2) / step) * step;
+      for (let x = startX; x < state.camera.x + canvas.width / 2; x += step) {
+        const s = worldToScreen(x, 0);
+        ctx.beginPath();
+        ctx.moveTo(s.x, 0);
+        ctx.lineTo(s.x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = startY; y < state.camera.y + canvas.height / 2; y += step) {
+        const s = worldToScreen(0, y);
+        ctx.beginPath();
+        ctx.moveTo(0, s.y);
+        ctx.lineTo(canvas.width, s.y);
+        ctx.stroke();
+      }
+    }
+
+    function drawBorder() {
+      ctx.strokeStyle = '#00d4ff30';
+      ctx.lineWidth = 2;
+      const tl = worldToScreen(0, 0);
+      const br = worldToScreen(WORLD_W, WORLD_H);
+      ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+    }
+
+    function drawEntity(entity, isAgent) {
+      const s = worldToScreen(entity.x, entity.y);
+      if (s.x < -30 || s.x > canvas.width + 30 || s.y < -30 || s.y > canvas.height + 30) return;
+
+      // Trail
+      if (entity.trail) {
+        for (const t of entity.trail) {
+          const ts = worldToScreen(t.x, t.y);
+          ctx.globalAlpha = t.life / 15 * 0.3;
+          ctx.fillStyle = entity.color;
+          ctx.beginPath();
+          ctx.arc(ts.x, ts.y, entity.size * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // Stealth
+      if (entity.type === 'stealth' && entity.stealthTimer > 30) {
+        ctx.globalAlpha = 0.3;
+      }
+
+      // Shield
+      if (entity.shielded) {
+        ctx.strokeStyle = '#4488ff80';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, entity.size + 6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Body
+      const color = entity.flashTimer > 0 ? '#ffffff' : entity.color;
+      ctx.fillStyle = color;
+      ctx.shadowColor = entity.color;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      if (isAgent) {
+        // Diamond shape for agents
+        ctx.moveTo(s.x, s.y - entity.size);
+        ctx.lineTo(s.x + entity.size, s.y);
+        ctx.lineTo(s.x, s.y + entity.size);
+        ctx.lineTo(s.x - entity.size, s.y);
+        ctx.closePath();
+      } else {
+        // Circle for enemies
+        ctx.arc(s.x, s.y, entity.size, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.globalAlpha = 1;
+
+      // Health bar
+      if (entity.hp < entity.maxHp) {
+        const barW = entity.size * 2.5;
+        const barH = 3;
+        const barX = s.x - barW / 2;
+        const barY = s.y - entity.size - 8;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(barX, barY, barW, barH);
+        const ratio = entity.hp / entity.maxHp;
+        ctx.fillStyle = ratio > 0.5 ? '#00ff88' : ratio > 0.25 ? '#ffea00' : '#ff006e';
+        ctx.fillRect(barX, barY, barW * ratio, barH);
+      }
+
+      // Boss indicator
+      if (entity.type === 'boss') {
+        ctx.strokeStyle = '#ff000080';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, entity.size + 8 + Math.sin(entity.age * 0.05) * 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawProjectile(proj) {
+      const s = worldToScreen(proj.x, proj.y);
+      if (s.x < -10 || s.x > canvas.width + 10 || s.y < -10 || s.y > canvas.height + 10) return;
+      ctx.fillStyle = proj.color;
+      ctx.shadowColor = proj.color;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, proj.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawParticle(p) {
+      const s = worldToScreen(p.x, p.y);
+      if (s.x < -5 || s.x > canvas.width + 5 || s.y < -5 || s.y > canvas.height + 5) return;
+      ctx.globalAlpha = p.life / p.maxLife;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, p.size * (p.life / p.maxLife), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawPickup(pickup) {
+      const s = worldToScreen(pickup.x, pickup.y);
+      if (s.x < -15 || s.x > canvas.width + 15 || s.y < -15 || s.y > canvas.height + 15) return;
+      const pulse = Math.sin(pickup.age * 0.1) * 3;
+      ctx.fillStyle = pickup.color;
+      ctx.shadowColor = pickup.color;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 6 + pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // Blinking when about to expire
+      if (pickup.life < 120 && Math.floor(pickup.age / 10) % 2 === 0) {
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 10 + pulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawMinimap() {
+      const mw = miniCanvas.width;
+      const mh = miniCanvas.height;
+      miniCtx.fillStyle = 'rgba(10,10,18,0.9)';
+      miniCtx.fillRect(0, 0, mw, mh);
+
+      const sx = mw / WORLD_W;
+      const sy = mh / WORLD_H;
+
+      // Camera viewport
+      const vl = (state.camera.x - canvas.width / 2) * sx;
+      const vt = (state.camera.y - canvas.height / 2) * sy;
+      const vw = canvas.width * sx;
+      const vh = canvas.height * sy;
+      miniCtx.strokeStyle = '#ffffff30';
+      miniCtx.strokeRect(vl, vt, vw, vh);
+
+      // Agents
+      for (const a of state.agents) {
+        miniCtx.fillStyle = a.color;
+        miniCtx.fillRect(a.x * sx - 1, a.y * sy - 1, 3, 3);
+      }
+
+      // Enemies
+      for (const e of state.enemies) {
+        miniCtx.fillStyle = e.color;
+        miniCtx.fillRect(e.x * sx - 1, e.y * sy - 1, e.type === 'boss' ? 5 : 2, e.type === 'boss' ? 5 : 2);
+      }
+
+      // Pickups
+      for (const p of state.pickups) {
+        miniCtx.fillStyle = p.color;
+        miniCtx.fillRect(p.x * sx, p.y * sy, 2, 2);
+      }
+    }
+
+    function drawHUD() {
+      // Agent type selector at bottom
+      const types = Object.entries(AGENT_TYPES);
+      const startX = canvas.width / 2 - types.length * 40;
+      const y = canvas.height - 50;
+      ctx.font = '12px Segoe UI, system-ui';
+      types.forEach(([name, t], i) => {
+        const x = startX + i * 80;
+        const selected = state.selectedAgentType === name;
+        ctx.fillStyle = selected ? t.color + '40' : '#ffffff10';
+        ctx.strokeStyle = selected ? t.color : '#ffffff30';
+        ctx.lineWidth = selected ? 2 : 1;
+        ctx.beginPath();
+        ctx.roundRect(x, y, 70, 35, 6);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = selected ? t.color : '#888';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${i + 1}: ${name}`, x + 35, y + 15);
+        ctx.fillText(`${t.cost}E`, x + 35, y + 28);
+      });
+
+      // Ability cooldowns
+      const abilities = Object.entries(state.abilities);
+      const abKeys = ['Q', 'E', 'F'];
+      abilities.forEach(([name, ab], i) => {
+        const ax = 20 + i * 70;
+        const ay = canvas.height - 100;
+        const ready = ab.cooldown <= 0 && state.energy >= ab.cost;
+        ctx.fillStyle = ready ? '#00d4ff20' : '#ff000020';
+        ctx.strokeStyle = ready ? '#00d4ff' : '#ff000060';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(ax, ay, 60, 35, 6);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = ready ? '#00d4ff' : '#666';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${abKeys[i]}: ${name}`, ax + 30, ay + 15);
+        if (ab.cooldown > 0) {
+          ctx.fillText(`${Math.ceil(ab.cooldown / 60)}s`, ax + 30, ay + 28);
+        } else {
+          ctx.fillText(`${ab.cost}E`, ax + 30, ay + 28);
+        }
+      });
+
+      // Energy bar
+      const ebx = canvas.width / 2 - 100;
+      const eby = canvas.height - 95;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(ebx, eby, 200, 8);
+      const eRatio = state.energy / state.maxEnergy;
+      ctx.fillStyle = eRatio > 0.3 ? '#00d4ff' : '#ff006e';
+      ctx.fillRect(ebx, eby, 200 * eRatio, 8);
+      ctx.strokeStyle = '#555';
+      ctx.strokeRect(ebx, eby, 200, 8);
+
+      // Wave incoming
+      if (state.enemies.length === 0 && state.waveTimer > 0) {
+        ctx.fillStyle = '#ffea00';
+        ctx.font = '24px Segoe UI, system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Wave ${state.wave + 1} incoming...`, canvas.width / 2, canvas.height / 2 - 60);
+      }
+
+      // Combo flash
+      if (state.combo >= 3) {
+        ctx.fillStyle = `rgba(255,0,110,${0.3 + Math.sin(state.totalTime * 0.1) * 0.1})`;
+        ctx.font = 'bold 20px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText(`COMBO x${state.combo}!`, canvas.width / 2, 80);
+      }
+    }
+
+    function render() {
+      // Clear
+      ctx.fillStyle = '#0a0a12';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Camera shake
+      if (state.camera.shake > 0.5) {
+        ctx.save();
+        ctx.translate(
+          rand(-state.camera.shake, state.camera.shake),
+          rand(-state.camera.shake, state.camera.shake)
+        );
+      }
+
+      drawGrid();
+      drawBorder();
+
+      // Pickups
+      for (const p of state.pickups) drawPickup(p);
+
+      // Particles (behind)
+      for (const p of state.particles) drawParticle(p);
+
+      // Agents
+      for (const a of state.agents) drawEntity(a, true);
+
+      // Enemies
+      for (const e of state.enemies) drawEntity(e, false);
+
+      // Projectiles
+      for (const p of state.projectiles) drawProjectile(p);
+
+      // HUD overlay
+      drawHUD();
+
+      if (state.camera.shake > 0.5) ctx.restore();
+
+      // Minimap
+      drawMinimap();
+    }
+
+    // ===== GAME LOOP =====
+    let lastTime = 0;
+    function loop(timestamp) {
+      const dt = Math.min(timestamp - lastTime, 33);
+      lastTime = timestamp;
+
+      if (state.screen === 'playing') {
+        update();
+      }
+
+      if (state.screen === 'playing' || state.screen === 'paused') {
+        render();
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    // ===== LOAD =====
+    document.getElementById('highScoreDisplay').textContent = state.highScore;
+    requestAnimationFrame(loop);
+
+    // ===== SAVE HIGH SCORES =====
+    window.addEventListener('beforeunload', () => {
+      localStorage.setItem('swarm_highscore', state.highScore.toString());
+    });
+
+  })();
+  </script>
+</body>
+</html>

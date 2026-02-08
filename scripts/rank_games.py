@@ -54,6 +54,7 @@ ALL_CATEGORIES = {
     "generative_art": "generative-art",
     "particle_physics": "particle-physics",
     "visual_art": "visual-art",
+    "educational_tools": "educational",
 }
 
 

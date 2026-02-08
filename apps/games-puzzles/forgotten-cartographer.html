@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Explore procedurally generated caverns, discover hidden mechanics, and map the unmappable depths below.">
+<meta name="rappterzoo:author" content="recombination-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="canvas,exploration,procedural,discovery,roguelike,particles,audio">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-07">
+<meta name="rappterzoo:generation" content="0">
+<meta name="rappterzoo:parents" content="depths-of-the-abyss.html,wowMon.html">
+<meta name="rappterzoo:genes" content="render_pipeline,physics_engine,particle_system,audio_engine,input_handler,state_machine,entity_system,progression">
+<meta name="rappterzoo:experience" content="discovery">
+<title>The Forgotten Cartographer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0c14;color:#c8c8d0;font-family:'Segoe UI',Tahoma,sans-serif}
+canvas{display:block;position:absolute;top:0;left:0;width:100%;height:100%}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;user-select:none}
+#ui>*{pointer-events:auto}
+.hud{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:6px;z-index:15}
+.bar{width:200px;height:20px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.15);border-radius:3px;overflow:hidden;position:relative}
+.bar-fill{height:100%;transition:width .3s}
+.bar-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.hp .bar-fill{background:linear-gradient(90deg,#8b2020,#d44)}
+.ink .bar-fill{background:linear-gradient(90deg,#1a4a7a,#4af)}
+.depth-badge{position:absolute;top:12px;right:12px;padding:8px 14px;background:rgba(10,12,20,.85);border:1px solid rgba(100,140,200,.4);border-radius:6px;font-size:14px;font-weight:700;color:#6ac;text-shadow:0 1px 6px rgba(100,170,200,.6);z-index:15}
+.secrets-badge{position:absolute;top:50px;right:12px;padding:6px 10px;background:rgba(10,12,20,.85);border:1px solid rgba(200,160,50,.3);border-radius:6px;font-size:12px;color:#ca8;z-index:15}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(6px);animation:fadeIn .4s}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.title-bg{background:linear-gradient(135deg,rgba(8,10,20,.96),rgba(15,20,40,.98))}
+.title-main{font-size:52px;font-weight:700;color:#6ac;text-shadow:0 4px 20px rgba(100,170,255,.6),0 0 40px rgba(50,100,200,.4);margin-bottom:10px;text-align:center;animation:slideUp .8s ease-out}
+.title-sub{font-size:16px;color:rgba(100,170,200,.7);margin-bottom:40px;text-align:center;font-style:italic;animation:slideUp .8s ease-out .2s backwards}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.btn{display:block;width:260px;padding:14px 24px;margin:8px auto;background:linear-gradient(135deg,#1a3a5a,#2a4a6a);border:2px solid rgba(100,170,255,.4);border-radius:8px;color:#fff;font-size:16px;font-weight:700;text-align:center;cursor:pointer;transition:all .2s;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.btn:hover{background:linear-gradient(135deg,#2a4a7a,#3a5a8a);border-color:#6af;transform:translateY(-2px);box-shadow:0 4px 16px rgba(100,170,255,.3)}
+.btn:active{transform:translateY(0)}
+.btn.primary{background:linear-gradient(135deg,#2a5a3a,#3a7a4a);border-color:rgba(100,255,170,.4)}
+.btn.primary:hover{border-color:#6fa;box-shadow:0 4px 16px rgba(100,255,170,.3)}
+.death-bg{background:linear-gradient(135deg,rgba(20,5,5,.96),rgba(10,0,0,.98))}
+.death-title{font-size:64px;font-weight:700;color:#d44;text-shadow:0 4px 20px rgba(255,0,0,.7);margin-bottom:20px}
+.stats-box{background:rgba(20,15,30,.5);border:1px solid rgba(100,100,140,.3);border-radius:6px;padding:16px;margin:16px 0;min-width:280px}
+.stat-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:rgba(160,170,200,.8)}
+.stat-val{font-weight:700;color:#ca8}
+.hint-text{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(200,180,100,.6);padding:6px 12px;background:rgba(0,0,0,.4);border-radius:4px;transition:opacity .5s;z-index:20}
+.minimap{position:absolute;bottom:12px;right:12px;border:1px solid rgba(100,140,200,.3);border-radius:4px;background:rgba(0,0,0,.6);z-index:15}
+.toast{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;font-weight:700;color:#fc8;text-shadow:0 2px 8px rgba(255,200,0,.8);animation:toastAnim 2s ease-out forwards;z-index:30;pointer-events:none;white-space:nowrap}
+@keyframes toastAnim{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}50%{opacity:1;transform:translate(-50%,-60%) scale(1.1)}100%{opacity:0;transform:translate(-50%,-80%) scale(.9)}}
+@media(max-width:600px){.title-main{font-size:32px}.bar{width:140px;height:16px}.depth-badge{font-size:12px;padding:6px 10px}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="The Forgotten Cartographer game canvas"></canvas>
+<div id="ui">
+  <div class="hud" id="hud" style="display:none">
+    <div class="bar hp"><div class="bar-fill" id="hpBar" style="width:100%"></div><div class="bar-text" id="hpText">100/100</div></div>
+    <div class="bar ink"><div class="bar-fill" id="inkBar" style="width:100%"></div><div class="bar-text" id="inkText">Ink: 100</div></div>
+  </div>
+  <div class="depth-badge" id="depthBadge" style="display:none">Depth 1</div>
+  <div class="secrets-badge" id="secretsBadge" style="display:none">Secrets: 0</div>
+  <canvas class="minimap" id="minimap" width="120" height="120" style="display:none"></canvas>
+  <div id="hintArea"></div>
+</div>
+<div class="overlay title-bg" id="titleScreen">
+  <div class="title-main">The Forgotten Cartographer</div>
+  <div class="title-sub">Map the unmappable. Some doors only open for the curious.</div>
+  <button class="btn primary" id="btnPlay">Begin Expedition</button>
+  <button class="btn" id="btnHow">How to Play</button>
+</div>
+<div class="overlay death-bg" id="deathScreen" style="display:none">
+  <div class="death-title">Lost in the Dark</div>
+  <div class="stats-box" id="deathStats"></div>
+  <button class="btn primary" id="btnRestart">Try Again</button>
+</div>
+<script>
+'use strict';
+// ===== GENE: render_pipeline (from depths-of-the-abyss, score 100) =====
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const mmCanvas = document.getElementById('minimap');
+const mmCtx = mmCanvas.getContext('2d');
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ===== GENE: state_machine =====
+const STATE = { TITLE: 0, PLAYING: 1, PAUSED: 2, DEAD: 3 };
+const G = {
+  state: STATE.TITLE,
+  time: 0, dt: 0, lastTime: 0,
+  player: null,
+  enemies: [],
+  particles: [],
+  projectiles: [],
+  items: [],
+  rooms: [],
+  doors: [],
+  secrets: [],
+  camera: { x: 0, y: 0 },
+  depth: 1,
+  secretsFound: 0,
+  totalSecrets: 0,
+  discoveredMechanics: {},
+  toasts: [],
+  hintTimer: 0,
+  hintText: '',
+  mapRevealed: [],
+  score: 0,
+  kills: 0,
+  floorsCleared: 0,
+  startTime: 0,
+  shakeAmount: 0,
+  shakeDuration: 0,
+};
+
+// ===== GENE: audio_engine (from depths-of-the-abyss, score 100) =====
+const SFX = { ctx: null, masterGain: null, vol: 0.3, init: false };
+function initAudio() {
+  if (SFX.init) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    SFX.ctx = new AC();
+    SFX.masterGain = SFX.ctx.createGain();
+    SFX.masterGain.gain.value = SFX.vol;
+    SFX.masterGain.connect(SFX.ctx.destination);
+    SFX.init = true;
+  } catch(e) {}
+}
+function resumeAudio() { if (SFX.ctx && SFX.ctx.state === 'suspended') SFX.ctx.resume(); }
+function playTone(freq, dur, type, vol) {
+  if (!SFX.init) return;
+  resumeAudio();
+  const now = SFX.ctx.currentTime;
+  const osc = SFX.ctx.createOscillator();
+  const g = SFX.ctx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, now);
+  osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + dur);
+  g.gain.setValueAtTime((vol || 0.2) * SFX.vol, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+  osc.connect(g); g.connect(SFX.masterGain);
+  osc.start(now); osc.stop(now + dur);
+}
+function sfxStep() { playTone(200 + Math.random()*100, 0.05, 'triangle', 0.08); }
+function sfxHit() { playTone(120, 0.15, 'square', 0.3); }
+function sfxSecret() {
+  if (!SFX.init) return; resumeAudio();
+  const now = SFX.ctx.currentTime;
+  [440, 554, 659, 880].forEach((f, i) => {
+    const osc = SFX.ctx.createOscillator();
+    const g = SFX.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0, now + i * 0.12);
+    g.gain.linearRampToValueAtTime(0.15 * SFX.vol, now + i * 0.12 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.4);
+    osc.connect(g); g.connect(SFX.masterGain);
+    osc.start(now + i * 0.12); osc.stop(now + i * 0.12 + 0.4);
+  });
+}
+function sfxPickup() { playTone(600, 0.1, 'sine', 0.15); playTone(800, 0.1, 'sine', 0.12); }
+function sfxDamage() { playTone(80, 0.2, 'sawtooth', 0.25); }
+function sfxDoor() { playTone(300, 0.3, 'triangle', 0.15); playTone(450, 0.2, 'triangle', 0.1); }
+function sfxAmbient() {
+  if (!SFX.init) return; resumeAudio();
+  const now = SFX.ctx.currentTime;
+  const osc = SFX.ctx.createOscillator();
+  const g = SFX.ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = 55 + Math.random() * 20;
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(0.03 * SFX.vol, now + 2);
+  g.gain.linearRampToValueAtTime(0, now + 6);
+  osc.connect(g); g.connect(SFX.masterGain);
+  osc.start(now); osc.stop(now + 6);
+}
+
+// ===== GENE: input_handler =====
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) e.preventDefault(); });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+let touchDir = { x: 0, y: 0 };
+let touchActive = false;
+canvas.addEventListener('touchstart', e => { e.preventDefault(); touchActive = true; initAudio(); resumeAudio(); updateTouch(e); }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); updateTouch(e); }, { passive: false });
+canvas.addEventListener('touchend', () => { touchActive = false; touchDir = { x: 0, y: 0 }; });
+function updateTouch(e) {
+  const t = e.touches[0];
+  const cx = W / 2, cy = H / 2;
+  const dx = t.clientX - cx, dy = t.clientY - cy;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  if (len > 30) { touchDir = { x: dx/len, y: dy/len }; }
+  else { touchDir = { x: 0, y: 0 }; }
+}
+
+// ===== UTILITIES =====
+function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function dist(a, b) { return Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function rectsOverlap(a, b) { return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+
+// ===== PROCEDURAL DUNGEON GENERATION =====
+const TILE = 32;
+const ROOM_MIN = 5, ROOM_MAX = 12;
+const MAP_W = 60, MAP_H = 60;
+let tileMap = [];
+const FLOOR = 0, WALL = 1, SECRET_WALL = 2, DOOR_TILE = 3, STAIRS = 4, HIDDEN_FLOOR = 5;
+
+function generateDungeon(depth) {
+  tileMap = Array.from({ length: MAP_H }, () => Array(MAP_W).fill(WALL));
+  G.rooms = [];
+  G.doors = [];
+  G.secrets = [];
+  G.enemies = [];
+  G.items = [];
+  G.projectiles = [];
+  G.particles = [];
+  G.totalSecrets = 0;
+
+  const numRooms = 6 + Math.min(depth * 2, 12);
+  for (let i = 0; i < numRooms * 3; i++) {
+    const rw = randInt(ROOM_MIN, ROOM_MAX);
+    const rh = randInt(ROOM_MIN, ROOM_MAX);
+    const rx = randInt(2, MAP_W - rw - 2);
+    const ry = randInt(2, MAP_H - rh - 2);
+    const room = { x: rx, y: ry, w: rw, h: rh, cx: rx + rw/2, cy: ry + rh/2, connected: false, isSecret: false, type: 'normal' };
+    let overlap = false;
+    for (const r of G.rooms) {
+      if (rx < r.x + r.w + 2 && rx + rw + 2 > r.x && ry < r.y + r.h + 2 && ry + rh + 2 > r.y) { overlap = true; break; }
+    }
+    if (!overlap) {
+      G.rooms.push(room);
+      for (let y = ry; y < ry + rh; y++)
+        for (let x = rx; x < rx + rw; x++)
+          tileMap[y][x] = FLOOR;
+    }
+    if (G.rooms.length >= numRooms) break;
+  }
+
+  // Connect rooms with corridors
+  for (let i = 1; i < G.rooms.length; i++) {
+    const a = G.rooms[i - 1], b = G.rooms[i];
+    carveCorridor(Math.floor(a.cx), Math.floor(a.cy), Math.floor(b.cx), Math.floor(b.cy));
+    a.connected = true; b.connected = true;
+  }
+
+  // Place secret rooms (discovery mechanic!)
+  const numSecrets = 1 + Math.floor(depth / 2);
+  for (let s = 0; s < numSecrets; s++) {
+    placeSecretRoom(depth);
+  }
+
+  // Place stairs in last room
+  const lastRoom = G.rooms[G.rooms.length - 1];
+  const sx = Math.floor(lastRoom.cx);
+  const sy = Math.floor(lastRoom.cy);
+  tileMap[sy][sx] = STAIRS;
+
+  // Place enemies
+  for (let i = 2; i < G.rooms.length; i++) {
+    if (G.rooms[i].isSecret) continue;
+    const room = G.rooms[i];
+    const count = randInt(1, 1 + Math.floor(depth / 2));
+    for (let e = 0; e < count; e++) {
+      G.enemies.push(createEnemy(
+        (room.x + 1 + Math.random() * (room.w - 2)) * TILE,
+        (room.y + 1 + Math.random() * (room.h - 2)) * TILE,
+        depth
+      ));
+    }
+  }
+
+  // Place items
+  for (let i = 1; i < G.rooms.length; i++) {
+    if (Math.random() < 0.35 || G.rooms[i].isSecret) {
+      const room = G.rooms[i];
+      const type = G.rooms[i].isSecret ? 'relic' : (Math.random() < 0.4 ? 'health' : (Math.random() < 0.5 ? 'ink' : 'key'));
+      G.items.push({
+        x: (room.x + 1 + Math.random() * (room.w - 2)) * TILE,
+        y: (room.y + 1 + Math.random() * (room.h - 2)) * TILE,
+        type, collected: false, bobPhase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  // Place hidden items in walls (discoverable by walking into certain walls)
+  placeWallSecrets(depth);
+
+  return G.rooms[0]; // starting room
+}
+
+function carveCorridor(x1, y1, x2, y2) {
+  let x = x1, y = y1;
+  while (x !== x2) {
+    if (x >= 0 && x < MAP_W && y >= 0 && y < MAP_H) tileMap[y][x] = FLOOR;
+    x += x < x2 ? 1 : -1;
+  }
+  while (y !== y2) {
+    if (x >= 0 && x < MAP_W && y >= 0 && y < MAP_H) tileMap[y][x] = FLOOR;
+    y += y < y2 ? 1 : -1;
+  }
+}
+
+function placeSecretRoom(depth) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const parentRoom = G.rooms[randInt(1, G.rooms.length - 1)];
+    const side = randInt(0, 3); // 0=north, 1=east, 2=south, 3=west
+    const rw = randInt(3, 5), rh = randInt(3, 5);
+    let rx, ry, doorX, doorY;
+    switch(side) {
+      case 0: rx = Math.floor(parentRoom.cx) - 1; ry = parentRoom.y - rh - 1; doorX = Math.floor(parentRoom.cx); doorY = parentRoom.y - 1; break;
+      case 1: rx = parentRoom.x + parentRoom.w + 1; ry = Math.floor(parentRoom.cy) - 1; doorX = parentRoom.x + parentRoom.w; doorY = Math.floor(parentRoom.cy); break;
+      case 2: rx = Math.floor(parentRoom.cx) - 1; ry = parentRoom.y + parentRoom.h + 1; doorX = Math.floor(parentRoom.cx); doorY = parentRoom.y + parentRoom.h; break;
+      case 3: rx = parentRoom.x - rw - 1; ry = Math.floor(parentRoom.cy) - 1; doorX = parentRoom.x - 1; doorY = Math.floor(parentRoom.cy); break;
+    }
+    if (rx < 1 || ry < 1 || rx + rw >= MAP_W - 1 || ry + rh >= MAP_H - 1) continue;
+    let valid = true;
+    for (let y = ry - 1; y <= ry + rh; y++)
+      for (let x = rx - 1; x <= rx + rw; x++)
+        if (tileMap[y]?.[x] === FLOOR) { valid = false; break; }
+    if (!valid) continue;
+
+    const secretRoom = { x: rx, y: ry, w: rw, h: rh, cx: rx + rw/2, cy: ry + rh/2, connected: true, isSecret: true, type: 'secret' };
+    G.rooms.push(secretRoom);
+    for (let y = ry; y < ry + rh; y++)
+      for (let x = rx; x < rx + rw; x++)
+        tileMap[y][x] = HIDDEN_FLOOR;
+
+    // The wall tile connecting is a secret wall
+    if (doorY >= 0 && doorY < MAP_H && doorX >= 0 && doorX < MAP_W) {
+      tileMap[doorY][doorX] = SECRET_WALL;
+      G.secrets.push({ x: doorX, y: doorY, revealed: false, type: 'wall' });
+      G.totalSecrets++;
+    }
+
+    // Place a relic inside
+    G.items.push({
+      x: (rx + rw/2) * TILE, y: (ry + rh/2) * TILE,
+      type: 'relic', collected: false, bobPhase: Math.random() * Math.PI * 2
+    });
+    break;
+  }
+}
+
+function placeWallSecrets(depth) {
+  // Hidden caches in walls -- revealed by pressing against a wall for 2 seconds
+  const wallCandidates = [];
+  for (let y = 2; y < MAP_H - 2; y++) {
+    for (let x = 2; x < MAP_W - 2; x++) {
+      if (tileMap[y][x] === WALL) {
+        const adj = [[0,1],[0,-1],[1,0],[-1,0]];
+        let floorCount = 0;
+        for (const [dx,dy] of adj) if (tileMap[y+dy]?.[x+dx] === FLOOR) floorCount++;
+        if (floorCount === 1) wallCandidates.push({ x, y });
+      }
+    }
+  }
+  const numHidden = Math.min(2 + depth, wallCandidates.length, 6);
+  for (let i = 0; i < numHidden; i++) {
+    const idx = randInt(0, wallCandidates.length - 1);
+    const w = wallCandidates.splice(idx, 1)[0];
+    G.secrets.push({ x: w.x, y: w.y, revealed: false, type: 'cache', item: Math.random() < 0.5 ? 'health' : 'ink' });
+    G.totalSecrets++;
+  }
+}
+
+// ===== GENE: entity_system =====
+function createPlayer(x, y) {
+  return {
+    x, y, w: 20, h: 20,
+    vx: 0, vy: 0,
+    speed: 140,
+    hp: 100, maxHp: 100,
+    ink: 100, maxInk: 100,
+    damage: 15,
+    facing: 0,
+    attackCooldown: 0,
+    invincible: 0,
+    pushTimer: 0, pushTarget: null,
+    abilities: { dash: false, mapSense: false, wallPhase: false },
+    relics: 0
+  };
+}
+
+function createEnemy(x, y, depth) {
+  const types = [
+    { name: 'lurker', hp: 20, dmg: 8, speed: 40, color: '#5a4', r: 10, behavior: 'chase' },
+    { name: 'sentinel', hp: 40, dmg: 12, speed: 25, color: '#a54', r: 14, behavior: 'patrol' },
+    { name: 'wisp', hp: 15, dmg: 5, speed: 70, color: '#8af', r: 8, behavior: 'erratic' },
+  ];
+  const t = types[randInt(0, Math.min(depth, types.length) - 1)];
+  const scale = 1 + depth * 0.15;
+  return {
+    x, y, w: t.r * 2, h: t.r * 2,
+    vx: 0, vy: 0,
+    hp: Math.floor(t.hp * scale), maxHp: Math.floor(t.hp * scale),
+    dmg: Math.floor(t.dmg * scale),
+    speed: t.speed, color: t.color, r: t.r,
+    behavior: t.behavior, name: t.name,
+    patrolAngle: Math.random() * Math.PI * 2,
+    alertTimer: 0, alive: true,
+    hitFlash: 0
+  };
+}
+
+// ===== PARTICLE SYSTEM =====
+function spawnParticles(x, y, color, count, speed, life) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = Math.random() * (speed || 60);
+    G.particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd,
+      life: (life || 0.8) * (0.5 + Math.random() * 0.5),
+      maxLife: life || 0.8,
+      color, r: 2 + Math.random() * 3
+    });
+  }
+}
+
+function toast(text) {
+  G.toasts.push({ text, timer: 2 });
+}
+
+function showHint(text, dur) {
+  G.hintText = text;
+  G.hintTimer = dur || 4;
+}
+
+// ===== DISCOVERY MECHANICS =====
+// Hidden mechanic 1: Stand still for 5 seconds = reveal nearby secrets
+// Hidden mechanic 2: Walk backward into walls for 2 seconds = reveal wall caches
+// Hidden mechanic 3: Collect 3 relics = unlock dash ability
+// Hidden mechanic 4: Kill enemies without taking damage on a floor = bonus secret
+// Hidden mechanic 5: Wait at stairs for 10 seconds = unlock map sense
+let idleTimer = 0;
+let perfectFloor = true;
+
+function checkDiscoveryTriggers(dt) {
+  const p = G.player;
+  const moving = Math.abs(p.vx) > 5 || Math.abs(p.vy) > 5;
+
+  // Standing still reveals secrets
+  if (!moving) {
+    idleTimer += dt;
+    if (idleTimer >= 5 && !G.discoveredMechanics.patience) {
+      G.discoveredMechanics.patience = true;
+      revealNearbySecrets(p.x, p.y, 200);
+      toast('Patience reveals hidden paths...');
+      showHint('Stand still near walls to sense secrets', 6);
+      sfxSecret();
+    } else if (idleTimer >= 3 && G.discoveredMechanics.patience) {
+      revealNearbySecrets(p.x, p.y, 150);
+    }
+  } else {
+    idleTimer = 0;
+  }
+
+  // Pushing against walls
+  if (p.pushTarget) {
+    p.pushTimer += dt;
+    if (p.pushTimer >= 2) {
+      checkWallPush(p.pushTarget.x, p.pushTarget.y);
+      p.pushTimer = 0;
+      p.pushTarget = null;
+    }
+  }
+
+  // Relic collection milestones
+  if (p.relics >= 3 && !p.abilities.dash) {
+    p.abilities.dash = true;
+    G.discoveredMechanics.dash = true;
+    toast('Ancient power surges through you! [SHIFT to Dash]');
+    showHint('Press SHIFT to dash through enemies', 6);
+    sfxSecret();
+  }
+  if (p.relics >= 6 && !p.abilities.wallPhase) {
+    p.abilities.wallPhase = true;
+    G.discoveredMechanics.wallPhase = true;
+    toast('Reality bends! You can phase through thin walls!');
+    sfxSecret();
+  }
+
+  // Stairs patience
+  const px = Math.floor(p.x / TILE), py = Math.floor(p.y / TILE);
+  if (tileMap[py]?.[px] === STAIRS && !moving) {
+    if (!G.stairsTimer) G.stairsTimer = 0;
+    G.stairsTimer += dt;
+    if (G.stairsTimer >= 8 && !p.abilities.mapSense) {
+      p.abilities.mapSense = true;
+      G.discoveredMechanics.mapSense = true;
+      toast('Your mind expands! The map reveals itself.');
+      showHint('Minimap now shows full floor layout', 6);
+      sfxSecret();
+    }
+  } else {
+    G.stairsTimer = 0;
+  }
+}
+
+function revealNearbySecrets(px, py, radius) {
+  for (const s of G.secrets) {
+    if (s.revealed) continue;
+    const sx = s.x * TILE + TILE/2, sy = s.y * TILE + TILE/2;
+    const d = Math.sqrt((px - sx)**2 + (py - sy)**2);
+    if (d < radius) {
+      // Visual pulse hint - don't fully reveal, just glow
+      spawnParticles(sx, sy, '#fc8', 3, 20, 1);
+    }
+  }
+}
+
+function checkWallPush(tx, ty) {
+  for (const s of G.secrets) {
+    if (s.revealed) continue;
+    if (s.x === tx && s.y === ty) {
+      revealSecret(s);
+      break;
+    }
+  }
+}
+
+function revealSecret(secret) {
+  secret.revealed = true;
+  G.secretsFound++;
+  const wx = secret.x * TILE + TILE/2, wy = secret.y * TILE + TILE/2;
+  if (secret.type === 'wall') {
+    tileMap[secret.y][secret.x] = FLOOR;
+    // Also reveal the hidden room floors
+    for (let y = 0; y < MAP_H; y++)
+      for (let x = 0; x < MAP_W; x++)
+        if (tileMap[y][x] === HIDDEN_FLOOR) tileMap[y][x] = FLOOR;
+    toast('Secret passage revealed!');
+  } else if (secret.type === 'cache') {
+    tileMap[secret.y][secret.x] = FLOOR;
+    G.items.push({ x: wx, y: wy, type: secret.item, collected: false, bobPhase: 0 });
+    toast('Hidden cache found!');
+  }
+  sfxSecret();
+  spawnParticles(wx, wy, '#fc8', 20, 80, 1.2);
+  G.shakeAmount = 4;
+  G.shakeDuration = 0.3;
+}
+
+// ===== GAME LOGIC =====
+function startGame() {
+  initAudio();
+  G.state = STATE.PLAYING;
+  G.depth = 1;
+  G.secretsFound = 0;
+  G.score = 0;
+  G.kills = 0;
+  G.floorsCleared = 0;
+  G.discoveredMechanics = {};
+  G.toasts = [];
+  G.startTime = performance.now();
+  G.stairsTimer = 0;
+  idleTimer = 0;
+  perfectFloor = true;
+
+  const startRoom = generateDungeon(1);
+  G.player = createPlayer((startRoom.x + startRoom.w/2) * TILE, (startRoom.y + startRoom.h/2) * TILE);
+  G.mapRevealed = Array.from({ length: MAP_H }, () => Array(MAP_W).fill(false));
+
+  document.getElementById('titleScreen').style.display = 'none';
+  document.getElementById('deathScreen').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  document.getElementById('depthBadge').style.display = 'block';
+  document.getElementById('secretsBadge').style.display = 'block';
+  document.getElementById('minimap').style.display = 'block';
+
+  showHint('WASD or Arrow keys to move. Attack with Space.', 5);
+  ambientInterval = setInterval(sfxAmbient, 8000);
+  sfxAmbient();
+}
+let ambientInterval;
+
+function nextFloor() {
+  G.depth++;
+  G.floorsCleared++;
+  if (perfectFloor && !G.discoveredMechanics.perfectFloor) {
+    G.discoveredMechanics.perfectFloor = true;
+    G.secretsFound++;
+    G.score += 100;
+    toast('Perfect floor! A hidden reward appears...');
+    sfxSecret();
+  }
+  perfectFloor = true;
+  const startRoom = generateDungeon(G.depth);
+  G.player.x = (startRoom.x + startRoom.w/2) * TILE;
+  G.player.y = (startRoom.y + startRoom.h/2) * TILE;
+  G.player.hp = Math.min(G.player.hp + 20, G.player.maxHp);
+  G.player.ink = G.player.maxInk;
+  G.mapRevealed = Array.from({ length: MAP_H }, () => Array(MAP_W).fill(false));
+  document.getElementById('depthBadge').textContent = 'Depth ' + G.depth;
+  sfxDoor();
+  spawnParticles(G.player.x, G.player.y, '#4af', 30, 100, 1);
+}
+
+function die() {
+  G.state = STATE.DEAD;
+  clearInterval(ambientInterval);
+  const elapsed = ((performance.now() - G.startTime) / 1000).toFixed(0);
+  const statsDiv = document.getElementById('deathStats');
+  statsDiv.innerHTML = `
+    <div class="stat-row"><span>Depth Reached</span><span class="stat-val">${G.depth}</span></div>
+    <div class="stat-row"><span>Secrets Found</span><span class="stat-val">${G.secretsFound} / ${G.secretsFound + G.secrets.filter(s=>!s.revealed).length}</span></div>
+    <div class="stat-row"><span>Enemies Slain</span><span class="stat-val">${G.kills}</span></div>
+    <div class="stat-row"><span>Floors Cleared</span><span class="stat-val">${G.floorsCleared}</span></div>
+    <div class="stat-row"><span>Relics Collected</span><span class="stat-val">${G.player.relics}</span></div>
+    <div class="stat-row"><span>Mechanics Discovered</span><span class="stat-val">${Object.keys(G.discoveredMechanics).length} / 5</span></div>
+    <div class="stat-row"><span>Time Survived</span><span class="stat-val">${elapsed}s</span></div>
+    <div class="stat-row"><span>Score</span><span class="stat-val">${G.score}</span></div>
+  `;
+  document.getElementById('deathScreen').style.display = 'flex';
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('minimap').style.display = 'none';
+
+  // Save high score
+  try {
+    const saved = JSON.parse(localStorage.getItem('cartographer_save') || '{}');
+    if (G.score > (saved.highScore || 0)) {
+      saved.highScore = G.score;
+      saved.bestDepth = G.depth;
+      saved.bestSecrets = G.secretsFound;
+      localStorage.setItem('cartographer_save', JSON.stringify(saved));
+    }
+  } catch(e) {}
+}
+
+function update(dt) {
+  if (G.state !== STATE.PLAYING) return;
+  const p = G.player;
+
+  // Movement
+  let mx = 0, my = 0;
+  if (keys['arrowleft'] || keys['a']) mx--;
+  if (keys['arrowright'] || keys['d']) mx++;
+  if (keys['arrowup'] || keys['w']) my--;
+  if (keys['arrowdown'] || keys['s']) my++;
+  if (touchActive) { mx = touchDir.x; my = touchDir.y; }
+
+  const len = Math.sqrt(mx*mx + my*my);
+  if (len > 0) {
+    mx /= len; my /= len;
+    p.facing = Math.atan2(my, mx);
+    if (G.time % 0.25 < dt) sfxStep();
+  }
+
+  const speed = p.speed * dt;
+  const newX = p.x + mx * speed;
+  const newY = p.y + my * speed;
+
+  // Collision with tiles
+  const halfW = p.w / 2;
+  const canMoveX = !isBlocked(newX - halfW, p.y - halfW) && !isBlocked(newX + halfW, p.y - halfW) && !isBlocked(newX - halfW, p.y + halfW) && !isBlocked(newX + halfW, p.y + halfW);
+  const canMoveY = !isBlocked(p.x - halfW, newY - halfW) && !isBlocked(p.x + halfW, newY - halfW) && !isBlocked(p.x - halfW, newY + halfW) && !isBlocked(p.x + halfW, newY + halfW);
+
+  if (canMoveX) p.x = newX;
+  else {
+    // Track wall pushing for secret detection
+    const tx = Math.floor((newX + mx * 5) / TILE);
+    const ty = Math.floor(p.y / TILE);
+    if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H && (tileMap[ty][tx] === WALL || tileMap[ty][tx] === SECRET_WALL)) {
+      if (!p.pushTarget || p.pushTarget.x !== tx || p.pushTarget.y !== ty) {
+        p.pushTarget = { x: tx, y: ty };
+        p.pushTimer = 0;
+      }
+    }
+  }
+  if (canMoveY) p.y = newY;
+  else {
+    const tx = Math.floor(p.x / TILE);
+    const ty = Math.floor((newY + my * 5) / TILE);
+    if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H && (tileMap[ty][tx] === WALL || tileMap[ty][tx] === SECRET_WALL)) {
+      if (!p.pushTarget || p.pushTarget.x !== tx || p.pushTarget.y !== ty) {
+        p.pushTarget = { x: tx, y: ty };
+        p.pushTimer = 0;
+      }
+    }
+  }
+  if (canMoveX || canMoveY) { p.pushTarget = null; p.pushTimer = 0; }
+  p.vx = mx * speed / dt; p.vy = my * speed / dt;
+
+  // Dash ability
+  if ((keys['shift'] || keys['e']) && p.abilities.dash && p.ink >= 20 && p.attackCooldown <= 0) {
+    p.x += Math.cos(p.facing) * 80;
+    p.y += Math.sin(p.facing) * 80;
+    p.ink -= 20;
+    p.invincible = 0.3;
+    spawnParticles(p.x, p.y, '#4af', 12, 60, 0.5);
+    playTone(500, 0.15, 'sine', 0.15);
+  }
+
+  // Attack
+  if (p.attackCooldown > 0) p.attackCooldown -= dt;
+  if (keys[' '] && p.attackCooldown <= 0 && p.ink >= 5) {
+    p.attackCooldown = 0.35;
+    p.ink -= 5;
+    const ax = p.x + Math.cos(p.facing) * 25;
+    const ay = p.y + Math.sin(p.facing) * 25;
+    G.projectiles.push({ x: ax, y: ay, vx: Math.cos(p.facing) * 250, vy: Math.sin(p.facing) * 250, life: 0.4, dmg: p.damage, color: '#4af', r: 5 });
+    spawnParticles(ax, ay, '#4af', 5, 40, 0.3);
+    playTone(400, 0.08, 'triangle', 0.12);
+  }
+
+  // Ink regeneration
+  p.ink = Math.min(p.ink + 8 * dt, p.maxInk);
+  if (p.invincible > 0) p.invincible -= dt;
+
+  // Check stairs
+  const ptx = Math.floor(p.x / TILE), pty = Math.floor(p.y / TILE);
+  if (tileMap[pty]?.[ptx] === STAIRS && (keys['enter'] || keys['f'])) {
+    nextFloor();
+  }
+
+  // Reveal map around player
+  const revealR = p.abilities.mapSense ? 8 : 4;
+  for (let dy = -revealR; dy <= revealR; dy++)
+    for (let dx = -revealR; dx <= revealR; dx++) {
+      const mx2 = ptx + dx, my2 = pty + dy;
+      if (mx2 >= 0 && mx2 < MAP_W && my2 >= 0 && my2 < MAP_H) G.mapRevealed[my2][mx2] = true;
+    }
+
+  // Update enemies
+  for (const e of G.enemies) {
+    if (!e.alive) continue;
+    const d = dist(e, p);
+    if (e.hitFlash > 0) e.hitFlash -= dt;
+
+    if (e.behavior === 'chase' && d < 250) {
+      const angle = Math.atan2(p.y - e.y, p.x - e.x);
+      e.vx = Math.cos(angle) * e.speed;
+      e.vy = Math.sin(angle) * e.speed;
+    } else if (e.behavior === 'patrol') {
+      e.patrolAngle += dt * 0.5;
+      e.vx = Math.cos(e.patrolAngle) * e.speed;
+      e.vy = Math.sin(e.patrolAngle) * e.speed;
+      if (d < 150) {
+        const angle = Math.atan2(p.y - e.y, p.x - e.x);
+        e.vx = Math.cos(angle) * e.speed * 1.5;
+        e.vy = Math.sin(angle) * e.speed * 1.5;
+      }
+    } else if (e.behavior === 'erratic') {
+      if (Math.random() < 0.05) e.patrolAngle = Math.random() * Math.PI * 2;
+      e.vx = Math.cos(e.patrolAngle) * e.speed;
+      e.vy = Math.sin(e.patrolAngle) * e.speed;
+      if (d < 120) {
+        const angle = Math.atan2(p.y - e.y, p.x - e.x);
+        e.vx = Math.cos(angle) * e.speed;
+        e.vy = Math.sin(angle) * e.speed;
+      }
+    }
+
+    const enx = e.x + e.vx * dt, eny = e.y + e.vy * dt;
+    if (!isBlocked(enx, eny)) { e.x = enx; e.y = eny; }
+    else { e.patrolAngle += Math.PI / 2; }
+
+    // Enemy hits player
+    if (d < 18 && p.invincible <= 0) {
+      p.hp -= e.dmg;
+      p.invincible = 0.5;
+      perfectFloor = false;
+      sfxDamage();
+      spawnParticles(p.x, p.y, '#f44', 8, 50, 0.5);
+      G.shakeAmount = 6;
+      G.shakeDuration = 0.2;
+      if (p.hp <= 0) { die(); return; }
+    }
+  }
+
+  // Update projectiles
+  for (let i = G.projectiles.length - 1; i >= 0; i--) {
+    const proj = G.projectiles[i];
+    proj.x += proj.vx * dt;
+    proj.y += proj.vy * dt;
+    proj.life -= dt;
+    if (proj.life <= 0 || isBlocked(proj.x, proj.y)) {
+      spawnParticles(proj.x, proj.y, proj.color, 4, 30, 0.3);
+      G.projectiles.splice(i, 1);
+      continue;
+    }
+    // Hit enemies
+    for (const e of G.enemies) {
+      if (!e.alive) continue;
+      if (Math.abs(proj.x - e.x) < e.r + proj.r && Math.abs(proj.y - e.y) < e.r + proj.r) {
+        e.hp -= proj.dmg;
+        e.hitFlash = 0.15;
+        sfxHit();
+        spawnParticles(e.x, e.y, e.color, 6, 40, 0.4);
+        G.projectiles.splice(i, 1);
+        if (e.hp <= 0) {
+          e.alive = false;
+          G.kills++;
+          G.score += 10;
+          spawnParticles(e.x, e.y, e.color, 15, 70, 0.8);
+        }
+        break;
+      }
+    }
+  }
+
+  // Update items
+  for (const item of G.items) {
+    if (item.collected) continue;
+    item.bobPhase += dt * 3;
+    const d = dist(item, p);
+    if (d < 20) {
+      item.collected = true;
+      sfxPickup();
+      if (item.type === 'health') { p.hp = Math.min(p.hp + 30, p.maxHp); toast('+30 HP'); }
+      else if (item.type === 'ink') { p.ink = Math.min(p.ink + 40, p.maxInk); toast('+40 Ink'); }
+      else if (item.type === 'key') { p.damage += 3; toast('Sharpened blade! +3 damage'); G.score += 25; }
+      else if (item.type === 'relic') { p.relics++; G.score += 50; toast('Ancient relic acquired! (' + p.relics + ')'); }
+      spawnParticles(item.x, item.y, '#fc8', 10, 50, 0.6);
+    }
+  }
+
+  // Update particles
+  for (let i = G.particles.length - 1; i >= 0; i--) {
+    const part = G.particles[i];
+    part.x += part.vx * dt;
+    part.y += part.vy * dt;
+    part.vx *= 0.95;
+    part.vy *= 0.95;
+    part.life -= dt;
+    if (part.life <= 0) G.particles.splice(i, 1);
+  }
+
+  // Toasts
+  for (let i = G.toasts.length - 1; i >= 0; i--) {
+    G.toasts[i].timer -= dt;
+    if (G.toasts[i].timer <= 0) G.toasts.splice(i, 1);
+  }
+
+  // Hints
+  if (G.hintTimer > 0) G.hintTimer -= dt;
+
+  // Screen shake
+  if (G.shakeDuration > 0) G.shakeDuration -= dt;
+  else G.shakeAmount = 0;
+
+  // Discovery triggers
+  checkDiscoveryTriggers(dt);
+
+  // Camera
+  G.camera.x = lerp(G.camera.x, p.x - W/2, 0.1);
+  G.camera.y = lerp(G.camera.y, p.y - H/2, 0.1);
+
+  // Update HUD
+  document.getElementById('hpBar').style.width = (p.hp / p.maxHp * 100) + '%';
+  document.getElementById('hpText').textContent = Math.max(0, Math.ceil(p.hp)) + '/' + p.maxHp;
+  document.getElementById('inkBar').style.width = (p.ink / p.maxInk * 100) + '%';
+  document.getElementById('inkText').textContent = 'Ink: ' + Math.ceil(p.ink);
+  document.getElementById('secretsBadge').textContent = 'Secrets: ' + G.secretsFound;
+
+  G.time += dt;
+}
+
+function isBlocked(px, py) {
+  const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+  if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return true;
+  const tile = tileMap[ty][tx];
+  return tile === WALL || tile === SECRET_WALL || tile === HIDDEN_FLOOR;
+}
+
+// ===== RENDERING =====
+const THEME = {
+  floor: '#1a1e2e', wall: '#0c0e18', secret: '#2a2040',
+  stairs: '#3a6a3a', hidden: '#0c0e18',
+  fog: 'rgba(5,7,15,0.95)'
+};
+
+function draw() {
+  ctx.fillStyle = '#050710';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  // Screen shake
+  let sx = 0, sy = 0;
+  if (G.shakeAmount > 0) {
+    sx = (Math.random() - 0.5) * G.shakeAmount * 2;
+    sy = (Math.random() - 0.5) * G.shakeAmount * 2;
+  }
+  ctx.translate(-G.camera.x + sx, -G.camera.y + sy);
+
+  // Visible tile range
+  const startX = Math.max(0, Math.floor(G.camera.x / TILE) - 1);
+  const startY = Math.max(0, Math.floor(G.camera.y / TILE) - 1);
+  const endX = Math.min(MAP_W, Math.ceil((G.camera.x + W) / TILE) + 1);
+  const endY = Math.min(MAP_H, Math.ceil((G.camera.y + H) / TILE) + 1);
+
+  // Draw tiles with fog of war
+  for (let y = startY; y < endY; y++) {
+    for (let x = startX; x < endX; x++) {
+      const tile = tileMap[y][x];
+      const revealed = G.mapRevealed[y]?.[x];
+      const px = x * TILE, py = y * TILE;
+
+      if (!revealed) {
+        ctx.fillStyle = '#050710';
+        ctx.fillRect(px, py, TILE, TILE);
+        continue;
+      }
+
+      // Draw tile
+      switch(tile) {
+        case FLOOR:
+          ctx.fillStyle = THEME.floor;
+          ctx.fillRect(px, py, TILE, TILE);
+          // Subtle grid lines
+          ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+          ctx.strokeRect(px, py, TILE, TILE);
+          break;
+        case WALL:
+          ctx.fillStyle = THEME.wall;
+          ctx.fillRect(px, py, TILE, TILE);
+          // Depth shading on walls
+          ctx.fillStyle = 'rgba(30,40,60,0.3)';
+          ctx.fillRect(px, py, TILE, 4);
+          break;
+        case SECRET_WALL:
+          ctx.fillStyle = THEME.wall; // Looks like a normal wall
+          ctx.fillRect(px, py, TILE, TILE);
+          // Subtle shimmer for discovered patience mechanic
+          if (G.discoveredMechanics.patience) {
+            const shimmer = Math.sin(G.time * 3 + x + y) * 0.1 + 0.1;
+            ctx.fillStyle = `rgba(255,200,100,${shimmer})`;
+            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+          }
+          break;
+        case STAIRS:
+          ctx.fillStyle = THEME.stairs;
+          ctx.fillRect(px, py, TILE, TILE);
+          ctx.fillStyle = '#5a8a5a';
+          ctx.fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+          // Glow
+          ctx.fillStyle = `rgba(100,255,100,${0.15 + Math.sin(G.time * 2) * 0.1})`;
+          ctx.fillRect(px, py, TILE, TILE);
+          break;
+        case HIDDEN_FLOOR:
+          ctx.fillStyle = '#050710'; // Hidden, appears as void
+          ctx.fillRect(px, py, TILE, TILE);
+          break;
+      }
+    }
+  }
+
+  // Draw items
+  for (const item of G.items) {
+    if (item.collected) continue;
+    const ix = item.x, iy = item.y + Math.sin(item.bobPhase) * 3;
+    const colors = { health: '#f44', ink: '#4af', key: '#fc8', relic: '#f8f' };
+    ctx.fillStyle = colors[item.type] || '#fff';
+    ctx.beginPath();
+    ctx.arc(ix, iy, 6, 0, Math.PI * 2);
+    ctx.fill();
+    // Glow
+    ctx.fillStyle = (colors[item.type] || '#fff').replace(')', ',0.2)').replace('rgb', 'rgba');
+    ctx.beginPath();
+    ctx.arc(ix, iy, 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Draw enemies
+  for (const e of G.enemies) {
+    if (!e.alive) continue;
+    ctx.fillStyle = e.hitFlash > 0 ? '#fff' : e.color;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes
+    const eyeAngle = Math.atan2(G.player.y - e.y, G.player.x - e.x);
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(e.x + Math.cos(eyeAngle) * 4, e.y + Math.sin(eyeAngle) * 4, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // HP bar
+    if (e.hp < e.maxHp) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(e.x - e.r, e.y - e.r - 8, e.r * 2, 4);
+      ctx.fillStyle = '#f44';
+      ctx.fillRect(e.x - e.r, e.y - e.r - 8, e.r * 2 * (e.hp / e.maxHp), 4);
+    }
+  }
+
+  // Draw projectiles
+  for (const proj of G.projectiles) {
+    ctx.fillStyle = proj.color;
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = proj.color.slice(0, -1) + '88';
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, proj.r * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Draw player
+  if (G.player) {
+    const p = G.player;
+    // Invincibility flash
+    if (p.invincible > 0 && Math.floor(p.invincible * 10) % 2 === 0) {
+      ctx.globalAlpha = 0.4;
+    }
+    // Body
+    ctx.fillStyle = '#6af';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    // Direction indicator
+    ctx.strokeStyle = '#8cf';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(p.facing) * 16, p.y + Math.sin(p.facing) * 16);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw particles
+  for (const part of G.particles) {
+    const alpha = part.life / part.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = part.color;
+    ctx.beginPath();
+    ctx.arc(part.x, part.y, part.r * alpha, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  // Draw toasts
+  for (let i = 0; i < G.toasts.length; i++) {
+    const t = G.toasts[i];
+    const alpha = Math.min(1, t.timer);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fc8';
+    ctx.font = 'bold 18px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(255,200,0,0.6)';
+    ctx.shadowBlur = 8;
+    ctx.fillText(t.text, W/2, H/2 - 60 - i * 30 + (1 - alpha) * 20);
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+
+  // Draw hint text
+  if (G.hintTimer > 0) {
+    const alpha = Math.min(1, G.hintTimer, 1);
+    ctx.globalAlpha = alpha * 0.7;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    const tw = ctx.measureText(G.hintText).width;
+    ctx.fillRect(W/2 - tw/2 - 12, H - 50, tw + 24, 30);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ca8';
+    ctx.font = '13px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(G.hintText, W/2, H - 35);
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw minimap
+  drawMinimap();
+}
+
+function drawMinimap() {
+  mmCtx.fillStyle = 'rgba(0,0,0,0.8)';
+  mmCtx.fillRect(0, 0, 120, 120);
+  const scale = 120 / MAP_W;
+  for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+      if (!G.mapRevealed[y]?.[x] && !G.player?.abilities.mapSense) continue;
+      const tile = tileMap[y][x];
+      if (tile === FLOOR) mmCtx.fillStyle = 'rgba(60,70,100,0.5)';
+      else if (tile === STAIRS) mmCtx.fillStyle = '#5a5';
+      else if (tile === SECRET_WALL && G.discoveredMechanics.patience) mmCtx.fillStyle = 'rgba(200,160,50,0.4)';
+      else continue;
+      mmCtx.fillRect(x * scale, y * scale, scale + 0.5, scale + 0.5);
+    }
+  }
+  // Player dot
+  if (G.player) {
+    mmCtx.fillStyle = '#6af';
+    mmCtx.fillRect(G.player.x / TILE * scale - 1, G.player.y / TILE * scale - 1, 3, 3);
+  }
+  // Enemy dots
+  for (const e of G.enemies) {
+    if (!e.alive) continue;
+    const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
+    if (G.mapRevealed[ey]?.[ex] || G.player?.abilities.mapSense) {
+      mmCtx.fillStyle = '#f44';
+      mmCtx.fillRect(e.x / TILE * scale, e.y / TILE * scale, 2, 2);
+    }
+  }
+}
+
+// ===== GAME LOOP =====
+function gameLoop(timestamp) {
+  const dt = Math.min((timestamp - (G.lastTime || timestamp)) / 1000, 0.05);
+  G.lastTime = timestamp;
+  G.dt = dt;
+
+  if (G.state === STATE.PLAYING) {
+    update(dt);
+  }
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// ===== EVENT HANDLERS =====
+document.getElementById('btnPlay').addEventListener('click', () => { startGame(); });
+document.getElementById('btnRestart').addEventListener('click', () => { startGame(); });
+document.getElementById('btnHow').addEventListener('click', () => {
+  toast('WASD/Arrows: Move | Space: Attack | Shift: Dash (if unlocked)');
+  showHint('Some secrets require patience and curiosity to find...', 6);
+});
+
+canvas.addEventListener('click', () => { initAudio(); resumeAudio(); });
+
+// Pause
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && G.state === STATE.PLAYING) {
+    G.state = STATE.PAUSED;
+    toast('PAUSED - Press ESC to resume');
+  } else if (e.key === 'Escape' && G.state === STATE.PAUSED) {
+    G.state = STATE.PLAYING;
+  }
+});
+
+// localStorage export
+window.addEventListener('keydown', e => {
+  if (e.key === 'j' && e.ctrlKey) {
+    try {
+      const data = localStorage.getItem('cartographer_save');
+      if (data) {
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'cartographer-save.json'; a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch(e) {}
+  }
+});
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>

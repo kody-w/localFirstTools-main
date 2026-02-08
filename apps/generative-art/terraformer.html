@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terraformer - Procedural Planet Generator</title>
+
+    <!-- RappterZoo Meta Tags -->
+    <meta name="rappterzoo:author" content="molter-engine">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="generative_art">
+    <meta name="rappterzoo:tags" content="procedural,terrain,erosion,simulation,canvas">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="1">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1e 100%);
+            color: #e0e0e0;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+        }
+
+        #sidebar {
+            width: 280px;
+            background: rgba(20, 20, 30, 0.95);
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 20px rgba(0, 0, 0, 0.5);
+            border-right: 1px solid rgba(100, 100, 120, 0.3);
+        }
+
+        #mainCanvas {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(ellipse at center, #1a1a2e 0%, #0a0a1a 100%);
+        }
+
+        canvas {
+            border: 2px solid rgba(100, 150, 200, 0.3);
+            box-shadow: 0 0 40px rgba(100, 150, 200, 0.2);
+            cursor: crosshair;
+            image-rendering: pixelated;
+        }
+
+        #minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            border: 2px solid rgba(100, 150, 200, 0.5);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
+            image-rendering: pixelated;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #64b5f6;
+            text-shadow: 0 0 10px rgba(100, 181, 246, 0.5);
+        }
+
+        .section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(100, 100, 120, 0.2);
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        h2 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #81c784;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 2px 10px rgba(33, 150, 243, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.5);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.active {
+            background: linear-gradient(135deg, #66bb6a 0%, #43a047 100%);
+            box-shadow: 0 2px 10px rgba(102, 187, 106, 0.3);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #ef5350 0%, #d32f2f 100%);
+            box-shadow: 0 2px 10px rgba(239, 83, 80, 0.3);
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #b0b0b0;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .value-display {
+            font-size: 11px;
+            color: #64b5f6;
+            text-align: right;
+        }
+
+        .tool-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .tool-grid button {
+            margin-bottom: 0;
+        }
+
+        .stats {
+            font-size: 11px;
+            color: #90a4ae;
+            line-height: 1.6;
+        }
+
+        .stats strong {
+            color: #64b5f6;
+        }
+
+        #erosionProgress {
+            width: 100%;
+            height: 4px;
+            background: rgba(100, 100, 120, 0.3);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        #erosionBar {
+            height: 100%;
+            background: linear-gradient(90deg, #66bb6a, #81c784);
+            width: 0%;
+            transition: width 0.1s;
+        }
+
+        .biome-legend {
+            display: grid;
+            grid-template-columns: 20px 1fr;
+            gap: 5px;
+            font-size: 11px;
+            margin-top: 10px;
+        }
+
+        .biome-swatch {
+            height: 16px;
+            border-radius: 2px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h1>Terraformer</h1>
+
+        <div class="section">
+            <h2>Generation</h2>
+            <button id="generateBtn">Generate New Planet</button>
+            <div class="control-group">
+                <label>Seed</label>
+                <input type="number" id="seedInput" value="12345" style="width: 100%; padding: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(100,100,120,0.3); color: white; border-radius: 3px;">
+            </div>
+            <div class="control-group">
+                <label>Octaves: <span class="value-display" id="octavesVal">6</span></label>
+                <input type="range" id="octaves" min="1" max="10" value="6">
+            </div>
+            <div class="control-group">
+                <label>Roughness: <span class="value-display" id="roughnessVal">0.5</span></label>
+                <input type="range" id="roughness" min="0" max="1" step="0.05" value="0.5">
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Erosion</h2>
+            <button id="erosionBtn">Simulate Erosion (1000 drops)</button>
+            <button id="erosionFastBtn">Fast Erosion (10000 drops)</button>
+            <div id="erosionProgress"><div id="erosionBar"></div></div>
+            <div class="control-group">
+                <label>Erosion Strength: <span class="value-display" id="erosionStrengthVal">0.3</span></label>
+                <input type="range" id="erosionStrength" min="0" max="1" step="0.05" value="0.3">
+            </div>
+            <div class="control-group">
+                <label>Evaporation: <span class="value-display" id="evaporationVal">0.01</span></label>
+                <input type="range" id="evaporation" min="0" max="0.1" step="0.01" value="0.01">
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Climate</h2>
+            <div class="control-group">
+                <label>Temperature: <span class="value-display" id="temperatureVal">15°C</span></label>
+                <input type="range" id="temperature" min="-20" max="40" value="15">
+            </div>
+            <div class="control-group">
+                <label>Rainfall: <span class="value-display" id="rainfallVal">50%</span></label>
+                <input type="range" id="rainfall" min="0" max="100" value="50">
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Paint Tools</h2>
+            <div class="tool-grid">
+                <button id="raiseTool">Raise</button>
+                <button id="lowerTool">Lower</button>
+                <button id="waterTool">Water</button>
+                <button id="smoothTool">Smooth</button>
+            </div>
+            <div class="control-group">
+                <label>Brush Size: <span class="value-display" id="brushSizeVal">10</span></label>
+                <input type="range" id="brushSize" min="1" max="30" value="10">
+            </div>
+            <div class="control-group">
+                <label>Brush Strength: <span class="value-display" id="brushStrengthVal">0.1</span></label>
+                <input type="range" id="brushStrength" min="0.01" max="0.5" step="0.01" value="0.1">
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>View Mode</h2>
+            <div class="tool-grid">
+                <button id="viewTop" class="active">Top-Down</button>
+                <button id="viewIso">Isometric</button>
+                <button id="viewGlobe">Globe</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Color Mode</h2>
+            <div class="tool-grid">
+                <button id="colorElevation" class="active">Elevation</button>
+                <button id="colorBiome">Biome</button>
+                <button id="colorMoisture">Moisture</button>
+                <button id="colorTemperature">Temperature</button>
+                <button id="colorErosion">Erosion</button>
+            </div>
+
+            <div class="biome-legend" id="biomeLegend" style="display: none;">
+                <div class="biome-swatch" style="background: #2196f3;"></div><div>Ocean</div>
+                <div class="biome-swatch" style="background: #fdd835;"></div><div>Beach</div>
+                <div class="biome-swatch" style="background: #f4e4c1;"></div><div>Desert</div>
+                <div class="biome-swatch" style="background: #8bc34a;"></div><div>Grassland</div>
+                <div class="biome-swatch" style="background: #2e7d32;"></div><div>Forest</div>
+                <div class="biome-swatch" style="background: #1b5e20;"></div><div>Rainforest</div>
+                <div class="biome-swatch" style="background: #e0f7fa;"></div><div>Tundra</div>
+                <div class="biome-swatch" style="background: #ffffff;"></div><div>Snow</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Export</h2>
+            <button id="exportBtn">Export Heightmap PNG</button>
+        </div>
+
+        <div class="section">
+            <h2>Stats</h2>
+            <div class="stats" id="stats">
+                <div><strong>Size:</strong> 512 × 512</div>
+                <div><strong>Avg Height:</strong> 0.50</div>
+                <div><strong>Erosion Drops:</strong> 0</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainCanvas">
+        <canvas id="terrain" width="512" height="512"></canvas>
+        <canvas id="minimap" width="128" height="128"></canvas>
+    </div>
+
+    <script>
+        // Terrain state
+        const SIZE = 512;
+        let heightmap = new Float32Array(SIZE * SIZE);
+        let moisture = new Float32Array(SIZE * SIZE);
+        let temperature = new Float32Array(SIZE * SIZE);
+        let erosionMap = new Float32Array(SIZE * SIZE);
+
+        // Settings
+        let seed = 12345;
+        let octaves = 6;
+        let roughness = 0.5;
+        let erosionStrength = 0.3;
+        let evaporation = 0.01;
+        let climateTemp = 15;
+        let climateRainfall = 50;
+        let brushSize = 10;
+        let brushStrength = 0.1;
+        let currentTool = null;
+        let viewMode = 'top';
+        let colorMode = 'elevation';
+        let totalErosionDrops = 0;
+
+        // Canvas setup
+        const canvas = document.getElementById('terrain');
+        const ctx = canvas.getContext('2d');
+        const miniCanvas = document.getElementById('minimap');
+        const miniCtx = miniCanvas.getContext('2d');
+
+        // Seeded random number generator
+        class Random {
+            constructor(seed) {
+                this.seed = seed;
+            }
+
+            next() {
+                this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
+                return this.seed / 0x7fffffff;
+            }
+        }
+
+        // Perlin noise implementation
+        class PerlinNoise {
+            constructor(seed) {
+                this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                             [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                             [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+                this.p = [];
+                const rng = new Random(seed);
+                for (let i = 0; i < 256; i++) {
+                    this.p[i] = Math.floor(rng.next() * 256);
+                }
+                this.perm = new Array(512);
+                for (let i = 0; i < 512; i++) {
+                    this.perm[i] = this.p[i & 255];
+                }
+            }
+
+            dot(g, x, y) {
+                return g[0] * x + g[1] * y;
+            }
+
+            noise(x, y) {
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                const u = this.fade(x);
+                const v = this.fade(y);
+                const A = this.perm[X] + Y;
+                const B = this.perm[X + 1] + Y;
+
+                return this.lerp(v,
+                    this.lerp(u, this.grad(this.perm[A], x, y),
+                                 this.grad(this.perm[B], x - 1, y)),
+                    this.lerp(u, this.grad(this.perm[A + 1], x, y - 1),
+                                 this.grad(this.perm[B + 1], x - 1, y - 1))
+                );
+            }
+
+            grad(hash, x, y) {
+                const g = this.grad3[hash % 12];
+                return g[0] * x + g[1] * y;
+            }
+
+            fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+
+            lerp(t, a, b) {
+                return a + t * (b - a);
+            }
+        }
+
+        // Generate terrain using Perlin noise
+        function generateTerrain() {
+            const perlin = new PerlinNoise(seed);
+            const rng = new Random(seed);
+
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    let value = 0;
+                    let amplitude = 1;
+                    let frequency = 1;
+                    let maxValue = 0;
+
+                    for (let i = 0; i < octaves; i++) {
+                        const sampleX = x / SIZE * frequency * 4;
+                        const sampleY = y / SIZE * frequency * 4;
+                        value += perlin.noise(sampleX, sampleY) * amplitude;
+                        maxValue += amplitude;
+                        amplitude *= roughness;
+                        frequency *= 2;
+                    }
+
+                    value = value / maxValue * 0.5 + 0.5;
+                    heightmap[y * SIZE + x] = Math.max(0, Math.min(1, value));
+                }
+            }
+
+            // Generate moisture map
+            const moistureNoise = new PerlinNoise(seed + 1000);
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const value = moistureNoise.noise(x / SIZE * 3, y / SIZE * 3) * 0.5 + 0.5;
+                    moisture[y * SIZE + x] = value * (climateRainfall / 100);
+                }
+            }
+
+            // Generate temperature map (latitude-based with noise)
+            const tempNoise = new PerlinNoise(seed + 2000);
+            for (let y = 0; y < SIZE; y++) {
+                const latitude = Math.abs(y - SIZE / 2) / (SIZE / 2);
+                for (let x = 0; x < SIZE; x++) {
+                    const noise = tempNoise.noise(x / SIZE * 2, y / SIZE * 2) * 0.2;
+                    const height = heightmap[y * SIZE + x];
+                    let temp = (1 - latitude) * climateTemp / 20 + 0.5 + noise;
+                    temp -= height * 0.3; // Higher elevations are cooler
+                    temperature[y * SIZE + x] = Math.max(0, Math.min(1, temp));
+                }
+            }
+
+            erosionMap.fill(0);
+            totalErosionDrops = 0;
+            updateStats();
+        }
+
+        // Hydraulic erosion simulation
+        function simulateErosion(numDrops, callback) {
+            const inertia = 0.05;
+            const sedimentCapacityFactor = 4;
+            const minSedimentCapacity = 0.01;
+            const depositSpeed = 0.3;
+            const erodeSpeed = erosionStrength;
+            const gravity = 4;
+            const maxDropletLifetime = 30;
+            const initialWaterVolume = 1;
+            const initialSpeed = 1;
+
+            const rng = new Random(seed + totalErosionDrops);
+
+            for (let drop = 0; drop < numDrops; drop++) {
+                let posX = rng.next() * SIZE;
+                let posY = rng.next() * SIZE;
+                let dirX = 0;
+                let dirY = 0;
+                let speed = initialSpeed;
+                let water = initialWaterVolume;
+                let sediment = 0;
+
+                for (let lifetime = 0; lifetime < maxDropletLifetime; lifetime++) {
+                    const nodeX = Math.floor(posX);
+                    const nodeY = Math.floor(posY);
+
+                    if (nodeX < 1 || nodeX >= SIZE - 1 || nodeY < 1 || nodeY >= SIZE - 1) break;
+
+                    const dropletIndex = nodeY * SIZE + nodeX;
+                    const cellOffsetX = posX - nodeX;
+                    const cellOffsetY = posY - nodeY;
+
+                    // Calculate droplet's height and direction of flow
+                    const heightNW = heightmap[dropletIndex];
+                    const heightNE = heightmap[dropletIndex + 1];
+                    const heightSW = heightmap[dropletIndex + SIZE];
+                    const heightSE = heightmap[dropletIndex + SIZE + 1];
+
+                    const gradientX = (heightNE - heightNW) * (1 - cellOffsetY) + (heightSE - heightSW) * cellOffsetY;
+                    const gradientY = (heightSW - heightNW) * (1 - cellOffsetX) + (heightSE - heightNE) * cellOffsetX;
+
+                    dirX = dirX * inertia - gradientX * (1 - inertia);
+                    dirY = dirY * inertia - gradientY * (1 - inertia);
+
+                    const len = Math.sqrt(dirX * dirX + dirY * dirY);
+                    if (len !== 0) {
+                        dirX /= len;
+                        dirY /= len;
+                    }
+
+                    posX += dirX;
+                    posY += dirY;
+
+                    if (dirX === 0 && dirY === 0) break;
+
+                    const newHeight = heightNW * (1 - cellOffsetX) * (1 - cellOffsetY) +
+                                     heightNE * cellOffsetX * (1 - cellOffsetY) +
+                                     heightSW * (1 - cellOffsetX) * cellOffsetY +
+                                     heightSE * cellOffsetX * cellOffsetY;
+
+                    const deltaHeight = newHeight - heightNW;
+
+                    const sedimentCapacity = Math.max(-deltaHeight * speed * water * sedimentCapacityFactor, minSedimentCapacity);
+
+                    if (sediment > sedimentCapacity || deltaHeight > 0) {
+                        const amountToDeposit = (deltaHeight > 0) ? Math.min(deltaHeight, sediment) : (sediment - sedimentCapacity) * depositSpeed;
+                        sediment -= amountToDeposit;
+                        heightmap[dropletIndex] += amountToDeposit * 0.25;
+                        heightmap[dropletIndex + 1] += amountToDeposit * 0.25;
+                        heightmap[dropletIndex + SIZE] += amountToDeposit * 0.25;
+                        heightmap[dropletIndex + SIZE + 1] += amountToDeposit * 0.25;
+                    } else {
+                        const amountToErode = Math.min((sedimentCapacity - sediment) * erodeSpeed, -deltaHeight);
+                        heightmap[dropletIndex] -= amountToErode * 0.25;
+                        heightmap[dropletIndex + 1] -= amountToErode * 0.25;
+                        heightmap[dropletIndex + SIZE] -= amountToErode * 0.25;
+                        heightmap[dropletIndex + SIZE + 1] -= amountToErode * 0.25;
+                        sediment += amountToErode;
+
+                        erosionMap[dropletIndex] += amountToErode * 0.25;
+                        erosionMap[dropletIndex + 1] += amountToErode * 0.25;
+                        erosionMap[dropletIndex + SIZE] += amountToErode * 0.25;
+                        erosionMap[dropletIndex + SIZE + 1] += amountToErode * 0.25;
+                    }
+
+                    speed = Math.sqrt(speed * speed + deltaHeight * gravity);
+                    water *= (1 - evaporation);
+                }
+
+                totalErosionDrops++;
+
+                if (drop % 100 === 0) {
+                    const progress = (drop / numDrops) * 100;
+                    document.getElementById('erosionBar').style.width = progress + '%';
+                }
+            }
+
+            document.getElementById('erosionBar').style.width = '0%';
+            updateStats();
+            render();
+            if (callback) callback();
+        }
+
+        // Get biome based on temperature and moisture
+        function getBiome(height, temp, moist) {
+            if (height < 0.35) return { name: 'Ocean', color: [33, 150, 243] };
+            if (height < 0.38) return { name: 'Beach', color: [253, 216, 53] };
+
+            if (temp < 0.2) {
+                return { name: 'Snow', color: [255, 255, 255] };
+            } else if (temp < 0.35) {
+                return { name: 'Tundra', color: [224, 247, 250] };
+            } else if (temp > 0.7 && moist < 0.3) {
+                return { name: 'Desert', color: [244, 228, 193] };
+            } else if (moist < 0.35) {
+                return { name: 'Grassland', color: [139, 195, 74] };
+            } else if (moist < 0.6) {
+                return { name: 'Forest', color: [46, 125, 50] };
+            } else {
+                return { name: 'Rainforest', color: [27, 94, 32] };
+            }
+        }
+
+        // Color mapping functions
+        function getElevationColor(height) {
+            if (height < 0.35) {
+                const t = height / 0.35;
+                return [33 * t, 150 * t, 243 * t];
+            } else if (height < 0.38) {
+                return [253, 216, 53];
+            } else if (height < 0.5) {
+                const t = (height - 0.38) / 0.12;
+                return [34 + t * 88, 139 + t * 56, 34 + t * 40];
+            } else if (height < 0.7) {
+                const t = (height - 0.5) / 0.2;
+                return [122 - t * 22, 195 - t * 25, 74 - t * 9];
+            } else if (height < 0.85) {
+                const t = (height - 0.7) / 0.15;
+                return [100 + t * 55, 170 - t * 70, 65 - t * 40];
+            } else {
+                const t = (height - 0.85) / 0.15;
+                return [155 + t * 100, 100 + t * 155, 25 + t * 230];
+            }
+        }
+
+        function getMoistureColor(moist) {
+            return [0, 100 + moist * 155, 200 + moist * 55];
+        }
+
+        function getTemperatureColor(temp) {
+            if (temp < 0.5) {
+                const t = temp / 0.5;
+                return [100 + t * 155, 200 + t * 55, 255 - t * 55];
+            } else {
+                const t = (temp - 0.5) / 0.5;
+                return [255, 255 - t * 100, 200 - t * 200];
+            }
+        }
+
+        function getErosionColor(erosion) {
+            const val = Math.min(1, erosion * 50);
+            return [255 * val, 100 * (1 - val), 0];
+        }
+
+        // Render terrain
+        function render() {
+            const imageData = ctx.createImageData(SIZE, SIZE);
+            const data = imageData.data;
+
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const idx = y * SIZE + x;
+                    const height = heightmap[idx];
+                    const moist = moisture[idx];
+                    const temp = temperature[idx];
+                    const erosion = erosionMap[idx];
+
+                    let color;
+
+                    switch (colorMode) {
+                        case 'elevation':
+                            color = getElevationColor(height);
+                            break;
+                        case 'biome':
+                            color = getBiome(height, temp, moist).color;
+                            break;
+                        case 'moisture':
+                            color = getMoistureColor(moist);
+                            break;
+                        case 'temperature':
+                            color = getTemperatureColor(temp);
+                            break;
+                        case 'erosion':
+                            color = getErosionColor(erosion);
+                            break;
+                    }
+
+                    let pixelIdx;
+
+                    if (viewMode === 'top') {
+                        pixelIdx = (y * SIZE + x) * 4;
+                    } else if (viewMode === 'iso') {
+                        const isoX = Math.floor((x - y) * 0.5 + SIZE / 2);
+                        const isoY = Math.floor((x + y) * 0.25 + SIZE / 4 - height * 100);
+                        if (isoX >= 0 && isoX < SIZE && isoY >= 0 && isoY < SIZE) {
+                            pixelIdx = (isoY * SIZE + isoX) * 4;
+                        } else {
+                            continue;
+                        }
+                    } else if (viewMode === 'globe') {
+                        const centerX = SIZE / 2;
+                        const centerY = SIZE / 2;
+                        const dx = x - centerX;
+                        const dy = y - centerY;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const radius = SIZE / 2;
+
+                        if (dist > radius) continue;
+
+                        const longitude = Math.atan2(dy, dx);
+                        const latitude = Math.acos(dist / radius) - Math.PI / 2;
+
+                        const mapX = ((longitude + Math.PI) / (2 * Math.PI) * SIZE) % SIZE;
+                        const mapY = ((latitude + Math.PI / 2) / Math.PI * SIZE) % SIZE;
+
+                        const mapIdx = Math.floor(mapY) * SIZE + Math.floor(mapX);
+                        const mapHeight = heightmap[mapIdx];
+                        const mapMoist = moisture[mapIdx];
+                        const mapTemp = temperature[mapIdx];
+                        const mapErosion = erosionMap[mapIdx];
+
+                        switch (colorMode) {
+                            case 'elevation':
+                                color = getElevationColor(mapHeight);
+                                break;
+                            case 'biome':
+                                color = getBiome(mapHeight, mapTemp, mapMoist).color;
+                                break;
+                            case 'moisture':
+                                color = getMoistureColor(mapMoist);
+                                break;
+                            case 'temperature':
+                                color = getTemperatureColor(mapTemp);
+                                break;
+                            case 'erosion':
+                                color = getErosionColor(mapErosion);
+                                break;
+                        }
+
+                        const shading = 1 - dist / radius * 0.3;
+                        color = color.map(c => c * shading);
+
+                        pixelIdx = (y * SIZE + x) * 4;
+                    }
+
+                    if (pixelIdx !== undefined) {
+                        data[pixelIdx] = color[0];
+                        data[pixelIdx + 1] = color[1];
+                        data[pixelIdx + 2] = color[2];
+                        data[pixelIdx + 3] = 255;
+                    }
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            renderMinimap();
+        }
+
+        // Render minimap
+        function renderMinimap() {
+            const scale = 128 / SIZE;
+            const imageData = miniCtx.createImageData(128, 128);
+            const data = imageData.data;
+
+            for (let y = 0; y < 128; y++) {
+                for (let x = 0; x < 128; x++) {
+                    const srcX = Math.floor(x / scale);
+                    const srcY = Math.floor(y / scale);
+                    const idx = srcY * SIZE + srcX;
+                    const height = heightmap[idx];
+
+                    const color = getElevationColor(height);
+                    const pixelIdx = (y * 128 + x) * 4;
+                    data[pixelIdx] = color[0];
+                    data[pixelIdx + 1] = color[1];
+                    data[pixelIdx + 2] = color[2];
+                    data[pixelIdx + 3] = 255;
+                }
+            }
+
+            miniCtx.putImageData(imageData, 0, 0);
+        }
+
+        // Paint tool application
+        function applyTool(x, y) {
+            if (!currentTool || x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
+
+            for (let dy = -brushSize; dy <= brushSize; dy++) {
+                for (let dx = -brushSize; dx <= brushSize; dx++) {
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > brushSize) continue;
+
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE) continue;
+
+                    const idx = ny * SIZE + nx;
+                    const strength = brushStrength * (1 - dist / brushSize);
+
+                    switch (currentTool) {
+                        case 'raise':
+                            heightmap[idx] = Math.min(1, heightmap[idx] + strength);
+                            break;
+                        case 'lower':
+                            heightmap[idx] = Math.max(0, heightmap[idx] - strength);
+                            break;
+                        case 'water':
+                            moisture[idx] = Math.min(1, moisture[idx] + strength);
+                            break;
+                        case 'smooth':
+                            let sum = 0;
+                            let count = 0;
+                            for (let sy = -1; sy <= 1; sy++) {
+                                for (let sx = -1; sx <= 1; sx++) {
+                                    const sampleX = nx + sx;
+                                    const sampleY = ny + sy;
+                                    if (sampleX >= 0 && sampleX < SIZE && sampleY >= 0 && sampleY < SIZE) {
+                                        sum += heightmap[sampleY * SIZE + sampleX];
+                                        count++;
+                                    }
+                                }
+                            }
+                            heightmap[idx] = heightmap[idx] * (1 - strength) + (sum / count) * strength;
+                            break;
+                    }
+                }
+            }
+
+            render();
+        }
+
+        // Update stats display
+        function updateStats() {
+            let sum = 0;
+            for (let i = 0; i < heightmap.length; i++) {
+                sum += heightmap[i];
+            }
+            const avg = (sum / heightmap.length).toFixed(2);
+
+            document.getElementById('stats').innerHTML = `
+                <div><strong>Size:</strong> ${SIZE} × ${SIZE}</div>
+                <div><strong>Avg Height:</strong> ${avg}</div>
+                <div><strong>Erosion Drops:</strong> ${totalErosionDrops.toLocaleString()}</div>
+            `;
+        }
+
+        // Event listeners
+        document.getElementById('generateBtn').addEventListener('click', () => {
+            seed = parseInt(document.getElementById('seedInput').value) || Math.floor(Math.random() * 1000000);
+            document.getElementById('seedInput').value = seed;
+            generateTerrain();
+            render();
+        });
+
+        document.getElementById('erosionBtn').addEventListener('click', () => {
+            simulateErosion(1000);
+        });
+
+        document.getElementById('erosionFastBtn').addEventListener('click', () => {
+            simulateErosion(10000);
+        });
+
+        document.getElementById('octaves').addEventListener('input', (e) => {
+            octaves = parseInt(e.target.value);
+            document.getElementById('octavesVal').textContent = octaves;
+        });
+
+        document.getElementById('roughness').addEventListener('input', (e) => {
+            roughness = parseFloat(e.target.value);
+            document.getElementById('roughnessVal').textContent = roughness.toFixed(2);
+        });
+
+        document.getElementById('erosionStrength').addEventListener('input', (e) => {
+            erosionStrength = parseFloat(e.target.value);
+            document.getElementById('erosionStrengthVal').textContent = erosionStrength.toFixed(2);
+        });
+
+        document.getElementById('evaporation').addEventListener('input', (e) => {
+            evaporation = parseFloat(e.target.value);
+            document.getElementById('evaporationVal').textContent = evaporation.toFixed(2);
+        });
+
+        document.getElementById('temperature').addEventListener('input', (e) => {
+            climateTemp = parseInt(e.target.value);
+            document.getElementById('temperatureVal').textContent = climateTemp + '°C';
+            generateTerrain();
+            render();
+        });
+
+        document.getElementById('rainfall').addEventListener('input', (e) => {
+            climateRainfall = parseInt(e.target.value);
+            document.getElementById('rainfallVal').textContent = climateRainfall + '%';
+            generateTerrain();
+            render();
+        });
+
+        document.getElementById('brushSize').addEventListener('input', (e) => {
+            brushSize = parseInt(e.target.value);
+            document.getElementById('brushSizeVal').textContent = brushSize;
+        });
+
+        document.getElementById('brushStrength').addEventListener('input', (e) => {
+            brushStrength = parseFloat(e.target.value);
+            document.getElementById('brushStrengthVal').textContent = brushStrength.toFixed(2);
+        });
+
+        // Tool buttons
+        const toolButtons = ['raiseTool', 'lowerTool', 'waterTool', 'smoothTool'];
+        toolButtons.forEach(id => {
+            document.getElementById(id).addEventListener('click', (e) => {
+                toolButtons.forEach(btnId => {
+                    document.getElementById(btnId).classList.remove('active');
+                });
+                e.target.classList.add('active');
+                currentTool = id.replace('Tool', '');
+            });
+        });
+
+        // View mode buttons
+        const viewButtons = [
+            { id: 'viewTop', mode: 'top' },
+            { id: 'viewIso', mode: 'iso' },
+            { id: 'viewGlobe', mode: 'globe' }
+        ];
+        viewButtons.forEach(({ id, mode }) => {
+            document.getElementById(id).addEventListener('click', (e) => {
+                viewButtons.forEach(({ id }) => {
+                    document.getElementById(id).classList.remove('active');
+                });
+                e.target.classList.add('active');
+                viewMode = mode;
+                ctx.fillStyle = '#0a0a1a';
+                ctx.fillRect(0, 0, SIZE, SIZE);
+                render();
+            });
+        });
+
+        // Color mode buttons
+        const colorButtons = [
+            { id: 'colorElevation', mode: 'elevation' },
+            { id: 'colorBiome', mode: 'biome' },
+            { id: 'colorMoisture', mode: 'moisture' },
+            { id: 'colorTemperature', mode: 'temperature' },
+            { id: 'colorErosion', mode: 'erosion' }
+        ];
+        colorButtons.forEach(({ id, mode }) => {
+            document.getElementById(id).addEventListener('click', (e) => {
+                colorButtons.forEach(({ id }) => {
+                    document.getElementById(id).classList.remove('active');
+                });
+                e.target.classList.add('active');
+                colorMode = mode;
+                document.getElementById('biomeLegend').style.display = mode === 'biome' ? 'grid' : 'none';
+                render();
+            });
+        });
+
+        // Canvas interaction
+        let isDrawing = false;
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / rect.width * SIZE);
+            const y = Math.floor((e.clientY - rect.top) / rect.height * SIZE);
+            applyTool(x, y);
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / rect.width * SIZE);
+            const y = Math.floor((e.clientY - rect.top) / rect.height * SIZE);
+            applyTool(x, y);
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDrawing = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDrawing = false;
+        });
+
+        // Export heightmap
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = SIZE;
+            exportCanvas.height = SIZE;
+            const exportCtx = exportCanvas.getContext('2d');
+            const imageData = exportCtx.createImageData(SIZE, SIZE);
+            const data = imageData.data;
+
+            for (let i = 0; i < heightmap.length; i++) {
+                const val = Math.floor(heightmap[i] * 255);
+                data[i * 4] = val;
+                data[i * 4 + 1] = val;
+                data[i * 4 + 2] = val;
+                data[i * 4 + 3] = 255;
+            }
+
+            exportCtx.putImageData(imageData, 0, 0);
+
+            exportCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'terraformer-heightmap.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        });
+
+        // Initialize
+        generateTerrain();
+        render();
+    </script>
+</body>
+</html>

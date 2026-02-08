@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="3d_immersive">
+<meta name="rappterzoo:tags" content="canvas,webgl,3d,game,space,mining,procedural">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Asteroid Miner 3D</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  color: #c0d0e0;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+canvas { display: block; }
+#hud {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.8), transparent);
+  z-index: 10;
+  pointer-events: none;
+  font-size: 13px;
+}
+.hud-left, .hud-right { display: flex; gap: 20px; }
+.hud-item { display: flex; flex-direction: column; align-items: center; }
+.hud-label { font-size: 10px; color: #607090; text-transform: uppercase; }
+.hud-value { font-size: 16px; font-weight: bold; }
+.hud-value.credits { color: #ffd060; }
+.hud-value.fuel { color: #60c0ff; }
+.hud-value.hull { color: #60ff90; }
+.hud-value.cargo { color: #ff9060; }
+.hud-value.depth { color: #c060ff; }
+
+#crosshair {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px; height: 30px;
+  z-index: 10;
+  pointer-events: none;
+}
+#crosshair::before, #crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(96, 192, 255, 0.6);
+}
+#crosshair::before { top: 0; left: 50%; width: 2px; height: 100%; transform: translateX(-50%); }
+#crosshair::after { top: 50%; left: 0; width: 100%; height: 2px; transform: translateY(-50%); }
+
+#mining-bar {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 8px;
+  background: #1a2030;
+  border-radius: 4px;
+  z-index: 10;
+  display: none;
+}
+#mining-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #60c0ff, #c060ff);
+  border-radius: 4px;
+  transition: width 0.1s;
+}
+
+#inventory {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0,0,0,0.8);
+  border: 1px solid #203040;
+  border-radius: 8px;
+  padding: 12px;
+  z-index: 10;
+  display: none;
+  width: 200px;
+}
+#inventory h3 { font-size: 12px; color: #607090; margin-bottom: 8px; }
+.inv-item {
+  display: flex; justify-content: space-between;
+  padding: 4px 0; font-size: 12px; border-bottom: 1px solid #1a2030;
+}
+.inv-name { color: #c0d0e0; }
+.inv-count { color: #ffd060; }
+
+#menu-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.95);
+  z-index: 100;
+}
+#menu-screen h1 {
+  font-size: 42px;
+  background: linear-gradient(90deg, #60c0ff, #c060ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 8px;
+}
+.menu-sub { color: #607090; font-size: 14px; margin-bottom: 24px; }
+.menu-btn {
+  padding: 12px 36px;
+  margin: 6px;
+  background: linear-gradient(135deg, #102030, #0a1520);
+  border: 1px solid #304060;
+  border-radius: 8px;
+  color: #c0d0e0;
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.menu-btn:hover {
+  background: linear-gradient(135deg, #203050, #102030);
+  border-color: #60c0ff;
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(96, 192, 255, 0.2);
+}
+.diff-row { display: flex; gap: 8px; margin: 12px 0; }
+.diff-btn {
+  padding: 6px 16px;
+  background: #0a1520;
+  border: 1px solid #203040;
+  border-radius: 6px;
+  color: #607090;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.diff-btn:hover { border-color: #60c0ff; color: #c0d0e0; }
+.diff-btn.selected { background: #203050; border-color: #60c0ff; color: #60c0ff; }
+.controls-info { font-size: 11px; color: #405060; margin-top: 20px; line-height: 1.8; text-align: center; }
+#scores-display { font-size: 11px; color: #405060; margin-top: 12px; }
+
+#gameover {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.9);
+  z-index: 100;
+}
+#gameover h2 { font-size: 32px; color: #ff6060; margin-bottom: 16px; }
+#gameover-stats { font-size: 13px; color: #607090; line-height: 2; margin-bottom: 20px; }
+
+#pause-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.85);
+  z-index: 100;
+}
+#pause-screen h2 { color: #60c0ff; font-size: 28px; margin-bottom: 20px; }
+
+#notification {
+  position: fixed;
+  top: 60px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.9);
+  border: 1px solid #304060;
+  border-radius: 8px;
+  padding: 8px 20px;
+  z-index: 20;
+  font-size: 13px;
+  display: none;
+  transition: opacity 0.3s;
+}
+
+@media (max-width: 600px) {
+  .hud-left, .hud-right { gap: 10px; }
+  .hud-value { font-size: 13px; }
+}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="crosshair"></div>
+
+<div id="hud" style="display:none">
+  <div class="hud-left">
+    <div class="hud-item"><span class="hud-label">Credits</span><span class="hud-value credits" id="hud-credits">0</span></div>
+    <div class="hud-item"><span class="hud-label">Fuel</span><span class="hud-value fuel" id="hud-fuel">100%</span></div>
+    <div class="hud-item"><span class="hud-label">Hull</span><span class="hud-value hull" id="hud-hull">100%</span></div>
+  </div>
+  <div class="hud-right">
+    <div class="hud-item"><span class="hud-label">Cargo</span><span class="hud-value cargo" id="hud-cargo">0/50</span></div>
+    <div class="hud-item"><span class="hud-label">Sector</span><span class="hud-value depth" id="hud-sector">1</span></div>
+    <div class="hud-item"><span class="hud-label">Score</span><span class="hud-value" id="hud-score">0</span></div>
+  </div>
+</div>
+
+<div id="mining-bar"><div id="mining-fill" style="width:0%"></div></div>
+<div id="inventory"></div>
+<div id="notification"></div>
+
+<div id="menu-screen">
+  <h1>Asteroid Miner 3D</h1>
+  <div class="menu-sub">Mine. Trade. Survive.</div>
+  <div class="diff-row">
+    <button class="diff-btn" onclick="setDiff('easy')">Easy</button>
+    <button class="diff-btn selected" onclick="setDiff('normal')">Normal</button>
+    <button class="diff-btn" onclick="setDiff('hard')">Hard</button>
+  </div>
+  <button class="menu-btn" onclick="startGame()">Launch</button>
+  <div id="scores-display"></div>
+  <div class="controls-info">
+    WASD - Fly | Mouse - Look | Click - Mine<br>
+    E - Inventory | Q - Sell cargo | Space - Boost<br>
+    ESC - Pause | R - Restart
+  </div>
+</div>
+
+<div id="gameover">
+  <h2 id="go-title">Ship Destroyed</h2>
+  <div id="gameover-stats"></div>
+  <button class="menu-btn" onclick="startGame()">Relaunch</button>
+  <button class="menu-btn" onclick="showMenu()">Menu</button>
+</div>
+
+<div id="pause-screen">
+  <h2>Paused</h2>
+  <button class="menu-btn" onclick="resumeGame()">Resume</button>
+  <button class="menu-btn" onclick="showMenu()">Quit</button>
+</div>
+
+<script>
+// ================================================================
+// ASTEROID MINER 3D — WebGL Space Mining Game
+// ================================================================
+
+const canvas = document.getElementById('gameCanvas');
+const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+
+if (!gl) {
+  document.body.innerHTML = '<div style="color:#ff6060;padding:40px;text-align:center">WebGL not supported. Please use a modern browser.</div>';
+}
+
+// --- Audio Engine ---
+class SpaceAudio {
+  constructor() {
+    this.ctx = null;
+    this.initialized = false;
+  }
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.initialized = true;
+    } catch(e) {}
+  }
+  play(freq, dur, type, vol) {
+    if (!this.ctx) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(vol || 0.05, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(); o.stop(this.ctx.currentTime + dur);
+  }
+  mine() { this.play(200 + Math.random() * 100, 0.1, 'square', 0.04); }
+  collect() { this.play(880, 0.08, 'sine', 0.05); setTimeout(() => this.play(1100, 0.1, 'sine', 0.04), 60); }
+  sell() {
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.play(f, 0.15, 'sine', 0.04), i * 60));
+  }
+  hit() { this.play(80, 0.2, 'sawtooth', 0.08); }
+  boost() { this.play(100, 0.3, 'sawtooth', 0.03); }
+  warning() { this.play(300, 0.15, 'square', 0.06); setTimeout(() => this.play(300, 0.15, 'square', 0.06), 200); }
+  death() { [300, 250, 200, 150, 100].forEach((f, i) => setTimeout(() => this.play(f, 0.3, 'sawtooth', 0.06), i * 100)); }
+  engine() { this.play(40 + Math.random() * 10, 0.1, 'sawtooth', 0.01); }
+}
+const audio = new SpaceAudio();
+
+// --- WebGL Shader Setup ---
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+function createProgram(gl, vs, fs) {
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(program));
+    return null;
+  }
+  return program;
+}
+
+// Vertex shader
+const vsSource = `
+  attribute vec3 aPosition;
+  attribute vec3 aNormal;
+  attribute vec3 aColor;
+  uniform mat4 uProjection;
+  uniform mat4 uView;
+  uniform mat4 uModel;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  varying vec3 vWorldPos;
+  void main() {
+    vec4 worldPos = uModel * vec4(aPosition, 1.0);
+    gl_Position = uProjection * uView * worldPos;
+    vColor = aColor;
+    vNormal = mat3(uModel) * aNormal;
+    vWorldPos = worldPos.xyz;
+    gl_PointSize = 3.0;
+  }
+`;
+
+// Fragment shader
+const fsSource = `
+  precision mediump float;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  varying vec3 vWorldPos;
+  uniform vec3 uLightDir;
+  uniform vec3 uCameraPos;
+  uniform float uAmbient;
+  uniform float uFogDensity;
+  void main() {
+    vec3 normal = normalize(vNormal);
+    float diffuse = max(dot(normal, normalize(uLightDir)), 0.0);
+    vec3 viewDir = normalize(uCameraPos - vWorldPos);
+    vec3 halfDir = normalize(normalize(uLightDir) + viewDir);
+    float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
+    vec3 color = vColor * (uAmbient + diffuse * 0.7) + vec3(1.0) * spec * 0.2;
+    float dist = length(uCameraPos - vWorldPos);
+    float fog = exp(-dist * uFogDensity);
+    color = mix(vec3(0.0, 0.01, 0.03), color, fog);
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+const program = createProgram(gl, vs, fs);
+
+const aPosition = gl.getAttribLocation(program, 'aPosition');
+const aNormal = gl.getAttribLocation(program, 'aNormal');
+const aColor = gl.getAttribLocation(program, 'aColor');
+const uProjection = gl.getUniformLocation(program, 'uProjection');
+const uView = gl.getUniformLocation(program, 'uView');
+const uModel = gl.getUniformLocation(program, 'uModel');
+const uLightDir = gl.getUniformLocation(program, 'uLightDir');
+const uCameraPos = gl.getUniformLocation(program, 'uCameraPos');
+const uAmbient = gl.getUniformLocation(program, 'uAmbient');
+const uFogDensity = gl.getUniformLocation(program, 'uFogDensity');
+
+// --- Matrix Math ---
+function mat4Identity() { return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
+
+function mat4Perspective(fov, aspect, near, far) {
+  const f = 1 / Math.tan(fov / 2);
+  const nf = 1 / (near - far);
+  return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0];
+}
+
+function mat4LookAt(eye, center, up) {
+  let zx = eye[0]-center[0], zy = eye[1]-center[1], zz = eye[2]-center[2];
+  let len = Math.sqrt(zx*zx+zy*zy+zz*zz);
+  zx/=len; zy/=len; zz/=len;
+  let xx = up[1]*zz-up[2]*zy, xy = up[2]*zx-up[0]*zz, xz = up[0]*zy-up[1]*zx;
+  len = Math.sqrt(xx*xx+xy*xy+xz*xz);
+  xx/=len; xy/=len; xz/=len;
+  let yx = zy*xz-zz*xy, yy = zz*xx-zx*xz, yz = zx*xy-zy*xx;
+  return [xx,yx,zx,0, xy,yy,zy,0, xz,yz,zz,0,
+    -(xx*eye[0]+xy*eye[1]+xz*eye[2]),
+    -(yx*eye[0]+yy*eye[1]+yz*eye[2]),
+    -(zx*eye[0]+zy*eye[1]+zz*eye[2]), 1];
+}
+
+function mat4Translate(m, x, y, z) {
+  const r = [...m];
+  r[12] = m[0]*x+m[4]*y+m[8]*z+m[12];
+  r[13] = m[1]*x+m[5]*y+m[9]*z+m[13];
+  r[14] = m[2]*x+m[6]*y+m[10]*z+m[14];
+  return r;
+}
+
+function mat4Scale(m, sx, sy, sz) {
+  const r = [...m];
+  r[0]*=sx; r[1]*=sx; r[2]*=sx; r[3]*=sx;
+  r[4]*=sy; r[5]*=sy; r[6]*=sy; r[7]*=sy;
+  r[8]*=sz; r[9]*=sz; r[10]*=sz; r[11]*=sz;
+  return r;
+}
+
+function mat4RotateY(m, a) {
+  const c=Math.cos(a), s=Math.sin(a);
+  const r = [...m];
+  const m0=m[0],m1=m[1],m2=m[2],m3=m[3];
+  const m8=m[8],m9=m[9],m10=m[10],m11=m[11];
+  r[0]=m0*c+m8*s; r[1]=m1*c+m9*s; r[2]=m2*c+m10*s; r[3]=m3*c+m11*s;
+  r[8]=m8*c-m0*s; r[9]=m9*c-m1*s; r[10]=m10*c-m2*s; r[11]=m11*c-m3*s;
+  return r;
+}
+
+// --- Geometry Generation ---
+function createSphere(radius, segments, color) {
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+
+  for (let lat = 0; lat <= segments; lat++) {
+    const theta = lat * Math.PI / segments;
+    const sinT = Math.sin(theta);
+    const cosT = Math.cos(theta);
+
+    for (let lon = 0; lon <= segments; lon++) {
+      const phi = lon * 2 * Math.PI / segments;
+      const x = sinT * Math.cos(phi);
+      const y = cosT;
+      const z = sinT * Math.sin(phi);
+
+      positions.push(x * radius, y * radius, z * radius);
+      normals.push(x, y, z);
+      colors.push(color[0] + (Math.random() - 0.5) * 0.1,
+                   color[1] + (Math.random() - 0.5) * 0.1,
+                   color[2] + (Math.random() - 0.5) * 0.1);
+    }
+  }
+
+  for (let lat = 0; lat < segments; lat++) {
+    for (let lon = 0; lon < segments; lon++) {
+      const a = lat * (segments + 1) + lon;
+      const b = a + segments + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+
+  return createBuffers(positions, normals, colors, indices);
+}
+
+function createAsteroid(radius, detail, color) {
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const indices = [];
+  const seg = detail;
+
+  for (let lat = 0; lat <= seg; lat++) {
+    const theta = lat * Math.PI / seg;
+    const sinT = Math.sin(theta);
+    const cosT = Math.cos(theta);
+
+    for (let lon = 0; lon <= seg; lon++) {
+      const phi = lon * 2 * Math.PI / seg;
+      const x = sinT * Math.cos(phi);
+      const y = cosT;
+      const z = sinT * Math.sin(phi);
+
+      // Noisy radius for asteroid look
+      const noise = 0.7 + Math.random() * 0.6;
+      const r = radius * noise;
+
+      positions.push(x * r, y * r, z * r);
+      normals.push(x, y, z);
+      colors.push(color[0] * noise, color[1] * noise, color[2] * noise);
+    }
+  }
+
+  for (let lat = 0; lat < seg; lat++) {
+    for (let lon = 0; lon < seg; lon++) {
+      const a = lat * (seg + 1) + lon;
+      const b = a + seg + 1;
+      indices.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+
+  return createBuffers(positions, normals, colors, indices);
+}
+
+function createBuffers(positions, normals, colors, indices) {
+  const posBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+  const normBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, normBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+
+  const colBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+
+  const idxBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+  return { posBuf, normBuf, colBuf, idxBuf, count: indices.length };
+}
+
+function createStars(count) {
+  const positions = [];
+  const normals = [];
+  const colors = [];
+
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 500 + Math.random() * 500;
+    positions.push(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.sin(phi) * Math.sin(theta),
+      r * Math.cos(phi)
+    );
+    normals.push(0, 1, 0);
+    const b = 0.5 + Math.random() * 0.5;
+    colors.push(b, b, b + Math.random() * 0.2);
+  }
+
+  const posBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+  const normBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, normBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+  const colBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+
+  return { posBuf, normBuf, colBuf, count, isPoints: true };
+}
+
+// --- Ore Types ---
+const ORE_TYPES = [
+  { name: 'Iron', color: [0.5, 0.4, 0.3], value: 10, rarity: 0.4 },
+  { name: 'Copper', color: [0.7, 0.4, 0.2], value: 15, rarity: 0.25 },
+  { name: 'Silver', color: [0.7, 0.7, 0.75], value: 30, rarity: 0.15 },
+  { name: 'Gold', color: [0.9, 0.7, 0.2], value: 50, rarity: 0.1 },
+  { name: 'Platinum', color: [0.85, 0.85, 0.9], value: 80, rarity: 0.06 },
+  { name: 'Iridium', color: [0.6, 0.3, 0.8], value: 150, rarity: 0.03 },
+  { name: 'Dark Matter', color: [0.2, 0.1, 0.4], value: 500, rarity: 0.01 }
+];
+
+// --- Game State ---
+let gameState = 'menu';
+let difficulty = 'normal';
+let diffMult = 1;
+
+let playerPos, playerRot, playerVel;
+let fuel, hull, maxHull, credits, score;
+let cargo, maxCargo, inventory;
+let sector, totalMined, totalSold;
+let asteroids, particles, miningTarget, miningProgress;
+let starsMesh, asteroidMeshes;
+let screenShake = { x: 0, y: 0, intensity: 0 };
+let notifTimer = 0;
+
+// Camera
+let yaw = 0, pitch = 0;
+let mouseLocked = false;
+
+// --- Input ---
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (gameState === 'playing') {
+    if (e.key === 'Escape') pauseGame();
+    if (e.key === 'e') toggleInventory();
+    if (e.key === 'q') sellCargo();
+    if (e.key === 'r' || e.key === 'R') startGame();
+  }
+  if (gameState === 'gameover' && (e.key === 'r' || e.key === 'R')) startGame();
+});
+document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+canvas.addEventListener('click', () => {
+  if (gameState === 'playing' && !mouseLocked) {
+    canvas.requestPointerLock();
+  }
+});
+
+document.addEventListener('pointerlockchange', () => {
+  mouseLocked = document.pointerLockElement === canvas;
+});
+
+document.addEventListener('mousemove', e => {
+  if (!mouseLocked || gameState !== 'playing') return;
+  yaw -= e.movementX * 0.002;
+  pitch -= e.movementY * 0.002;
+  pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+});
+
+canvas.addEventListener('mousedown', e => {
+  audio.init();
+  if (gameState === 'playing' && e.button === 0) {
+    startMining();
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (e.button === 0) stopMining();
+});
+
+// Touch support
+let touchStartX = 0, touchStartY = 0;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  audio.init();
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+  if (gameState === 'playing') startMining();
+});
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const dx = e.touches[0].clientX - touchStartX;
+  const dy = e.touches[0].clientY - touchStartY;
+  yaw -= dx * 0.005;
+  pitch -= dy * 0.005;
+  pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+});
+canvas.addEventListener('touchend', () => { stopMining(); });
+
+// --- Difficulty ---
+function setDiff(d) {
+  difficulty = d;
+  diffMult = { easy: 0.6, normal: 1, hard: 1.5 }[d] || 1;
+  document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector(`.diff-btn:nth-child(${d==='easy'?1:d==='normal'?2:3})`).classList.add('selected');
+}
+
+// --- Game Init ---
+function initGame() {
+  playerPos = [0, 0, 0];
+  playerVel = [0, 0, 0];
+  yaw = 0;
+  pitch = 0;
+
+  fuel = 100;
+  hull = 100;
+  maxHull = 100;
+  credits = 0;
+  score = 0;
+  cargo = 0;
+  maxCargo = 50;
+  inventory = {};
+  sector = 1;
+  totalMined = 0;
+  totalSold = 0;
+  miningTarget = null;
+  miningProgress = 0;
+
+  asteroids = [];
+  particles = [];
+
+  generateSector();
+
+  // Create star field
+  starsMesh = createStars(2000);
+  // Create reusable asteroid meshes (one per ore type)
+  asteroidMeshes = ORE_TYPES.map((ore, i) => createAsteroid(1, 6, ore.color));
+}
+
+function generateSector() {
+  asteroids = [];
+  const count = 15 + sector * 3;
+
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 20 + Math.random() * 80;
+    const x = Math.cos(angle) * dist;
+    const z = Math.sin(angle) * dist;
+    const y = (Math.random() - 0.5) * 40;
+
+    // Determine ore type based on rarity
+    let oreType = 0;
+    const roll = Math.random();
+    let cumulative = 0;
+    for (let t = 0; t < ORE_TYPES.length; t++) {
+      cumulative += ORE_TYPES[t].rarity;
+      if (roll < cumulative) { oreType = t; break; }
+    }
+
+    // Rarer ores more common in deeper sectors
+    if (sector > 3 && Math.random() < 0.1 * sector) {
+      oreType = Math.min(ORE_TYPES.length - 1, oreType + 1);
+    }
+
+    const size = 1 + Math.random() * 3;
+    const hp = Math.ceil(size * 3);
+
+    asteroids.push({
+      x, y, z,
+      size,
+      oreType,
+      hp,
+      maxHp: hp,
+      rotSpeed: (Math.random() - 0.5) * 0.5,
+      rotation: Math.random() * Math.PI * 2,
+      orbitSpeed: (Math.random() - 0.5) * 0.1,
+      orbitAngle: angle,
+      orbitDist: dist,
+      flash: 0
+    });
+  }
+
+  // Hazards in later sectors
+  if (sector > 2) {
+    // Add some fast-moving debris
+    for (let i = 0; i < sector; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      asteroids.push({
+        x: Math.cos(angle) * 50,
+        y: (Math.random() - 0.5) * 20,
+        z: Math.sin(angle) * 50,
+        size: 0.5 + Math.random(),
+        oreType: 0,
+        hp: 1, maxHp: 1,
+        rotSpeed: Math.random() * 2,
+        rotation: 0,
+        orbitSpeed: (Math.random() - 0.5) * 0.5,
+        orbitAngle: angle,
+        orbitDist: 30 + Math.random() * 40,
+        isDebris: true,
+        flash: 0
+      });
+    }
+  }
+}
+
+// --- Mining ---
+let isMining = false;
+
+function startMining() {
+  isMining = true;
+}
+
+function stopMining() {
+  isMining = false;
+  miningProgress = 0;
+  document.getElementById('mining-bar').style.display = 'none';
+}
+
+function updateMining(dt) {
+  if (!isMining || gameState !== 'playing') return;
+
+  // Find closest asteroid in crosshair
+  const forward = getForwardDir();
+  let closest = null;
+  let closestDist = 15; // Mining range
+
+  asteroids.forEach(ast => {
+    const dx = ast.x - playerPos[0];
+    const dy = ast.y - playerPos[1];
+    const dz = ast.z - playerPos[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (dist > closestDist) return;
+
+    // Check if in crosshair (dot product with forward)
+    const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+    const dot = nx * forward[0] + ny * forward[1] + nz * forward[2];
+    if (dot > 0.95) {
+      closestDist = dist;
+      closest = ast;
+    }
+  });
+
+  if (closest) {
+    miningTarget = closest;
+    miningProgress += dt * (1.5 - difficulty === 'hard' ? 0.5 : 0);
+    document.getElementById('mining-bar').style.display = 'block';
+    document.getElementById('mining-fill').style.width = (miningProgress / 1.5 * 100) + '%';
+
+    audio.mine();
+
+    // Spawn mining particles
+    spawnParticles(closest.x, closest.y, closest.z, ORE_TYPES[closest.oreType].color, 2);
+
+    if (miningProgress >= 1.5) {
+      // Mine successful
+      closest.hp--;
+      closest.flash = 0.3;
+      miningProgress = 0;
+
+      if (cargo < maxCargo) {
+        const ore = ORE_TYPES[closest.oreType];
+        inventory[ore.name] = (inventory[ore.name] || 0) + 1;
+        cargo++;
+        totalMined++;
+        score += ore.value;
+        audio.collect();
+        notify('+1 ' + ore.name + ' ($' + ore.value + ')');
+        spawnParticles(closest.x, closest.y, closest.z, ore.color, 15);
+      } else {
+        notify('Cargo full! Press Q to sell.', '#ff6060');
+      }
+
+      if (closest.hp <= 0) {
+        // Asteroid destroyed
+        spawnParticles(closest.x, closest.y, closest.z, ORE_TYPES[closest.oreType].color, 30);
+        asteroids = asteroids.filter(a => a !== closest);
+        screenShake.intensity = 5;
+
+        // Check if all asteroids mined
+        if (asteroids.filter(a => !a.isDebris).length === 0) {
+          nextSector();
+        }
+      }
+    }
+  } else {
+    miningTarget = null;
+    miningProgress = 0;
+    document.getElementById('mining-bar').style.display = 'none';
+  }
+}
+
+function getForwardDir() {
+  return [
+    -Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    -Math.cos(yaw) * Math.cos(pitch)
+  ];
+}
+
+function sellCargo() {
+  if (cargo === 0) { notify('No cargo to sell!', '#ff6060'); return; }
+
+  let total = 0;
+  Object.entries(inventory).forEach(([name, count]) => {
+    const ore = ORE_TYPES.find(o => o.name === name);
+    if (ore) total += ore.value * count;
+  });
+
+  credits += total;
+  score += Math.floor(total / 2);
+  totalSold += cargo;
+  inventory = {};
+  cargo = 0;
+  audio.sell();
+  notify('Sold cargo for $' + total + '!', '#ffd060');
+
+  // Upgrade options at certain thresholds
+  if (credits >= 200 && maxCargo === 50) {
+    maxCargo = 75;
+    notify('Cargo expanded to 75!', '#60c0ff');
+  }
+  if (credits >= 500 && maxHull === 100) {
+    maxHull = 150;
+    hull = maxHull;
+    notify('Hull upgraded to 150!', '#60ff90');
+  }
+}
+
+function nextSector() {
+  sector++;
+  score += 100 * sector;
+  audio.sell();
+  notify('Entering Sector ' + sector + '!', '#c060ff');
+  fuel = Math.min(100, fuel + 20);
+  generateSector();
+}
+
+// --- Player Movement ---
+function updatePlayer(dt) {
+  const forward = getForwardDir();
+  const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
+  const speed = keys[' '] ? 25 : 12; // Boost
+  let thrust = false;
+
+  if (keys['w']) {
+    playerVel[0] += forward[0] * speed * dt;
+    playerVel[1] += forward[1] * speed * dt;
+    playerVel[2] += forward[2] * speed * dt;
+    thrust = true;
+  }
+  if (keys['s']) {
+    playerVel[0] -= forward[0] * speed * 0.5 * dt;
+    playerVel[1] -= forward[1] * speed * 0.5 * dt;
+    playerVel[2] -= forward[2] * speed * 0.5 * dt;
+    thrust = true;
+  }
+  if (keys['a']) {
+    playerVel[0] -= right[0] * speed * 0.7 * dt;
+    playerVel[2] -= right[2] * speed * 0.7 * dt;
+    thrust = true;
+  }
+  if (keys['d']) {
+    playerVel[0] += right[0] * speed * 0.7 * dt;
+    playerVel[2] += right[2] * speed * 0.7 * dt;
+    thrust = true;
+  }
+
+  // Fuel consumption
+  if (thrust) {
+    fuel -= dt * (keys[' '] ? 3 : 1) * diffMult;
+    if (Math.random() < 0.1) audio.engine();
+    if (keys[' '] && Math.random() < 0.3) {
+      audio.boost();
+      spawnParticles(
+        playerPos[0] - forward[0] * 2,
+        playerPos[1] - forward[1] * 2,
+        playerPos[2] - forward[2] * 2,
+        [0.3, 0.5, 1.0], 3
+      );
+    }
+  }
+
+  // Drag
+  playerVel[0] *= 0.97;
+  playerVel[1] *= 0.97;
+  playerVel[2] *= 0.97;
+
+  // Apply velocity
+  playerPos[0] += playerVel[0] * dt;
+  playerPos[1] += playerVel[1] * dt;
+  playerPos[2] += playerVel[2] * dt;
+
+  // Collision with asteroids
+  asteroids.forEach(ast => {
+    const dx = ast.x - playerPos[0];
+    const dy = ast.y - playerPos[1];
+    const dz = ast.z - playerPos[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const minDist = ast.size + 1;
+
+    if (dist < minDist) {
+      // Push away
+      const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+      playerPos[0] -= nx * (minDist - dist);
+      playerPos[1] -= ny * (minDist - dist);
+      playerPos[2] -= nz * (minDist - dist);
+
+      // Damage based on speed
+      const speed = Math.sqrt(playerVel[0]**2 + playerVel[1]**2 + playerVel[2]**2);
+      if (speed > 5) {
+        const dmg = Math.ceil(speed * diffMult);
+        hull -= dmg;
+        audio.hit();
+        screenShake.intensity = 8;
+        spawnParticles(playerPos[0], playerPos[1], playerPos[2], [1, 0.5, 0.2], 10);
+      }
+
+      // Bounce
+      const dot = playerVel[0]*nx + playerVel[1]*ny + playerVel[2]*nz;
+      playerVel[0] -= 2 * dot * nx;
+      playerVel[1] -= 2 * dot * ny;
+      playerVel[2] -= 2 * dot * nz;
+      playerVel[0] *= 0.5;
+      playerVel[1] *= 0.5;
+      playerVel[2] *= 0.5;
+    }
+  });
+
+  // Check death conditions
+  if (fuel <= 0) {
+    fuel = 0;
+    notify('Out of fuel!', '#ff6060');
+    audio.warning();
+  }
+  if (hull <= 0) {
+    gameOver();
+  }
+}
+
+// --- Particles ---
+function spawnParticles(x, y, z, color, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y, z,
+      vx: (Math.random() - 0.5) * 10,
+      vy: (Math.random() - 0.5) * 10,
+      vz: (Math.random() - 0.5) * 10,
+      life: 0.5 + Math.random() * 0.5,
+      color,
+      size: 0.1 + Math.random() * 0.2
+    });
+  }
+}
+
+function updateParticles(dt) {
+  particles = particles.filter(p => {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.z += p.vz * dt;
+    p.life -= dt;
+    return p.life > 0;
+  });
+}
+
+// --- Notifications ---
+function notify(text, color) {
+  const el = document.getElementById('notification');
+  el.textContent = text;
+  el.style.color = color || '#c0d0e0';
+  el.style.display = 'block';
+  el.style.opacity = '1';
+  notifTimer = 2;
+}
+
+// --- Game State Management ---
+function startGame() {
+  audio.init();
+  gameState = 'playing';
+  initGame();
+  document.getElementById('menu-screen').style.display = 'none';
+  document.getElementById('gameover').style.display = 'none';
+  document.getElementById('pause-screen').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  canvas.requestPointerLock();
+}
+
+function pauseGame() {
+  if (gameState !== 'playing') return;
+  gameState = 'paused';
+  document.getElementById('pause-screen').style.display = 'flex';
+  document.exitPointerLock();
+}
+
+function resumeGame() {
+  gameState = 'playing';
+  document.getElementById('pause-screen').style.display = 'none';
+  canvas.requestPointerLock();
+}
+
+function showMenu() {
+  gameState = 'menu';
+  document.getElementById('menu-screen').style.display = 'flex';
+  document.getElementById('gameover').style.display = 'none';
+  document.getElementById('pause-screen').style.display = 'none';
+  document.getElementById('hud').style.display = 'none';
+  document.exitPointerLock();
+  loadScores();
+}
+
+function gameOver() {
+  gameState = 'gameover';
+  audio.death();
+  document.getElementById('gameover').style.display = 'flex';
+  document.getElementById('go-title').textContent = hull <= 0 ? 'Ship Destroyed' : 'Stranded in Space';
+  document.getElementById('gameover-stats').innerHTML = `
+    Score: ${score}<br>
+    Credits: $${credits}<br>
+    Sectors explored: ${sector}<br>
+    Ores mined: ${totalMined}<br>
+    Cargo sold: ${totalSold}<br>
+    Difficulty: ${difficulty}
+  `;
+  document.exitPointerLock();
+  saveScore();
+}
+
+function toggleInventory() {
+  const el = document.getElementById('inventory');
+  if (el.style.display === 'block') {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  let html = '<h3>Cargo Bay (' + cargo + '/' + maxCargo + ')</h3>';
+  if (Object.keys(inventory).length === 0) {
+    html += '<div style="color:#405060;font-size:12px;padding:8px 0">Empty</div>';
+  } else {
+    Object.entries(inventory).forEach(([name, count]) => {
+      const ore = ORE_TYPES.find(o => o.name === name);
+      const value = ore ? ore.value * count : 0;
+      html += `<div class="inv-item"><span class="inv-name">${name} x${count}</span><span class="inv-count">$${value}</span></div>`;
+    });
+  }
+  html += '<div style="font-size:10px;color:#405060;margin-top:8px">Press Q to sell all</div>';
+  el.innerHTML = html;
+}
+
+function saveScore() {
+  const scores = JSON.parse(localStorage.getItem('asteroidMiner_scores') || '[]');
+  scores.push({ score, credits, sector, difficulty, date: Date.now() });
+  scores.sort((a, b) => b.score - a.score);
+  localStorage.setItem('asteroidMiner_scores', JSON.stringify(scores.slice(0, 10)));
+}
+
+function loadScores() {
+  const scores = JSON.parse(localStorage.getItem('asteroidMiner_scores') || '[]');
+  const el = document.getElementById('scores-display');
+  if (scores.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = 'Best: ' + scores.slice(0, 3).map(s => s.score + ' (S' + s.sector + ')').join(' | ');
+}
+
+// --- Rendering ---
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+function drawMesh(mesh, modelMatrix) {
+  gl.uniformMatrix4fv(uModel, false, modelMatrix);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.posBuf);
+  gl.enableVertexAttribArray(aPosition);
+  gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normBuf);
+  gl.enableVertexAttribArray(aNormal);
+  gl.vertexAttribPointer(aNormal, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.colBuf);
+  gl.enableVertexAttribArray(aColor);
+  gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+
+  if (mesh.isPoints) {
+    gl.drawArrays(gl.POINTS, 0, mesh.count);
+  } else {
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.idxBuf);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+}
+
+function render(time) {
+  resize();
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.clearColor(0.0, 0.005, 0.015, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  if (gameState === 'menu') {
+    // Render rotating background
+    gl.useProgram(program);
+    const proj = mat4Perspective(Math.PI / 3, canvas.width / canvas.height, 0.1, 1000);
+    const menuYaw = time * 0.0001;
+    const eye = [Math.sin(menuYaw) * 50, 10, Math.cos(menuYaw) * 50];
+    const view = mat4LookAt(eye, [0, 0, 0], [0, 1, 0]);
+    gl.uniformMatrix4fv(uProjection, false, proj);
+    gl.uniformMatrix4fv(uView, false, view);
+    gl.uniform3f(uLightDir, 0.5, 0.8, 0.3);
+    gl.uniform3f(uCameraPos, ...eye);
+    gl.uniform1f(uAmbient, 0.15);
+    gl.uniform1f(uFogDensity, 0.005);
+
+    if (starsMesh) {
+      gl.disable(gl.CULL_FACE);
+      drawMesh(starsMesh, mat4Identity());
+      gl.enable(gl.CULL_FACE);
+    }
+    return;
+  }
+
+  if (gameState !== 'playing' && gameState !== 'paused') return;
+
+  gl.useProgram(program);
+
+  // Camera
+  const forward = getForwardDir();
+  let shakeX = 0, shakeY = 0;
+  if (screenShake.intensity > 0) {
+    shakeX = (Math.random() - 0.5) * screenShake.intensity * 0.02;
+    shakeY = (Math.random() - 0.5) * screenShake.intensity * 0.02;
+    screenShake.intensity *= 0.9;
+    if (screenShake.intensity < 0.5) screenShake.intensity = 0;
+  }
+
+  const eye = [...playerPos];
+  const target = [
+    playerPos[0] + forward[0] + shakeX,
+    playerPos[1] + forward[1] + shakeY,
+    playerPos[2] + forward[2]
+  ];
+
+  const proj = mat4Perspective(Math.PI / 3, canvas.width / canvas.height, 0.1, 1000);
+  const view = mat4LookAt(eye, target, [0, 1, 0]);
+
+  gl.uniformMatrix4fv(uProjection, false, proj);
+  gl.uniformMatrix4fv(uView, false, view);
+  gl.uniform3f(uLightDir, 0.5, 0.8, 0.3);
+  gl.uniform3f(uCameraPos, ...eye);
+  gl.uniform1f(uAmbient, 0.1);
+  gl.uniform1f(uFogDensity, 0.008);
+
+  // Stars
+  if (starsMesh) {
+    gl.disable(gl.CULL_FACE);
+    const starModel = mat4Translate(mat4Identity(), playerPos[0], playerPos[1], playerPos[2]);
+    drawMesh(starsMesh, starModel);
+    gl.enable(gl.CULL_FACE);
+  }
+
+  // Asteroids
+  asteroids.forEach(ast => {
+    const meshIdx = Math.min(ast.oreType, asteroidMeshes.length - 1);
+    const mesh = asteroidMeshes[meshIdx];
+    if (!mesh) return;
+
+    let model = mat4Identity();
+    model = mat4Translate(model, ast.x, ast.y, ast.z);
+    model = mat4Scale(model, ast.size, ast.size, ast.size);
+    model = mat4RotateY(model, ast.rotation);
+
+    // Flash white when hit
+    if (ast.flash > 0) {
+      gl.uniform1f(uAmbient, 0.5 + ast.flash);
+    }
+
+    drawMesh(mesh, model);
+
+    if (ast.flash > 0) {
+      gl.uniform1f(uAmbient, 0.1);
+    }
+  });
+
+  // Mining laser
+  if (isMining && miningTarget) {
+    // Draw laser line using 2D overlay
+    const ctx2d = getOverlayCtx();
+    if (ctx2d) {
+      const screenPos = worldToScreen(miningTarget.x, miningTarget.y, miningTarget.z, proj, view);
+      if (screenPos) {
+        ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+        ctx2d.strokeStyle = 'rgba(96, 192, 255, 0.6)';
+        ctx2d.lineWidth = 2;
+        ctx2d.beginPath();
+        ctx2d.moveTo(canvas.width / 2, canvas.height / 2);
+        ctx2d.lineTo(screenPos.x, screenPos.y);
+        ctx2d.stroke();
+
+        // Glow at target
+        const grad = ctx2d.createRadialGradient(screenPos.x, screenPos.y, 0, screenPos.x, screenPos.y, 20);
+        grad.addColorStop(0, 'rgba(96, 192, 255, 0.5)');
+        grad.addColorStop(1, 'rgba(96, 192, 255, 0)');
+        ctx2d.fillStyle = grad;
+        ctx2d.beginPath();
+        ctx2d.arc(screenPos.x, screenPos.y, 20, 0, Math.PI * 2);
+        ctx2d.fill();
+      }
+    }
+  }
+
+  // Update HUD
+  document.getElementById('hud-credits').textContent = '$' + credits;
+  document.getElementById('hud-fuel').textContent = Math.round(fuel) + '%';
+  document.getElementById('hud-fuel').style.color = fuel < 20 ? '#ff6060' : '#60c0ff';
+  document.getElementById('hud-hull').textContent = Math.round(hull) + '%';
+  document.getElementById('hud-hull').style.color = hull < 30 ? '#ff6060' : '#60ff90';
+  document.getElementById('hud-cargo').textContent = cargo + '/' + maxCargo;
+  document.getElementById('hud-sector').textContent = sector;
+  document.getElementById('hud-score').textContent = score;
+}
+
+// 2D overlay for laser
+let overlayCanvas = null;
+let overlayCtx = null;
+
+function getOverlayCtx() {
+  if (!overlayCanvas) {
+    overlayCanvas = document.createElement('canvas');
+    overlayCanvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5';
+    document.body.appendChild(overlayCanvas);
+  }
+  overlayCanvas.width = canvas.width;
+  overlayCanvas.height = canvas.height;
+  return overlayCanvas.getContext('2d');
+}
+
+function worldToScreen(wx, wy, wz, proj, view) {
+  // Transform world to clip space
+  const vx = view[0]*wx + view[4]*wy + view[8]*wz + view[12];
+  const vy = view[1]*wx + view[5]*wy + view[9]*wz + view[13];
+  const vz = view[2]*wx + view[6]*wy + view[10]*wz + view[14];
+  const vw = view[3]*wx + view[7]*wy + view[11]*wz + view[15];
+
+  const cx = proj[0]*vx + proj[4]*vy + proj[8]*vz + proj[12]*vw;
+  const cy = proj[1]*vx + proj[5]*vy + proj[9]*vz + proj[13]*vw;
+  const cw = proj[3]*vx + proj[7]*vy + proj[11]*vz + proj[15]*vw;
+
+  if (cw <= 0) return null;
+
+  const ndcX = cx / cw;
+  const ndcY = cy / cw;
+
+  return {
+    x: (ndcX * 0.5 + 0.5) * canvas.width,
+    y: (-ndcY * 0.5 + 0.5) * canvas.height
+  };
+}
+
+// --- Update ---
+function update(dt) {
+  if (gameState !== 'playing') return;
+
+  updatePlayer(dt);
+  updateMining(dt);
+  updateParticles(dt);
+
+  // Rotate asteroids
+  asteroids.forEach(ast => {
+    ast.rotation += ast.rotSpeed * dt;
+    ast.orbitAngle += ast.orbitSpeed * dt;
+    // Slow orbit
+    ast.x = Math.cos(ast.orbitAngle) * ast.orbitDist;
+    ast.z = Math.sin(ast.orbitAngle) * ast.orbitDist;
+    if (ast.flash > 0) ast.flash -= dt * 2;
+  });
+
+  // Notification timer
+  if (notifTimer > 0) {
+    notifTimer -= dt;
+    if (notifTimer <= 0) {
+      document.getElementById('notification').style.opacity = '0';
+      setTimeout(() => document.getElementById('notification').style.display = 'none', 300);
+    }
+  }
+
+  // Fuel warning
+  if (fuel <= 0 && hull > 0) {
+    hull -= dt * 2 * diffMult; // Slowly die without fuel
+  }
+}
+
+// --- Main Loop ---
+let lastTime = 0;
+
+function gameLoop(time) {
+  const dt = Math.min(0.05, (time - lastTime) / 1000);
+  lastTime = time;
+
+  update(dt);
+  render(time);
+
+  requestAnimationFrame(gameLoop);
+}
+
+// --- Init ---
+// Create initial meshes for menu background
+starsMesh = createStars(2000);
+asteroidMeshes = ORE_TYPES.map((ore, i) => createAsteroid(1, 6, ore.color));
+loadScores();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>

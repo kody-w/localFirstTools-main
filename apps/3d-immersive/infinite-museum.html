@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Infinite Museum</title>
+
+    <!-- RappterZoo Meta Tags -->
+    <meta name="rappterzoo:author" content="molter-engine">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="3d_immersive">
+    <meta name="rappterzoo:tags" content="raycasting,procedural,first-person,gallery,art,3d">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="1">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', serif;
+            background: #000;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            image-rendering: pixelated;
+        }
+
+        #ui {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            pointer-events: none;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.9);
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        #stats {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+        }
+
+        #stats div {
+            margin: 5px 0;
+        }
+
+        #minimap {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 200px;
+            height: 200px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #666;
+            border-radius: 8px;
+        }
+
+        #lookingAt {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            padding: 20px 30px;
+            border-radius: 12px;
+            max-width: 500px;
+            text-align: center;
+            backdrop-filter: blur(6px);
+            border: 1px solid #444;
+        }
+
+        #lookingAt h3 {
+            font-size: 18px;
+            margin-bottom: 5px;
+            color: #ffd700;
+        }
+
+        #lookingAt p {
+            font-size: 13px;
+            color: #ccc;
+            font-style: italic;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            padding: 40px;
+            border-radius: 16px;
+            text-align: center;
+            max-width: 500px;
+            pointer-events: all;
+            border: 2px solid #444;
+        }
+
+        #instructions h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #ffd700;
+        }
+
+        #instructions p {
+            margin: 10px 0;
+            line-height: 1.6;
+            color: #ccc;
+        }
+
+        #instructions button {
+            margin-top: 20px;
+            padding: 12px 30px;
+            font-size: 16px;
+            background: #ffd700;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        #instructions button:hover {
+            background: #ffed4e;
+            transform: scale(1.05);
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 4px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <canvas id="minimap"></canvas>
+
+    <div id="ui">
+        <div id="stats">
+            <div>🏛️ <strong>The Infinite Museum</strong></div>
+            <div id="roomCounter">Rooms Explored: 1</div>
+            <div id="paintingCounter">Paintings Seen: 0</div>
+            <div id="currentRoom">Current: Main Gallery</div>
+        </div>
+
+        <div id="lookingAt" style="display: none;">
+            <h3 id="paintingTitle"></h3>
+            <p id="paintingArtist"></p>
+        </div>
+
+        <div id="crosshair"></div>
+    </div>
+
+    <div id="instructions">
+        <h1>🏛️ The Infinite Museum</h1>
+        <p><strong>Welcome to an endless gallery of procedurally generated art.</strong></p>
+        <p>🎮 <strong>WASD</strong> - Move around</p>
+        <p>🖱️ <strong>Mouse</strong> - Look around</p>
+        <p>👁️ Look at paintings to see their details</p>
+        <p>🚪 Walk through doorways to discover new rooms</p>
+        <button id="startBtn">Enter Museum</button>
+    </div>
+
+    <script>
+        // ===== CANVAS SETUP =====
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+
+        const WIDTH = 640;
+        const HEIGHT = 480;
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+        minimapCanvas.width = 200;
+        minimapCanvas.height = 200;
+
+        // ===== GAME STATE =====
+        const state = {
+            player: {
+                x: 5.5,
+                y: 5.5,
+                angle: 0,
+                fov: Math.PI / 3,
+                speed: 0.05,
+                rotSpeed: 0.03
+            },
+            keys: {},
+            mouse: { x: 0, y: 0, locked: false },
+            rooms: new Map(),
+            currentRoom: null,
+            roomsExplored: new Set(),
+            paintingsSeen: new Set(),
+            lookingAtPainting: null
+        };
+
+        // ===== ART MOVEMENTS =====
+        const artMovements = [
+            { name: 'Impressionism', lighting: { r: 255, g: 245, b: 220 }, intensity: 0.9 },
+            { name: 'Cubism', lighting: { r: 220, g: 220, b: 255 }, intensity: 0.85 },
+            { name: 'Abstract Expressionism', lighting: { r: 255, g: 240, b: 240 }, intensity: 0.95 },
+            { name: 'Minimalism', lighting: { r: 245, g: 245, b: 250 }, intensity: 1.0 },
+            { name: 'Surrealism', lighting: { r: 240, g: 220, b: 255 }, intensity: 0.8 },
+            { name: 'Digital Renaissance', lighting: { r: 200, g: 240, b: 255 }, intensity: 0.9 },
+            { name: 'Cosmic Abstraction', lighting: { r: 180, g: 180, b: 255 }, intensity: 0.7 }
+        ];
+
+        const paintingTitles = [
+            'Whispers of {word}', 'The {word} Dream', 'Eternal {word}',
+            'Study in {word}', '{word} Meditation', 'Fragments of {word}',
+            'The {word} Within', 'Cascade of {word}', '{word} Symphony',
+            'Reflections on {word}', 'The {word} Principle', '{word} Ascending'
+        ];
+
+        const titleWords = [
+            'Time', 'Light', 'Chaos', 'Order', 'Memory', 'Space', 'Infinity',
+            'Silence', 'Motion', 'Color', 'Form', 'Shadow', 'Resonance'
+        ];
+
+        const artistNames = [
+            'M. Vesterholt', 'A. Richter', 'K. Tanaka', 'L. Moreau',
+            'R. Kowalski', 'S. Chen', 'E. Andersen', 'V. Petrova',
+            'N. Singh', 'C. Martinez', 'J. O\'Brien', 'D. Ivanov'
+        ];
+
+        // ===== SEEDED RANDOM =====
+        class Random {
+            constructor(seed) {
+                this.seed = seed;
+            }
+
+            next() {
+                this.seed = (this.seed * 9301 + 49297) % 233280;
+                return this.seed / 233280;
+            }
+
+            range(min, max) {
+                return min + this.next() * (max - min);
+            }
+
+            int(min, max) {
+                return Math.floor(this.range(min, max + 1));
+            }
+
+            pick(arr) {
+                return arr[this.int(0, arr.length - 1)];
+            }
+        }
+
+        // ===== ROOM GENERATION =====
+        function hashCoords(x, y) {
+            return `${x},${y}`;
+        }
+
+        function createRoom(rx, ry) {
+            const hash = hashCoords(rx, ry);
+            if (state.rooms.has(hash)) return state.rooms.get(hash);
+
+            const rng = new Random((rx * 73856093) ^ (ry * 19349663));
+            const movement = artMovements[rng.int(0, artMovements.length - 1)];
+
+            // Room layout: 11x11 grid
+            const grid = Array(11).fill().map(() => Array(11).fill(1));
+
+            // Clear interior (3x3 to 7x7)
+            const size = rng.int(3, 7);
+            const offset = Math.floor((11 - size) / 2);
+            for (let y = offset; y < offset + size; y++) {
+                for (let x = offset; x < offset + size; x++) {
+                    grid[y][x] = 0;
+                }
+            }
+
+            // Add doorways (center of each wall)
+            const center = 5;
+            grid[0][center] = 2; // North
+            grid[10][center] = 2; // South
+            grid[center][0] = 2; // West
+            grid[center][10] = 2; // East
+
+            // Generate paintings for walls
+            const paintings = [];
+            for (let y = 1; y < 10; y++) {
+                for (let x = 1; x < 10; x++) {
+                    if (grid[y][x] === 1) {
+                        // Check if this wall should have a painting
+                        if (rng.next() > 0.6 &&
+                            grid[y][x-1] === 0 || grid[y][x+1] === 0 ||
+                            grid[y-1][x] === 0 || grid[y+1][x] === 0) {
+
+                            const artType = rng.int(0, 6);
+                            const titleTemplate = rng.pick(paintingTitles);
+                            const word = rng.pick(titleWords);
+                            const title = titleTemplate.replace('{word}', word);
+                            const artist = rng.pick(artistNames);
+
+                            paintings.push({
+                                x, y,
+                                type: artType,
+                                seed: rng.int(1000, 999999),
+                                title,
+                                artist,
+                                id: `${hash}-${x}-${y}`
+                            });
+                        }
+                    }
+                }
+            }
+
+            const room = {
+                x: rx,
+                y: ry,
+                grid,
+                movement,
+                paintings,
+                hash
+            };
+
+            state.rooms.set(hash, room);
+            return room;
+        }
+
+        function getCurrentRoom() {
+            const rx = Math.floor(state.player.x / 11);
+            const ry = Math.floor(state.player.y / 11);
+            return createRoom(rx, ry);
+        }
+
+        function getCell(x, y) {
+            const rx = Math.floor(x / 11);
+            const ry = Math.floor(y / 11);
+            const room = createRoom(rx, ry);
+            const lx = Math.floor(x - rx * 11);
+            const ly = Math.floor(y - ry * 11);
+            return room.grid[ly] ? room.grid[ly][lx] || 1 : 1;
+        }
+
+        // ===== PAINTING GENERATION =====
+        function generatePainting(painting, size = 256) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = size;
+            tempCanvas.height = size;
+            const tempCtx = tempCanvas.getContext('2d');
+            const rng = new Random(painting.seed);
+
+            // Background
+            const bgHue = rng.range(0, 360);
+            tempCtx.fillStyle = `hsl(${bgHue}, ${rng.range(20, 60)}%, ${rng.range(20, 40)}%)`;
+            tempCtx.fillRect(0, 0, size, size);
+
+            switch(painting.type) {
+                case 0: // Flow Field
+                    drawFlowField(tempCtx, size, rng);
+                    break;
+                case 1: // Julia Set
+                    drawJuliaSet(tempCtx, size, rng);
+                    break;
+                case 2: // Cellular Automata
+                    drawCellularAutomata(tempCtx, size, rng);
+                    break;
+                case 3: // Voronoi
+                    drawVoronoi(tempCtx, size, rng);
+                    break;
+                case 4: // Spirograph
+                    drawSpirograph(tempCtx, size, rng);
+                    break;
+                case 5: // Perlin Landscape
+                    drawPerlinLandscape(tempCtx, size, rng);
+                    break;
+                case 6: // Abstract Circles
+                    drawAbstractCircles(tempCtx, size, rng);
+                    break;
+            }
+
+            // Frame
+            tempCtx.strokeStyle = '#8b7355';
+            tempCtx.lineWidth = size * 0.05;
+            tempCtx.strokeRect(0, 0, size, size);
+
+            return tempCanvas;
+        }
+
+        function drawFlowField(ctx, size, rng) {
+            const particles = 2000;
+            const hue = rng.range(0, 360);
+            ctx.globalAlpha = 0.3;
+
+            for (let i = 0; i < particles; i++) {
+                let x = rng.range(0, size);
+                let y = rng.range(0, size);
+
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+
+                for (let j = 0; j < 50; j++) {
+                    const angle = (x * 0.01 + y * 0.01) * rng.range(2, 8);
+                    x += Math.cos(angle) * 2;
+                    y += Math.sin(angle) * 2;
+                    ctx.lineTo(x, y);
+                }
+
+                ctx.strokeStyle = `hsl(${hue + rng.range(-30, 30)}, 70%, 60%)`;
+                ctx.lineWidth = rng.range(0.5, 2);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function drawJuliaSet(ctx, size, rng) {
+            const imageData = ctx.createImageData(size, size);
+            const cx = rng.range(-0.8, 0.8);
+            const cy = rng.range(-0.8, 0.8);
+            const maxIter = 100;
+            const hue = rng.range(0, 360);
+
+            for (let py = 0; py < size; py++) {
+                for (let px = 0; px < size; px++) {
+                    let x = (px / size - 0.5) * 3;
+                    let y = (py / size - 0.5) * 3;
+
+                    let iter = 0;
+                    while (x*x + y*y < 4 && iter < maxIter) {
+                        const xtemp = x*x - y*y + cx;
+                        y = 2*x*y + cy;
+                        x = xtemp;
+                        iter++;
+                    }
+
+                    const idx = (py * size + px) * 4;
+                    const brightness = (iter / maxIter) * 255;
+                    const h = (hue + iter * 3) % 360;
+                    const rgb = hslToRgb(h / 360, 0.7, brightness / 255 * 0.5);
+
+                    imageData.data[idx] = rgb[0];
+                    imageData.data[idx + 1] = rgb[1];
+                    imageData.data[idx + 2] = rgb[2];
+                    imageData.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function drawCellularAutomata(ctx, size, rng) {
+            const cellSize = 8;
+            const cols = Math.floor(size / cellSize);
+            const rows = cols;
+            let grid = Array(rows).fill().map(() =>
+                Array(cols).fill().map(() => rng.next() > 0.5 ? 1 : 0)
+            );
+
+            const hue = rng.range(0, 360);
+
+            // Run several generations
+            for (let gen = 0; gen < 5; gen++) {
+                const newGrid = grid.map(row => [...row]);
+                for (let y = 1; y < rows - 1; y++) {
+                    for (let x = 1; x < cols - 1; x++) {
+                        const neighbors =
+                            grid[y-1][x-1] + grid[y-1][x] + grid[y-1][x+1] +
+                            grid[y][x-1] + grid[y][x+1] +
+                            grid[y+1][x-1] + grid[y+1][x] + grid[y+1][x+1];
+
+                        if (grid[y][x] === 1) {
+                            newGrid[y][x] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                        } else {
+                            newGrid[y][x] = neighbors === 3 ? 1 : 0;
+                        }
+                    }
+                }
+                grid = newGrid;
+            }
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (grid[y][x]) {
+                        ctx.fillStyle = `hsl(${hue}, 70%, ${rng.range(40, 70)}%)`;
+                        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+        }
+
+        function drawVoronoi(ctx, size, rng) {
+            const points = [];
+            const numPoints = rng.int(15, 30);
+
+            for (let i = 0; i < numPoints; i++) {
+                points.push({
+                    x: rng.range(0, size),
+                    y: rng.range(0, size),
+                    hue: rng.range(0, 360)
+                });
+            }
+
+            const imageData = ctx.createImageData(size, size);
+            for (let py = 0; py < size; py++) {
+                for (let px = 0; px < size; px++) {
+                    let minDist = Infinity;
+                    let closestPoint = points[0];
+
+                    for (const point of points) {
+                        const dist = Math.hypot(px - point.x, py - point.y);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closestPoint = point;
+                        }
+                    }
+
+                    const idx = (py * size + px) * 4;
+                    const rgb = hslToRgb(closestPoint.hue / 360, 0.7, 0.5);
+                    imageData.data[idx] = rgb[0];
+                    imageData.data[idx + 1] = rgb[1];
+                    imageData.data[idx + 2] = rgb[2];
+                    imageData.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function drawSpirograph(ctx, size, rng) {
+            const cx = size / 2;
+            const cy = size / 2;
+            const R = size * rng.range(0.3, 0.4);
+            const r = R * rng.range(0.3, 0.7);
+            const d = r * rng.range(0.5, 1.5);
+            const hue = rng.range(0, 360);
+
+            ctx.globalAlpha = 0.6;
+            ctx.lineWidth = 2;
+
+            for (let t = 0; t < Math.PI * 2 * 50; t += 0.01) {
+                const x = cx + (R - r) * Math.cos(t) + d * Math.cos((R - r) / r * t);
+                const y = cy + (R - r) * Math.sin(t) - d * Math.sin((R - r) / r * t);
+
+                if (t === 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+
+                const h = (hue + t * 10) % 360;
+                ctx.strokeStyle = `hsl(${h}, 80%, 60%)`;
+            }
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+
+        function drawPerlinLandscape(ctx, size, rng) {
+            const imageData = ctx.createImageData(size, size);
+            const hue = rng.range(0, 360);
+
+            // Simple noise-like pattern
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const value =
+                        Math.sin(x * 0.02) * 0.3 +
+                        Math.cos(y * 0.02) * 0.3 +
+                        Math.sin((x + y) * 0.01) * 0.4;
+
+                    const brightness = (value + 1) / 2;
+                    const idx = (y * size + x) * 4;
+                    const rgb = hslToRgb(hue / 360, 0.6, brightness * 0.6);
+
+                    imageData.data[idx] = rgb[0];
+                    imageData.data[idx + 1] = rgb[1];
+                    imageData.data[idx + 2] = rgb[2];
+                    imageData.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function drawAbstractCircles(ctx, size, rng) {
+            const numCircles = rng.int(20, 40);
+            const hue = rng.range(0, 360);
+
+            ctx.globalAlpha = 0.5;
+            for (let i = 0; i < numCircles; i++) {
+                const x = rng.range(0, size);
+                const y = rng.range(0, size);
+                const radius = rng.range(size * 0.05, size * 0.2);
+
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsl(${hue + rng.range(-30, 30)}, 70%, 60%)`;
+                ctx.fill();
+
+                if (rng.next() > 0.5) {
+                    ctx.strokeStyle = `hsl(${hue + rng.range(-60, 60)}, 80%, 40%)`;
+                    ctx.lineWidth = rng.range(2, 5);
+                    ctx.stroke();
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        // ===== RAYCASTING ENGINE =====
+        function castRay(angle) {
+            const rayDirX = Math.cos(angle);
+            const rayDirY = Math.sin(angle);
+
+            let distance = 0;
+            const maxDistance = 20;
+            const step = 0.01;
+
+            while (distance < maxDistance) {
+                const x = state.player.x + rayDirX * distance;
+                const y = state.player.y + rayDirY * distance;
+
+                const cell = getCell(Math.floor(x), Math.floor(y));
+
+                if (cell === 1) {
+                    // Hit wall
+                    return { distance, x, y, cell, hit: true };
+                }
+
+                distance += step;
+            }
+
+            return { distance: maxDistance, x: 0, y: 0, cell: 0, hit: false };
+        }
+
+        function render() {
+            const room = getCurrentRoom();
+            const { r, g, b } = room.movement.lighting;
+            const intensity = room.movement.intensity;
+
+            // Sky
+            const gradient = ctx.createLinearGradient(0, 0, 0, HEIGHT / 2);
+            gradient.addColorStop(0, `rgb(${r * 0.3}, ${g * 0.3}, ${b * 0.3})`);
+            gradient.addColorStop(1, `rgb(${r * 0.5}, ${g * 0.5}, ${b * 0.5})`);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, WIDTH, HEIGHT / 2);
+
+            // Floor
+            const floorGradient = ctx.createLinearGradient(0, HEIGHT / 2, 0, HEIGHT);
+            floorGradient.addColorStop(0, `rgb(${r * 0.2}, ${g * 0.2}, ${b * 0.2})`);
+            floorGradient.addColorStop(1, `rgb(${r * 0.1}, ${g * 0.1}, ${b * 0.1})`);
+            ctx.fillStyle = floorGradient;
+            ctx.fillRect(0, HEIGHT / 2, WIDTH, HEIGHT / 2);
+
+            // Cast rays
+            const numRays = WIDTH;
+            const paintings = new Map();
+            let centerRayPainting = null;
+
+            for (let i = 0; i < numRays; i++) {
+                const rayAngle = state.player.angle - state.player.fov / 2 + (i / numRays) * state.player.fov;
+                const ray = castRay(rayAngle);
+
+                if (ray.hit) {
+                    const perpDistance = ray.distance * Math.cos(rayAngle - state.player.angle);
+                    const wallHeight = (HEIGHT / perpDistance) * 0.5;
+
+                    // Determine wall type and color
+                    const wallX = Math.floor(ray.x);
+                    const wallY = Math.floor(ray.y);
+
+                    // Check if there's a painting on this wall
+                    const painting = room.paintings.find(p => p.x === wallX && p.y === wallY);
+
+                    if (painting) {
+                        if (!paintings.has(painting.id)) {
+                            paintings.set(painting.id, { painting, columns: [] });
+                        }
+                        paintings.get(painting.id).columns.push({ x: i, wallHeight, distance: perpDistance });
+
+                        // Check if this is the center ray
+                        if (i === Math.floor(numRays / 2) && perpDistance < 3) {
+                            centerRayPainting = painting;
+                        }
+                    }
+
+                    // Wall shading
+                    const shade = Math.max(0.2, 1 - perpDistance / 10);
+                    ctx.fillStyle = `rgb(${r * shade * intensity}, ${g * shade * intensity}, ${b * shade * intensity})`;
+                    ctx.fillRect(i, HEIGHT / 2 - wallHeight, 1, wallHeight * 2);
+                }
+            }
+
+            // Render paintings
+            paintings.forEach(({ painting, columns }) => {
+                if (!painting.canvas) {
+                    painting.canvas = generatePainting(painting);
+                }
+
+                columns.forEach(({ x, wallHeight, distance }) => {
+                    const paintingSize = wallHeight * 0.6;
+                    const py = HEIGHT / 2 - paintingSize / 2;
+
+                    const shade = Math.max(0.3, 1 - distance / 8);
+                    ctx.globalAlpha = shade;
+                    ctx.drawImage(painting.canvas, 0, 0, painting.canvas.width, painting.canvas.height,
+                                  x, py, 1, paintingSize);
+                    ctx.globalAlpha = 1;
+                });
+            });
+
+            // Update looking at painting
+            if (centerRayPainting) {
+                if (!state.lookingAtPainting || state.lookingAtPainting.id !== centerRayPainting.id) {
+                    state.lookingAtPainting = centerRayPainting;
+                    state.paintingsSeen.add(centerRayPainting.id);
+                    updatePaintingInfo(centerRayPainting);
+                }
+            } else {
+                if (state.lookingAtPainting) {
+                    state.lookingAtPainting = null;
+                    document.getElementById('lookingAt').style.display = 'none';
+                }
+            }
+        }
+
+        function renderMinimap() {
+            const ctx = minimapCtx;
+            const size = 200;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, size, size);
+
+            const scale = 15;
+            const centerX = size / 2;
+            const centerY = size / 2;
+
+            // Draw explored rooms
+            state.roomsExplored.forEach(hash => {
+                const room = state.rooms.get(hash);
+                if (!room) return;
+
+                const offsetX = (room.x - Math.floor(state.player.x / 11)) * scale * 11;
+                const offsetY = (room.y - Math.floor(state.player.y / 11)) * scale * 11;
+
+                for (let y = 0; y < 11; y++) {
+                    for (let x = 0; x < 11; x++) {
+                        const cell = room.grid[y][x];
+                        const mx = centerX + offsetX + x * scale - state.player.x % 11 * scale;
+                        const my = centerY + offsetY + y * scale - state.player.y % 11 * scale;
+
+                        if (cell === 1) {
+                            ctx.fillStyle = '#444';
+                        } else if (cell === 2) {
+                            ctx.fillStyle = '#666';
+                        } else {
+                            ctx.fillStyle = '#222';
+                        }
+
+                        ctx.fillRect(mx, my, scale, scale);
+                    }
+                }
+            });
+
+            // Draw player
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw view direction
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(centerX + Math.cos(state.player.angle) * 10,
+                       centerY + Math.sin(state.player.angle) * 10);
+            ctx.stroke();
+        }
+
+        // ===== PLAYER MOVEMENT =====
+        function updatePlayer() {
+            const { player, keys } = state;
+
+            let moveX = 0;
+            let moveY = 0;
+
+            if (keys['w'] || keys['W']) {
+                moveX += Math.cos(player.angle) * player.speed;
+                moveY += Math.sin(player.angle) * player.speed;
+            }
+            if (keys['s'] || keys['S']) {
+                moveX -= Math.cos(player.angle) * player.speed;
+                moveY -= Math.sin(player.angle) * player.speed;
+            }
+            if (keys['a'] || keys['A']) {
+                moveX += Math.cos(player.angle - Math.PI / 2) * player.speed;
+                moveY += Math.sin(player.angle - Math.PI / 2) * player.speed;
+            }
+            if (keys['d'] || keys['D']) {
+                moveX += Math.cos(player.angle + Math.PI / 2) * player.speed;
+                moveY += Math.sin(player.angle + Math.PI / 2) * player.speed;
+            }
+
+            // Collision detection
+            const newX = player.x + moveX;
+            const newY = player.y + moveY;
+
+            if (getCell(Math.floor(newX), Math.floor(player.y)) !== 1) {
+                player.x = newX;
+            }
+            if (getCell(Math.floor(player.x), Math.floor(newY)) !== 1) {
+                player.y = newY;
+            }
+
+            // Update current room
+            const room = getCurrentRoom();
+            if (state.currentRoom !== room.hash) {
+                state.currentRoom = room.hash;
+                state.roomsExplored.add(room.hash);
+                updateRoomInfo(room);
+            }
+        }
+
+        // ===== AUDIO =====
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let lastStep = 0;
+
+        function playFootstep() {
+            const now = Date.now();
+            if (now - lastStep < 300) return;
+            lastStep = now;
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const reverb = audioCtx.createConvolver();
+
+            // Create simple reverb
+            const reverbLength = audioCtx.sampleRate * 0.5;
+            const reverbBuffer = audioCtx.createBuffer(2, reverbLength, audioCtx.sampleRate);
+            for (let channel = 0; channel < 2; channel++) {
+                const channelData = reverbBuffer.getChannelData(channel);
+                for (let i = 0; i < reverbLength; i++) {
+                    channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / reverbLength, 2);
+                }
+            }
+            reverb.buffer = reverbBuffer;
+
+            osc.type = 'sine';
+            osc.frequency.value = 80 + Math.random() * 40;
+
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+
+            osc.connect(gain);
+            gain.connect(reverb);
+            reverb.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        // ===== UI UPDATES =====
+        function updateRoomInfo(room) {
+            document.getElementById('roomCounter').textContent = `Rooms Explored: ${state.roomsExplored.size}`;
+            document.getElementById('currentRoom').textContent = `Current: ${room.movement.name} Gallery`;
+        }
+
+        function updatePaintingInfo(painting) {
+            document.getElementById('paintingTitle').textContent = `"${painting.title}"`;
+            document.getElementById('paintingArtist').textContent = `by ${painting.artist}`;
+            document.getElementById('lookingAt').style.display = 'block';
+            document.getElementById('paintingCounter').textContent = `Paintings Seen: ${state.paintingsSeen.size}`;
+        }
+
+        // ===== INPUT =====
+        document.addEventListener('keydown', e => {
+            state.keys[e.key] = true;
+
+            if (state.keys['w'] || state.keys['s'] || state.keys['a'] || state.keys['d']) {
+                playFootstep();
+            }
+        });
+
+        document.addEventListener('keyup', e => {
+            state.keys[e.key] = false;
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!state.mouse.locked) {
+                canvas.requestPointerLock();
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            state.mouse.locked = document.pointerLockElement === canvas;
+        });
+
+        document.addEventListener('mousemove', e => {
+            if (state.mouse.locked) {
+                state.player.angle += e.movementX * 0.002;
+            }
+        });
+
+        // ===== GAME LOOP =====
+        function gameLoop() {
+            updatePlayer();
+            render();
+            renderMinimap();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ===== START =====
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('instructions').style.display = 'none';
+            canvas.requestPointerLock();
+
+            // Initialize first room
+            const room = getCurrentRoom();
+            state.currentRoom = room.hash;
+            state.roomsExplored.add(room.hash);
+            updateRoomInfo(room);
+
+            gameLoop();
+        });
+    </script>
+</body>
+</html>

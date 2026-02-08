@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Infinite Card Catalog</title>
+    <meta name="description" content="An endless procedural card catalog of impossible books with discovery mechanics, collecting, and mystical encounters">
+    <meta name="rappterzoo:author" content="molter-engine">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="visual_art">
+    <meta name="rappterzoo:tags" content="canvas,procedural,interactive,collecting,animation">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="2">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0604;
+            min-height: 100vh;
+            font-family: 'Georgia', 'Times New Roman', serif;
+            color: #d4c4a0;
+            overflow: hidden;
+            user-select: none;
+        }
+        canvas { position: fixed; top: 0; left: 0; z-index: 0; }
+        #ui-layer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; pointer-events: none;
+        }
+        #ui-layer > * { pointer-events: auto; }
+        #title-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, #2a1a10 0%, #0a0604 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 1000; transition: opacity 1s;
+        }
+        #title-screen h1 {
+            font-size: clamp(28px, 5vw, 56px); color: #e8d8b8;
+            text-shadow: 0 0 30px rgba(232,216,184,0.3); margin-bottom: 10px;
+            letter-spacing: 3px;
+        }
+        #title-screen p { color: #a09070; font-size: 16px; margin-bottom: 40px; font-style: italic; }
+        .menu-btn {
+            display: block; padding: 14px 50px; margin: 8px;
+            background: linear-gradient(180deg, #5a4a30, #3a2a18);
+            border: 1px solid rgba(200,180,140,0.3); color: #d4c4a0;
+            font-family: 'Georgia', serif; font-size: 16px; cursor: pointer;
+            border-radius: 8px; transition: all 0.3s; letter-spacing: 1px;
+        }
+        .menu-btn:hover {
+            background: linear-gradient(180deg, #7a6a40, #5a4a28);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(200,180,140,0.2);
+        }
+        #hud {
+            position: fixed; top: 0; left: 0; right: 0;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 20px;
+            background: linear-gradient(180deg, rgba(10,6,4,0.95), rgba(10,6,4,0));
+            pointer-events: none; z-index: 50;
+        }
+        .hud-stat {
+            display: flex; flex-direction: column; align-items: center;
+            color: #c0b090; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .hud-value {
+            font-size: 22px; color: #e8d8b8;
+            text-shadow: 0 0 10px rgba(232,216,184,0.3);
+        }
+        #drawer-area {
+            position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+            width: min(800px, 95vw); height: calc(100vh - 120px);
+        }
+        .card {
+            position: absolute; width: min(350px, 80vw); min-height: 140px;
+            background: linear-gradient(180deg, #f4e8d0, #e8d8b8);
+            padding: 18px; border-radius: 5px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+            cursor: pointer; transition: transform 0.3s, box-shadow 0.3s, opacity 0.5s;
+            border-left: 4px solid #8a7a60;
+            color: #3a2a15; font-size: 13px; opacity: 0;
+        }
+        .card.visible { opacity: 1; }
+        .card:hover {
+            transform: translateX(8px) scale(1.02);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+        }
+        .card.rare { border-left-color: #c0a040; }
+        .card.legendary { border-left-color: #e0c040; animation: legendaryGlow 2s ease-in-out infinite; }
+        @keyframes legendaryGlow {
+            0%, 100% { box-shadow: 0 3px 10px rgba(0,0,0,0.3), 0 0 15px rgba(224,192,64,0.2); }
+            50% { box-shadow: 0 3px 10px rgba(0,0,0,0.3), 0 0 30px rgba(224,192,64,0.4); }
+        }
+        .card-title { font-weight: bold; font-size: 15px; margin-bottom: 5px; }
+        .card-author { font-style: italic; color: #6a5a40; font-size: 12px; margin-bottom: 8px; }
+        .card-call { font-family: 'Courier New', monospace; color: #8a6a40; font-size: 11px; }
+        .card-subject { font-size: 11px; color: #6a5a45; margin-top: 6px; }
+        .card-quote {
+            margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(100,80,50,0.3);
+            font-style: italic; font-size: 11px; color: #5a4a35; line-height: 1.5;
+        }
+        .card-rarity {
+            position: absolute; top: 8px; right: 10px;
+            font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+            padding: 2px 8px; border-radius: 3px;
+        }
+        .card-rarity.common { background: #d4c4a0; color: #6a5a40; }
+        .card-rarity.uncommon { background: #a0c0a0; color: #2a4a2a; }
+        .card-rarity.rare { background: #a0a0d0; color: #3a3a6a; }
+        .card-rarity.legendary { background: #e0c040; color: #5a4a10; }
+        #collection-panel {
+            position: fixed; right: 0; top: 0; width: min(320px, 90vw); height: 100%;
+            background: rgba(15,10,6,0.97); border-left: 1px solid rgba(200,180,140,0.2);
+            transform: translateX(100%); transition: transform 0.4s;
+            z-index: 100; overflow-y: auto; padding: 20px;
+        }
+        #collection-panel.open { transform: translateX(0); }
+        #collection-panel h2 { color: #e8d8b8; margin-bottom: 15px; font-size: 18px; }
+        .collection-card {
+            background: rgba(90,70,40,0.3); padding: 12px; margin-bottom: 10px;
+            border-radius: 6px; border: 1px solid rgba(200,180,140,0.15);
+            font-size: 12px;
+        }
+        .collection-card .card-title { font-size: 13px; color: #e8d8b8; }
+        .collection-card .card-author { color: #a09070; }
+        #controls-bar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            display: flex; justify-content: center; gap: 10px;
+            padding: 12px; background: linear-gradient(0deg, rgba(10,6,4,0.95), rgba(10,6,4,0));
+        }
+        .ctrl-btn {
+            padding: 8px 18px; background: rgba(90,70,40,0.5);
+            border: 1px solid rgba(200,180,140,0.3); color: #c0b090;
+            font-family: 'Georgia', serif; font-size: 12px; cursor: pointer;
+            border-radius: 6px; transition: all 0.2s;
+        }
+        .ctrl-btn:hover {
+            background: rgba(120,100,60,0.5);
+            border-color: rgba(200,180,140,0.5);
+        }
+        .ctrl-btn.active { background: rgba(160,140,80,0.4); border-color: #c0a040; }
+        #pause-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10,6,4,0.9); display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            z-index: 500;
+        }
+        #pause-overlay h2 { color: #e8d8b8; font-size: 32px; margin-bottom: 20px; }
+        #notifications {
+            position: fixed; top: 70px; right: 20px;
+            display: flex; flex-direction: column; gap: 8px; z-index: 200;
+        }
+        .notification {
+            background: rgba(20,15,8,0.95); border: 1px solid rgba(200,180,140,0.3);
+            padding: 12px 18px; border-radius: 8px; color: #d4c4a0;
+            font-size: 13px; transform: translateX(120%); transition: transform 0.4s;
+            max-width: 280px;
+        }
+        .notification.show { transform: translateX(0); }
+        .notification.legendary-notif { border-color: #e0c040; }
+        #difficulty-select {
+            display: flex; gap: 10px; margin-top: 15px;
+        }
+        .diff-btn {
+            padding: 10px 24px; background: rgba(90,70,40,0.4);
+            border: 1px solid rgba(200,180,140,0.3); color: #c0b090;
+            font-family: 'Georgia', serif; font-size: 14px; cursor: pointer;
+            border-radius: 6px; transition: all 0.3s;
+        }
+        .diff-btn:hover { background: rgba(120,100,60,0.5); }
+        .diff-btn.selected { background: rgba(160,140,80,0.4); border-color: #c0a040; }
+        #combo-display {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 48px; color: #e0c040; text-shadow: 0 0 30px rgba(224,192,64,0.5);
+            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 300;
+        }
+        @media (max-width: 600px) {
+            #hud { padding: 8px 10px; }
+            .hud-value { font-size: 16px; }
+            .hud-stat { font-size: 9px; }
+            .card { width: 85vw; min-height: 120px; padding: 14px; }
+            #controls-bar { gap: 5px; padding: 8px; }
+            .ctrl-btn { padding: 6px 12px; font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+    <div id="ui-layer">
+        <div id="title-screen">
+            <h1>The Infinite Card Catalog</h1>
+            <p>An endless archive of impossible books</p>
+            <div id="difficulty-select">
+                <button class="diff-btn selected" data-diff="easy">Casual</button>
+                <button class="diff-btn" data-diff="normal">Scholar</button>
+                <button class="diff-btn" data-diff="hard">Archivist</button>
+            </div>
+            <button class="menu-btn" id="start-btn">Enter the Library</button>
+            <button class="menu-btn" id="continue-btn" style="display:none">Continue (Frame <span id="continue-frame"></span>)</button>
+            <p style="font-size:12px;margin-top:30px;color:#605040">Use arrow keys or swipe to browse. Click cards to collect.</p>
+        </div>
+        <div id="hud" style="display:none">
+            <div class="hud-stat"><span class="hud-value" id="score-display">0</span>Score</div>
+            <div class="hud-stat"><span class="hud-value" id="cards-found">0</span>Discovered</div>
+            <div class="hud-stat"><span class="hud-value" id="combo-count">0</span>Combo</div>
+            <div class="hud-stat"><span class="hud-value" id="collection-count">0</span>Collected</div>
+            <div class="hud-stat"><span class="hud-value" id="rarity-display">--</span>Best Find</div>
+        </div>
+        <div id="drawer-area"></div>
+        <div id="controls-bar" style="display:none">
+            <button class="ctrl-btn" id="btn-prev">Previous</button>
+            <button class="ctrl-btn" id="btn-next">Next Drawer</button>
+            <button class="ctrl-btn" id="btn-collect">Collect All</button>
+            <button class="ctrl-btn" id="btn-collection">Collection</button>
+            <button class="ctrl-btn" id="btn-sort">Sort</button>
+        </div>
+        <div id="collection-panel">
+            <h2>Your Collection</h2>
+            <div id="collection-list"></div>
+            <button class="ctrl-btn" style="width:100%;margin-top:15px" id="close-collection">Close</button>
+        </div>
+        <div id="pause-overlay">
+            <h2>Paused</h2>
+            <button class="menu-btn" id="resume-btn">Resume</button>
+            <button class="menu-btn" id="save-quit-btn">Save &amp; Return to Title</button>
+        </div>
+        <div id="notifications"></div>
+        <div id="combo-display"></div>
+    </div>
+    <script>
+    // ============================================================
+    // THE INFINITE CARD CATALOG — Full Interactive Experience
+    // ============================================================
+
+    // ---------- Audio Engine (Web Audio API) ----------
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function initAudio() {
+        if (!audioCtx) audioCtx = new AudioCtx();
+    }
+    function playSound(type, params) {
+        if (!audioCtx) return;
+        try {
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            switch (type) {
+                case 'flip':
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(800, now);
+                    osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
+                    gain.gain.setValueAtTime(0.08, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                    osc.start(now); osc.stop(now + 0.15);
+                    break;
+                case 'collect':
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(600, now);
+                    osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    osc.start(now); osc.stop(now + 0.3);
+                    break;
+                case 'rare':
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+                    osc.frequency.exponentialRampToValueAtTime(1000, now + 0.2);
+                    osc.frequency.exponentialRampToValueAtTime(1200, now + 0.4);
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                    osc.start(now); osc.stop(now + 0.5);
+                    break;
+                case 'legendary':
+                    for (let i = 0; i < 3; i++) {
+                        const o = audioCtx.createOscillator();
+                        const g = audioCtx.createGain();
+                        o.connect(g); g.connect(audioCtx.destination);
+                        o.type = 'sine';
+                        o.frequency.setValueAtTime(400 + i * 200, now + i * 0.15);
+                        o.frequency.exponentialRampToValueAtTime(600 + i * 300, now + i * 0.15 + 0.2);
+                        g.gain.setValueAtTime(0.1, now + i * 0.15);
+                        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.4);
+                        o.start(now + i * 0.15); o.stop(now + i * 0.15 + 0.4);
+                    }
+                    break;
+                case 'combo':
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(300 + (params || 0) * 50, now);
+                    osc.frequency.exponentialRampToValueAtTime(600 + (params || 0) * 80, now + 0.08);
+                    gain.gain.setValueAtTime(0.05, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+                    osc.start(now); osc.stop(now + 0.12);
+                    break;
+                case 'drawer':
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(150, now);
+                    osc.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+                    gain.gain.setValueAtTime(0.04, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                    osc.start(now); osc.stop(now + 0.35);
+                    break;
+                case 'menu':
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(500, now);
+                    osc.frequency.exponentialRampToValueAtTime(700, now + 0.05);
+                    gain.gain.setValueAtTime(0.06, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                    osc.start(now); osc.stop(now + 0.1);
+                    break;
+            }
+        } catch (e) {}
+    }
+
+    // ---------- Procedural Generation ----------
+    class SeededRNG {
+        constructor(seed) {
+            this.seed = seed;
+        }
+        next() {
+            this.seed = (this.seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+            return (this.seed >>> 0) / 0xFFFFFFFF;
+        }
+        nextInt(min, max) {
+            return min + Math.floor(this.next() * (max - min + 1));
+        }
+        pick(arr) {
+            return arr[this.nextInt(0, arr.length - 1)];
+        }
+    }
+
+    const TITLE_PREFIXES = [
+        "The Encyclopedia of", "A Complete History of", "Whispers From", "The Cartography of",
+        "Conversations With", "The Book of", "Architectural Plans for", "A Field Guide to",
+        "The Autobiography of", "Songs Heard Only", "The Dictionary of", "Instructions for",
+        "Letters Never", "The Atlas of", "Recipes for", "The Complete Works of",
+        "Photographs of", "The Journal of", "A Taxonomy of", "The Grammar of",
+        "Marginalia From", "The Archaeology of", "Footnotes to", "The Museum of",
+        "Proofs for", "The Geometry of", "Echoes From", "A Bestiary of",
+        "The Chronicle of", "The Index of", "Diagrams of", "The Ledger of"
+    ];
+    const TITLE_SUFFIXES = [
+        "Unspoken Thoughts", "Tomorrow", "the Library That Never Was", "Dreams",
+        "My Future Self", "Erased Names", "Castles in the Air", "Invisible Creatures",
+        "Everyone", "Once", "Lost Languages", "Impossible Machines",
+        "Sent", "Imaginary Countries", "Dishes That Cannot Exist", "Anonymous",
+        "the Wind", "Forgotten Memories", "Shadows", "Silence",
+        "a Burning Library", "Extinct Colors", "Unwritten Symphonies", "Parallel Lives",
+        "the Space Between Stars", "Undiscovered Elements", "Vanishing Points", "Hollow Mountains",
+        "Folded Dimensions", "the Last Oracle", "Recursive Stories", "the Eleventh Hour"
+    ];
+    const AUTHORS = [
+        "Anonymous (presumed)", "Author Unknown", "The Collective Unconscious",
+        "A Dreamer", "The Last Librarian", "Someone Who May Not Exist",
+        "A Voice in the Margins", "The Phantom Scholar", "Nobody in Particular",
+        "A Traveler Between Pages", "The Keeper of Lost Things",
+        "The Archivist of Nowhere", "A Former Shadow", "The Cartographer of Silence",
+        "The Watcher at the Edge of Maps", "Three Unnamed Monks",
+        "A Whisper in the Stacks", "The Scribe of Unfinished Endings"
+    ];
+    const SUBJECTS = [
+        "Metaphysical Impossibilities", "Theoretical Nostalgia", "Applied Silence",
+        "Comparative Nonexistence", "Historical Speculation", "Quantum Bibliography",
+        "Temporal Linguistics", "Paradoxical Architecture", "Ethereal Cartography",
+        "Recursive Mythology", "Spectral Botany", "Imaginary Mathematics",
+        "Acoustic Archaeology", "Phantom Geology", "Emotional Astronomy"
+    ];
+    const QUOTES = [
+        "This book exists only in the space between shelves. Seek it where shadows gather.",
+        "To read this book is to unread everything that came before.",
+        "The pages are blank until you stop looking.",
+        "Every copy is unique. No two readers find the same words.",
+        "Written in ink that only appears by moonlight.",
+        "The table of contents lists chapters that haven't happened yet.",
+        "Printed on paper made from trees that grow in no known forest.",
+        "The author claims the book wrote itself. The book denies this.",
+        "Contains a map to a place that moves every time someone finds it.",
+        "Last known copy was returned overdue by 300 years.",
+        "Catalogued under a call number that doesn't exist in any system.",
+        "The index references pages that are not in this edition.",
+        "Bound in the hide of an animal from a dream.",
+        "The footnotes are longer than the text. The text is infinite.",
+        "Every reader reports a different ending. Some report no ending at all.",
+        "This volume contains the sound of a color no one has named."
+    ];
+    const ERAS = [
+        "Before Calendars", "Age of Whispers", "The Ink Wars", "Silent Century",
+        "Era of Folded Maps", "Time of the Third Library", "Post-Alphabetic Period"
+    ];
+
+    function generateCard(drawerSeed, index, difficulty) {
+        const rng = new SeededRNG(drawerSeed * 1000 + index * 7 + 13);
+        const title = rng.pick(TITLE_PREFIXES) + " " + rng.pick(TITLE_SUFFIXES);
+        const author = rng.pick(AUTHORS);
+        const year = rng.nextInt(500, 2200);
+        const subject = rng.pick(SUBJECTS);
+        const quote = rng.pick(QUOTES);
+        const era = rng.pick(ERAS);
+
+        // Call number
+        const letters = "XYZQWVNM";
+        const l1 = letters[rng.nextInt(0, letters.length - 1)];
+        const l2 = letters[rng.nextInt(0, letters.length - 1)];
+        const num = rng.nextInt(100, 9999);
+        const suffix = String.fromCharCode(65 + rng.nextInt(0, 25));
+        const callNumber = l1 + l2 + " " + num + "." + suffix + rng.nextInt(0, 99);
+
+        // Rarity
+        const roll = rng.next();
+        let rarity, pointValue;
+        const rareMod = difficulty === 'hard' ? 0.6 : (difficulty === 'normal' ? 0.8 : 1.0);
+        if (roll < 0.01 * rareMod) { rarity = 'legendary'; pointValue = 500; }
+        else if (roll < 0.05 * rareMod) { rarity = 'rare'; pointValue = 100; }
+        else if (roll < 0.20 * rareMod) { rarity = 'uncommon'; pointValue = 25; }
+        else { rarity = 'common'; pointValue = 5; }
+
+        return { title, author, year, subject, quote, era, callNumber, rarity, pointValue, collected: false };
+    }
+
+    // ---------- Game State ----------
+    const STATE = {
+        phase: 'title', // title, playing, paused, gameover
+        difficulty: 'easy',
+        score: 0,
+        cardsDiscovered: 0,
+        combo: 0,
+        comboTimer: 0,
+        bestRarity: 'common',
+        collection: [],
+        currentDrawer: 0,
+        drawerCards: [],
+        drawerLabel: '',
+        scrollY: 0,
+        targetScrollY: 0,
+        totalDrawersOpened: 0,
+        highScore: 0,
+        screenShake: { x: 0, y: 0, intensity: 0 },
+        particles: [],
+        dustParticles: [],
+        ambientParticles: [],
+        time: 0,
+        collectionOpen: false,
+        sortMode: 'recent'
+    };
+
+    const RARITY_ORDER = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
+    const RARITY_COLORS = {
+        common: '#8a7a60',
+        uncommon: '#5a8a5a',
+        rare: '#6a6aaa',
+        legendary: '#c0a030'
+    };
+
+    // ---------- Canvas Background ----------
+    const bgCanvas = document.getElementById('bg-canvas');
+    const bgCtx = bgCanvas.getContext('2d');
+    let W, H;
+
+    function resizeBg() {
+        W = bgCanvas.width = window.innerWidth;
+        H = bgCanvas.height = window.innerHeight;
+    }
+    resizeBg();
+    window.addEventListener('resize', resizeBg);
+
+    function initAmbientParticles() {
+        STATE.ambientParticles = [];
+        for (let i = 0; i < 40; i++) {
+            STATE.ambientParticles.push({
+                x: Math.random() * W, y: Math.random() * H,
+                vx: (Math.random() - 0.5) * 0.3, vy: -0.1 - Math.random() * 0.3,
+                size: 1 + Math.random() * 2, alpha: 0.1 + Math.random() * 0.2,
+                life: Math.random()
+            });
+        }
+    }
+
+    function drawBackground(dt) {
+        bgCtx.fillStyle = '#0a0604';
+        bgCtx.fillRect(0, 0, W, H);
+
+        // Library shelves in background
+        bgCtx.fillStyle = '#150e08';
+        for (let y = 0; y < H; y += 60) {
+            bgCtx.fillRect(0, y, W, 2);
+        }
+        for (let x = 0; x < W; x += 80) {
+            bgCtx.fillStyle = 'rgba(30,20,10,0.3)';
+            bgCtx.fillRect(x, 0, 3, H);
+        }
+
+        // Ambient dust particles
+        STATE.ambientParticles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.001;
+            if (p.y < -10 || p.life <= 0) {
+                p.y = H + 10;
+                p.x = Math.random() * W;
+                p.life = 1;
+            }
+            bgCtx.beginPath();
+            bgCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            bgCtx.fillStyle = 'rgba(200,180,140,' + (p.alpha * p.life) + ')';
+            bgCtx.fill();
+        });
+
+        // Dust particles from interactions
+        for (let i = STATE.dustParticles.length - 1; i >= 0; i--) {
+            const p = STATE.dustParticles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.02;
+            p.life -= 0.02;
+            if (p.life <= 0) { STATE.dustParticles.splice(i, 1); continue; }
+            bgCtx.beginPath();
+            bgCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            bgCtx.fillStyle = 'rgba(' + p.r + ',' + p.g + ',' + p.b + ',' + (p.life * 0.6) + ')';
+            bgCtx.fill();
+        }
+
+        // Vignette
+        const vg = bgCtx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.8);
+        vg.addColorStop(0, 'transparent');
+        vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+        bgCtx.fillStyle = vg;
+        bgCtx.fillRect(0, 0, W, H);
+
+        // Screen shake
+        if (STATE.screenShake.intensity > 0) {
+            STATE.screenShake.x = (Math.random() - 0.5) * STATE.screenShake.intensity;
+            STATE.screenShake.y = (Math.random() - 0.5) * STATE.screenShake.intensity;
+            STATE.screenShake.intensity *= 0.9;
+            if (STATE.screenShake.intensity < 0.1) STATE.screenShake.intensity = 0;
+            document.getElementById('drawer-area').style.transform =
+                'translateX(calc(-50% + ' + STATE.screenShake.x + 'px))';
+        }
+    }
+
+    function spawnDust(x, y, count, color) {
+        const c = color || { r: 200, g: 180, b: 140 };
+        for (let i = 0; i < count; i++) {
+            STATE.dustParticles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4 - 2,
+                size: 2 + Math.random() * 3,
+                life: 0.5 + Math.random() * 0.5,
+                r: c.r, g: c.g, b: c.b
+            });
+        }
+    }
+
+    // ---------- Drawer Management ----------
+    const DRAWER_LABELS = [];
+    (function buildLabels() {
+        const alphaGroups = [
+            "A-Am", "An-Az", "B-Bl", "Bm-Bz", "C-Ch", "Ci-Cz", "D-Dh", "Di-Dz",
+            "E-El", "Em-Ez", "F-Fl", "Fm-Fz", "G-Gl", "Gm-Gz", "H-Hz",
+            "I-Im", "In-Iz", "J-Jz", "K-Kz", "L-Lm", "Ln-Lz",
+            "M-Mm", "Mn-Mz", "N-Nz", "O-Oz", "P-Pl", "Pm-Pz",
+            "Q-Qz", "R-Rl", "Rm-Rz", "S-Sl", "Sm-Sz", "T-Tl", "Tm-Tz",
+            "U-Uz", "V-Vz", "W-Wz", "X-Xz", "Y-Yz", "Z-Zz",
+            "IMPOSSIBLE", "UNCLASSIFIED", "REDACTED", "LOST", "DREAMED"
+        ];
+        alphaGroups.forEach(g => DRAWER_LABELS.push(g));
+    })();
+
+    function openDrawer(index) {
+        STATE.currentDrawer = index;
+        STATE.drawerLabel = DRAWER_LABELS[index % DRAWER_LABELS.length];
+        STATE.totalDrawersOpened++;
+        STATE.scrollY = 0;
+        STATE.targetScrollY = 0;
+
+        const area = document.getElementById('drawer-area');
+        area.innerHTML = '';
+
+        const cardCount = STATE.difficulty === 'hard' ? 12 : (STATE.difficulty === 'normal' ? 8 : 6);
+        STATE.drawerCards = [];
+
+        for (let i = 0; i < cardCount; i++) {
+            const cardData = generateCard(index, i, STATE.difficulty);
+            // Check if already collected
+            const isCollected = STATE.collection.some(c =>
+                c.title === cardData.title && c.callNumber === cardData.callNumber
+            );
+            cardData.collected = isCollected;
+            STATE.drawerCards.push(cardData);
+
+            const el = document.createElement('div');
+            el.className = 'card' + (cardData.rarity === 'rare' ? ' rare' : '') +
+                (cardData.rarity === 'legendary' ? ' legendary' : '');
+            el.style.top = (i * 170) + 'px';
+            el.style.left = '50%';
+            el.style.transform = 'translateX(-50%)';
+            el.dataset.index = i;
+
+            let rarityBadge = '<span class="card-rarity ' + cardData.rarity + '">' + cardData.rarity + '</span>';
+            el.innerHTML =
+                rarityBadge +
+                '<div class="card-title">' + cardData.title + '</div>' +
+                '<div class="card-author">' + cardData.author + ', ' + cardData.year + ' (' + cardData.era + ')</div>' +
+                '<div class="card-call">' + cardData.callNumber + '</div>' +
+                '<div class="card-subject">Subject: ' + cardData.subject + '</div>' +
+                (cardData.collected ? '<div class="card-quote" style="color:#6a8a6a">Already in collection</div>' :
+                    '<div class="card-quote">"' + cardData.quote + '"</div>');
+
+            if (cardData.collected) {
+                el.style.opacity = '0.5';
+            }
+
+            el.addEventListener('click', () => collectCard(i, el));
+
+            // Stagger appearance
+            setTimeout(() => {
+                el.classList.add('visible');
+                STATE.cardsDiscovered++;
+                updateHUD();
+            }, i * 80);
+
+            area.appendChild(el);
+        }
+
+        playSound('drawer');
+        spawnDust(W / 2, H / 2, 15);
+    }
+
+    function collectCard(index, el) {
+        const card = STATE.drawerCards[index];
+        if (!card || card.collected) return;
+
+        card.collected = true;
+        el.style.opacity = '0.5';
+
+        initAudio();
+
+        // Score
+        let points = card.pointValue;
+        if (STATE.combo > 0) {
+            points = Math.floor(points * (1 + STATE.combo * 0.5));
+        }
+        STATE.score += points;
+        STATE.combo++;
+        STATE.comboTimer = 3.0; // 3 seconds to keep combo
+
+        // Update best rarity
+        if (RARITY_ORDER[card.rarity] > RARITY_ORDER[STATE.bestRarity]) {
+            STATE.bestRarity = card.rarity;
+        }
+
+        // Add to collection
+        STATE.collection.push({
+            title: card.title,
+            author: card.author,
+            year: card.year,
+            subject: card.subject,
+            quote: card.quote,
+            era: card.era,
+            callNumber: card.callNumber,
+            rarity: card.rarity,
+            pointValue: card.pointValue,
+            collectedAt: Date.now(),
+            drawer: STATE.currentDrawer
+        });
+
+        // Effects
+        const rect = el.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+
+        if (card.rarity === 'legendary') {
+            playSound('legendary');
+            STATE.screenShake.intensity = 12;
+            spawnDust(cx, cy, 40, { r: 224, g: 192, b: 64 });
+            showNotification('LEGENDARY FIND: ' + card.title, true);
+            showCombo('LEGENDARY!');
+        } else if (card.rarity === 'rare') {
+            playSound('rare');
+            STATE.screenShake.intensity = 6;
+            spawnDust(cx, cy, 25, { r: 120, g: 120, b: 200 });
+            showNotification('Rare card found: ' + card.title);
+        } else {
+            playSound('collect');
+            spawnDust(cx, cy, 10);
+        }
+
+        if (STATE.combo > 1) {
+            playSound('combo', STATE.combo);
+            if (STATE.combo >= 3) {
+                showCombo(STATE.combo + 'x COMBO!');
+            }
+        }
+
+        updateHUD();
+        saveGame();
+    }
+
+    function showCombo(text) {
+        const el = document.getElementById('combo-display');
+        el.textContent = text;
+        el.style.opacity = '1';
+        setTimeout(() => { el.style.opacity = '0'; }, 1200);
+    }
+
+    function showNotification(text, isLegendary) {
+        const container = document.getElementById('notifications');
+        const el = document.createElement('div');
+        el.className = 'notification' + (isLegendary ? ' legendary-notif' : '');
+        el.textContent = text;
+        container.appendChild(el);
+        setTimeout(() => el.classList.add('show'), 50);
+        setTimeout(() => {
+            el.classList.remove('show');
+            setTimeout(() => el.remove(), 400);
+        }, 3000);
+    }
+
+    // ---------- HUD ----------
+    function updateHUD() {
+        document.getElementById('score-display').textContent = STATE.score;
+        document.getElementById('cards-found').textContent = STATE.cardsDiscovered;
+        document.getElementById('combo-count').textContent = STATE.combo > 0 ? STATE.combo + 'x' : '0';
+        document.getElementById('collection-count').textContent = STATE.collection.length;
+        document.getElementById('rarity-display').textContent =
+            STATE.bestRarity.charAt(0).toUpperCase() + STATE.bestRarity.slice(1);
+    }
+
+    // ---------- Collection Panel ----------
+    function openCollection() {
+        STATE.collectionOpen = true;
+        document.getElementById('collection-panel').classList.add('open');
+        renderCollection();
+        playSound('menu');
+    }
+
+    function closeCollection() {
+        STATE.collectionOpen = false;
+        document.getElementById('collection-panel').classList.remove('open');
+        playSound('menu');
+    }
+
+    function renderCollection() {
+        const list = document.getElementById('collection-list');
+        let sorted = [...STATE.collection];
+
+        if (STATE.sortMode === 'rarity') {
+            sorted.sort((a, b) => RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity]);
+        } else if (STATE.sortMode === 'alpha') {
+            sorted.sort((a, b) => a.title.localeCompare(b.title));
+        } else {
+            sorted.sort((a, b) => b.collectedAt - a.collectedAt);
+        }
+
+        if (sorted.length === 0) {
+            list.innerHTML = '<p style="color:#605040;font-style:italic">No cards collected yet. Click cards to add them to your collection.</p>';
+            return;
+        }
+
+        list.innerHTML = sorted.map(c =>
+            '<div class="collection-card" style="border-left:3px solid ' + RARITY_COLORS[c.rarity] + '">' +
+            '<div class="card-title">' + c.title + '</div>' +
+            '<div class="card-author">' + c.author + ', ' + c.year + '</div>' +
+            '<div class="card-call">' + c.callNumber + '</div>' +
+            '<span class="card-rarity ' + c.rarity + '" style="display:inline-block;margin-top:5px">' + c.rarity + ' (+' + c.pointValue + ')</span>' +
+            '</div>'
+        ).join('');
+    }
+
+    // ---------- Save / Load ----------
+    function saveGame() {
+        const data = {
+            score: STATE.score,
+            cardsDiscovered: STATE.cardsDiscovered,
+            bestRarity: STATE.bestRarity,
+            collection: STATE.collection,
+            currentDrawer: STATE.currentDrawer,
+            totalDrawersOpened: STATE.totalDrawersOpened,
+            difficulty: STATE.difficulty,
+            highScore: Math.max(STATE.highScore, STATE.score),
+            savedAt: Date.now()
+        };
+        try {
+            localStorage.setItem('infinite-card-catalog:save', JSON.stringify(data));
+        } catch (e) {}
+    }
+
+    function loadGame() {
+        try {
+            const raw = localStorage.getItem('infinite-card-catalog:save');
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            STATE.score = data.score || 0;
+            STATE.cardsDiscovered = data.cardsDiscovered || 0;
+            STATE.bestRarity = data.bestRarity || 'common';
+            STATE.collection = data.collection || [];
+            STATE.currentDrawer = data.currentDrawer || 0;
+            STATE.totalDrawersOpened = data.totalDrawersOpened || 0;
+            STATE.difficulty = data.difficulty || 'easy';
+            STATE.highScore = data.highScore || 0;
+            return true;
+        } catch (e) { return false; }
+    }
+
+    function getHighScores() {
+        try {
+            const raw = localStorage.getItem('infinite-card-catalog:highscores');
+            return raw ? JSON.parse(raw) : [];
+        } catch (e) { return []; }
+    }
+
+    function saveHighScore(score, cards) {
+        const scores = getHighScores();
+        scores.push({ score, cards, date: new Date().toISOString(), difficulty: STATE.difficulty });
+        scores.sort((a, b) => b.score - a.score);
+        while (scores.length > 10) scores.pop();
+        try {
+            localStorage.setItem('infinite-card-catalog:highscores', JSON.stringify(scores));
+        } catch (e) {}
+    }
+
+    // ---------- Game Loop ----------
+    let lastTime = 0;
+
+    function gameLoop(timestamp) {
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+        lastTime = timestamp;
+
+        if (STATE.phase === 'playing') {
+            STATE.time += dt;
+
+            // Combo timer
+            if (STATE.comboTimer > 0) {
+                STATE.comboTimer -= dt;
+                if (STATE.comboTimer <= 0) {
+                    STATE.combo = 0;
+                    updateHUD();
+                }
+            }
+
+            drawBackground(dt);
+        } else if (STATE.phase === 'title') {
+            drawBackground(dt);
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // ---------- Input ----------
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.key] = true;
+        if (e.key === 'Escape') {
+            if (STATE.phase === 'playing') {
+                pauseGame();
+            } else if (STATE.phase === 'paused') {
+                resumeGame();
+            }
+        }
+        if (STATE.phase === 'playing') {
+            if (e.key === 'ArrowRight' || e.key === 'd') {
+                nextDrawer();
+            } else if (e.key === 'ArrowLeft' || e.key === 'a') {
+                prevDrawer();
+            } else if (e.key === 'c') {
+                if (STATE.collectionOpen) closeCollection();
+                else openCollection();
+            } else if (e.key === 'r') {
+                // Quick restart
+                startNewGame();
+            }
+        }
+    });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    // Touch support
+    let touchStartX = 0, touchStartY = 0;
+    document.addEventListener('touchstart', e => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+            if (dx > 0) prevDrawer();
+            else nextDrawer();
+        }
+    }, { passive: true });
+
+    function nextDrawer() {
+        if (STATE.phase !== 'playing') return;
+        openDrawer(STATE.currentDrawer + 1);
+        playSound('flip');
+    }
+
+    function prevDrawer() {
+        if (STATE.phase !== 'playing' || STATE.currentDrawer <= 0) return;
+        openDrawer(STATE.currentDrawer - 1);
+        playSound('flip');
+    }
+
+    // ---------- Game Flow ----------
+    function startNewGame() {
+        initAudio();
+        STATE.phase = 'playing';
+        STATE.score = 0;
+        STATE.cardsDiscovered = 0;
+        STATE.combo = 0;
+        STATE.comboTimer = 0;
+        STATE.bestRarity = 'common';
+        STATE.collection = [];
+        STATE.currentDrawer = 0;
+        STATE.totalDrawersOpened = 0;
+        STATE.time = 0;
+
+        document.getElementById('title-screen').style.opacity = '0';
+        setTimeout(() => {
+            document.getElementById('title-screen').style.display = 'none';
+        }, 1000);
+        document.getElementById('hud').style.display = 'flex';
+        document.getElementById('controls-bar').style.display = 'flex';
+        document.getElementById('pause-overlay').style.display = 'none';
+
+        openDrawer(0);
+        updateHUD();
+    }
+
+    function continueGame() {
+        initAudio();
+        STATE.phase = 'playing';
+        document.getElementById('title-screen').style.opacity = '0';
+        setTimeout(() => {
+            document.getElementById('title-screen').style.display = 'none';
+        }, 1000);
+        document.getElementById('hud').style.display = 'flex';
+        document.getElementById('controls-bar').style.display = 'flex';
+        document.getElementById('pause-overlay').style.display = 'none';
+
+        openDrawer(STATE.currentDrawer);
+        updateHUD();
+    }
+
+    function pauseGame() {
+        STATE.phase = 'paused';
+        document.getElementById('pause-overlay').style.display = 'flex';
+        playSound('menu');
+        saveGame();
+    }
+
+    function resumeGame() {
+        STATE.phase = 'playing';
+        document.getElementById('pause-overlay').style.display = 'none';
+        playSound('menu');
+    }
+
+    function returnToTitle() {
+        STATE.phase = 'title';
+        saveGame();
+        saveHighScore(STATE.score, STATE.collection.length);
+        document.getElementById('pause-overlay').style.display = 'none';
+        document.getElementById('hud').style.display = 'none';
+        document.getElementById('controls-bar').style.display = 'none';
+        document.getElementById('drawer-area').innerHTML = '';
+        document.getElementById('title-screen').style.display = 'flex';
+        document.getElementById('title-screen').style.opacity = '1';
+        setupTitle();
+    }
+
+    // ---------- UI Bindings ----------
+    function setupTitle() {
+        const hasSave = loadGame();
+        const continueBtn = document.getElementById('continue-btn');
+        if (hasSave && STATE.collection.length > 0) {
+            continueBtn.style.display = 'block';
+            document.getElementById('continue-frame').textContent = STATE.totalDrawersOpened;
+        } else {
+            continueBtn.style.display = 'none';
+        }
+
+        // Difficulty buttons
+        document.querySelectorAll('.diff-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.diff === STATE.difficulty);
+        });
+    }
+
+    document.getElementById('start-btn').addEventListener('click', startNewGame);
+    document.getElementById('continue-btn').addEventListener('click', continueGame);
+    document.getElementById('resume-btn').addEventListener('click', resumeGame);
+    document.getElementById('save-quit-btn').addEventListener('click', returnToTitle);
+    document.getElementById('btn-next').addEventListener('click', nextDrawer);
+    document.getElementById('btn-prev').addEventListener('click', prevDrawer);
+    document.getElementById('btn-collection').addEventListener('click', () => {
+        if (STATE.collectionOpen) closeCollection(); else openCollection();
+    });
+    document.getElementById('close-collection').addEventListener('click', closeCollection);
+    document.getElementById('btn-collect').addEventListener('click', () => {
+        // Collect all uncollected cards in current drawer
+        STATE.drawerCards.forEach((card, i) => {
+            if (!card.collected) {
+                const el = document.querySelector('.card[data-index="' + i + '"]');
+                if (el) collectCard(i, el);
+            }
+        });
+    });
+    document.getElementById('btn-sort').addEventListener('click', () => {
+        const modes = ['recent', 'rarity', 'alpha'];
+        const idx = modes.indexOf(STATE.sortMode);
+        STATE.sortMode = modes[(idx + 1) % modes.length];
+        const btn = document.getElementById('btn-sort');
+        btn.textContent = 'Sort: ' + STATE.sortMode.charAt(0).toUpperCase() + STATE.sortMode.slice(1);
+        if (STATE.collectionOpen) renderCollection();
+        playSound('menu');
+    });
+    document.querySelectorAll('.diff-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            STATE.difficulty = btn.dataset.diff;
+            document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            playSound('menu');
+        });
+    });
+
+    // ---------- Init ----------
+    initAmbientParticles();
+    setupTitle();
+    requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="particle_physics">
+<meta name="rappterzoo:tags" content="canvas,particles,physics,plasma,simulation,audio,interactive">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Plasma Dynamics Lab - Electromagnetic Particle Simulator</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #050510; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #e0e0ff; }
+canvas { display: block; }
+#controls {
+  position: fixed; top: 10px; left: 10px;
+  background: rgba(5,5,20,0.9); border: 1px solid rgba(100,100,255,0.3);
+  border-radius: 10px; padding: 14px 18px; font-size: 13px;
+  backdrop-filter: blur(8px); min-width: 240px; z-index: 10;
+  box-shadow: 0 4px 20px rgba(0,0,50,0.5);
+}
+#controls h3 { color: #66aaff; margin-bottom: 10px; font-size: 15px; letter-spacing: 1px; }
+.ctrl-group { margin: 8px 0; }
+.ctrl-group label { display: block; color: #88aacc; font-size: 12px; margin-bottom: 3px; }
+.ctrl-group select, .ctrl-group input[type=range] {
+  width: 100%; background: rgba(20,20,60,0.8); border: 1px solid rgba(100,100,255,0.3);
+  color: #aaccff; padding: 6px; border-radius: 4px; font-family: inherit; font-size: 12px;
+}
+.ctrl-group input[type=range] { -webkit-appearance: none; height: 6px; padding: 0; cursor: pointer; }
+.ctrl-group input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #66aaff; border: 2px solid #3366cc; cursor: pointer;
+}
+.range-val { float: right; color: #66aaff; font-weight: bold; font-size: 11px; }
+.btn-row { display: flex; gap: 6px; margin-top: 10px; }
+.ctrl-btn {
+  flex: 1; background: linear-gradient(135deg, rgba(100,100,255,0.15), rgba(100,100,255,0.05));
+  border: 1px solid rgba(100,100,255,0.4); color: #88aaff; padding: 8px;
+  font-size: 12px; border-radius: 5px; cursor: pointer; font-family: inherit;
+  transition: all 0.2s;
+}
+.ctrl-btn:hover {
+  background: linear-gradient(135deg, rgba(100,100,255,0.3), rgba(100,100,255,0.1));
+  border-color: #66aaff; transform: translateY(-1px);
+  box-shadow: 0 2px 10px rgba(100,100,255,0.3);
+}
+.ctrl-btn.active { background: rgba(100,100,255,0.25); border-color: #66aaff; color: #fff; }
+#stats {
+  position: fixed; top: 10px; right: 10px;
+  background: rgba(5,5,20,0.9); border: 1px solid rgba(100,200,100,0.3);
+  border-radius: 10px; padding: 12px 16px; font-size: 12px; z-index: 10;
+  backdrop-filter: blur(8px); min-width: 180px;
+  box-shadow: 0 4px 20px rgba(0,50,0,0.3);
+}
+#stats h3 { color: #66cc88; margin-bottom: 8px; font-size: 13px; }
+.stat-row { display: flex; justify-content: space-between; margin: 3px 0; }
+.stat-row .sl { color: #66aa88; }
+.stat-row .sv { color: #aaffcc; font-weight: bold; }
+#presets {
+  position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 10;
+}
+.preset-btn {
+  background: rgba(5,5,20,0.85); border: 1px solid rgba(100,100,255,0.3);
+  color: #88aaff; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+  font-size: 12px; font-family: inherit; transition: all 0.2s;
+  backdrop-filter: blur(5px);
+}
+.preset-btn:hover {
+  background: rgba(100,100,255,0.2); border-color: #66aaff;
+  transform: translateY(-2px); box-shadow: 0 3px 15px rgba(100,100,255,0.3);
+}
+.preset-btn.active { background: rgba(100,100,255,0.3); border-color: #66aaff; color: #fff; }
+#info-panel {
+  position: fixed; bottom: 10px; right: 10px;
+  background: rgba(5,5,20,0.85); border: 1px solid rgba(255,200,100,0.3);
+  border-radius: 10px; padding: 10px 14px; font-size: 11px; z-index: 10;
+  backdrop-filter: blur(5px); max-width: 200px; color: #ccaa88;
+  box-shadow: 0 4px 15px rgba(50,25,0,0.3);
+}
+#info-panel h4 { color: #ffcc66; margin-bottom: 4px; }
+#tooltip {
+  position: fixed; pointer-events: none; z-index: 50;
+  background: rgba(5,5,20,0.95); border: 1px solid rgba(100,100,255,0.5);
+  border-radius: 6px; padding: 8px 12px; font-size: 11px;
+  display: none; max-width: 200px;
+  box-shadow: 0 4px 15px rgba(0,0,50,0.5);
+}
+@media (max-width: 768px) {
+  #controls { font-size: 11px; min-width: 200px; padding: 10px; }
+  #stats { font-size: 11px; }
+  #presets { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h3>PLASMA DYNAMICS LAB</h3>
+  <div class="ctrl-group">
+    <label>Field Type <span class="range-val" id="field-label">Electric</span></label>
+    <select id="field-type">
+      <option value="electric">Electric Field</option>
+      <option value="magnetic">Magnetic Field</option>
+      <option value="both">Electromagnetic</option>
+      <option value="gravity">Gravitational</option>
+      <option value="vortex">Vortex Field</option>
+      <option value="dipole">Dipole Field</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <label>Field Strength <span class="range-val" id="strength-val">50</span></label>
+    <input type="range" id="field-strength" min="0" max="100" value="50">
+  </div>
+  <div class="ctrl-group">
+    <label>Particle Count <span class="range-val" id="count-val">200</span></label>
+    <input type="range" id="particle-count" min="50" max="2000" value="200" step="50">
+  </div>
+  <div class="ctrl-group">
+    <label>Temperature <span class="range-val" id="temp-val">5000 K</span></label>
+    <input type="range" id="temperature" min="100" max="50000" value="5000" step="100">
+  </div>
+  <div class="ctrl-group">
+    <label>Particle Species</label>
+    <select id="species">
+      <option value="electrons">Electrons</option>
+      <option value="protons">Protons</option>
+      <option value="ions">Mixed Ions</option>
+      <option value="plasma">Full Plasma</option>
+      <option value="exotic">Exotic Particles</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <label>Damping <span class="range-val" id="damp-val">0.01</span></label>
+    <input type="range" id="damping" min="0" max="100" value="10">
+  </div>
+  <div class="ctrl-group">
+    <label>Trail Length <span class="range-val" id="trail-val">10</span></label>
+    <input type="range" id="trail-length" min="0" max="50" value="10">
+  </div>
+  <div class="btn-row">
+    <button class="ctrl-btn" id="btn-pause">Pause</button>
+    <button class="ctrl-btn" id="btn-reset">Reset</button>
+  </div>
+  <div class="btn-row">
+    <button class="ctrl-btn" id="btn-clear">Clear</button>
+    <button class="ctrl-btn" id="btn-export">Export</button>
+  </div>
+  <div class="btn-row">
+    <button class="ctrl-btn" id="btn-sound" title="Toggle sound">Sound: ON</button>
+    <button class="ctrl-btn" id="btn-grid" title="Toggle grid">Grid: OFF</button>
+  </div>
+</div>
+
+<div id="stats">
+  <h3>DIAGNOSTICS</h3>
+  <div class="stat-row"><span class="sl">Particles</span><span class="sv" id="s-count">0</span></div>
+  <div class="stat-row"><span class="sl">Avg Energy</span><span class="sv" id="s-energy">0 eV</span></div>
+  <div class="stat-row"><span class="sl">Temperature</span><span class="sv" id="s-temp">0 K</span></div>
+  <div class="stat-row"><span class="sl">Net Charge</span><span class="sv" id="s-charge">0</span></div>
+  <div class="stat-row"><span class="sl">Pressure</span><span class="sv" id="s-pressure">0 Pa</span></div>
+  <div class="stat-row"><span class="sl">Field Energy</span><span class="sv" id="s-field">0 J</span></div>
+  <div class="stat-row"><span class="sl">FPS</span><span class="sv" id="s-fps">60</span></div>
+  <div class="stat-row"><span class="sl">Collisions/s</span><span class="sv" id="s-collisions">0</span></div>
+</div>
+
+<div id="presets">
+  <button class="preset-btn" data-preset="aurora">Aurora</button>
+  <button class="preset-btn" data-preset="tokomak">Tokamak</button>
+  <button class="preset-btn" data-preset="solar-wind">Solar Wind</button>
+  <button class="preset-btn" data-preset="particle-beam">Beam</button>
+  <button class="preset-btn" data-preset="nebula">Nebula</button>
+  <button class="preset-btn" data-preset="lightning">Lightning</button>
+</div>
+
+<div id="info-panel">
+  <h4>Controls</h4>
+  <div>Click: Place attractor</div>
+  <div>Right-click: Place repulsor</div>
+  <div>Scroll: Field strength</div>
+  <div>Space: Pause/Resume</div>
+  <div>G: Toggle grid</div>
+  <div>S: Toggle sound</div>
+</div>
+
+<div id="tooltip"></div>
+
+<canvas id="c"></canvas>
+
+<script>
+// ===== AUDIO ENGINE =====
+class PlasmaAudio {
+  constructor() { this.ctx = null; this.gain = null; this.on = true; this.initialized = false; this.droneOsc = null; this.droneGain = null; }
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = 0.15;
+      this.gain.connect(this.ctx.destination);
+      this.initialized = true;
+      this.startDrone();
+    } catch(e) {}
+  }
+  startDrone() {
+    if (!this.initialized) return;
+    this.droneOsc = this.ctx.createOscillator();
+    this.droneGain = this.ctx.createGain();
+    this.droneOsc.type = 'sine';
+    this.droneOsc.frequency.value = 40;
+    this.droneGain.gain.value = 0.02;
+    this.droneOsc.connect(this.droneGain);
+    this.droneGain.connect(this.gain);
+    this.droneOsc.start();
+  }
+  updateDrone(energy) {
+    if (!this.droneOsc || !this.on) return;
+    this.droneOsc.frequency.setTargetAtTime(30 + energy * 0.5, this.ctx.currentTime, 0.1);
+    this.droneGain.gain.setTargetAtTime(Math.min(0.05, energy * 0.0001), this.ctx.currentTime, 0.1);
+  }
+  playCollision(energy) {
+    if (!this.initialized || !this.on) return;
+    const freq = 200 + Math.min(energy * 2, 2000);
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(freq, this.ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.3, this.ctx.currentTime + 0.15);
+    g.gain.setValueAtTime(Math.min(0.08, energy * 0.001), this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
+    o.connect(g); g.connect(this.gain);
+    o.start(); o.stop(this.ctx.currentTime + 0.15);
+  }
+  playFieldChange() {
+    if (!this.initialized || !this.on) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(400, this.ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.2);
+    g.gain.setValueAtTime(0.05, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+    o.connect(g); g.connect(this.gain);
+    o.start(); o.stop(this.ctx.currentTime + 0.2);
+  }
+  playSpawn() {
+    if (!this.initialized || !this.on) return;
+    [300, 400, 500].forEach((f, i) => {
+      setTimeout(() => {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.04, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
+        o.connect(g); g.connect(this.gain);
+        o.start(); o.stop(this.ctx.currentTime + 0.1);
+      }, i * 40);
+    });
+  }
+  toggle() { this.on = !this.on; if (this.droneGain) this.droneGain.gain.value = this.on ? 0.02 : 0; }
+}
+
+// ===== CONSTANTS =====
+const SPECIES_CONFIG = {
+  electrons: [{ name: 'e-', charge: -1, mass: 1, color: '#4488ff', radius: 2 }],
+  protons: [{ name: 'p+', charge: 1, mass: 1836, color: '#ff4444', radius: 3 }],
+  ions: [
+    { name: 'e-', charge: -1, mass: 1, color: '#4488ff', radius: 2 },
+    { name: 'p+', charge: 1, mass: 1836, color: '#ff4444', radius: 3 },
+    { name: 'He+', charge: 1, mass: 7294, color: '#ffcc44', radius: 4 }
+  ],
+  plasma: [
+    { name: 'e-', charge: -1, mass: 1, color: '#4488ff', radius: 2 },
+    { name: 'p+', charge: 1, mass: 1836, color: '#ff4444', radius: 3 },
+    { name: 'He+', charge: 1, mass: 7294, color: '#ffcc44', radius: 4 },
+    { name: 'O+', charge: 1, mass: 29164, color: '#44ff88', radius: 4 }
+  ],
+  exotic: [
+    { name: 'e-', charge: -1, mass: 1, color: '#4488ff', radius: 2 },
+    { name: 'positron', charge: 1, mass: 1, color: '#ff88ff', radius: 2 },
+    { name: 'muon', charge: -1, mass: 207, color: '#88ffcc', radius: 3 },
+    { name: 'pion+', charge: 1, mass: 273, color: '#ffaa44', radius: 3 },
+    { name: 'kaon', charge: 1, mass: 966, color: '#ff44aa', radius: 3 }
+  ]
+};
+
+// ===== GLOBALS =====
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const audio = new PlasmaAudio();
+let particles = [];
+let attractors = [];
+let paused = false;
+let showGrid = false;
+let trailLength = 10;
+let collisionsPerSec = 0;
+let collisionCount = 0;
+let collisionTimer = 0;
+let fpsFrames = 0;
+let fpsTimer = 0;
+let currentFPS = 60;
+let lastTime = 0;
+
+// Settings
+let settings = {
+  fieldType: 'electric',
+  fieldStrength: 50,
+  particleCount: 200,
+  temperature: 5000,
+  species: 'electrons',
+  damping: 0.01,
+  trailLength: 10
+};
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ===== PARTICLE CLASS =====
+class Particle {
+  constructor(x, y, species) {
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * settings.temperature * 0.002;
+    this.vy = (Math.random() - 0.5) * settings.temperature * 0.002;
+    this.species = species;
+    this.charge = species.charge;
+    this.mass = species.mass;
+    this.color = species.color;
+    this.radius = species.radius;
+    this.trail = [];
+    this.energy = 0;
+    this.age = 0;
+  }
+  update(dt) {
+    this.age += dt;
+    // Apply field forces
+    const force = getFieldForce(this.x, this.y, this.charge, this.mass);
+    this.vx += force.fx * dt / this.mass * 1000;
+    this.vy += force.fy * dt / this.mass * 1000;
+    // Apply attractor forces
+    attractors.forEach(a => {
+      const dx = a.x - this.x;
+      const dy = a.y - this.y;
+      const dist = Math.sqrt(dx*dx + dy*dy) + 10;
+      const f = a.strength * 5000 / (dist * dist) * (a.type === 'attract' ? 1 : -1);
+      this.vx += (dx / dist) * f * dt;
+      this.vy += (dy / dist) * f * dt;
+    });
+    // Damping
+    this.vx *= (1 - settings.damping);
+    this.vy *= (1 - settings.damping);
+    // Position
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    // Boundary (bounce)
+    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx) * 0.9; }
+    if (this.x > canvas.width) { this.x = canvas.width; this.vx = -Math.abs(this.vx) * 0.9; }
+    if (this.y < 0) { this.y = 0; this.vy = Math.abs(this.vy) * 0.9; }
+    if (this.y > canvas.height) { this.y = canvas.height; this.vy = -Math.abs(this.vy) * 0.9; }
+    // Energy
+    this.energy = 0.5 * this.mass * (this.vx * this.vx + this.vy * this.vy);
+    // Trail
+    if (settings.trailLength > 0) {
+      this.trail.push({ x: this.x, y: this.y });
+      while (this.trail.length > settings.trailLength) this.trail.shift();
+    } else {
+      this.trail = [];
+    }
+  }
+  draw(ctx) {
+    // Trail
+    if (this.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+      ctx.strokeStyle = this.color + '30';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // Glow
+    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    const glowR = this.radius + Math.min(speed * 0.02, 5);
+    const gg = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowR * 2);
+    gg.addColorStop(0, this.color + '60');
+    gg.addColorStop(1, 'transparent');
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, glowR * 2, 0, Math.PI * 2);
+    ctx.fillStyle = gg;
+    ctx.fill();
+    // Core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+  }
+}
+
+// ===== FIELD CALCULATIONS =====
+function getFieldForce(x, y, charge, mass) {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const dx = x - cx;
+  const dy = y - cy;
+  const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+  const str = settings.fieldStrength * 0.01;
+  let fx = 0, fy = 0;
+  switch (settings.fieldType) {
+    case 'electric':
+      // Uniform electric field pointing right, affected by charge
+      fx = str * charge * 50;
+      fy = str * charge * Math.sin(performance.now() * 0.001) * 20;
+      break;
+    case 'magnetic':
+      // Lorentz-like force (perpendicular to velocity)
+      // Simplified: creates circular motion
+      fx = str * charge * (-dy / dist) * 30;
+      fy = str * charge * (dx / dist) * 30;
+      break;
+    case 'both':
+      fx = str * charge * 30 + str * charge * (-dy / dist) * 20;
+      fy = str * charge * Math.sin(performance.now() * 0.002) * 15 + str * charge * (dx / dist) * 20;
+      break;
+    case 'gravity':
+      fx = -str * mass * 0.0001 * (dx / dist) * 500;
+      fy = -str * mass * 0.0001 * (dy / dist) * 500;
+      break;
+    case 'vortex':
+      const angle = Math.atan2(dy, dx);
+      fx = str * 30 * (-Math.sin(angle) - 0.2 * Math.cos(angle));
+      fy = str * 30 * (Math.cos(angle) - 0.2 * Math.sin(angle));
+      break;
+    case 'dipole':
+      const r3 = dist * dist * dist;
+      const dot = dx * 0 + dy * 1; // dipole along Y
+      fx = str * charge * 3000 * (3 * dx * dot / (r3 * dist * dist) - 0 / r3);
+      fy = str * charge * 3000 * (3 * dy * dot / (r3 * dist * dist) - 1 / r3);
+      break;
+  }
+  return { fx, fy };
+}
+
+// ===== SPAWN PARTICLES =====
+function spawnParticles(count) {
+  const speciesArr = SPECIES_CONFIG[settings.species];
+  for (let i = 0; i < count; i++) {
+    const sp = speciesArr[Math.floor(Math.random() * speciesArr.length)];
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    particles.push(new Particle(x, y, sp));
+  }
+}
+
+function resetParticles() {
+  particles = [];
+  attractors = [];
+  spawnParticles(settings.particleCount);
+  audio.playSpawn();
+}
+
+// ===== COLLISION DETECTION (simplified) =====
+function checkCollisions() {
+  // Grid-based broad phase
+  const cellSize = 20;
+  const grid = {};
+  particles.forEach((p, i) => {
+    const cx = Math.floor(p.x / cellSize);
+    const cy = Math.floor(p.y / cellSize);
+    const key = cx + ',' + cy;
+    if (!grid[key]) grid[key] = [];
+    grid[key].push(i);
+  });
+  for (const key in grid) {
+    const cell = grid[key];
+    for (let a = 0; a < cell.length; a++) {
+      for (let b = a + 1; b < cell.length; b++) {
+        const p1 = particles[cell[a]];
+        const p2 = particles[cell[b]];
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = p1.radius + p2.radius;
+        if (dist < minDist && dist > 0) {
+          // Elastic collision
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const dvx = p1.vx - p2.vx;
+          const dvy = p1.vy - p2.vy;
+          const dvn = dvx * nx + dvy * ny;
+          if (dvn > 0) {
+            const m1 = p1.mass;
+            const m2 = p2.mass;
+            const impulse = 2 * dvn / (m1 + m2);
+            p1.vx -= impulse * m2 * nx;
+            p1.vy -= impulse * m2 * ny;
+            p2.vx += impulse * m1 * nx;
+            p2.vy += impulse * m1 * ny;
+            // Separate
+            const overlap = minDist - dist;
+            p1.x -= nx * overlap * 0.5;
+            p1.y -= ny * overlap * 0.5;
+            p2.x += nx * overlap * 0.5;
+            p2.y += ny * overlap * 0.5;
+            collisionCount++;
+            const energy = Math.abs(dvn) * Math.min(m1, m2);
+            if (energy > 50) audio.playCollision(energy);
+          }
+        }
+      }
+    }
+  }
+}
+
+// ===== DRAW FIELD VISUALIZATION =====
+function drawField() {
+  const spacing = 40;
+  const str = settings.fieldStrength * 0.01;
+  if (str < 0.05) return;
+  for (let x = spacing; x < canvas.width; x += spacing) {
+    for (let y = spacing; y < canvas.height; y += spacing) {
+      const f = getFieldForce(x, y, 1, 1);
+      const mag = Math.sqrt(f.fx * f.fx + f.fy * f.fy);
+      if (mag < 0.5) continue;
+      const len = Math.min(mag * 0.3, spacing * 0.4);
+      const angle = Math.atan2(f.fy, f.fx);
+      const alpha = Math.min(0.3, mag * 0.01);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(len, 0);
+      ctx.lineTo(len - 3, -2);
+      ctx.moveTo(len, 0);
+      ctx.lineTo(len - 3, 2);
+      ctx.strokeStyle = `rgba(100,150,255,${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+function drawGrid() {
+  if (!showGrid) return;
+  const spacing = 50;
+  ctx.strokeStyle = 'rgba(100,100,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x += spacing) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += spacing) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+}
+
+function drawAttractors() {
+  attractors.forEach(a => {
+    a.life -= 0.005;
+    if (a.life <= 0) { a.alive = false; return; }
+    const c = a.type === 'attract' ? '100,150,255' : '255,100,100';
+    const gg = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, 30);
+    gg.addColorStop(0, `rgba(${c},${a.life * 0.5})`);
+    gg.addColorStop(1, 'transparent');
+    ctx.beginPath(); ctx.arc(a.x, a.y, 30, 0, Math.PI * 2);
+    ctx.fillStyle = gg; ctx.fill();
+    ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c},${a.life})`;
+    ctx.fill();
+    // Label
+    ctx.fillStyle = `rgba(255,255,255,${a.life * 0.5})`;
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(a.type === 'attract' ? '+' : '-', a.x, a.y - 12);
+  });
+  attractors = attractors.filter(a => a.alive !== false);
+}
+
+// ===== PRESETS =====
+const PRESETS = {
+  aurora: { fieldType: 'magnetic', fieldStrength: 70, particleCount: 500, temperature: 15000, species: 'plasma', damping: 0.005 },
+  tokomak: { fieldType: 'both', fieldStrength: 80, particleCount: 400, temperature: 20000, species: 'plasma', damping: 0.002 },
+  'solar-wind': { fieldType: 'electric', fieldStrength: 40, particleCount: 600, temperature: 10000, species: 'ions', damping: 0.001 },
+  'particle-beam': { fieldType: 'electric', fieldStrength: 90, particleCount: 300, temperature: 2000, species: 'electrons', damping: 0.0 },
+  nebula: { fieldType: 'gravity', fieldStrength: 30, particleCount: 800, temperature: 3000, species: 'plasma', damping: 0.01 },
+  lightning: { fieldType: 'dipole', fieldStrength: 85, particleCount: 400, temperature: 30000, species: 'ions', damping: 0.005 }
+};
+
+// ===== UPDATE STATS =====
+function updateStats() {
+  let totalEnergy = 0, totalCharge = 0;
+  particles.forEach(p => {
+    totalEnergy += p.energy;
+    totalCharge += p.charge;
+  });
+  const avgEnergy = particles.length > 0 ? totalEnergy / particles.length : 0;
+  const pressure = avgEnergy * particles.length / (canvas.width * canvas.height) * 1e6;
+  const fieldEnergy = settings.fieldStrength * settings.fieldStrength * 0.01;
+  document.getElementById('s-count').textContent = particles.length;
+  document.getElementById('s-energy').textContent = avgEnergy.toFixed(1) + ' eV';
+  document.getElementById('s-temp').textContent = Math.floor(avgEnergy * 11600) + ' K';
+  document.getElementById('s-charge').textContent = (totalCharge > 0 ? '+' : '') + totalCharge;
+  document.getElementById('s-pressure').textContent = pressure.toFixed(2) + ' Pa';
+  document.getElementById('s-field').textContent = fieldEnergy.toFixed(1) + ' J';
+  document.getElementById('s-fps').textContent = currentFPS;
+  document.getElementById('s-collisions').textContent = collisionsPerSec;
+  audio.updateDrone(avgEnergy);
+}
+
+// ===== MAIN LOOP =====
+function update(dt) {
+  if (paused) return;
+  particles.forEach(p => p.update(dt));
+  if (particles.length < 500) checkCollisions();
+  // FPS tracking
+  fpsFrames++;
+  fpsTimer += dt;
+  if (fpsTimer >= 1) {
+    currentFPS = fpsFrames;
+    fpsFrames = 0;
+    fpsTimer = 0;
+    collisionsPerSec = collisionCount;
+    collisionCount = 0;
+  }
+  // Collision timer
+  collisionTimer += dt;
+  if (collisionTimer >= 1) {
+    collisionTimer = 0;
+  }
+}
+
+function render() {
+  ctx.fillStyle = '#050510';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawGrid();
+  drawField();
+  drawAttractors();
+  particles.forEach(p => p.draw(ctx));
+  // Center marker
+  ctx.beginPath();
+  ctx.arc(canvas.width/2, canvas.height/2, 3, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.fill();
+  updateStats();
+}
+
+function gameLoop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.033);
+  lastTime = timestamp;
+  update(dt);
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+// ===== INPUT =====
+canvas.addEventListener('mousedown', e => {
+  audio.init();
+  const type = e.button === 2 ? 'repulse' : 'attract';
+  attractors.push({ x: e.clientX, y: e.clientY, type, strength: settings.fieldStrength * 0.5, life: 1, alive: true });
+  audio.playFieldChange();
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+  const slider = document.getElementById('field-strength');
+  let val = parseInt(slider.value) + (e.deltaY > 0 ? -5 : 5);
+  val = Math.max(0, Math.min(100, val));
+  slider.value = val;
+  settings.fieldStrength = val;
+  document.getElementById('strength-val').textContent = val;
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+  if (e.code === 'KeyG') { showGrid = !showGrid; document.getElementById('btn-grid').textContent = 'Grid: ' + (showGrid ? 'ON' : 'OFF'); }
+  if (e.code === 'KeyS') { audio.toggle(); document.getElementById('btn-sound').textContent = 'Sound: ' + (audio.on ? 'ON' : 'OFF'); }
+  if (e.code === 'KeyR') resetParticles();
+});
+
+// Touch
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  audio.init();
+  const t = e.touches[0];
+  attractors.push({ x: t.clientX, y: t.clientY, type: 'attract', strength: settings.fieldStrength * 0.5, life: 1, alive: true });
+}, { passive: false });
+
+// ===== UI HANDLERS =====
+function togglePause() {
+  paused = !paused;
+  document.getElementById('btn-pause').textContent = paused ? 'Resume' : 'Pause';
+  document.getElementById('btn-pause').classList.toggle('active', paused);
+}
+
+document.getElementById('field-type').addEventListener('change', e => {
+  settings.fieldType = e.target.value;
+  document.getElementById('field-label').textContent = e.target.options[e.target.selectedIndex].text;
+  audio.playFieldChange();
+});
+
+document.getElementById('field-strength').addEventListener('input', e => {
+  settings.fieldStrength = parseInt(e.target.value);
+  document.getElementById('strength-val').textContent = e.target.value;
+});
+
+document.getElementById('particle-count').addEventListener('input', e => {
+  settings.particleCount = parseInt(e.target.value);
+  document.getElementById('count-val').textContent = e.target.value;
+});
+
+document.getElementById('temperature').addEventListener('input', e => {
+  settings.temperature = parseInt(e.target.value);
+  document.getElementById('temp-val').textContent = e.target.value + ' K';
+});
+
+document.getElementById('species').addEventListener('change', e => {
+  settings.species = e.target.value;
+});
+
+document.getElementById('damping').addEventListener('input', e => {
+  settings.damping = parseInt(e.target.value) * 0.001;
+  document.getElementById('damp-val').textContent = settings.damping.toFixed(3);
+});
+
+document.getElementById('trail-length').addEventListener('input', e => {
+  settings.trailLength = parseInt(e.target.value);
+  document.getElementById('trail-val').textContent = e.target.value;
+});
+
+document.getElementById('btn-pause').addEventListener('click', togglePause);
+document.getElementById('btn-reset').addEventListener('click', () => { resetParticles(); });
+document.getElementById('btn-clear').addEventListener('click', () => { particles = []; attractors = []; });
+document.getElementById('btn-sound').addEventListener('click', () => {
+  audio.init();
+  audio.toggle();
+  document.getElementById('btn-sound').textContent = 'Sound: ' + (audio.on ? 'ON' : 'OFF');
+});
+document.getElementById('btn-grid').addEventListener('click', () => {
+  showGrid = !showGrid;
+  document.getElementById('btn-grid').textContent = 'Grid: ' + (showGrid ? 'ON' : 'OFF');
+  document.getElementById('btn-grid').classList.toggle('active', showGrid);
+});
+document.getElementById('btn-export').addEventListener('click', () => {
+  const data = {
+    settings,
+    particleCount: particles.length,
+    avgEnergy: particles.reduce((s, p) => s + p.energy, 0) / particles.length,
+    timestamp: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'plasma-lab-export.json';
+  a.click();
+});
+
+// Presets
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const preset = PRESETS[btn.dataset.preset];
+    if (!preset) return;
+    audio.init();
+    audio.playFieldChange();
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Apply preset
+    settings.fieldType = preset.fieldType;
+    settings.fieldStrength = preset.fieldStrength;
+    settings.particleCount = preset.particleCount;
+    settings.temperature = preset.temperature;
+    settings.species = preset.species;
+    settings.damping = preset.damping;
+    // Update UI
+    document.getElementById('field-type').value = preset.fieldType;
+    document.getElementById('field-strength').value = preset.fieldStrength;
+    document.getElementById('strength-val').textContent = preset.fieldStrength;
+    document.getElementById('particle-count').value = preset.particleCount;
+    document.getElementById('count-val').textContent = preset.particleCount;
+    document.getElementById('temperature').value = preset.temperature;
+    document.getElementById('temp-val').textContent = preset.temperature + ' K';
+    document.getElementById('species').value = preset.species;
+    document.getElementById('damping').value = preset.damping * 1000;
+    document.getElementById('damp-val').textContent = preset.damping.toFixed(3);
+    resetParticles();
+  });
+});
+
+// ===== SAVE/LOAD SETTINGS =====
+function saveSettings() {
+  try { localStorage.setItem('plasmaLab_settings', JSON.stringify(settings)); } catch(e) {}
+}
+function loadSettings() {
+  try {
+    const s = localStorage.getItem('plasmaLab_settings');
+    if (s) {
+      const saved = JSON.parse(s);
+      Object.assign(settings, saved);
+      // Sync UI
+      document.getElementById('field-type').value = settings.fieldType;
+      document.getElementById('field-strength').value = settings.fieldStrength;
+      document.getElementById('strength-val').textContent = settings.fieldStrength;
+      document.getElementById('particle-count').value = settings.particleCount;
+      document.getElementById('count-val').textContent = settings.particleCount;
+      document.getElementById('temperature').value = settings.temperature;
+      document.getElementById('temp-val').textContent = settings.temperature + ' K';
+      document.getElementById('species').value = settings.species;
+      document.getElementById('damping').value = settings.damping * 1000;
+      document.getElementById('damp-val').textContent = settings.damping.toFixed(3);
+      document.getElementById('trail-length').value = settings.trailLength;
+      document.getElementById('trail-val').textContent = settings.trailLength;
+    }
+  } catch(e) {}
+}
+// Auto-save periodically
+setInterval(saveSettings, 10000);
+
+// ===== INIT =====
+loadSettings();
+spawnParticles(settings.particleCount);
+lastTime = performance.now();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>

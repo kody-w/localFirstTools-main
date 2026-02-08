@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Ride the wave. Collect orbs. Enter flow state. Adaptive difficulty keeps you in the zone.">
+<meta name="rappterzoo:author" content="recombination-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="canvas,flow,rhythm,adaptive,particles,audio,arcade">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="intermediate">
+<meta name="rappterzoo:created" content="2026-02-07">
+<meta name="rappterzoo:generation" content="0">
+<meta name="rappterzoo:parents" content="monster-truck-game.html,depths-of-the-abyss.html">
+<meta name="rappterzoo:genes" content="render_pipeline,physics_engine,particle_system,audio_engine,input_handler,state_machine,progression,juice">
+<meta name="rappterzoo:experience" content="flow">
+<title>Wave Rider</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#080818;font-family:'Segoe UI',sans-serif}
+canvas{display:block;position:absolute;top:0;left:0}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;user-select:none}
+#ui>*{pointer-events:auto}
+.hud-score{position:absolute;top:15px;left:50%;transform:translateX(-50%);font-size:36px;font-weight:700;color:#fff;text-shadow:0 2px 10px rgba(0,200,255,.6);z-index:15;transition:transform .1s}
+.hud-combo{position:absolute;top:56px;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;color:#ff0;text-shadow:0 2px 8px rgba(255,200,0,.5);z-index:15;opacity:0;transition:opacity .3s,transform .2s}
+.hud-combo.active{opacity:1}
+.hud-multiplier{position:absolute;top:80px;left:50%;transform:translateX(-50%);font-size:14px;color:rgba(255,255,255,.6);z-index:15}
+.flow-meter{position:absolute;top:12px;right:12px;width:8px;height:120px;background:rgba(255,255,255,.1);border-radius:4px;z-index:15;overflow:hidden}
+.flow-fill{position:absolute;bottom:0;width:100%;background:linear-gradient(0deg,#0af,#f0f);border-radius:4px;transition:height .3s}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(8px);animation:fi .5s}
+@keyframes fi{from{opacity:0}to{opacity:1}}
+.title-bg{background:linear-gradient(135deg,rgba(5,5,25,.96),rgba(10,10,40,.98))}
+.title-main{font-size:60px;font-weight:700;background:linear-gradient(135deg,#0af,#f0f);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;animation:su .8s ease-out}
+.title-sub{font-size:16px;color:rgba(100,180,255,.7);margin-bottom:40px;text-align:center;animation:su .8s .2s backwards}
+@keyframes su{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.btn{display:block;width:220px;padding:14px;margin:8px auto;background:linear-gradient(135deg,rgba(0,150,255,.3),rgba(150,0,255,.3));border:2px solid rgba(100,180,255,.4);border-radius:10px;color:#fff;font-size:16px;font-weight:700;text-align:center;cursor:pointer;transition:all .2s}
+.btn:hover{border-color:#0af;box-shadow:0 0 20px rgba(0,170,255,.3);transform:translateY(-2px)}
+.gameover-bg{background:linear-gradient(135deg,rgba(20,5,15,.96),rgba(10,0,10,.98))}
+.go-title{font-size:48px;font-weight:700;color:#f0f;text-shadow:0 4px 20px rgba(255,0,255,.5);margin-bottom:16px}
+.stats{background:rgba(20,15,30,.5);border:1px solid rgba(100,100,200,.3);border-radius:8px;padding:16px;margin:12px;min-width:240px}
+.sr{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:rgba(200,200,255,.7)}
+.sv{font-weight:700;color:#0af}
+.best{color:#ff0}
+@media(max-width:600px){.title-main{font-size:36px}.hud-score{font-size:24px}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Wave Rider game"></canvas>
+<div id="ui">
+  <div class="hud-score" id="score" style="display:none">0</div>
+  <div class="hud-combo" id="combo">COMBO x0</div>
+  <div class="hud-multiplier" id="mult" style="display:none"></div>
+  <div class="flow-meter" id="flowMeter" style="display:none"><div class="flow-fill" id="flowFill" style="height:0%"></div></div>
+</div>
+<div class="overlay title-bg" id="titleScreen">
+  <div class="title-main">Wave Rider</div>
+  <div class="title-sub">Ride the rhythm. Find the flow. Never stop moving.</div>
+  <button class="btn" id="btnPlay">Ride</button>
+</div>
+<div class="overlay gameover-bg" id="goScreen" style="display:none">
+  <div class="go-title">Signal Lost</div>
+  <div class="stats" id="goStats"></div>
+  <button class="btn" id="btnRetry">Ride Again</button>
+</div>
+<script>
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+// === STATE ===
+const STATE = { TITLE: 0, PLAYING: 1, DEAD: 2 };
+const G = {
+  state: STATE.TITLE,
+  time: 0, dt: 0, lastTime: 0,
+  player: null,
+  orbs: [], obstacles: [], particles: [], trails: [],
+  score: 0, combo: 0, maxCombo: 0, multiplier: 1,
+  flowLevel: 0, // 0-1, how "in the zone" you are
+  speed: 200, baseSpeed: 200,
+  distance: 0,
+  difficulty: 1,
+  adaptiveScore: 0, // rolling performance tracker
+  hits: 0, misses: 0,
+  shakeX: 0, shakeY: 0, shakeDur: 0,
+  beatPhase: 0, bpm: 120,
+  highScore: 0, bestCombo: 0,
+  waveOffset: 0,
+  bgHue: 220,
+};
+
+// === AUDIO ENGINE ===
+const SFX = { ctx: null, mg: null, vol: 0.3, ok: false };
+function initAudio() {
+  if (SFX.ok) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    SFX.ctx = new AC();
+    SFX.mg = SFX.ctx.createGain();
+    SFX.mg.gain.value = SFX.vol;
+    const comp = SFX.ctx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    SFX.mg.connect(comp);
+    comp.connect(SFX.ctx.destination);
+    SFX.ok = true;
+  } catch(e) {}
+}
+function resumeAudio() { if (SFX.ctx?.state === 'suspended') SFX.ctx.resume(); }
+
+function playNote(freq, dur, type, vol, delay) {
+  if (!SFX.ok) return; resumeAudio();
+  const now = SFX.ctx.currentTime + (delay || 0);
+  const osc = SFX.ctx.createOscillator();
+  const g = SFX.ctx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, now);
+  g.gain.setValueAtTime((vol || 0.15) * SFX.vol, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+  osc.connect(g); g.connect(SFX.mg);
+  osc.start(now); osc.stop(now + dur);
+}
+
+function sfxCollect(combo) {
+  const baseFreq = 440 * Math.pow(2, Math.min(combo, 12) / 12);
+  playNote(baseFreq, 0.12, 'sine', 0.2);
+  playNote(baseFreq * 1.5, 0.1, 'sine', 0.1, 0.04);
+}
+function sfxMiss() { playNote(120, 0.2, 'square', 0.2); playNote(80, 0.15, 'sawtooth', 0.15, 0.05); }
+function sfxBeat(strong) { playNote(strong ? 55 : 110, 0.08, 'triangle', strong ? 0.12 : 0.06); }
+
+// Ambient drone that follows the flow level
+let droneOsc, droneGain;
+function startDrone() {
+  if (!SFX.ok) return; resumeAudio();
+  droneOsc = SFX.ctx.createOscillator();
+  droneGain = SFX.ctx.createGain();
+  droneOsc.type = 'sine';
+  droneOsc.frequency.value = 55;
+  droneGain.gain.value = 0;
+  droneOsc.connect(droneGain); droneGain.connect(SFX.mg);
+  droneOsc.start();
+}
+function updateDrone() {
+  if (!droneGain) return;
+  droneGain.gain.value = G.flowLevel * 0.08 * SFX.vol;
+  droneOsc.frequency.value = 55 + G.flowLevel * 55;
+}
+function stopDrone() { try { droneOsc?.stop(); } catch(e) {} droneOsc = null; droneGain = null; }
+
+// === INPUT ===
+let mouseY = H / 2, targetY = H / 2;
+let touchActive = false;
+canvas.addEventListener('mousemove', e => { mouseY = e.clientY; });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); touchActive = true; initAudio(); resumeAudio(); mouseY = e.touches[0].clientY; }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); mouseY = e.touches[0].clientY; }, { passive: false });
+canvas.addEventListener('touchend', () => { touchActive = false; });
+canvas.addEventListener('click', () => { initAudio(); resumeAudio(); });
+
+// Keyboard fallback
+const keys = {};
+addEventListener('keydown', e => { keys[e.key] = true; });
+addEventListener('keyup', e => { keys[e.key] = false; });
+
+// === GAME OBJECTS ===
+function spawnOrb() {
+  const lane = Math.random();
+  G.orbs.push({
+    x: W + 30,
+    y: 80 + lane * (H - 160),
+    r: 10 + Math.random() * 6,
+    color: `hsl(${180 + Math.random() * 60}, 90%, 65%)`,
+    value: 1,
+    glow: Math.random() * Math.PI * 2
+  });
+}
+
+function spawnObstacle() {
+  const h = 40 + Math.random() * 80 * G.difficulty;
+  const y = 60 + Math.random() * (H - 120 - h);
+  G.obstacles.push({
+    x: W + 20,
+    y, w: 20 + Math.random() * 15, h,
+    color: `hsl(${0 + Math.random() * 30}, 80%, 45%)`
+  });
+}
+
+function spawnParticles(x, y, color, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = Math.random() * (speed || 80);
+    G.particles.push({
+      x, y,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: 0.4 + Math.random() * 0.5,
+      maxLife: 0.9, color,
+      r: 1.5 + Math.random() * 3
+    });
+  }
+}
+
+// === ADAPTIVE DIFFICULTY ===
+function adaptDifficulty(dt) {
+  // Rolling score: positive = doing well, negative = struggling
+  const target = G.adaptiveScore > 2 ? G.difficulty + 0.3 * dt : G.adaptiveScore < -1 ? G.difficulty - 0.2 * dt : G.difficulty;
+  G.difficulty = Math.max(0.5, Math.min(3, target));
+
+  // Speed scales with flow
+  G.speed = G.baseSpeed + G.flowLevel * 200 + (G.difficulty - 1) * 50;
+
+  // BPM follows speed
+  G.bpm = 100 + G.flowLevel * 60 + G.difficulty * 20;
+
+  // Decay adaptive score toward 0
+  G.adaptiveScore *= Math.pow(0.95, dt * 10);
+}
+
+// === CORE LOOP ===
+function startGame() {
+  initAudio(); resumeAudio();
+  G.state = STATE.PLAYING;
+  G.score = 0; G.combo = 0; G.maxCombo = 0; G.multiplier = 1;
+  G.flowLevel = 0; G.speed = G.baseSpeed; G.difficulty = 1;
+  G.distance = 0; G.adaptiveScore = 0; G.hits = 0; G.misses = 0;
+  G.orbs = []; G.obstacles = []; G.particles = []; G.trails = [];
+  G.shakeDur = 0; G.waveOffset = 0; G.beatPhase = 0;
+  G.player = { x: W * 0.2, y: H / 2, vy: 0, r: 12, invincible: 0 };
+  targetY = H / 2;
+  G.bgHue = 220;
+
+  document.getElementById('titleScreen').style.display = 'none';
+  document.getElementById('goScreen').style.display = 'none';
+  document.getElementById('score').style.display = 'block';
+  document.getElementById('flowMeter').style.display = 'block';
+  document.getElementById('mult').style.display = 'block';
+
+  // Load high score
+  try {
+    const s = JSON.parse(localStorage.getItem('waverider_save') || '{}');
+    G.highScore = s.highScore || 0;
+    G.bestCombo = s.bestCombo || 0;
+  } catch(e) {}
+
+  startDrone();
+  nextSpawnOrb = 0; nextSpawnObs = 2;
+}
+
+let nextSpawnOrb = 0, nextSpawnObs = 2;
+
+function update(dt) {
+  if (G.state !== STATE.PLAYING) return;
+  const p = G.player;
+
+  // Input: mouse/touch controls Y, keyboard also works
+  if (keys['arrowup'] || keys['w']) targetY -= 400 * dt;
+  if (keys['arrowdown'] || keys['s']) targetY += 400 * dt;
+  else if (!keys['arrowup'] && !keys['w']) targetY = mouseY;
+  targetY = Math.max(40, Math.min(H - 40, targetY));
+
+  // Smooth follow (flow feel: buttery movement)
+  const followSpeed = 8 + G.flowLevel * 4;
+  p.y += (targetY - p.y) * followSpeed * dt;
+  p.y = Math.max(p.r + 10, Math.min(H - p.r - 10, p.y));
+
+  // Move everything left
+  G.distance += G.speed * dt;
+  G.waveOffset += dt;
+
+  // Beat tracking
+  const beatInterval = 60 / G.bpm;
+  G.beatPhase += dt;
+  if (G.beatPhase >= beatInterval) {
+    G.beatPhase -= beatInterval;
+    sfxBeat(Math.floor(G.time / beatInterval) % 4 === 0);
+  }
+
+  // Spawn orbs
+  nextSpawnOrb -= dt;
+  if (nextSpawnOrb <= 0) {
+    spawnOrb();
+    const spawnRate = 0.4 - G.flowLevel * 0.15;
+    nextSpawnOrb = Math.max(0.15, spawnRate);
+  }
+
+  // Spawn obstacles
+  nextSpawnObs -= dt;
+  if (nextSpawnObs <= 0) {
+    spawnObstacle();
+    nextSpawnObs = Math.max(0.8, 2.5 - G.difficulty * 0.5);
+  }
+
+  // Update orbs
+  for (let i = G.orbs.length - 1; i >= 0; i--) {
+    const o = G.orbs[i];
+    o.x -= G.speed * dt;
+    o.glow += dt * 4;
+    if (o.x < -30) {
+      G.orbs.splice(i, 1);
+      // Miss penalty
+      G.combo = 0; G.multiplier = 1;
+      G.flowLevel = Math.max(0, G.flowLevel - 0.05);
+      G.adaptiveScore -= 0.3;
+      G.misses++;
+      continue;
+    }
+    // Collision with player
+    const dx = o.x - p.x, dy = o.y - p.y;
+    if (dx * dx + dy * dy < (o.r + p.r) ** 2) {
+      G.combo++;
+      G.hits++;
+      G.adaptiveScore += 0.5;
+      if (G.combo > G.maxCombo) G.maxCombo = G.combo;
+      G.multiplier = 1 + Math.floor(G.combo / 5);
+      G.score += o.value * G.multiplier;
+      G.flowLevel = Math.min(1, G.flowLevel + 0.03);
+      sfxCollect(G.combo);
+      spawnParticles(o.x, o.y, o.color, 8, 60);
+      // Trail
+      G.trails.push({ x: o.x, y: o.y, r: o.r * 1.5, life: 0.6, color: o.color });
+      G.orbs.splice(i, 1);
+    }
+  }
+
+  // Update obstacles
+  for (let i = G.obstacles.length - 1; i >= 0; i--) {
+    const o = G.obstacles[i];
+    o.x -= G.speed * dt;
+    if (o.x < -50) { G.obstacles.splice(i, 1); continue; }
+    // Collision
+    if (p.invincible <= 0 &&
+        p.x + p.r > o.x && p.x - p.r < o.x + o.w &&
+        p.y + p.r > o.y && p.y - p.r < o.y + o.h) {
+      // Hit!
+      sfxMiss();
+      G.combo = 0; G.multiplier = 1;
+      G.flowLevel = Math.max(0, G.flowLevel - 0.25);
+      G.adaptiveScore -= 2;
+      p.invincible = 1;
+      G.shakeDur = 0.3;
+      spawnParticles(p.x, p.y, '#f44', 15, 100);
+
+      // 3 strikes = dead
+      G.misses += 3;
+      if (G.misses > 15) { die(); return; }
+    }
+  }
+
+  if (p.invincible > 0) p.invincible -= dt;
+
+  // Natural flow decay
+  G.flowLevel = Math.max(0, G.flowLevel - 0.01 * dt);
+
+  // Adapt
+  adaptDifficulty(dt);
+  updateDrone();
+
+  // Color shifts with flow
+  G.bgHue = 220 + G.flowLevel * 80;
+
+  // Particles
+  for (let i = G.particles.length - 1; i >= 0; i--) {
+    const pt = G.particles[i];
+    pt.x += pt.vx * dt; pt.y += pt.vy * dt;
+    pt.vx *= 0.96; pt.vy *= 0.96;
+    pt.life -= dt;
+    if (pt.life <= 0) G.particles.splice(i, 1);
+  }
+
+  // Trails
+  for (let i = G.trails.length - 1; i >= 0; i--) {
+    G.trails[i].life -= dt;
+    G.trails[i].x -= G.speed * dt * 0.3;
+    if (G.trails[i].life <= 0) G.trails.splice(i, 1);
+  }
+
+  // Shake
+  if (G.shakeDur > 0) {
+    G.shakeX = (Math.random() - 0.5) * 10;
+    G.shakeY = (Math.random() - 0.5) * 10;
+    G.shakeDur -= dt;
+  } else { G.shakeX = 0; G.shakeY = 0; }
+
+  // HUD
+  document.getElementById('score').textContent = G.score;
+  const comboEl = document.getElementById('combo');
+  if (G.combo > 2) {
+    comboEl.className = 'hud-combo active';
+    comboEl.textContent = 'COMBO x' + G.combo;
+  } else {
+    comboEl.className = 'hud-combo';
+  }
+  document.getElementById('mult').textContent = G.multiplier > 1 ? 'x' + G.multiplier : '';
+  document.getElementById('flowFill').style.height = (G.flowLevel * 100) + '%';
+
+  G.time += dt;
+}
+
+function die() {
+  G.state = STATE.DEAD;
+  stopDrone();
+  // Save
+  try {
+    const s = JSON.parse(localStorage.getItem('waverider_save') || '{}');
+    if (G.score > (s.highScore || 0)) { s.highScore = G.score; s.bestCombo = G.maxCombo; }
+    localStorage.setItem('waverider_save', JSON.stringify(s));
+    G.highScore = s.highScore;
+    G.bestCombo = s.bestCombo;
+  } catch(e) {}
+
+  document.getElementById('goStats').innerHTML = `
+    <div class="sr"><span>Score</span><span class="sv">${G.score}</span></div>
+    <div class="sr"><span>Best Score</span><span class="sv best">${G.highScore}</span></div>
+    <div class="sr"><span>Max Combo</span><span class="sv">${G.maxCombo}</span></div>
+    <div class="sr"><span>Orbs Collected</span><span class="sv">${G.hits}</span></div>
+    <div class="sr"><span>Distance</span><span class="sv">${Math.floor(G.distance)}m</span></div>
+    <div class="sr"><span>Peak Flow</span><span class="sv">${Math.floor(G.flowLevel * 100)}%</span></div>
+  `;
+  document.getElementById('goScreen').style.display = 'flex';
+  document.getElementById('score').style.display = 'none';
+  document.getElementById('flowMeter').style.display = 'none';
+}
+
+// === RENDERING ===
+function draw() {
+  ctx.save();
+  ctx.translate(G.shakeX, G.shakeY);
+
+  // Background gradient shifts with flow
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, `hsl(${G.bgHue}, 40%, 6%)`);
+  grad.addColorStop(1, `hsl(${G.bgHue + 30}, 50%, 3%)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(-10, -10, W + 20, H + 20);
+
+  // Wave lines (background decoration)
+  ctx.strokeStyle = `hsla(${G.bgHue}, 60%, 20%, 0.3)`;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    for (let x = 0; x < W; x += 4) {
+      const y = H / 2 + Math.sin((x + G.waveOffset * (80 + i * 20)) * 0.008 + i) * (60 + i * 25);
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Grid lines moving left (speed feel)
+  ctx.strokeStyle = `hsla(${G.bgHue}, 40%, 15%, 0.15)`;
+  ctx.lineWidth = 1;
+  const gridSpacing = 80;
+  const gridOffset = G.distance % gridSpacing;
+  for (let x = -gridOffset; x < W + gridSpacing; x += gridSpacing) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+
+  // Trails
+  for (const t of G.trails) {
+    const a = t.life / 0.6;
+    ctx.globalAlpha = a * 0.4;
+    ctx.fillStyle = t.color;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.r * a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Obstacles
+  for (const o of G.obstacles) {
+    ctx.fillStyle = o.color;
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    // Warning glow
+    ctx.shadowColor = '#f44';
+    ctx.shadowBlur = 10;
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.shadowBlur = 0;
+  }
+
+  // Orbs
+  for (const o of G.orbs) {
+    const glowSize = 1 + Math.sin(o.glow) * 0.3;
+    ctx.fillStyle = o.color;
+    ctx.shadowColor = o.color;
+    ctx.shadowBlur = 15 * glowSize;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, o.r * glowSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Inner bright core
+    ctx.fillStyle = '#fff';
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, o.r * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Player
+  if (G.player && G.state === STATE.PLAYING) {
+    const p = G.player;
+    if (p.invincible > 0 && Math.floor(p.invincible * 10) % 2 === 0) ctx.globalAlpha = 0.4;
+
+    // Flow aura
+    if (G.flowLevel > 0.3) {
+      const auraR = p.r + 10 + G.flowLevel * 15;
+      const auraGrad = ctx.createRadialGradient(p.x, p.y, p.r, p.x, p.y, auraR);
+      auraGrad.addColorStop(0, `hsla(${G.bgHue + 40}, 90%, 60%, ${G.flowLevel * 0.3})`);
+      auraGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = auraGrad;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, auraR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Player body
+    const playerGrad = ctx.createRadialGradient(p.x - 3, p.y - 3, 0, p.x, p.y, p.r);
+    playerGrad.addColorStop(0, '#fff');
+    playerGrad.addColorStop(0.5, `hsl(${G.bgHue + 40}, 90%, 65%)`);
+    playerGrad.addColorStop(1, `hsl(${G.bgHue + 40}, 80%, 40%)`);
+    ctx.fillStyle = playerGrad;
+    ctx.shadowColor = `hsl(${G.bgHue + 40}, 90%, 60%)`;
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Trail behind player
+    if (G.time % 0.03 < G.dt) {
+      G.particles.push({
+        x: p.x - 8, y: p.y + (Math.random() - 0.5) * 6,
+        vx: -G.speed * 0.15, vy: (Math.random() - 0.5) * 20,
+        life: 0.3 + G.flowLevel * 0.3, maxLife: 0.6,
+        color: `hsl(${G.bgHue + 40}, 80%, 60%)`,
+        r: 2 + G.flowLevel * 3
+      });
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
+  // Particles
+  for (const pt of G.particles) {
+    const a = pt.life / pt.maxLife;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = pt.color;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.r * a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Flow state visual: when flow > 0.7, add screen-edge glow
+  if (G.flowLevel > 0.7) {
+    const edgeAlpha = (G.flowLevel - 0.7) / 0.3 * 0.2;
+    const edgeGrad = ctx.createRadialGradient(W/2, H/2, Math.min(W, H) * 0.3, W/2, H/2, Math.max(W, H) * 0.7);
+    edgeGrad.addColorStop(0, 'transparent');
+    edgeGrad.addColorStop(1, `hsla(${G.bgHue + 40}, 80%, 50%, ${edgeAlpha})`);
+    ctx.fillStyle = edgeGrad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.restore();
+}
+
+// === MAIN LOOP ===
+function loop(ts) {
+  const dt = Math.min((ts - (G.lastTime || ts)) / 1000, 0.05);
+  G.lastTime = ts;
+  G.dt = dt;
+
+  if (G.state === STATE.PLAYING) update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// === EVENTS ===
+document.getElementById('btnPlay').addEventListener('click', startGame);
+document.getElementById('btnRetry').addEventListener('click', startGame);
+
+// Pause
+addEventListener('keydown', e => {
+  if (e.key === 'Escape' && G.state === STATE.PLAYING) { G.state = STATE.TITLE; stopDrone(); document.getElementById('titleScreen').style.display = 'flex'; }
+});
+
+// Export
+addEventListener('keydown', e => {
+  if (e.key === 'j' && e.ctrlKey) {
+    try {
+      const data = localStorage.getItem('waverider_save');
+      if (data) {
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'waverider-save.json'; a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch(e) {}
+  }
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Holographic Data Sculptor</title>
+
+    <!-- RappterZoo Meta Tags -->
+    <meta name="rappterzoo:author" content="molter-engine">
+    <meta name="rappterzoo:author-type" content="agent">
+    <meta name="rappterzoo:category" content="creative_tools">
+    <meta name="rappterzoo:tags" content="3d,data-visualization,hologram,clustering,point-cloud">
+    <meta name="rappterzoo:type" content="interactive">
+    <meta name="rappterzoo:complexity" content="advanced">
+    <meta name="rappterzoo:created" content="2026-02-08">
+    <meta name="rappterzoo:generation" content="1">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0ff;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            position: relative;
+        }
+
+        #canvas {
+            flex: 1;
+            cursor: grab;
+            background: #000;
+        }
+
+        #canvas:active {
+            cursor: grabbing;
+        }
+
+        #sidebar {
+            width: 320px;
+            background: rgba(0, 20, 30, 0.95);
+            border-left: 2px solid #0ff;
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: -5px 0 20px rgba(0, 255, 255, 0.3);
+        }
+
+        h1 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px #0ff;
+        }
+
+        h2 {
+            font-size: 14px;
+            margin: 20px 0 10px 0;
+            color: #f0f;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid #f0f;
+            padding-bottom: 5px;
+        }
+
+        .section {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 11px;
+            color: #0ff;
+        }
+
+        select, input, textarea, button {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            background: rgba(0, 50, 80, 0.8);
+            border: 1px solid #0ff;
+            color: #0ff;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        button {
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: rgba(0, 255, 255, 0.3);
+            box-shadow: 0 0 10px #0ff;
+        }
+
+        button.secondary {
+            border-color: #f0f;
+            color: #f0f;
+        }
+
+        button.secondary:hover {
+            background: rgba(255, 0, 255, 0.3);
+            box-shadow: 0 0 10px #f0f;
+        }
+
+        textarea {
+            height: 100px;
+            resize: vertical;
+            font-size: 10px;
+        }
+
+        input[type="range"] {
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .row > * {
+            flex: 1;
+        }
+
+        #stats {
+            font-size: 10px;
+            line-height: 1.6;
+            color: #0f8;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 20, 30, 0.8);
+            border: 1px solid #0ff;
+            padding: 10px;
+            font-size: 11px;
+            pointer-events: none;
+            text-shadow: 0 0 5px #0ff;
+        }
+
+        .glow-cyan {
+            text-shadow: 0 0 10px #0ff;
+        }
+
+        .glow-magenta {
+            text-shadow: 0 0 10px #f0f;
+        }
+
+        .glow-green {
+            text-shadow: 0 0 10px #0f8;
+        }
+
+        #fullscreen-btn {
+            position: absolute;
+            top: 20px;
+            right: 340px;
+            width: 40px;
+            height: 40px;
+            background: rgba(0, 50, 80, 0.8);
+            border: 1px solid #0ff;
+            color: #0ff;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #fullscreen-btn:hover {
+            background: rgba(0, 255, 255, 0.3);
+            box-shadow: 0 0 10px #0ff;
+        }
+
+        .cluster-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .cluster-chip {
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            border: 1px solid;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 20, 30, 0.5);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #0ff;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #0aa;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="canvas"></canvas>
+
+        <div id="hud">
+            <div>POINTS: <span id="point-count" class="glow-cyan">0</span></div>
+            <div>FPS: <span id="fps" class="glow-green">0</span></div>
+            <div>ZOOM: <span id="zoom-display" class="glow-magenta">1.0x</span></div>
+        </div>
+
+        <button id="fullscreen-btn" title="Toggle Fullscreen">⛶</button>
+
+        <div id="sidebar">
+            <h1 class="glow-cyan">Holographic Data Sculptor</h1>
+
+            <div class="section">
+                <h2>Dataset</h2>
+                <label>Sample Data:</label>
+                <select id="dataset-select">
+                    <option value="iris">Iris Flowers</option>
+                    <option value="clusters">Random Clusters</option>
+                    <option value="sine">Sine Surface</option>
+                    <option value="helix">Helix</option>
+                    <option value="globe">Globe</option>
+                    <option value="torus">Torus</option>
+                </select>
+                <button id="load-sample">Load Sample</button>
+
+                <label>Import Data (CSV/JSON):</label>
+                <textarea id="import-data" placeholder="Paste CSV or JSON data here..."></textarea>
+                <button id="import-btn" class="secondary">Import Data</button>
+            </div>
+
+            <div class="section">
+                <h2>Axis Mapping</h2>
+                <label>X Axis:</label>
+                <select id="x-axis"></select>
+
+                <label>Y Axis:</label>
+                <select id="y-axis"></select>
+
+                <label>Z Axis:</label>
+                <select id="z-axis"></select>
+
+                <label>Color (4th Dimension):</label>
+                <select id="color-axis">
+                    <option value="">None</option>
+                </select>
+
+                <label>Size (5th Dimension):</label>
+                <select id="size-axis">
+                    <option value="">None</option>
+                </select>
+            </div>
+
+            <div class="section">
+                <h2>K-Means Clustering</h2>
+                <label>Clusters (K): <span id="k-value">3</span></label>
+                <input type="range" id="k-slider" min="2" max="10" value="3">
+                <button id="cluster-btn">Run Clustering</button>
+                <div id="cluster-legend" class="cluster-legend"></div>
+            </div>
+
+            <div class="section">
+                <h2>Slice Tool</h2>
+                <label>Slice Position: <span id="slice-value">0.0</span></label>
+                <input type="range" id="slice-slider" min="-100" max="100" value="0" step="1">
+                <div class="row">
+                    <button id="slice-x">Slice X</button>
+                    <button id="slice-y">Slice Y</button>
+                    <button id="slice-z">Slice Z</button>
+                </div>
+                <button id="clear-slice" class="secondary">Clear Slice</button>
+            </div>
+
+            <div class="section">
+                <h2>View Controls</h2>
+                <button id="reset-view">Reset View</button>
+                <label style="margin-top: 10px;">Mouse Controls:</label>
+                <div style="font-size: 10px; line-height: 1.6; color: #0f8;">
+                    • Left Drag: Rotate<br>
+                    • Right Drag: Pan<br>
+                    • Scroll: Zoom
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Statistics</h2>
+                <div id="stats">No data loaded</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // State
+        let data = [];
+        let points3D = [];
+        let columns = [];
+        let rotation = { x: 0.5, y: 0.5 };
+        let zoom = 1.0;
+        let offset = { x: 0, y: 0 };
+        let clusterAssignments = null;
+        let clusterColors = [];
+        let sliceAxis = null;
+        let slicePosition = 0;
+
+        // Animation state
+        let animatingClusters = false;
+        let animationProgress = 0;
+        let originalPositions = [];
+
+        // Mouse state
+        let isDragging = false;
+        let isRightDragging = false;
+        let lastMouse = { x: 0, y: 0 };
+
+        // FPS tracking
+        let fps = 0;
+        let frameCount = 0;
+        let lastFpsUpdate = Date.now();
+
+        // Resize canvas
+        function resizeCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Sample datasets
+        const datasets = {
+            iris: () => {
+                const species = ['setosa', 'versicolor', 'virginica'];
+                const data = [];
+                for (let i = 0; i < 150; i++) {
+                    const s = Math.floor(i / 50);
+                    data.push({
+                        sepal_length: 4.5 + s * 1.5 + Math.random(),
+                        sepal_width: 2.5 + (s === 0 ? 0.8 : 0) + Math.random() * 0.5,
+                        petal_length: 1 + s * 2 + Math.random(),
+                        petal_width: 0.2 + s * 0.8 + Math.random() * 0.3,
+                        species: species[s]
+                    });
+                }
+                return data;
+            },
+            clusters: () => {
+                const data = [];
+                const centers = [
+                    [-2, -2, -2], [2, 2, 2], [-2, 2, -2], [2, -2, 2]
+                ];
+                for (let c of centers) {
+                    for (let i = 0; i < 50; i++) {
+                        data.push({
+                            x: c[0] + (Math.random() - 0.5) * 2,
+                            y: c[1] + (Math.random() - 0.5) * 2,
+                            z: c[2] + (Math.random() - 0.5) * 2,
+                            value: Math.random()
+                        });
+                    }
+                }
+                return data;
+            },
+            sine: () => {
+                const data = [];
+                for (let x = -5; x <= 5; x += 0.3) {
+                    for (let z = -5; z <= 5; z += 0.3) {
+                        data.push({
+                            x: x,
+                            y: Math.sin(x) * Math.cos(z) * 2,
+                            z: z,
+                            value: Math.sin(x * z * 0.5)
+                        });
+                    }
+                }
+                return data;
+            },
+            helix: () => {
+                const data = [];
+                for (let t = 0; t < 200; t++) {
+                    const angle = t * 0.1;
+                    data.push({
+                        x: Math.cos(angle) * 3,
+                        y: t * 0.05 - 5,
+                        z: Math.sin(angle) * 3,
+                        t: t,
+                        value: t / 200
+                    });
+                }
+                return data;
+            },
+            globe: () => {
+                const data = [];
+                for (let lat = -90; lat <= 90; lat += 10) {
+                    for (let lon = -180; lon <= 180; lon += 10) {
+                        const phi = (lat * Math.PI) / 180;
+                        const theta = (lon * Math.PI) / 180;
+                        const r = 4;
+                        data.push({
+                            x: r * Math.cos(phi) * Math.cos(theta),
+                            y: r * Math.sin(phi),
+                            z: r * Math.cos(phi) * Math.sin(theta),
+                            latitude: lat,
+                            longitude: lon
+                        });
+                    }
+                }
+                return data;
+            },
+            torus: () => {
+                const data = [];
+                const R = 3;
+                const r = 1;
+                for (let u = 0; u < 2 * Math.PI; u += 0.2) {
+                    for (let v = 0; v < 2 * Math.PI; v += 0.2) {
+                        data.push({
+                            x: (R + r * Math.cos(v)) * Math.cos(u),
+                            y: r * Math.sin(v),
+                            z: (R + r * Math.cos(v)) * Math.sin(u),
+                            u: u,
+                            v: v
+                        });
+                    }
+                }
+                return data;
+            }
+        };
+
+        // Load dataset
+        function loadDataset(dataArray) {
+            data = dataArray;
+            if (data.length === 0) return;
+
+            columns = Object.keys(data[0]);
+            updateAxisSelects();
+
+            // Auto-select first 3 numeric columns
+            const numericCols = columns.filter(col => typeof data[0][col] === 'number');
+            document.getElementById('x-axis').value = numericCols[0] || columns[0];
+            document.getElementById('y-axis').value = numericCols[1] || columns[1];
+            document.getElementById('z-axis').value = numericCols[2] || columns[2];
+
+            clusterAssignments = null;
+            clusterColors = [];
+            updatePoints();
+            updateStats();
+        }
+
+        function updateAxisSelects() {
+            const selects = ['x-axis', 'y-axis', 'z-axis', 'color-axis', 'size-axis'];
+            selects.forEach(id => {
+                const select = document.getElementById(id);
+                const currentValue = select.value;
+                select.innerHTML = '';
+
+                if (id === 'color-axis' || id === 'size-axis') {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'None';
+                    select.appendChild(opt);
+                }
+
+                columns.forEach(col => {
+                    const opt = document.createElement('option');
+                    opt.value = col;
+                    opt.textContent = col;
+                    select.appendChild(opt);
+                });
+
+                if (currentValue && columns.includes(currentValue)) {
+                    select.value = currentValue;
+                }
+            });
+        }
+
+        function updatePoints() {
+            const xCol = document.getElementById('x-axis').value;
+            const yCol = document.getElementById('y-axis').value;
+            const zCol = document.getElementById('z-axis').value;
+            const colorCol = document.getElementById('color-axis').value;
+            const sizeCol = document.getElementById('size-axis').value;
+
+            if (!xCol || !yCol || !zCol) return;
+
+            points3D = data.map((row, idx) => ({
+                x: Number(row[xCol]) || 0,
+                y: Number(row[yCol]) || 0,
+                z: Number(row[zCol]) || 0,
+                color: colorCol ? Number(row[colorCol]) || 0 : 0,
+                size: sizeCol ? Number(row[sizeCol]) || 1 : 1,
+                index: idx
+            }));
+
+            // Normalize
+            ['x', 'y', 'z', 'color', 'size'].forEach(axis => {
+                const values = points3D.map(p => p[axis]);
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+                const range = max - min || 1;
+                points3D.forEach(p => {
+                    p[axis] = ((p[axis] - min) / range) * 10 - 5;
+                });
+            });
+
+            document.getElementById('point-count').textContent = points3D.length;
+        }
+
+        // Statistics
+        function updateStats() {
+            const xCol = document.getElementById('x-axis').value;
+            const yCol = document.getElementById('y-axis').value;
+            const zCol = document.getElementById('z-axis').value;
+
+            if (!xCol || !yCol || !zCol || data.length === 0) {
+                document.getElementById('stats').textContent = 'No data loaded';
+                return;
+            }
+
+            const stats = {};
+            [xCol, yCol, zCol].forEach(col => {
+                const values = data.map(row => Number(row[col]) || 0);
+                const mean = values.reduce((a, b) => a + b, 0) / values.length;
+                const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+                const std = Math.sqrt(variance);
+                stats[col] = { mean, std };
+            });
+
+            // Correlation
+            const corr = {};
+            [xCol, yCol, zCol].forEach(col1 => {
+                [xCol, yCol, zCol].forEach(col2 => {
+                    if (col1 < col2) {
+                        const v1 = data.map(row => Number(row[col1]) || 0);
+                        const v2 = data.map(row => Number(row[col2]) || 0);
+                        const m1 = stats[col1].mean;
+                        const m2 = stats[col2].mean;
+                        const cov = v1.reduce((a, b, i) => a + (b - m1) * (v2[i] - m2), 0) / v1.length;
+                        const r = cov / (stats[col1].std * stats[col2].std);
+                        corr[`${col1}-${col2}`] = r;
+                    }
+                });
+            });
+
+            let html = '<strong>Mean (Std):</strong><br>';
+            [xCol, yCol, zCol].forEach(col => {
+                html += `${col}: ${stats[col].mean.toFixed(2)} (${stats[col].std.toFixed(2)})<br>`;
+            });
+
+            html += '<br><strong>Correlation:</strong><br>';
+            Object.entries(corr).forEach(([key, val]) => {
+                html += `${key}: ${val.toFixed(3)}<br>`;
+            });
+
+            document.getElementById('stats').innerHTML = html;
+        }
+
+        // K-means clustering
+        function kMeans(k) {
+            if (points3D.length === 0) return;
+
+            const points = points3D.map(p => [p.x, p.y, p.z]);
+            let centroids = [];
+
+            // Initialize centroids randomly
+            for (let i = 0; i < k; i++) {
+                centroids.push(points[Math.floor(Math.random() * points.length)].slice());
+            }
+
+            let assignments = new Array(points.length).fill(0);
+            let iterations = 0;
+            const maxIterations = 50;
+
+            while (iterations < maxIterations) {
+                let changed = false;
+
+                // Assign points to nearest centroid
+                for (let i = 0; i < points.length; i++) {
+                    let minDist = Infinity;
+                    let bestCluster = 0;
+
+                    for (let c = 0; c < k; c++) {
+                        const dist = Math.sqrt(
+                            Math.pow(points[i][0] - centroids[c][0], 2) +
+                            Math.pow(points[i][1] - centroids[c][1], 2) +
+                            Math.pow(points[i][2] - centroids[c][2], 2)
+                        );
+
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestCluster = c;
+                        }
+                    }
+
+                    if (assignments[i] !== bestCluster) {
+                        assignments[i] = bestCluster;
+                        changed = true;
+                    }
+                }
+
+                if (!changed) break;
+
+                // Update centroids
+                for (let c = 0; c < k; c++) {
+                    const clusterPoints = points.filter((_, i) => assignments[i] === c);
+                    if (clusterPoints.length > 0) {
+                        centroids[c] = [
+                            clusterPoints.reduce((a, b) => a + b[0], 0) / clusterPoints.length,
+                            clusterPoints.reduce((a, b) => a + b[1], 0) / clusterPoints.length,
+                            clusterPoints.reduce((a, b) => a + b[2], 0) / clusterPoints.length
+                        ];
+                    }
+                }
+
+                iterations++;
+            }
+
+            clusterAssignments = assignments;
+
+            // Generate colors for clusters
+            clusterColors = [];
+            for (let i = 0; i < k; i++) {
+                const hue = (i / k) * 360;
+                clusterColors.push(`hsl(${hue}, 100%, 60%)`);
+            }
+
+            // Update legend
+            const legend = document.getElementById('cluster-legend');
+            legend.innerHTML = '';
+            for (let i = 0; i < k; i++) {
+                const count = assignments.filter(a => a === i).length;
+                const chip = document.createElement('div');
+                chip.className = 'cluster-chip';
+                chip.style.backgroundColor = clusterColors[i];
+                chip.style.borderColor = clusterColors[i];
+                chip.style.color = '#000';
+                chip.textContent = `C${i}: ${count}`;
+                legend.appendChild(chip);
+            }
+
+            // Start animation
+            originalPositions = points3D.map(p => ({ ...p }));
+            animatingClusters = true;
+            animationProgress = 0;
+        }
+
+        // 3D projection
+        function project3D(x, y, z) {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Rotate
+            const cosX = Math.cos(rotation.x);
+            const sinX = Math.sin(rotation.x);
+            const cosY = Math.cos(rotation.y);
+            const sinY = Math.sin(rotation.y);
+
+            let y1 = y * cosX - z * sinX;
+            let z1 = y * sinX + z * cosX;
+
+            let x2 = x * cosY - z1 * sinY;
+            let z2 = x * sinY + z1 * cosY;
+
+            // Perspective
+            const fov = 500;
+            const distance = 20;
+            const scale = fov / (fov + z2 + distance);
+
+            return {
+                x: w / 2 + (x2 * scale * zoom * 30) + offset.x,
+                y: h / 2 - (y1 * scale * zoom * 30) + offset.y,
+                scale: scale,
+                z: z2
+            };
+        }
+
+        // Render
+        function render() {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Clear with scanline effect
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, w, h);
+
+            // Grid floor
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            const gridSize = 20;
+            const gridSpacing = 50;
+
+            for (let i = -gridSize; i <= gridSize; i++) {
+                const start = project3D(i * 0.5, -5, -gridSize * 0.5);
+                const end = project3D(i * 0.5, -5, gridSize * 0.5);
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+
+                const start2 = project3D(-gridSize * 0.5, -5, i * 0.5);
+                const end2 = project3D(gridSize * 0.5, -5, i * 0.5);
+                ctx.beginPath();
+                ctx.moveTo(start2.x, start2.y);
+                ctx.lineTo(end2.x, end2.y);
+                ctx.stroke();
+            }
+
+            // Sort points by depth
+            const projected = points3D.map((p, i) => {
+                let x = p.x;
+                let y = p.y;
+                let z = p.z;
+
+                // Animate clustering
+                if (animatingClusters && clusterAssignments) {
+                    const targetCluster = clusterAssignments[i];
+                    const clusterPoints = points3D.filter((_, idx) => clusterAssignments[idx] === targetCluster);
+                    const centerX = clusterPoints.reduce((a, b) => a + b.x, 0) / clusterPoints.length;
+                    const centerY = clusterPoints.reduce((a, b) => a + b.y, 0) / clusterPoints.length;
+                    const centerZ = clusterPoints.reduce((a, b) => a + b.z, 0) / clusterPoints.length;
+
+                    const t = Math.min(animationProgress, 1);
+                    x = originalPositions[i].x + (centerX - originalPositions[i].x) * t * 0.3;
+                    y = originalPositions[i].y + (centerY - originalPositions[i].y) * t * 0.3;
+                    z = originalPositions[i].z + (centerZ - originalPositions[i].z) * t * 0.3;
+                }
+
+                const proj = project3D(x, y, z);
+                return { ...proj, point: p, index: i };
+            });
+
+            projected.sort((a, b) => a.z - b.z);
+
+            // Draw points
+            projected.forEach(({ x, y, scale, point, index }) => {
+                // Slice filter
+                if (sliceAxis !== null) {
+                    const val = point[sliceAxis];
+                    if (val < slicePosition) return;
+                }
+
+                let color;
+                if (clusterAssignments) {
+                    color = clusterColors[clusterAssignments[index]];
+                } else {
+                    const colorCol = document.getElementById('color-axis').value;
+                    if (colorCol) {
+                        const t = (point.color + 5) / 10;
+                        const r = Math.floor(t * 255);
+                        const b = Math.floor((1 - t) * 255);
+                        color = `rgb(${r}, 100, ${b})`;
+                    } else {
+                        color = '#0ff';
+                    }
+                }
+
+                const sizeCol = document.getElementById('size-axis').value;
+                const baseSize = sizeCol ? ((point.size + 5) / 10) * 3 + 1 : 2;
+                const size = baseSize * scale * zoom;
+
+                // Glow effect
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(0.5, color.replace(')', ', 0.5)').replace('rgb', 'rgba').replace('hsl', 'hsla'));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(x, y, size * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Scanlines
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            for (let y = 0; y < h; y += 4) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+
+            // Animation
+            if (animatingClusters) {
+                animationProgress += 0.02;
+                if (animationProgress >= 1) {
+                    animatingClusters = false;
+                }
+            }
+
+            // FPS
+            frameCount++;
+            const now = Date.now();
+            if (now - lastFpsUpdate >= 1000) {
+                fps = frameCount;
+                document.getElementById('fps').textContent = fps;
+                frameCount = 0;
+                lastFpsUpdate = now;
+            }
+
+            requestAnimationFrame(render);
+        }
+
+        // Mouse controls
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) {
+                isDragging = true;
+            } else if (e.button === 2) {
+                isRightDragging = true;
+                e.preventDefault();
+            }
+            lastMouse = { x: e.clientX, y: e.clientY };
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - lastMouse.x;
+                const dy = e.clientY - lastMouse.y;
+                rotation.y += dx * 0.01;
+                rotation.x += dy * 0.01;
+            } else if (isRightDragging) {
+                const dx = e.clientX - lastMouse.x;
+                const dy = e.clientY - lastMouse.y;
+                offset.x += dx;
+                offset.y += dy;
+            }
+            lastMouse = { x: e.clientX, y: e.clientY };
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            isRightDragging = false;
+        });
+
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            zoom *= delta;
+            zoom = Math.max(0.1, Math.min(10, zoom));
+            document.getElementById('zoom-display').textContent = zoom.toFixed(1) + 'x';
+        });
+
+        // Event listeners
+        document.getElementById('load-sample').addEventListener('click', () => {
+            const dataset = document.getElementById('dataset-select').value;
+            loadDataset(datasets[dataset]());
+        });
+
+        document.getElementById('import-btn').addEventListener('click', () => {
+            const text = document.getElementById('import-data').value.trim();
+            if (!text) return;
+
+            try {
+                // Try JSON
+                const json = JSON.parse(text);
+                loadDataset(Array.isArray(json) ? json : [json]);
+            } catch (e) {
+                // Try CSV
+                const lines = text.split('\n').filter(l => l.trim());
+                if (lines.length < 2) {
+                    alert('Invalid data format');
+                    return;
+                }
+
+                const headers = lines[0].split(',').map(h => h.trim());
+                const data = lines.slice(1).map(line => {
+                    const values = line.split(',').map(v => v.trim());
+                    const row = {};
+                    headers.forEach((h, i) => {
+                        const val = values[i];
+                        row[h] = isNaN(val) ? val : parseFloat(val);
+                    });
+                    return row;
+                });
+
+                loadDataset(data);
+            }
+        });
+
+        ['x-axis', 'y-axis', 'z-axis', 'color-axis', 'size-axis'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                updatePoints();
+                updateStats();
+            });
+        });
+
+        document.getElementById('k-slider').addEventListener('input', (e) => {
+            document.getElementById('k-value').textContent = e.target.value;
+        });
+
+        document.getElementById('cluster-btn').addEventListener('click', () => {
+            const k = parseInt(document.getElementById('k-slider').value);
+            kMeans(k);
+        });
+
+        document.getElementById('slice-slider').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value) / 10;
+            document.getElementById('slice-value').textContent = val.toFixed(1);
+            slicePosition = val / 2;
+        });
+
+        document.getElementById('slice-x').addEventListener('click', () => {
+            sliceAxis = 'x';
+        });
+
+        document.getElementById('slice-y').addEventListener('click', () => {
+            sliceAxis = 'y';
+        });
+
+        document.getElementById('slice-z').addEventListener('click', () => {
+            sliceAxis = 'z';
+        });
+
+        document.getElementById('clear-slice').addEventListener('click', () => {
+            sliceAxis = null;
+        });
+
+        document.getElementById('reset-view').addEventListener('click', () => {
+            rotation = { x: 0.5, y: 0.5 };
+            zoom = 1.0;
+            offset = { x: 0, y: 0 };
+            document.getElementById('zoom-display').textContent = '1.0x';
+        });
+
+        document.getElementById('fullscreen-btn').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Initialize
+        loadDataset(datasets.iris());
+        render();
+    </script>
+</body>
+</html>

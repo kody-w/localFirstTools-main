@@ -2,503 +2,637 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Pomodoro Kanban Board</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskForge: Productivity Dungeon</title>
+  <meta name="rappterzoo:author" content="molter-engine">
+  <meta name="rappterzoo:author-type" content="agent">
+  <meta name="rappterzoo:category" content="experimental_ai">
+  <meta name="rappterzoo:tags" content="canvas,game,rpg,productivity,dungeon,audio">
+  <meta name="rappterzoo:type" content="game">
+  <meta name="rappterzoo:complexity" content="advanced">
+  <meta name="rappterzoo:created" content="2026-02-08">
+  <meta name="rappterzoo:generation" content="2">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background: #fafafa;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d0d1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; height: 100vh; }
+    canvas { display: block; }
+    #titleScreen {
+      position: fixed; inset: 0; z-index: 100;
+      background: radial-gradient(ellipse at center, #1a1025 0%, #0a0a12 70%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      transition: opacity 0.6s;
     }
-    h1, h2 {
-      text-align: center;
+    #titleScreen.hidden { opacity: 0; pointer-events: none; }
+    #titleScreen h1 { font-size: clamp(2rem, 5vw, 3.5rem); color: #ff9f43; margin-bottom: 0.3rem; }
+    #titleScreen h2 { font-size: 1rem; color: #6c5ce7; margin-bottom: 2rem; letter-spacing: 3px; text-transform: uppercase; }
+    .btn { padding: 12px 36px; margin: 6px; background: linear-gradient(135deg, #2d1b69, #1a1025); border: 1px solid #6c5ce7; color: #a29bfe; border-radius: 8px; cursor: pointer; font-size: 1rem; transition: all 0.3s; }
+    .btn:hover { background: #6c5ce720; border-color: #a29bfe; color: #fff; transform: scale(1.05); box-shadow: 0 0 15px #6c5ce730; }
+    .diff-row { display: flex; gap: 10px; margin: 1rem 0; }
+    .diff-btn { padding: 8px 20px; background: #1a1025; border: 1px solid #444; color: #999; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+    .diff-btn.sel { border-color: #ff9f43; color: #ff9f43; background: #ff9f4315; }
+    #pauseOverlay, #gameOverOverlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+      display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
     }
-    .pomodoro {
-      margin: 20px 0;
-      text-align: center;
+    #pauseOverlay.active, #gameOverOverlay.active { display: flex; }
+    #pauseOverlay h2 { color: #a29bfe; font-size: 2.5rem; margin-bottom: 1rem; }
+    #gameOverOverlay h2 { color: #ff6b6b; font-size: 2.5rem; margin-bottom: 0.5rem; }
+    .go-score { font-size: 2.5rem; color: #ff9f43; margin: 0.5rem 0; }
+    .go-stats { color: #888; margin: 0.5rem 0; font-size: 0.9rem; }
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0; padding: 8px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      background: linear-gradient(180deg, rgba(0,0,0,0.7), transparent);
+      pointer-events: none; z-index: 10; font-size: 0.85rem;
     }
-    #timerDisplay {
-      font-size: 2em;
-      margin-bottom: 10px;
-    }
-    button {
-      margin: 5px;
-      padding: 8px 12px;
-      font-size: 1em;
-    }
-    #importExportSection {
-      text-align: center;
-      margin: 20px 0;
-    }
-    .kanban-board {
-      display: flex;
-      justify-content: space-around;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .kanban-column {
-      background: #f4f4f4;
-      padding: 10px;
-      border-radius: 5px;
-      width: 30%;
-      min-width: 250px;
-    }
-    .kanban-column h2 {
-      text-align: center;
-    }
-    .task-list {
-      min-height: 300px;
-    }
-    .task {
-      background: #fff;
-      padding: 8px;
-      margin: 8px 0;
-      border-radius: 3px;
-      border: 1px solid #ccc;
-      cursor: move;
-    }
-    .task span.pomo {
-      display: block;
-      margin-top: 4px;
-      font-size: 0.9em;
-      color: #555;
-    }
+    .hi { display: inline-block; margin: 0 10px; color: #aaa; }
+    .hi span { font-weight: 700; }
+    .hi.xp span { color: #ff9f43; }
+    .hi.hp span { color: #ff6b6b; }
+    .hi.lv span { color: #a29bfe; }
+    .hi.fl span { color: #6c5ce7; }
+    .hi.co span { color: #feca57; }
+    .hi.sc span { color: #feca57; }
+    @media (max-width: 600px) { .hi { margin: 0 4px; font-size: 0.7rem; } }
   </style>
 </head>
 <body>
-  <h1>Pomodoro Kanban Board</h1>
-  
-  <div class="pomodoro">
-    <h2>Pomodoro Timer</h2>
-    <div id="timerDisplay">25:00</div>
-    <div>
-      <button id="startTimer">Start</button>
-      <button id="pauseTimer">Pause</button>
-      <button id="resetTimer">Reset</button>
+  <div id="titleScreen">
+    <h1>TaskForge</h1>
+    <h2>Productivity Dungeon</h2>
+    <div class="diff-row">
+      <button class="diff-btn sel" data-d="easy">Easy</button>
+      <button class="diff-btn" data-d="normal">Normal</button>
+      <button class="diff-btn" data-d="hard">Hard</button>
     </div>
-    <div style="margin-top:10px;">
-      <label for="focusTaskSelect">Focus Task: </label>
-      <select id="focusTaskSelect">
-        <option value="">Select a task</option>
-      </select>
-    </div>
+    <button class="btn" id="playBtn">Enter the Forge</button>
+    <button class="btn" id="helpBtn">How to Play</button>
+    <p style="margin-top:1rem;color:#555;font-size:0.8rem;">Best: <span id="bestDisp">0</span></p>
   </div>
-  
-  <div id="importExportSection">
-    <input type="file" id="importFile">
-    <button id="exportJson">Export JSON</button>
-  </div>
-  
-  <div class="kanban-board">
-    <div class="kanban-column" id="todoColumn">
-      <h2>To Do</h2>
-      <div class="task-list" id="todoList"></div>
-    </div>
-    <div class="kanban-column" id="inprogressColumn">
-      <h2>In Progress</h2>
-      <div class="task-list" id="inprogressList"></div>
-    </div>
-    <div class="kanban-column" id="doneColumn">
-      <h2>Done</h2>
-      <div class="task-list" id="doneList"></div>
-    </div>
-  </div>
-  
-  <script>
-    // Full list of tasks with pomodoros initialized to 0.
-    let tasks = [
-      {
-        "id": "task-1",
-        "title": "Partner implementation",
-        "description": "Stay in touch with Team Lead (Person A, cc- Person B and Person C). Partner capabilities check.",
-        "dueDate": null,
-        "assignedTo": ["Team Lead"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-2",
-        "title": "Blog post",
-        "description": "April end from Team Lead; discuss in our 1:1.",
-        "dueDate": "2025-04-30",
-        "assignedTo": ["Team Lead"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-3",
-        "title": "New demo for stakeholder meeting",
-        "description": "Demo scheduled for March 7, 2025.",
-        "dueDate": "2025-03-07",
-        "assignedTo": ["Team Lead"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-4",
-        "title": "MAC Update",
-        "description": "Team Lead to give update around Mar 20th.",
-        "dueDate": "2025-03-20",
-        "assignedTo": ["Team Lead"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-5",
-        "title": "Partner EBC",
-        "description": "",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-6",
-        "title": "BAS Learning Day",
-        "description": "Team Lead and Person C.",
-        "dueDate": null,
-        "assignedTo": ["Team Lead", "Person C"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-7",
-        "title": "Research presentation",
-        "description": "",
-        "dueDate": null,
-        "assignedTo": ["Team Lead"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-8",
-        "title": "Manufacturing presentation",
-        "description": "",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-9",
-        "title": "Demo library: Sales use cases with Agents demos",
-        "description": "Ongoing.",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-10",
-        "title": "Demos for partner scenarios",
-        "description": "Person E + Person F; Person G.",
-        "dueDate": null,
-        "assignedTo": ["Person E", "Person F", "Person G"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-11",
-        "title": "ISD Content",
-        "description": "Person C to ask for content.",
-        "dueDate": null,
-        "assignedTo": ["Person C"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-12",
-        "title": "Immersive experience",
-        "description": "Person H, Person I - Team Lead.",
-        "dueDate": null,
-        "assignedTo": ["Team Lead"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-13",
-        "title": "Customer meetings",
-        "description": "",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-14",
-        "title": "Company A",
-        "description": "Team member 1 + Team member 2; send to Manager (cc Manager 2 & Manager 3). Due Mar 17.",
-        "dueDate": "2025-03-17",
-        "assignedTo": ["Team member 1", "Team member 2"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-15",
-        "title": "Company B",
-        "description": "To be determined.",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-16",
-        "title": "Company C",
-        "description": "Team member 1 is involved.",
-        "dueDate": null,
-        "assignedTo": ["Team member 1"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-17",
-        "title": "Company D",
-        "description": "Team member 2. Due Mar 10.",
-        "dueDate": "2025-03-10",
-        "assignedTo": ["Team member 2"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-18",
-        "title": "Others",
-        "description": "Company E, Company F, Company G; Team member 1.",
-        "dueDate": null,
-        "assignedTo": ["Team member 1"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-19",
-        "title": "Company H Review",
-        "description": "Review scenarios on Agents (Team member 2, Team member 1 next 1:1).",
-        "dueDate": null,
-        "assignedTo": ["Team member 1", "Team member 2"],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-20",
-        "title": "New Agent customers",
-        "description": "Company I, Company J, Company K; meeting set with partner.",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-21",
-        "title": "Stakeholder requests",
-        "description": "Company L, Company M, Company N, Company O, Company P.",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-22",
-        "title": "M365 Conf Event",
-        "description": "",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-23",
-        "title": "Webinar with C5",
-        "description": "Scheduled for May (mid to end).",
-        "dueDate": null,
-        "assignedTo": [],
-        "status": "todo",
-        "pomodoros": 0
-      },
-      {
-        "id": "task-24",
-        "title": "C5 Insights",
-        "description": "Person E - Team Lead. Due Sept 18.",
-        "dueDate": "2025-09-18",
-        "assignedTo": ["Team Lead", "Person E"],
-        "status": "todo",
-        "pomodoros": 0
-      }
-    ];
-    
-    // Render tasks in columns; for "todo" and "done", sort by due date (if provided)
-    function renderTasks() {
-      const columns = {
-        todo: document.getElementById("todoList"),
-        inprogress: document.getElementById("inprogressList"),
-        done: document.getElementById("doneList")
-      };
-      // Clear all columns
-      Object.values(columns).forEach(col => col.innerHTML = "");
-      // Process each column separately
-      Object.keys(columns).forEach(status => {
-        let tasksForStatus = tasks.filter(task => task.status === status);
-        if (status === "todo" || status === "done") {
-          tasksForStatus.sort((a, b) => {
-            if (a.dueDate && b.dueDate) {
-              return new Date(a.dueDate) - new Date(b.dueDate);
-            }
-            if (a.dueDate && !b.dueDate) {
-              return -1;
-            }
-            if (!a.dueDate && b.dueDate) {
-              return 1;
-            }
-            return 0;
-          });
+  <div id="pauseOverlay"><h2>PAUSED</h2><p style="color:#888;margin-bottom:1rem;">ESC to resume</p><button class="btn" id="resBtn">Resume</button><button class="btn" id="rpBtn">Restart</button><button class="btn" id="qBtn">Quit</button></div>
+  <div id="gameOverOverlay"><h2>FORGE COLLAPSED</h2><div class="go-score" id="goScore">0</div><p class="go-stats" id="goStats"></p><p class="go-stats" id="goMsg"></p><button class="btn" id="retryBtn">Retry (R)</button><button class="btn" id="menuBtn">Menu</button></div>
+  <canvas id="c"></canvas>
+  <div id="hud"><div><span class="hi xp">XP: <span id="xpD">0</span></span><span class="hi hp">HP: <span id="hpD">100</span></span><span class="hi lv">Lv: <span id="lvD">1</span></span><span class="hi fl">Floor: <span id="flD">1</span></span><span class="hi co">Combo: <span id="coD">x1</span></span><span class="hi sc">Score: <span id="scD">0</span></span></div><div></div></div>
+
+<script>
+(()=>{
+'use strict';
+const C=document.getElementById('c'),X=C.getContext('2d');
+let W,H;
+function resize(){W=C.width=innerWidth;H=C.height=innerHeight;}
+addEventListener('resize',resize);resize();
+
+// Audio
+const AE={c:null,g:null,v:0.4,
+  init(){try{this.c=new(AudioContext||webkitAudioContext);this.g=this.c.createGain();this.g.gain.value=this.v;this.g.connect(this.c.destination);}catch(e){}},
+  p(t,f,d,v){if(!this.c)return;const o=this.c.createOscillator(),g=this.c.createGain();o.type=t;o.frequency.value=f;g.gain.setValueAtTime((v||0.3)*this.v,this.c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.c.currentTime+d);o.connect(g);g.connect(this.g);o.start();o.stop(this.c.currentTime+d);},
+  hit(){this.p('sawtooth',200,0.1,0.4);},
+  kill(){this.p('sine',880,0.15,0.3);this.p('sine',1100,0.1,0.2);},
+  hurt(){this.p('square',150,0.15,0.3);},
+  step(){this.p('sine',300,0.05,0.1);},
+  lvl(){[440,550,660,880].forEach((f,i)=>setTimeout(()=>this.p('sine',f,0.15,0.25),i*80));},
+  pickup(){this.p('sine',1200,0.1,0.2);},
+  boss(){this.p('square',80,0.5,0.5);},
+  combo(){this.p('triangle',1400,0.08,0.2);},
+  go(){this.p('sawtooth',200,0.3,0.4);setTimeout(()=>this.p('sawtooth',100,0.4,0.5),200);}
+};
+
+// Consts
+const TS=32,MW=40,MH=30;
+const ENEMIES={
+  slime:{hp:15,dmg:3,spd:0.8,col:'#55efc4',sz:12,xp:5,sc:10},
+  goblin:{hp:25,dmg:6,spd:1.2,col:'#e17055',sz:10,xp:10,sc:20},
+  skeleton:{hp:40,dmg:10,spd:1.0,col:'#dfe6e9',sz:11,xp:15,sc:30},
+  mage:{hp:30,dmg:15,spd:0.6,col:'#6c5ce7',sz:10,xp:20,sc:40},
+  golem:{hp:80,dmg:8,spd:0.5,col:'#636e72',sz:16,xp:25,sc:50},
+  boss:{hp:200,dmg:20,spd:0.4,col:'#ff0000',sz:22,xp:100,sc:200}
+};
+const PICKUPS=['health','xp','speed','shield','bomb'];
+const PICKUP_COLORS={'health':'#ff6b6b','xp':'#ff9f43','speed':'#00d4ff','shield':'#a29bfe','bomb':'#feca57'};
+const DIFF={easy:{hpM:0.6,dmgM:0.5,spM:0.7,xpM:1.5},normal:{hpM:1,dmgM:1,spM:1,xpM:1},hard:{hpM:1.5,dmgM:1.5,spM:1.3,xpM:0.7}};
+
+// State
+let S={scr:'title',diff:'normal',sc:0,best:+localStorage.getItem('tf_best')||0,
+  p:{x:0,y:0,hp:100,maxHp:100,xp:0,lv:1,spd:3,dmg:10,range:5,atkCd:0,flashT:0,shieldT:0,speedT:0,combo:1,comboT:0,inv:0,trail:[]},
+  enemies:[],particles:[],projectiles:[],pickups:[],
+  map:[],rooms:[],floor:1,camX:0,camY:0,shake:0,
+  keys:{},time:0,
+  stats:{kills:0,floors:0,dmgDealt:0,pickups:0}
+};
+
+// Map generation
+function genMap(){
+  S.map=[];
+  for(let y=0;y<MH;y++){S.map[y]=[];for(let x=0;x<MW;x++)S.map[y][x]=1;}
+  S.rooms=[];
+  const rc=6+S.floor*2;
+  for(let i=0;i<rc;i++){
+    const rw=4+Math.floor(Math.random()*5);
+    const rh=3+Math.floor(Math.random()*4);
+    const rx=1+Math.floor(Math.random()*(MW-rw-2));
+    const ry=1+Math.floor(Math.random()*(MH-rh-2));
+    for(let y=ry;y<ry+rh;y++)for(let x=rx;x<rx+rw;x++)S.map[y][x]=0;
+    S.rooms.push({x:rx,y:ry,w:rw,h:rh,cx:rx+Math.floor(rw/2),cy:ry+Math.floor(rh/2)});
+  }
+  // Connect rooms
+  for(let i=1;i<S.rooms.length;i++){
+    const a=S.rooms[i-1],b=S.rooms[i];
+    let cx=a.cx,cy=a.cy;
+    while(cx!==b.cx){cx+=cx<b.cx?1:-1;if(cy>=0&&cy<MH&&cx>=0&&cx<MW)S.map[cy][cx]=0;}
+    while(cy!==b.cy){cy+=cy<b.cy?1:-1;if(cy>=0&&cy<MH&&cx>=0&&cx<MW)S.map[cy][cx]=0;}
+  }
+  // Place stairs in last room
+  const lr=S.rooms[S.rooms.length-1];
+  S.stairsX=lr.cx;S.stairsY=lr.cy;
+}
+
+function spawnEnemies(){
+  S.enemies=[];
+  const d=DIFF[S.diff];
+  const types=['slime'];
+  if(S.floor>=2)types.push('goblin');
+  if(S.floor>=3)types.push('skeleton');
+  if(S.floor>=5)types.push('mage');
+  if(S.floor>=7)types.push('golem');
+  const count=5+S.floor*3;
+  for(let i=0;i<count;i++){
+    const room=S.rooms[1+Math.floor(Math.random()*(S.rooms.length-1))];
+    const t=types[Math.floor(Math.random()*types.length)];
+    const et=ENEMIES[t];
+    S.enemies.push({
+      type:t,x:(room.x+Math.random()*room.w)*TS,y:(room.y+Math.random()*room.h)*TS,
+      hp:et.hp*d.hpM*(1+S.floor*0.1),maxHp:et.hp*d.hpM*(1+S.floor*0.1),
+      dmg:et.dmg*d.dmgM,spd:et.spd*(1+S.floor*0.02),
+      col:et.col,sz:et.sz,xp:Math.floor(et.xp*d.xpM),sc:et.sc,
+      atkCd:0,flashT:0,trail:[],age:0
+    });
+  }
+  // Boss every 5 floors
+  if(S.floor%5===0){
+    const br=S.rooms[Math.floor(S.rooms.length/2)];
+    const et=ENEMIES.boss;
+    S.enemies.push({
+      type:'boss',x:br.cx*TS,y:br.cy*TS,
+      hp:et.hp*d.hpM*(1+S.floor*0.15),maxHp:et.hp*d.hpM*(1+S.floor*0.15),
+      dmg:et.dmg*d.dmgM,spd:et.spd,
+      col:et.col,sz:et.sz,xp:et.xp,sc:et.sc,
+      atkCd:0,flashT:0,trail:[],age:0
+    });
+    AE.boss();
+  }
+}
+
+function spawnPickups(){
+  S.pickups=[];
+  const count=3+S.floor;
+  for(let i=0;i<count;i++){
+    const room=S.rooms[Math.floor(Math.random()*S.rooms.length)];
+    const t=PICKUPS[Math.floor(Math.random()*PICKUPS.length)];
+    S.pickups.push({
+      type:t,x:(room.x+1+Math.random()*(room.w-2))*TS,y:(room.y+1+Math.random()*(room.h-2))*TS,
+      col:PICKUP_COLORS[t],age:0
+    });
+  }
+}
+
+function particle(x,y,col,n,spd,life,sz){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,s=Math.random()*(spd||3);
+    S.particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:life||30,maxLife:life||30,col:col||'#fff',sz:sz||2});
+  }
+}
+
+function explosion(x,y,col){
+  particle(x,y,col,15,4,40,3);
+  particle(x,y,'#fff',6,2,20,1.5);
+  S.shake=Math.max(S.shake,6);
+}
+
+// Collision
+function solid(px,py){
+  const tx=Math.floor(px/TS),ty=Math.floor(py/TS);
+  if(tx<0||ty<0||tx>=MW||ty>=MH)return true;
+  return S.map[ty][tx]===1;
+}
+function canMove(x,y,r){
+  return!solid(x-r,y-r)&&!solid(x+r,y-r)&&!solid(x-r,y+r)&&!solid(x+r,y+r);
+}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+
+// Start
+function startGame(){
+  S.scr='playing';S.sc=0;S.floor=1;S.time=0;
+  S.stats={kills:0,floors:0,dmgDealt:0,pickups:0};
+  const p=S.p;
+  p.hp=100;p.maxHp=100;p.xp=0;p.lv=1;p.spd=3;p.dmg=10;p.range=5;p.atkCd=0;p.flashT=0;p.shieldT=0;p.speedT=0;p.combo=1;p.comboT=0;p.inv=0;p.trail=[];
+  S.particles=[];S.projectiles=[];
+  genMap();
+  const r0=S.rooms[0];
+  p.x=r0.cx*TS;p.y=r0.cy*TS;
+  S.camX=p.x;S.camY=p.y;
+  spawnEnemies();spawnPickups();
+  document.getElementById('titleScreen').classList.add('hidden');
+  document.getElementById('gameOverOverlay').classList.remove('active');
+}
+
+function nextFloor(){
+  S.floor++;S.stats.floors++;
+  S.particles=[];S.projectiles=[];S.pickups=[];
+  genMap();
+  const r0=S.rooms[0];
+  S.p.x=r0.cx*TS;S.p.y=r0.cy*TS;
+  S.camX=S.p.x;S.camY=S.p.y;
+  spawnEnemies();spawnPickups();
+  S.p.hp=Math.min(S.p.maxHp,S.p.hp+20);
+  AE.lvl();
+  particle(S.p.x,S.p.y,'#a29bfe',20,4,30,3);
+}
+
+function levelUp(){
+  S.p.lv++;S.p.maxHp+=10;S.p.hp=S.p.maxHp;S.p.dmg+=3;S.p.xp=0;
+  AE.lvl();
+  particle(S.p.x,S.p.y,'#ff9f43',25,5,40,3);
+}
+
+function gameOver(){
+  S.scr='gameover';
+  if(S.sc>S.best){S.best=S.sc;localStorage.setItem('tf_best',S.best);}
+  document.getElementById('bestDisp').textContent=S.best;
+  document.getElementById('goScore').textContent=S.sc;
+  document.getElementById('goStats').textContent=`Floor ${S.floor} | Level ${S.p.lv} | ${S.stats.kills} kills`;
+  const msg=S.floor>=15?'Legendary forgemaster!':S.floor>=10?'The forge recognizes your strength.':S.floor>=5?'A worthy attempt.':'The dungeon claims another soul.';
+  document.getElementById('goMsg').textContent=msg;
+  document.getElementById('gameOverOverlay').classList.add('active');
+  AE.go();
+}
+
+function addCombo(){S.p.comboT=90;S.p.combo=Math.min(10,S.p.combo+1);if(S.p.combo>=5)AE.combo();}
+
+// Input
+addEventListener('keydown',e=>{
+  S.keys[e.key.toLowerCase()]=true;
+  if(S.scr==='playing'&&(e.key==='Escape'||e.key.toLowerCase()==='p')){S.scr='paused';document.getElementById('pauseOverlay').classList.add('active');}
+  if(S.scr==='paused'&&(e.key==='Escape'||e.key.toLowerCase()==='p')){S.scr='playing';document.getElementById('pauseOverlay').classList.remove('active');}
+  if(S.scr==='gameover'&&e.key.toLowerCase()==='r')startGame();
+  if(S.scr==='playing'&&e.key===' '){e.preventDefault();playerAttack();}
+});
+addEventListener('keyup',e=>{S.keys[e.key.toLowerCase()]=false;});
+
+// Touch
+let touchId=null,touchSX=0,touchSY=0,touchDX=0,touchDY=0;
+C.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const t=e.touches[0];touchId=t.identifier;touchSX=t.clientX;touchSY=t.clientY;touchDX=0;touchDY=0;
+},{passive:false});
+C.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  for(const t of e.touches){if(t.identifier===touchId){touchDX=t.clientX-touchSX;touchDY=t.clientY-touchSY;}}
+},{passive:false});
+C.addEventListener('touchend',e=>{
+  // Tap = attack
+  if(Math.abs(touchDX)<10&&Math.abs(touchDY)<10&&S.scr==='playing')playerAttack();
+  touchDX=0;touchDY=0;touchId=null;
+});
+
+function playerAttack(){
+  const p=S.p;
+  if(p.atkCd>0)return;
+  p.atkCd=15;
+  AE.hit();
+  // Melee attack in facing direction (based on last movement)
+  const range=p.range*TS;
+  for(const e of S.enemies){
+    if(dist(p,e)<range+e.sz){
+      const d=p.dmg*(1+p.combo*0.1);
+      e.hp-=d;e.flashT=6;
+      S.stats.dmgDealt+=d;
+      particle(e.x,e.y,e.col,6,3,15,2);
+      if(e.hp<=0){
+        S.sc+=Math.floor(e.sc*S.p.combo);
+        S.stats.kills++;
+        p.xp+=e.xp;
+        if(p.xp>=p.lv*50)levelUp();
+        addCombo();
+        explosion(e.x,e.y,e.col);
+        AE.kill();
+        // Drop pickup chance
+        if(Math.random()<0.25){
+          const t=PICKUPS[Math.floor(Math.random()*PICKUPS.length)];
+          S.pickups.push({type:t,x:e.x,y:e.y,col:PICKUP_COLORS[t],age:0});
         }
-        tasksForStatus.forEach(task => {
-          if (typeof task.pomodoros !== "number") {
-            task.pomodoros = 0;
-          }
-          const taskDiv = document.createElement("div");
-          taskDiv.className = "task";
-          taskDiv.draggable = true;
-          taskDiv.dataset.id = task.id;
-          taskDiv.innerHTML = `<strong>${task.title}</strong><br>${task.description}<br><span class="pomo">Pomodoros: ${task.pomodoros}</span>`;
-          taskDiv.addEventListener("dragstart", dragStart);
-          taskDiv.addEventListener("dragend", dragEnd);
-          columns[status].appendChild(taskDiv);
-        });
-      });
-      updateFocusTaskDropdown();
-    }
-    
-    // Update the focus task dropdown with tasks that are in "inprogress"
-    function updateFocusTaskDropdown() {
-      const focusSelect = document.getElementById("focusTaskSelect");
-      const currentSelection = focusSelect.value;
-      focusSelect.innerHTML = "<option value=''>Select a task</option>";
-      tasks.filter(task => task.status === "inprogress")
-           .forEach(task => {
-             const option = document.createElement("option");
-             option.value = task.id;
-             option.textContent = `${task.title} (Pomodoros: ${task.pomodoros})`;
-             focusSelect.appendChild(option);
-           });
-      // Restore selection if still available
-      if ([...focusSelect.options].some(opt => opt.value === currentSelection)) {
-        focusSelect.value = currentSelection;
       }
     }
-    
-    // Drag and drop functionality
-    let draggedTaskId = null;
-    function dragStart(e) {
-      draggedTaskId = e.target.dataset.id;
-      e.dataTransfer.setData("text/plain", draggedTaskId);
+  }
+  S.enemies=S.enemies.filter(e=>e.hp>0);
+  // Attack visual
+  particle(p.x+((S.keys['d']||S.keys['arrowright'])?20:(S.keys['a']||S.keys['arrowleft'])?-20:0),
+           p.y+((S.keys['s']||S.keys['arrowdown'])?20:(S.keys['w']||S.keys['arrowup'])?-20:0),
+           '#ff9f43',8,4,10,2);
+}
+
+// Update
+function update(){
+  if(S.scr!=='playing')return;
+  S.time++;
+  const p=S.p;
+  if(p.atkCd>0)p.atkCd--;
+  if(p.flashT>0)p.flashT--;
+  if(p.shieldT>0)p.shieldT--;
+  if(p.speedT>0)p.speedT--;
+  if(p.inv>0)p.inv--;
+  if(p.comboT>0){p.comboT--;}else{p.combo=1;}
+
+  // Move player
+  let dx=0,dy=0;
+  const spd=p.spd*(p.speedT>0?1.8:1);
+  if(S.keys['w']||S.keys['arrowup'])dy=-spd;
+  if(S.keys['s']||S.keys['arrowdown'])dy=spd;
+  if(S.keys['a']||S.keys['arrowleft'])dx=-spd;
+  if(S.keys['d']||S.keys['arrowright'])dx=spd;
+  // Touch joystick
+  if(touchId!==null){
+    const tl=Math.hypot(touchDX,touchDY);
+    if(tl>15){dx=(touchDX/tl)*spd;dy=(touchDY/tl)*spd;}
+  }
+  if(dx!==0&&dy!==0){dx*=0.707;dy*=0.707;}
+  if(dx!==0&&canMove(p.x+dx,p.y,6))p.x+=dx;
+  if(dy!==0&&canMove(p.x,p.y+dy,6))p.y+=dy;
+
+  // Trail
+  if(S.time%3===0)p.trail.push({x:p.x,y:p.y,life:12});
+  p.trail=p.trail.filter(t=>{t.life--;return t.life>0;});
+
+  // Camera
+  S.camX+=(p.x-S.camX)*0.1;
+  S.camY+=(p.y-S.camY)*0.1;
+  if(S.shake>0.1)S.shake*=0.88;else S.shake=0;
+
+  // Check stairs
+  if(Math.abs(p.x-S.stairsX*TS)<TS&&Math.abs(p.y-S.stairsY*TS)<TS){
+    nextFloor();return;
+  }
+
+  // Pickups
+  for(let i=S.pickups.length-1;i>=0;i--){
+    const pk=S.pickups[i];pk.age++;
+    if(dist(p,pk)<20){
+      S.stats.pickups++;
+      AE.pickup();
+      particle(pk.x,pk.y,pk.col,8,3,20,2);
+      if(pk.type==='health')p.hp=Math.min(p.maxHp,p.hp+25);
+      else if(pk.type==='xp'){p.xp+=15;if(p.xp>=p.lv*50)levelUp();}
+      else if(pk.type==='speed')p.speedT=300;
+      else if(pk.type==='shield')p.shieldT=300;
+      else if(pk.type==='bomb'){
+        for(const e of S.enemies){if(dist(p,e)<200){e.hp-=50;e.flashT=10;}}
+        explosion(p.x,p.y,'#feca57');
+      }
+      S.pickups.splice(i,1);
     }
-    function dragEnd(e) {
-      draggedTaskId = null;
-    }
-    
-    document.querySelectorAll(".task-list").forEach(col => {
-      col.addEventListener("dragover", e => e.preventDefault());
-      col.addEventListener("drop", e => {
-        e.preventDefault();
-        const newStatus = e.currentTarget.parentElement.id.replace("Column", "").toLowerCase();
-        tasks = tasks.map(task => {
-          if (task.id === draggedTaskId) {
-            task.status = newStatus;
-          }
-          return task;
-        });
-        renderTasks();
-      });
-    });
-    
-    renderTasks();
-    
-    // Import JSON functionality
-    document.getElementById("importFile").addEventListener("change", function(e) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        try {
-          const imported = JSON.parse(e.target.result);
-          if (imported.tasks) {
-            tasks = imported.tasks;
-            renderTasks();
-          } else {
-            alert("Invalid JSON file format.");
-          }
-        } catch (error) {
-          alert("Error parsing JSON.");
+  }
+
+  // Enemies
+  for(const e of S.enemies){
+    e.age++;
+    if(e.flashT>0)e.flashT--;
+    if(e.atkCd>0)e.atkCd--;
+    // Trail
+    if(e.age%4===0)e.trail.push({x:e.x,y:e.y,life:8});
+    e.trail=e.trail.filter(t=>{t.life--;return t.life>0;});
+    // AI
+    const d=dist(e,p);
+    if(d<300){
+      const a=Math.atan2(p.y-e.y,p.x-e.x);
+      let ex=e.x+Math.cos(a)*e.spd;
+      let ey=e.y+Math.sin(a)*e.spd;
+      if(canMove(ex,e.y,e.sz*0.4))e.x=ex;
+      if(canMove(e.x,ey,e.sz*0.4))e.y=ey;
+      // Attack
+      if(d<e.sz+10&&e.atkCd<=0){
+        if(p.inv<=0){
+          const dmg=p.shieldT>0?e.dmg*0.3:e.dmg;
+          p.hp-=dmg;p.flashT=8;p.inv=15;
+          AE.hurt();
+          particle(p.x,p.y,'#ff6b6b',5,3,15,2);
+          S.shake=Math.max(S.shake,4);
         }
-      };
-      reader.readAsText(file);
-    });
-    
-    // Export JSON functionality
-    document.getElementById("exportJson").addEventListener("click", function() {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ tasks }, null, 2));
-      const dlAnchorElem = document.createElement("a");
-      dlAnchorElem.setAttribute("href", dataStr);
-      dlAnchorElem.setAttribute("download", "tasks.json");
-      dlAnchorElem.click();
-    });
-    
-    // Pomodoro Timer
-    let timer;
-    let timeLeft = 25 * 60; // 25 minutes in seconds
-    let running = false;
-    
-    function updateTimerDisplay() {
-      const minutes = Math.floor(timeLeft / 60);
-      const seconds = timeLeft % 60;
-      document.getElementById("timerDisplay").textContent =
-        (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
-    }
-    
-    function startTimer() {
-      if (!running) {
-        running = true;
-        timer = setInterval(() => {
-          if (timeLeft > 0) {
-            timeLeft--;
-            updateTimerDisplay();
-          } else {
-            clearInterval(timer);
-            running = false;
-            // If a focus task is selected, increment its pomodoro count
-            const focusSelect = document.getElementById("focusTaskSelect");
-            const selectedTaskId = focusSelect.value;
-            if (selectedTaskId) {
-              tasks = tasks.map(task => {
-                if (task.id === selectedTaskId) {
-                  task.pomodoros = (task.pomodoros || 0) + 1;
-                }
-                return task;
-              });
-              renderTasks();
-            }
-            alert("Pomodoro session complete!");
-            resetTimer();
-          }
-        }, 1000);
+        e.atkCd=40;
+      }
+      // Mage ranged
+      if(e.type==='mage'&&d<200&&d>80&&e.atkCd<=0){
+        const a2=Math.atan2(p.y-e.y,p.x-e.x);
+        S.projectiles.push({x:e.x,y:e.y,vx:Math.cos(a2)*4,vy:Math.sin(a2)*4,dmg:e.dmg,life:60,col:'#6c5ce7',sz:4,own:'enemy'});
+        e.atkCd=60;
+      }
+      // Boss multi-shot
+      if(e.type==='boss'&&d<250&&e.atkCd<=0){
+        for(let i=0;i<6;i++){
+          const ba=(Math.PI*2/6)*i;
+          S.projectiles.push({x:e.x,y:e.y,vx:Math.cos(ba)*3,vy:Math.sin(ba)*3,dmg:e.dmg*0.4,life:50,col:'#ff0000',sz:5,own:'enemy'});
+        }
+        e.atkCd=90;AE.boss();
       }
     }
-    
-    function pauseTimer() {
-      running = false;
-      clearInterval(timer);
+  }
+
+  // Projectiles
+  for(let i=S.projectiles.length-1;i>=0;i--){
+    const pr=S.projectiles[i];
+    pr.x+=pr.vx;pr.y+=pr.vy;pr.life--;
+    if(pr.own==='enemy'&&dist(pr,p)<12&&p.inv<=0){
+      const dmg=p.shieldT>0?pr.dmg*0.3:pr.dmg;
+      p.hp-=dmg;p.flashT=6;p.inv=10;
+      AE.hurt();particle(p.x,p.y,'#ff6b6b',4,2,12,2);
+      pr.life=0;
     }
-    
-    function resetTimer() {
-      pauseTimer();
-      timeLeft = 25 * 60;
-      updateTimerDisplay();
+    const tx=Math.floor(pr.x/TS),ty=Math.floor(pr.y/TS);
+    if(tx<0||ty<0||tx>=MW||ty>=MH||S.map[ty][tx]===1)pr.life=0;
+    if(pr.life<=0)S.projectiles.splice(i,1);
+  }
+
+  // Particles
+  for(let i=S.particles.length-1;i>=0;i--){
+    const pt=S.particles[i];pt.x+=pt.vx;pt.y+=pt.vy;pt.vx*=0.95;pt.vy*=0.95;pt.life--;
+    if(pt.life<=0)S.particles.splice(i,1);
+  }
+
+  // Death
+  if(p.hp<=0)gameOver();
+
+  // HUD
+  document.getElementById('xpD').textContent=p.xp+'/'+p.lv*50;
+  document.getElementById('hpD').textContent=Math.ceil(p.hp)+'/'+p.maxHp;
+  document.getElementById('lvD').textContent=p.lv;
+  document.getElementById('flD').textContent=S.floor;
+  document.getElementById('coD').textContent='x'+p.combo;
+  document.getElementById('scD').textContent=S.sc;
+}
+
+// Render
+function render(){
+  X.fillStyle='#0d0d1a';X.fillRect(0,0,W,H);
+  const ox=W/2-S.camX+(S.shake>0.5?(Math.random()-0.5)*S.shake*2:0);
+  const oy=H/2-S.camY+(S.shake>0.5?(Math.random()-0.5)*S.shake*2:0);
+  X.save();X.translate(ox,oy);
+
+  // Map
+  const sx=Math.max(0,Math.floor((S.camX-W/2)/TS));
+  const sy=Math.max(0,Math.floor((S.camY-H/2)/TS));
+  const ex=Math.min(MW,Math.ceil((S.camX+W/2)/TS)+1);
+  const ey=Math.min(MH,Math.ceil((S.camY+H/2)/TS)+1);
+  for(let y=sy;y<ey;y++){
+    for(let x=sx;x<ex;x++){
+      if(S.map[y][x]===1){
+        X.fillStyle='#1a1a2e';X.fillRect(x*TS,y*TS,TS,TS);
+        X.strokeStyle='#2d2d44';X.strokeRect(x*TS,y*TS,TS,TS);
+      } else {
+        X.fillStyle='#0f0f1e';X.fillRect(x*TS,y*TS,TS,TS);
+      }
     }
-    
-    document.getElementById("startTimer").addEventListener("click", startTimer);
-    document.getElementById("pauseTimer").addEventListener("click", pauseTimer);
-    document.getElementById("resetTimer").addEventListener("click", resetTimer);
-    
-    updateTimerDisplay();
-  </script>
+  }
+
+  // Stairs
+  X.fillStyle='#a29bfe';
+  X.shadowColor='#a29bfe';X.shadowBlur=15;
+  X.fillRect(S.stairsX*TS+6,S.stairsY*TS+6,TS-12,TS-12);
+  X.shadowBlur=0;
+  X.fillStyle='#6c5ce7';X.font='16px sans-serif';X.textAlign='center';
+  X.fillText('V',S.stairsX*TS+TS/2,S.stairsY*TS+TS/2+5);
+
+  // Pickups
+  for(const pk of S.pickups){
+    const pulse=Math.sin(pk.age*0.1)*3;
+    X.fillStyle=pk.col;X.shadowColor=pk.col;X.shadowBlur=10;
+    X.beginPath();X.arc(pk.x,pk.y,5+pulse,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+  }
+
+  // Particles
+  for(const pt of S.particles){
+    X.globalAlpha=pt.life/pt.maxLife;X.fillStyle=pt.col;
+    X.beginPath();X.arc(pt.x,pt.y,pt.sz*(pt.life/pt.maxLife),0,Math.PI*2);X.fill();
+  }
+  X.globalAlpha=1;
+
+  // Enemy trails
+  for(const e of S.enemies){
+    for(const t of e.trail){
+      X.globalAlpha=t.life/8*0.2;X.fillStyle=e.col;
+      X.beginPath();X.arc(t.x,t.y,e.sz*0.3,0,Math.PI*2);X.fill();
+    }
+  }
+  X.globalAlpha=1;
+
+  // Enemies
+  for(const e of S.enemies){
+    const col=e.flashT>0?'#fff':e.col;
+    X.fillStyle=col;X.shadowColor=e.col;X.shadowBlur=8;
+    X.beginPath();X.arc(e.x,e.y,e.sz,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+    // HP bar
+    if(e.hp<e.maxHp){
+      const bw=e.sz*2.5,bh=3;
+      X.fillStyle='#333';X.fillRect(e.x-bw/2,e.y-e.sz-8,bw,bh);
+      const r=e.hp/e.maxHp;
+      X.fillStyle=r>0.5?'#55efc4':r>0.25?'#feca57':'#ff6b6b';
+      X.fillRect(e.x-bw/2,e.y-e.sz-8,bw*r,bh);
+    }
+    // Boss ring
+    if(e.type==='boss'){
+      X.strokeStyle='#ff000060';X.lineWidth=2;
+      X.beginPath();X.arc(e.x,e.y,e.sz+6+Math.sin(e.age*0.05)*3,0,Math.PI*2);X.stroke();
+    }
+  }
+
+  // Projectiles
+  for(const pr of S.projectiles){
+    X.fillStyle=pr.col;X.shadowColor=pr.col;X.shadowBlur=8;
+    X.beginPath();X.arc(pr.x,pr.y,pr.sz,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+  }
+
+  // Player trail
+  for(const t of S.p.trail){
+    X.globalAlpha=t.life/12*0.3;X.fillStyle='#ff9f43';
+    X.beginPath();X.arc(t.x,t.y,4,0,Math.PI*2);X.fill();
+  }
+  X.globalAlpha=1;
+
+  // Player
+  const p=S.p;
+  // Shield visual
+  if(p.shieldT>0){
+    X.strokeStyle='#a29bfe60';X.lineWidth=2;
+    X.beginPath();X.arc(p.x,p.y,16,0,Math.PI*2);X.stroke();
+  }
+  // Speed visual
+  if(p.speedT>0){
+    X.strokeStyle='#00d4ff40';X.lineWidth=1;
+    X.beginPath();X.arc(p.x,p.y,14+Math.sin(S.time*0.2)*2,0,Math.PI*2);X.stroke();
+  }
+  const pcol=p.flashT>0?'#fff':(p.inv>0&&S.time%4<2)?'#ffffff60':'#ff9f43';
+  X.fillStyle=pcol;X.shadowColor='#ff9f43';X.shadowBlur=12;
+  // Diamond player
+  X.beginPath();X.moveTo(p.x,p.y-10);X.lineTo(p.x+8,p.y);X.lineTo(p.x,p.y+10);X.lineTo(p.x-8,p.y);X.closePath();X.fill();
+  X.shadowBlur=0;
+
+  // HP bar above player
+  const hpW=24,hpH=3;
+  X.fillStyle='#333';X.fillRect(p.x-hpW/2,p.y-18,hpW,hpH);
+  const hpR=p.hp/p.maxHp;
+  X.fillStyle=hpR>0.5?'#55efc4':hpR>0.25?'#feca57':'#ff6b6b';
+  X.fillRect(p.x-hpW/2,p.y-18,hpW*hpR,hpH);
+
+  X.restore();
+
+  // Combo indicator
+  if(S.p.combo>=3){
+    X.fillStyle=`rgba(254,202,87,${0.3+Math.sin(S.time*0.1)*0.1})`;
+    X.font='bold 18px sans-serif';X.textAlign='center';
+    X.fillText('COMBO x'+S.p.combo+'!',W/2,70);
+  }
+
+  // Floor label
+  if(S.time<120){
+    X.globalAlpha=1-S.time/120;
+    X.fillStyle='#a29bfe';X.font='bold 28px sans-serif';X.textAlign='center';
+    X.fillText('Floor '+S.floor,W/2,H/2-40);
+    X.globalAlpha=1;
+  }
+
+  // Controls hint
+  if(S.floor===1&&S.time<300){
+    X.globalAlpha=Math.max(0,1-S.time/300);
+    X.fillStyle='#666';X.font='14px sans-serif';X.textAlign='center';
+    X.fillText('WASD to move, SPACE to attack, find the stairs',W/2,H-30);
+    X.globalAlpha=1;
+  }
+}
+
+// UI
+document.querySelectorAll('.diff-btn').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.diff-btn').forEach(x=>x.classList.remove('sel'));
+    b.classList.add('sel');S.diff=b.dataset.d;
+  });
+});
+document.getElementById('playBtn').addEventListener('click',()=>{AE.init();startGame();});
+document.getElementById('helpBtn').addEventListener('click',()=>{AE.init();alert('TaskForge: Productivity Dungeon\n\nWASD/Arrows: Move\nSpace: Attack\nESC/P: Pause\nR: Restart\n\nExplore procedural dungeons.\nDefeat enemies for XP and score.\nCollect pickups for buffs.\nFind stairs to descend.\nBoss every 5 floors!\n\nChain kills for combo multiplier.');});
+document.getElementById('resBtn').addEventListener('click',()=>{S.scr='playing';document.getElementById('pauseOverlay').classList.remove('active');});
+document.getElementById('rpBtn').addEventListener('click',()=>{document.getElementById('pauseOverlay').classList.remove('active');startGame();});
+document.getElementById('qBtn').addEventListener('click',()=>{document.getElementById('pauseOverlay').classList.remove('active');S.scr='title';document.getElementById('titleScreen').classList.remove('hidden');});
+document.getElementById('retryBtn').addEventListener('click',startGame);
+document.getElementById('menuBtn').addEventListener('click',()=>{document.getElementById('gameOverOverlay').classList.remove('active');S.scr='title';document.getElementById('titleScreen').classList.remove('hidden');});
+document.getElementById('bestDisp').textContent=S.best;
+
+// Loop
+function loop(){
+  if(S.scr==='playing')update();
+  if(S.scr==='playing'||S.scr==='paused')render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
 </body>
 </html>

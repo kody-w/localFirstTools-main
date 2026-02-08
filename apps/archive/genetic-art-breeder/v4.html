@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genetic Art Breeder</title>
+    <meta name="description" content="Evolve unique SVG creatures using genetic algorithms with scoring, generations, combo breeding, and procedural audio">
+    <style>
+        :root { --bg:#0f0f14; --card:#1a1a24; --hl:#00ff9d; --txt:#e0e0e0; --border:#2a2a3a; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--txt); min-height:100vh; overflow-x:hidden; }
+        canvas { position:fixed; top:0; left:0; z-index:0; pointer-events:none; }
+        #ui { position:relative; z-index:1; }
+        #title-screen { position:fixed; inset:0; background:radial-gradient(ellipse,#1a1a30,#0f0f14); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:1000; transition:opacity 0.8s; }
+        #title-screen h1 { font-size:clamp(28px,5vw,48px); color:var(--hl); margin-bottom:10px; }
+        #title-screen p { color:#888; max-width:500px; text-align:center; margin-bottom:30px; }
+        .mbtn { padding:14px 40px; margin:8px; background:linear-gradient(180deg,#1a3a2a,#0a2a1a); border:1px solid rgba(0,255,157,0.3); color:var(--hl); font-size:16px; cursor:pointer; border-radius:8px; transition:all 0.3s; font-family:inherit; }
+        .mbtn:hover { background:linear-gradient(180deg,#2a5a3a,#1a4a2a); transform:translateY(-2px); box-shadow:0 5px 20px rgba(0,255,157,0.2); }
+        #hud { position:fixed; top:0; left:0; right:0; display:none; justify-content:space-between; padding:10px 20px; background:linear-gradient(180deg,rgba(15,15,20,0.95),transparent); z-index:50; }
+        .hs { display:flex; flex-direction:column; align-items:center; color:#888; font-size:10px; text-transform:uppercase; letter-spacing:1px; }
+        .hv { font-size:20px; color:var(--hl); }
+        #controls { display:none; padding:10px 20px; background:var(--card); border-bottom:1px solid var(--border); gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; }
+        .btn { padding:8px 18px; background:#222; border:1px solid var(--border); color:var(--txt); cursor:pointer; border-radius:6px; font-size:13px; transition:all 0.2s; font-family:inherit; }
+        .btn:hover { background:#333; border-color:var(--hl); }
+        .btn.primary { background:var(--hl); color:#000; border:none; font-weight:bold; }
+        .btn.primary:hover { background:#00cc7d; transform:scale(1.05); }
+        #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:15px; padding:20px; max-width:1200px; margin:0 auto; }
+        .creature { background:var(--card); border:2px solid transparent; border-radius:10px; padding:10px; cursor:pointer; transition:all 0.2s; display:flex; flex-direction:column; align-items:center; }
+        .creature:hover { transform:translateY(-5px); box-shadow:0 5px 15px rgba(0,0,0,0.3); }
+        .creature.sel { border-color:var(--hl); background:#1a2a2a; box-shadow:0 0 15px rgba(0,255,157,0.3); }
+        .creature svg { width:100%; height:130px; overflow:visible; }
+        .stats { font-size:11px; color:#666; margin-top:5px; font-family:monospace; }
+        .fitness { font-size:12px; color:var(--hl); margin-top:3px; font-weight:bold; }
+        #pause-overlay { position:fixed; inset:0; background:rgba(15,15,20,0.9); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:500; }
+        #pause-overlay h2 { color:var(--hl); font-size:32px; margin-bottom:20px; }
+        .diff-sel { display:flex; gap:10px; margin-bottom:20px; }
+        .diff { padding:10px 24px; background:rgba(0,255,157,0.1); border:1px solid rgba(0,255,157,0.3); color:var(--hl); cursor:pointer; border-radius:6px; font-family:inherit; transition:all 0.3s; }
+        .diff.sel { background:var(--hl); color:#000; }
+        #combo { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); font-size:48px; color:var(--hl); text-shadow:0 0 30px rgba(0,255,157,0.5); opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:300; }
+        #notifs { position:fixed; top:70px; right:20px; z-index:200; }
+        .notif { background:rgba(15,15,20,0.95); border:1px solid var(--border); padding:10px 16px; border-radius:8px; color:var(--txt); font-size:13px; transform:translateX(120%); transition:transform 0.4s; max-width:260px; margin-bottom:8px; }
+        .notif.show { transform:translateX(0); }
+        @media (max-width:600px) { #grid { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; padding:10px; } .hv { font-size:16px; } }
+    </style>
+</head>
+<body>
+<canvas id="bgc"></canvas>
+<div id="ui">
+    <div id="title-screen"><h1>Genetic Art Breeder</h1><p>Select creatures, evolve them, score points for mutations and rare traits.</p>
+    <div class="diff-sel"><button class="diff sel" data-d="easy">Casual</button><button class="diff" data-d="normal">Breeder</button><button class="diff" data-d="hard">Geneticist</button></div>
+    <button class="mbtn" id="startB">Begin Evolution</button><button class="mbtn" id="contB" style="display:none">Continue</button></div>
+    <div id="hud"><div class="hs"><span class="hv" id="hS">0</span>Score</div><div class="hs"><span class="hv" id="hG">1</span>Gen</div><div class="hs"><span class="hv" id="hC">0</span>Combo</div><div class="hs"><span class="hv" id="hF">0</span>Best</div><div class="hs"><span class="hv" id="hM">0</span>Muts</div></div>
+    <div id="controls"><button class="btn primary" id="evoB">Evolve</button><button class="btn" id="rndB">Random</button><button class="btn" id="autoB">Auto-Select</button><div style="display:flex;align-items:center;gap:8px"><label style="font-size:12px;color:#888">Mutation:</label><input type="range" id="mutR" min="0" max="100" value="15"></div></div>
+    <div id="grid"></div>
+    <div id="pause-overlay"><h2>Paused</h2><button class="mbtn" id="resB">Resume</button><button class="mbtn" id="qB">Save and Quit</button></div>
+    <div id="combo"></div><div id="notifs"></div>
+</div>
+<script>
+const AC=window.AudioContext||window.webkitAudioContext;let actx=null;
+function iA(){if(!actx)actx=new AC()}
+function sn(t,p){if(!actx)return;try{const n=actx.currentTime,o=actx.createOscillator(),g=actx.createGain();o.connect(g);g.connect(actx.destination);
+if(t==='s'){o.type='sine';o.frequency.setValueAtTime(600,n);o.frequency.exponentialRampToValueAtTime(800,n+.08);g.gain.setValueAtTime(.08,n);g.gain.exponentialRampToValueAtTime(.001,n+.12);o.start(n);o.stop(n+.12)}
+else if(t==='e'){o.type='triangle';o.frequency.setValueAtTime(300,n);o.frequency.exponentialRampToValueAtTime(900,n+.3);g.gain.setValueAtTime(.1,n);g.gain.exponentialRampToValueAtTime(.001,n+.4);o.start(n);o.stop(n+.4)}
+else if(t==='r'){for(let i=0;i<3;i++){const o2=actx.createOscillator(),g2=actx.createGain();o2.connect(g2);g2.connect(actx.destination);o2.type='sine';o2.frequency.setValueAtTime(500+i*200,n+i*.12);o2.frequency.exponentialRampToValueAtTime(700+i*250,n+i*.12+.15);g2.gain.setValueAtTime(.08,n+i*.12);g2.gain.exponentialRampToValueAtTime(.001,n+i*.12+.3);o2.start(n+i*.12);o2.stop(n+i*.12+.3)}return}
+else if(t==='c'){o.type='square';o.frequency.setValueAtTime(400+(p||0)*60,n);o.frequency.exponentialRampToValueAtTime(700+(p||0)*80,n+.06);g.gain.setValueAtTime(.04,n);g.gain.exponentialRampToValueAtTime(.001,n+.1);o.start(n);o.stop(n+.1)}
+else if(t==='m'){o.type='sine';o.frequency.setValueAtTime(500,n);o.frequency.exponentialRampToValueAtTime(700,n+.05);g.gain.setValueAtTime(.06,n);g.gain.exponentialRampToValueAtTime(.001,n+.1);o.start(n);o.stop(n+.1)}
+}catch(x){}}
+const POP=18,GS=12;
+class G{constructor(g){this.g=g||new Float32Array(GS);if(!g)for(let i=0;i<GS;i++)this.g[i]=Math.random()}
+copy(){return new G(new Float32Array(this.g))}
+mutate(r){for(let i=0;i<GS;i++)if(Math.random()<r){if(Math.random()<.5)this.g[i]+=(Math.random()-.5)*.2;else this.g[i]=Math.random();this.g[i]=Math.max(0,Math.min(1,this.g[i]))}}
+static cross(a,b){const n=new Float32Array(GS),m=Math.floor(Math.random()*GS);for(let i=0;i<GS;i++)n[i]=i<m?a.g[i]:b.g[i];return new G(n)}
+fit(){let f=0;f+=this.g[3]*30;f+=this.g[6]*15;f+=(this.g[7]/8)*20;f+=this.g[11]*15;f+=Math.abs(this.g[0]-.5)*20;return Math.round(f)}}
+class C{constructor(g){this.gn=g;this.t=this.dec(g)}
+dec(gn){const v=gn.g;return{h:Math.floor(v[0]*360),s:50+v[1]*50,l:40+v[2]*40,bs:30+v[3]*30,bsh:Math.floor(v[4]*3),ec:Math.floor(v[5]*4)+1,es:5+v[6]*10,lc:Math.floor(v[7]*8),ll:20+v[8]*40,lt:Math.floor(v[9]*3),sy:v[10]>.5?'r':'b',d:v[11]}}
+render(){const t=this.t,c='hsl('+t.h+','+t.s+'%,'+t.l+'%)';let s='<g transform="translate(75,65)">';
+const as=Math.PI*2/Math.max(t.lc,1);for(let i=0;i<t.lc;i++){let a=i*as;if(t.sy==='b'&&i%2===0)a=-a;const x2=Math.cos(a)*(t.bs+t.ll),y2=Math.sin(a)*(t.bs+t.ll);
+if(t.lt===0)s+='<line x1="0" y1="0" x2="'+x2+'" y2="'+y2+'" stroke="'+c+'" stroke-width="4" stroke-linecap="round"/>';
+else if(t.lt===1){const mx=x2*.5+Math.sin(a*5)*10,my=y2*.5+Math.cos(a*5)*10;s+='<path d="M0,0 Q'+mx+','+my+' '+x2+','+y2+'" stroke="'+c+'" stroke-width="4" fill="none" stroke-linecap="round"/>';}
+else{const jx=x2*.6,jy=y2*.6;s+='<polyline points="0,0 '+jx+','+jy+' '+x2+','+y2+'" stroke="'+c+'" stroke-width="4" fill="none" stroke-linecap="round"/>';}}
+if(t.bsh===0)s+='<circle r="'+t.bs+'" fill="'+c+'"/>';
+else if(t.bsh===1){const z=t.bs*1.6;s+='<rect x="'+(-z/2)+'" y="'+(-z/2)+'" width="'+z+'" height="'+z+'" rx="10" fill="'+c+'"/>';}
+else{const pts=[];const si=3+Math.floor(t.d*4);for(let i=0;i<si;i++){const a=(i/si)*Math.PI*2;pts.push(Math.cos(a)*t.bs+','+Math.sin(a)*t.bs)}s+='<polygon points="'+pts.join(' ')+'" fill="'+c+'"/>';}
+const eo=t.bs*.4;if(t.ec===1)s+=this.eye(0,0,t.es);else for(let i=0;i<t.ec;i++){const a=(i/t.ec)*Math.PI*2-Math.PI/2;s+=this.eye(Math.cos(a)*eo,Math.sin(a)*eo,t.es)}
+s+='</g>';return s}
+eye(x,y,z){return '<g transform="translate('+x+','+y+')"><circle r="'+z+'" fill="#fff"/><circle r="'+(z*.4)+'" fill="#000"/><circle cx="'+(z*.15)+'" cy="'+(-z*.15)+'" r="'+(z*.15)+'" fill="#fff"/></g>'}}
+const S={ph:'title',df:'easy',sc:0,gn:1,co:0,ct:0,bf:0,mu:0,po:[],sl:new Set(),hi:0,sk:{x:0,y:0,i:0},du:[],tm:0};
+const cv=document.getElementById('bgc'),cx=cv.getContext('2d');let W,H;
+function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight}rs();window.onresize=rs;
+function dBg(){cx.fillStyle='#0f0f14';cx.fillRect(0,0,W,H);cx.fillStyle='rgba(0,255,157,0.02)';for(let i=0;i<20;i++){const x=Math.sin(S.tm*.3+i)*W*.3+W/2,y=Math.cos(S.tm*.2+i*.5)*H*.3+H/2;cx.beginPath();cx.arc(x,y,50+i*10,0,Math.PI*2);cx.fill()}
+for(let i=S.du.length-1;i>=0;i--){const p=S.du[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.02;p.l-=.02;if(p.l<=0){S.du.splice(i,1);continue}cx.beginPath();cx.arc(p.x,p.y,p.sz*p.l,0,Math.PI*2);cx.fillStyle='rgba(0,255,157,'+(p.l*.5)+')';cx.fill()}}
+function sDu(x,y,n){for(let i=0;i<n;i++)S.du.push({x,y,vx:(Math.random()-.5)*5,vy:(Math.random()-.5)*5-2,sz:2+Math.random()*3,l:.5+Math.random()*.5})}
+function iPop(){S.po=[];S.sl.clear();for(let i=0;i<POP;i++)S.po.push(new G());rGr()}
+function rGr(){const gr=document.getElementById('grid');gr.innerHTML='';
+S.po.forEach((gn,i)=>{const cr=new C(gn),f=gn.fit();const d=document.createElement('div');d.className='creature'+(S.sl.has(i)?' sel':'');
+d.innerHTML='<svg viewBox="0 0 150 130">'+cr.render()+'</svg><div class="fitness">Fitness: '+f+'</div><div class="stats">Gen '+S.gn+' #'+(i+1)+'</div>';
+d.addEventListener('click',()=>{iA();if(S.sl.has(i))S.sl.delete(i);else S.sl.add(i);sn('s');rGr()});gr.appendChild(d);if(f>S.bf){S.bf=f;uH()}})}
+function evo(){if(S.sl.size<2){nf('Select 2+ parents!');return}iA();const pa=Array.from(S.sl).map(i=>S.po[i]);const nx=[];
+nx.push(pa[0].copy());if(pa.length>1)nx.push(pa[1].copy());const mr=document.getElementById('mutR').value/100;let mu=0;
+while(nx.length<POP){const p1=pa[Math.floor(Math.random()*pa.length)],p2=pa[Math.floor(Math.random()*pa.length)];
+const ch=G.cross(p1,p2);const ol=[...ch.g];ch.mutate(mr);for(let i=0;i<GS;i++)if(ch.g[i]!==ol[i])mu++;nx.push(ch)}
+S.mu+=mu;S.po=nx;S.sl.clear();S.gn++;const bf=Math.max(...S.po.map(g=>g.fit()));let pt=bf*S.gn;
+S.co++;S.ct=5;if(S.co>1)pt=Math.floor(pt*(1+S.co*.3));S.sc+=pt;
+if(bf>80){sn('r');S.sk.i=8;sDu(W/2,H/2,30);nf('EXCEPTIONAL! Fitness '+bf)}else{sn('e');sDu(W/2,H/2,15)}
+if(S.co>=3){sn('c',S.co);sCo(S.co+'x COMBO!')}rGr();uH();sv()}
+function aS(){S.sl.clear();const fs=S.po.map((g,i)=>({i,f:g.fit()}));fs.sort((a,b)=>b.f-a.f);const n=S.df==='hard'?2:(S.df==='normal'?3:4);for(let i=0;i<n;i++)S.sl.add(fs[i].i);rGr();sn('m')}
+function sCo(t){const e=document.getElementById('combo');e.textContent=t;e.style.opacity='1';setTimeout(()=>{e.style.opacity='0'},1200)}
+function nf(t){const c=document.getElementById('notifs'),e=document.createElement('div');e.className='notif';e.textContent=t;c.appendChild(e);setTimeout(()=>e.classList.add('show'),50);setTimeout(()=>{e.classList.remove('show');setTimeout(()=>e.remove(),400)},3000)}
+function uH(){document.getElementById('hS').textContent=S.sc;document.getElementById('hG').textContent=S.gn;document.getElementById('hC').textContent=S.co>0?S.co+'x':'0';document.getElementById('hF').textContent=S.bf;document.getElementById('hM').textContent=S.mu}
+function sv(){try{localStorage.setItem('gab:s',JSON.stringify({sc:S.sc,gn:S.gn,bf:S.bf,mu:S.mu,df:S.df,po:S.po.map(g=>[...g.g]),hi:Math.max(S.hi,S.sc)}))}catch(e){}}
+function ld(){try{const r=localStorage.getItem('gab:s');if(!r)return false;const d=JSON.parse(r);S.sc=d.sc||0;S.gn=d.gn||1;S.bf=d.bf||0;S.mu=d.mu||0;S.df=d.df||'easy';S.hi=d.hi||0;if(d.po)S.po=d.po.map(g=>new G(new Float32Array(g)));return true}catch(e){return false}}
+let lt=0;function lp(ts){const dt=Math.min((ts-lt)/1000,.1);lt=ts;S.tm+=dt;dBg();
+if(S.ph==='playing'&&S.ct>0){S.ct-=dt;if(S.ct<=0){S.co=0;uH()}}
+if(S.sk.i>0){S.sk.i*=.9;if(S.sk.i<.1)S.sk.i=0;document.getElementById('grid').style.transform='translateX('+(Math.random()-.5)*S.sk.i+'px)'}
+requestAnimationFrame(lp)}
+window.addEventListener('keydown',e=>{if(e.key==='Escape'){if(S.ph==='playing'){S.ph='paused';document.getElementById('pause-overlay').style.display='flex';sn('m');sv()}else if(S.ph==='paused'){S.ph='playing';document.getElementById('pause-overlay').style.display='none';sn('m')}}
+if(S.ph==='playing'){if(e.key==='e')evo();else if(e.key==='r'){iPop();S.gn=1;S.sc=0;S.co=0;S.bf=0;S.mu=0;uH()}else if(e.key==='a')aS()}});
+function stN(){iA();S.ph='playing';S.sc=0;S.gn=1;S.co=0;S.ct=0;S.bf=0;S.mu=0;document.getElementById('title-screen').style.opacity='0';setTimeout(()=>{document.getElementById('title-screen').style.display='none'},800);document.getElementById('hud').style.display='flex';document.getElementById('controls').style.display='flex';iPop();uH()}
+function ctG(){iA();S.ph='playing';document.getElementById('title-screen').style.opacity='0';setTimeout(()=>{document.getElementById('title-screen').style.display='none'},800);document.getElementById('hud').style.display='flex';document.getElementById('controls').style.display='flex';rGr();uH()}
+function qG(){S.ph='title';sv();document.getElementById('pause-overlay').style.display='none';document.getElementById('hud').style.display='none';document.getElementById('controls').style.display='none';document.getElementById('grid').innerHTML='';document.getElementById('title-screen').style.display='flex';document.getElementById('title-screen').style.opacity='1';sT()}
+function sT(){const h=ld();document.getElementById('contB').style.display=h&&S.gn>1?'block':'none';document.querySelectorAll('.diff').forEach(b=>b.classList.toggle('sel',b.dataset.d===S.df))}
+document.getElementById('startB').addEventListener('click',stN);document.getElementById('contB').addEventListener('click',ctG);
+document.getElementById('resB').addEventListener('click',()=>{S.ph='playing';document.getElementById('pause-overlay').style.display='none';sn('m')});
+document.getElementById('qB').addEventListener('click',qG);document.getElementById('evoB').addEventListener('click',evo);
+document.getElementById('rndB').addEventListener('click',()=>{iPop();sn('m')});document.getElementById('autoB').addEventListener('click',aS);
+document.querySelectorAll('.diff').forEach(b=>{b.addEventListener('click',()=>{S.df=b.dataset.d;document.querySelectorAll('.diff').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');sn('m')})});
+sT();requestAnimationFrame(lp);
+</script>
+</body>
+</html>

@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="generative_art">
+<meta name="rappterzoo:tags" content="canvas,generative,art,mandala,procedural,interactive,audio">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-08">
+<meta name="rappterzoo:generation" content="1">
+<title>Living Mandala - Evolving Sacred Geometry</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a12;
+  overflow: hidden;
+  font-family: 'Courier New', monospace;
+  color: #d0c0e0;
+}
+canvas { display: block; }
+
+#controls {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(0deg, rgba(10,10,18,0.95), transparent);
+  padding: 80px 16px 16px;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  transition: opacity 0.3s;
+}
+
+#controls.hidden { opacity: 0; pointer-events: none; }
+
+.ctrl-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ctrl-label {
+  font-size: 9px;
+  color: #6050a0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.ctrl-slider {
+  -webkit-appearance: none;
+  width: 100px;
+  height: 4px;
+  background: #1a1a30;
+  border-radius: 2px;
+  outline: none;
+}
+
+.ctrl-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #8060c0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ctrl-btn {
+  padding: 6px 14px;
+  background: #1a1a30;
+  border: 1px solid #3a2a60;
+  border-radius: 16px;
+  color: #a090c0;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ctrl-btn:hover {
+  background: #2a2a50;
+  border-color: #8060c0;
+  color: #d0c0f0;
+}
+
+.ctrl-btn.active {
+  background: #3a2a60;
+  border-color: #a080e0;
+  color: #e0d0ff;
+}
+
+#info {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  font-size: 11px;
+  color: #4a3a70;
+  z-index: 10;
+  pointer-events: none;
+}
+
+#preset-bar {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+}
+
+.preset-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #3a2a60;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.preset-btn:hover {
+  transform: scale(1.2);
+  border-color: #a080e0;
+}
+
+#save-btn {
+  position: fixed;
+  top: 50px;
+  right: 12px;
+  z-index: 10;
+}
+
+#toggle-ui {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 20;
+}
+
+@media (max-width: 600px) {
+  .ctrl-slider { width: 70px; }
+  .ctrl-group { gap: 2px; }
+  #controls { gap: 6px; padding: 60px 8px 8px; }
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="info">
+  <div id="info-symmetry">Symmetry: 8</div>
+  <div id="info-layers">Layers: 6</div>
+  <div id="info-speed">Speed: 1.0x</div>
+  <div id="info-seed">Seed: 0</div>
+</div>
+
+<div id="preset-bar">
+  <div class="preset-btn" style="background:radial-gradient(#e040a0,#4020a0)" onclick="app.loadPreset(0)" title="Cosmic"></div>
+  <div class="preset-btn" style="background:radial-gradient(#40e0a0,#204060)" onclick="app.loadPreset(1)" title="Forest"></div>
+  <div class="preset-btn" style="background:radial-gradient(#f0a040,#602020)" onclick="app.loadPreset(2)" title="Fire"></div>
+  <div class="preset-btn" style="background:radial-gradient(#4080f0,#102060)" onclick="app.loadPreset(3)" title="Ocean"></div>
+  <div class="preset-btn" style="background:radial-gradient(#e0e0e0,#303030)" onclick="app.loadPreset(4)" title="Monochrome"></div>
+  <div class="preset-btn" style="background:radial-gradient(#f0f060,#604080)" onclick="app.loadPreset(5)" title="Psychedelic"></div>
+</div>
+
+<button class="ctrl-btn" id="save-btn" onclick="app.saveImage()">Save Image</button>
+<button class="ctrl-btn" id="toggle-ui" onclick="toggleUI()">Hide UI</button>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <span class="ctrl-label">Symmetry</span>
+    <input type="range" class="ctrl-slider" id="sl-symmetry" min="3" max="24" value="8" oninput="app.params.symmetry=+this.value">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Layers</span>
+    <input type="range" class="ctrl-slider" id="sl-layers" min="2" max="12" value="6" oninput="app.params.layers=+this.value">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Speed</span>
+    <input type="range" class="ctrl-slider" id="sl-speed" min="0" max="200" value="100" oninput="app.params.speed=this.value/100">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Complexity</span>
+    <input type="range" class="ctrl-slider" id="sl-complexity" min="1" max="10" value="5" oninput="app.params.complexity=+this.value">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Scale</span>
+    <input type="range" class="ctrl-slider" id="sl-scale" min="20" max="200" value="100" oninput="app.params.scale=this.value/100">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Glow</span>
+    <input type="range" class="ctrl-slider" id="sl-glow" min="0" max="100" value="50" oninput="app.params.glow=this.value/100">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Pulse</span>
+    <input type="range" class="ctrl-slider" id="sl-pulse" min="0" max="100" value="30" oninput="app.params.pulse=this.value/100">
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Line Width</span>
+    <input type="range" class="ctrl-slider" id="sl-linewidth" min="1" max="10" value="2" oninput="app.params.lineWidth=+this.value">
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">Mode</span>
+    <div style="display:flex;gap:4px">
+      <button class="ctrl-btn active" data-mode="evolve" onclick="app.setMode('evolve',this)">Evolve</button>
+      <button class="ctrl-btn" data-mode="react" onclick="app.setMode('react',this)">React</button>
+      <button class="ctrl-btn" data-mode="freeze" onclick="app.setMode('freeze',this)">Freeze</button>
+    </div>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">Shape</span>
+    <div style="display:flex;gap:4px">
+      <button class="ctrl-btn active" data-shape="circle" onclick="app.setShape('circle',this)">Circle</button>
+      <button class="ctrl-btn" data-shape="petal" onclick="app.setShape('petal',this)">Petal</button>
+      <button class="ctrl-btn" data-shape="star" onclick="app.setShape('star',this)">Star</button>
+      <button class="ctrl-btn" data-shape="fractal" onclick="app.setShape('fractal',this)">Fractal</button>
+    </div>
+  </div>
+
+  <button class="ctrl-btn" onclick="app.randomize()">Randomize</button>
+  <button class="ctrl-btn" onclick="app.toggleAudio()">Sound: <span id="audio-status">Off</span></button>
+</div>
+
+<script>
+// ================================================================
+// LIVING MANDALA - Evolving Sacred Geometry Generator
+// ================================================================
+
+class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.initialized = false;
+    this.enabled = false;
+    this.drones = [];
+  }
+
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.initialized = true;
+    } catch(e) {}
+  }
+
+  toggle() {
+    this.init();
+    this.enabled = !this.enabled;
+    document.getElementById('audio-status').textContent = this.enabled ? 'On' : 'Off';
+    if (!this.enabled) {
+      this.drones.forEach(d => { try { d.osc.stop(); } catch(e) {} });
+      this.drones = [];
+    }
+  }
+
+  playTone(freq, dur, type, vol) {
+    if (!this.ctx || !this.enabled) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(vol || 0.02, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(); o.stop(this.ctx.currentTime + dur);
+  }
+
+  updateDrones(layers, time) {
+    if (!this.ctx || !this.enabled) return;
+
+    // Ambient drone based on mandala state
+    if (this.drones.length === 0 && this.enabled) {
+      const baseFreq = 55; // A1
+      for (let i = 0; i < 3; i++) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = baseFreq * (i + 1);
+        gain.gain.value = 0.01 / (i + 1);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        this.drones.push({ osc, gain });
+      }
+    }
+
+    // Modulate based on time
+    this.drones.forEach((d, i) => {
+      const freq = 55 * (i + 1) * (1 + Math.sin(time * 0.0005 + i) * 0.02);
+      d.osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      d.gain.gain.setValueAtTime(0.008 / (i + 1), this.ctx.currentTime);
+    });
+  }
+
+  chime(layerIdx) {
+    if (!this.enabled) return;
+    const pentatonic = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
+    const freq = pentatonic[layerIdx % pentatonic.length];
+    this.playTone(freq, 0.3, 'sine', 0.015);
+  }
+}
+
+const audio = new AudioEngine();
+
+// --- Color Palettes ---
+const PALETTES = [
+  // Cosmic
+  { bg: '#0a0a12', colors: ['#e040a0', '#a060e0', '#6040c0', '#4020a0', '#c060d0', '#f080c0', '#8040f0'] },
+  // Forest
+  { bg: '#0a120a', colors: ['#40e0a0', '#30a060', '#208040', '#60e060', '#a0f0a0', '#206030', '#80c060'] },
+  // Fire
+  { bg: '#120a0a', colors: ['#f0a040', '#e06020', '#c04020', '#f0c060', '#ff8040', '#a03010', '#f0e080'] },
+  // Ocean
+  { bg: '#0a0a18', colors: ['#4080f0', '#3060c0', '#2040a0', '#60a0f0', '#80c0ff', '#1030a0', '#40e0e0'] },
+  // Monochrome
+  { bg: '#0a0a0a', colors: ['#e0e0e0', '#c0c0c0', '#a0a0a0', '#808080', '#606060', '#404040', '#ffffff'] },
+  // Psychedelic
+  { bg: '#0a0812', colors: ['#f0f060', '#60f0f0', '#f060f0', '#60f060', '#f06060', '#6060f0', '#f0a060'] }
+];
+
+// --- Main Application ---
+class LivingMandala {
+  constructor() {
+    this.canvas = document.getElementById('canvas');
+    this.ctx = this.canvas.getContext('2d');
+
+    this.params = {
+      symmetry: 8,
+      layers: 6,
+      speed: 1,
+      complexity: 5,
+      scale: 1,
+      glow: 0.5,
+      pulse: 0.3,
+      lineWidth: 2,
+      mode: 'evolve',
+      shape: 'circle',
+      paletteIndex: 0
+    };
+
+    this.seed = Math.floor(Math.random() * 100000);
+    this.time = 0;
+    this.mouseX = 0;
+    this.mouseY = 0;
+    this.mouseActive = false;
+
+    this.layerStates = [];
+    this.particles = [];
+
+    this.init();
+  }
+
+  init() {
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+    this.setupInput();
+    this.initLayers();
+    this.loadState();
+    this.animate();
+  }
+
+  resize() {
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+    this.cx = this.canvas.width / 2;
+    this.cy = this.canvas.height / 2;
+    this.maxR = Math.min(this.cx, this.cy) * 0.85;
+  }
+
+  setupInput() {
+    this.canvas.addEventListener('mousemove', e => {
+      this.mouseX = e.clientX;
+      this.mouseY = e.clientY;
+      this.mouseActive = true;
+    });
+
+    this.canvas.addEventListener('mousedown', () => {
+      audio.init();
+      this.mouseActive = true;
+    });
+
+    this.canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      this.mouseX = e.touches[0].clientX;
+      this.mouseY = e.touches[0].clientY;
+      this.mouseActive = true;
+    });
+
+    this.canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      audio.init();
+      this.mouseX = e.touches[0].clientX;
+      this.mouseY = e.touches[0].clientY;
+      this.mouseActive = true;
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        this.saveImage();
+      }
+      if (e.key === 'r') this.randomize();
+      if (e.key === ' ') { e.preventDefault(); this.params.mode = this.params.mode === 'freeze' ? 'evolve' : 'freeze'; }
+      if (e.key >= '1' && e.key <= '6') this.loadPreset(parseInt(e.key) - 1);
+    });
+  }
+
+  initLayers() {
+    this.layerStates = [];
+    for (let i = 0; i < 12; i++) {
+      this.layerStates.push({
+        phase: this.seededRandom(this.seed + i * 7) * Math.PI * 2,
+        rotSpeed: (this.seededRandom(this.seed + i * 13) - 0.5) * 0.3,
+        pulsePhase: this.seededRandom(this.seed + i * 17) * Math.PI * 2,
+        waveAmp: 0.3 + this.seededRandom(this.seed + i * 23) * 0.7,
+        innerRadius: 0.1 + i * 0.08,
+        outerRadius: 0.2 + i * 0.08,
+        petals: 0,
+        dotPattern: this.seededRandom(this.seed + i * 29) > 0.5,
+        spiralFactor: (this.seededRandom(this.seed + i * 31) - 0.5) * 2
+      });
+    }
+  }
+
+  seededRandom(seed) {
+    let x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  // --- Presets ---
+  loadPreset(index) {
+    this.params.paletteIndex = index;
+    const presets = [
+      { symmetry: 8, layers: 6, speed: 1, complexity: 5, glow: 0.5, pulse: 0.3, shape: 'circle' },
+      { symmetry: 6, layers: 8, speed: 0.7, complexity: 7, glow: 0.3, pulse: 0.5, shape: 'petal' },
+      { symmetry: 5, layers: 5, speed: 1.5, complexity: 4, glow: 0.8, pulse: 0.6, shape: 'star' },
+      { symmetry: 12, layers: 7, speed: 0.5, complexity: 8, glow: 0.4, pulse: 0.2, shape: 'circle' },
+      { symmetry: 4, layers: 4, speed: 0.8, complexity: 3, glow: 0.6, pulse: 0.4, shape: 'fractal' },
+      { symmetry: 16, layers: 10, speed: 1.2, complexity: 9, glow: 0.7, pulse: 0.5, shape: 'petal' }
+    ];
+
+    const p = presets[index] || presets[0];
+    Object.assign(this.params, p);
+    this.updateSliders();
+    this.seed = Math.floor(Math.random() * 100000);
+    this.initLayers();
+    audio.chime(index);
+  }
+
+  updateSliders() {
+    document.getElementById('sl-symmetry').value = this.params.symmetry;
+    document.getElementById('sl-layers').value = this.params.layers;
+    document.getElementById('sl-speed').value = this.params.speed * 100;
+    document.getElementById('sl-complexity').value = this.params.complexity;
+    document.getElementById('sl-scale').value = this.params.scale * 100;
+    document.getElementById('sl-glow').value = this.params.glow * 100;
+    document.getElementById('sl-pulse').value = this.params.pulse * 100;
+    document.getElementById('sl-linewidth').value = this.params.lineWidth;
+  }
+
+  randomize() {
+    this.seed = Math.floor(Math.random() * 100000);
+    this.params.symmetry = 3 + Math.floor(Math.random() * 20);
+    this.params.layers = 2 + Math.floor(Math.random() * 10);
+    this.params.complexity = 1 + Math.floor(Math.random() * 10);
+    this.params.speed = 0.2 + Math.random() * 1.8;
+    this.params.glow = Math.random();
+    this.params.pulse = Math.random();
+    this.params.paletteIndex = Math.floor(Math.random() * PALETTES.length);
+    this.params.shape = ['circle', 'petal', 'star', 'fractal'][Math.floor(Math.random() * 4)];
+
+    this.initLayers();
+    this.updateSliders();
+    audio.chime(Math.floor(Math.random() * 8));
+
+    // Spawn celebration particles
+    for (let i = 0; i < 30; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 50 + Math.random() * 100;
+      this.particles.push({
+        x: this.cx, y: this.cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        color: this.getColor(i),
+        size: 2 + Math.random() * 3
+      });
+    }
+  }
+
+  setMode(mode, btn) {
+    this.params.mode = mode;
+    document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+  }
+
+  setShape(shape, btn) {
+    this.params.shape = shape;
+    document.querySelectorAll('[data-shape]').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+  }
+
+  toggleAudio() {
+    audio.toggle();
+  }
+
+  // --- Color System ---
+  getColor(index, alpha) {
+    const palette = PALETTES[this.params.paletteIndex] || PALETTES[0];
+    const color = palette.colors[index % palette.colors.length];
+    if (alpha !== undefined) {
+      const r = parseInt(color.substr(1, 2), 16);
+      const g = parseInt(color.substr(3, 2), 16);
+      const b = parseInt(color.substr(5, 2), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+    return color;
+  }
+
+  getBgColor() {
+    return (PALETTES[this.params.paletteIndex] || PALETTES[0]).bg;
+  }
+
+  // --- Drawing ---
+  draw() {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    // Background with fade
+    ctx.globalAlpha = this.params.mode === 'freeze' ? 1 : 0.15;
+    ctx.fillStyle = this.getBgColor();
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+
+    // Center
+    ctx.save();
+    ctx.translate(this.cx, this.cy);
+
+    // Mouse influence
+    let mouseAngle = 0;
+    let mouseDist = 0;
+    if (this.mouseActive && this.params.mode === 'react') {
+      const dx = this.mouseX - this.cx;
+      const dy = this.mouseY - this.cy;
+      mouseAngle = Math.atan2(dy, dx);
+      mouseDist = Math.sqrt(dx * dx + dy * dy) / this.maxR;
+    }
+
+    // Draw layers
+    for (let layer = 0; layer < this.params.layers; layer++) {
+      const state = this.layerStates[layer] || this.layerStates[0];
+      const t = this.time * this.params.speed;
+
+      // Layer radius
+      const baseR = (state.innerRadius + (state.outerRadius - state.innerRadius) * 0.5) * this.maxR * this.params.scale;
+      const pulseR = baseR * (1 + Math.sin(t * 0.5 + state.pulsePhase) * this.params.pulse * 0.1);
+
+      // Rotation
+      const rotation = state.phase + t * state.rotSpeed;
+
+      // Color
+      const alpha = 0.3 + this.params.glow * 0.5;
+      ctx.strokeStyle = this.getColor(layer, alpha);
+      ctx.fillStyle = this.getColor(layer, alpha * 0.3);
+      ctx.lineWidth = this.params.lineWidth;
+
+      // Glow effect
+      if (this.params.glow > 0.3) {
+        ctx.shadowColor = this.getColor(layer, 0.5);
+        ctx.shadowBlur = this.params.glow * 20;
+      }
+
+      // Draw symmetric elements
+      const sym = this.params.symmetry;
+      const angleStep = (Math.PI * 2) / sym;
+
+      for (let s = 0; s < sym; s++) {
+        const angle = s * angleStep + rotation;
+
+        ctx.save();
+        ctx.rotate(angle);
+
+        this.drawLayerElement(ctx, layer, state, pulseR, t, mouseDist);
+
+        ctx.restore();
+      }
+
+      // Inner connection ring
+      if (layer > 0 && this.params.complexity > 3) {
+        ctx.beginPath();
+        const ringR = baseR * 0.9;
+        const segments = sym * this.params.complexity;
+        for (let i = 0; i <= segments; i++) {
+          const a = (i / segments) * Math.PI * 2 + rotation * 0.5;
+          const wave = Math.sin(a * sym * 0.5 + t) * ringR * 0.05 * state.waveAmp;
+          const r = ringR + wave;
+          const x = Math.cos(a) * r;
+          const y = Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      // Dot pattern
+      if (state.dotPattern && this.params.complexity > 5) {
+        for (let s = 0; s < sym; s++) {
+          const angle = s * angleStep + rotation * 0.7;
+          const dotR = baseR * 0.7;
+          const numDots = Math.floor(this.params.complexity * 0.5);
+          for (let d = 0; d < numDots; d++) {
+            const dr = dotR + d * 8;
+            const da = angle + d * 0.2 + Math.sin(t + d) * 0.1;
+            const dx = Math.cos(da) * dr;
+            const dy = Math.sin(da) * dr;
+            ctx.beginPath();
+            ctx.arc(dx, dy, 1 + this.params.lineWidth * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      ctx.shadowBlur = 0;
+
+      // Audio feedback
+      if (Math.abs(Math.sin(t * state.rotSpeed * 10)) < 0.02) {
+        audio.chime(layer);
+      }
+    }
+
+    // Center ornament
+    this.drawCenterOrnament(ctx, this.time * this.params.speed);
+
+    ctx.restore();
+
+    // Draw particles
+    this.drawParticles(ctx);
+
+    // Update info
+    this.updateInfo();
+  }
+
+  drawLayerElement(ctx, layer, state, radius, t, mouseDist) {
+    const shape = this.params.shape;
+    const complexity = this.params.complexity;
+    const waveAmp = state.waveAmp;
+
+    switch (shape) {
+      case 'circle': {
+        // Circles with wave deformation
+        const segments = 20 + complexity * 5;
+        ctx.beginPath();
+        for (let i = 0; i <= segments; i++) {
+          const a = (i / segments) * Math.PI * 2;
+          const wave = Math.sin(a * complexity + t + layer) * radius * 0.1 * waveAmp;
+          const r = radius * 0.3 + wave;
+          const x = r * Math.cos(a);
+          const y = radius * 0.5 + r * Math.sin(a);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        // Second ring
+        if (complexity > 3) {
+          ctx.beginPath();
+          for (let i = 0; i <= segments; i++) {
+            const a = (i / segments) * Math.PI * 2;
+            const wave = Math.sin(a * (complexity + 1) + t * 1.3 + layer * 2) * radius * 0.08 * waveAmp;
+            const r = radius * 0.2 + wave;
+            const x = r * Math.cos(a);
+            const y = radius * 0.65 + r * Math.sin(a);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case 'petal': {
+        // Petal/teardrop shapes
+        ctx.beginPath();
+        const petalLen = radius * 0.5;
+        const petalWidth = radius * 0.15 * (1 + Math.sin(t + layer) * 0.2);
+
+        ctx.moveTo(0, radius * 0.2);
+
+        // Bezier petal
+        ctx.bezierCurveTo(
+          petalWidth, radius * 0.3,
+          petalWidth * 1.2, radius * 0.5,
+          0, radius * 0.2 + petalLen
+        );
+        ctx.bezierCurveTo(
+          -petalWidth * 1.2, radius * 0.5,
+          -petalWidth, radius * 0.3,
+          0, radius * 0.2
+        );
+
+        ctx.stroke();
+        if (this.params.glow > 0.5) ctx.fill();
+
+        // Vein line
+        if (complexity > 4) {
+          ctx.beginPath();
+          ctx.moveTo(0, radius * 0.22);
+          ctx.lineTo(0, radius * 0.2 + petalLen * 0.9);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case 'star': {
+        // Star/spiky shapes
+        const points = 2 + Math.floor(complexity / 2);
+        const innerR = radius * 0.2;
+        const outerR = radius * 0.5 * (1 + Math.sin(t + layer * 0.5) * this.params.pulse * 0.3);
+
+        ctx.beginPath();
+        for (let i = 0; i <= points * 2; i++) {
+          const a = (i / (points * 2)) * Math.PI * 2;
+          const r = i % 2 === 0 ? outerR : innerR;
+          const spiralOffset = state.spiralFactor * a * 0.5;
+          const x = Math.cos(a) * (r + spiralOffset);
+          const y = radius * 0.4 + Math.sin(a) * (r + spiralOffset);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        // Connecting lines to center
+        if (complexity > 6) {
+          for (let i = 0; i < points; i++) {
+            const a = (i / points) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            const x = Math.cos(a) * outerR;
+            const y = radius * 0.4 + Math.sin(a) * outerR;
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          }
+        }
+        break;
+      }
+
+      case 'fractal': {
+        // Recursive fractal pattern
+        this.drawFractalBranch(ctx, 0, 0, radius * 0.4, -Math.PI / 2 + Math.sin(t * 0.5) * 0.2,
+          Math.min(5, Math.floor(complexity / 2) + 1), layer, t);
+        break;
+      }
+    }
+  }
+
+  drawFractalBranch(ctx, x, y, length, angle, depth, layer, t) {
+    if (depth <= 0 || length < 3) return;
+
+    const endX = x + Math.cos(angle) * length;
+    const endY = y + Math.sin(angle) * length;
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    const spread = 0.4 + Math.sin(t * 0.3 + depth) * 0.1;
+    const shrink = 0.65 + Math.sin(t * 0.5 + layer) * 0.05;
+
+    this.drawFractalBranch(ctx, endX, endY, length * shrink, angle - spread, depth - 1, layer, t);
+    this.drawFractalBranch(ctx, endX, endY, length * shrink, angle + spread, depth - 1, layer, t);
+  }
+
+  drawCenterOrnament(ctx, t) {
+    const r = 15 + Math.sin(t * 0.8) * 5;
+    const color = this.getColor(0, 0.8);
+
+    // Center glow
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 3);
+    gradient.addColorStop(0, this.getColor(0, 0.3));
+    gradient.addColorStop(1, this.getColor(0, 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Center dot
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner ring
+    ctx.strokeStyle = this.getColor(1, 0.5);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.8, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Rotating dots
+    for (let i = 0; i < this.params.symmetry; i++) {
+      const angle = (i / this.params.symmetry) * Math.PI * 2 + t * 0.5;
+      const dx = Math.cos(angle) * r * 2;
+      const dy = Math.sin(angle) * r * 2;
+      ctx.fillStyle = this.getColor(i + 2, 0.6);
+      ctx.beginPath();
+      ctx.arc(dx, dy, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  drawParticles(ctx) {
+    this.particles = this.particles.filter(p => {
+      p.x += p.vx * 0.016;
+      p.y += p.vy * 0.016;
+      p.vx *= 0.98;
+      p.vy *= 0.98;
+      p.life -= 0.02;
+
+      if (p.life <= 0) return false;
+
+      ctx.globalAlpha = p.life;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      return true;
+    });
+  }
+
+  updateInfo() {
+    document.getElementById('info-symmetry').textContent = 'Symmetry: ' + this.params.symmetry;
+    document.getElementById('info-layers').textContent = 'Layers: ' + this.params.layers;
+    document.getElementById('info-speed').textContent = 'Speed: ' + this.params.speed.toFixed(1) + 'x';
+    document.getElementById('info-seed').textContent = 'Seed: ' + this.seed;
+  }
+
+  // --- Save/Load ---
+  saveImage() {
+    const link = document.createElement('a');
+    link.download = 'mandala-' + this.seed + '.png';
+    link.href = this.canvas.toDataURL();
+    link.click();
+  }
+
+  saveState() {
+    localStorage.setItem('livingMandala_save', JSON.stringify({
+      params: this.params,
+      seed: this.seed
+    }));
+  }
+
+  loadState() {
+    const saved = localStorage.getItem('livingMandala_save');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        Object.assign(this.params, data.params);
+        this.seed = data.seed;
+        this.initLayers();
+        this.updateSliders();
+      } catch(e) {}
+    }
+  }
+
+  // --- Animation ---
+  animate() {
+    if (this.params.mode !== 'freeze') {
+      this.time += 0.016;
+    }
+
+    this.draw();
+    audio.updateDrones(this.params.layers, this.time * 1000);
+
+    // Auto-save occasionally
+    if (Math.random() < 0.001) this.saveState();
+
+    requestAnimationFrame(() => this.animate());
+  }
+}
+
+function toggleUI() {
+  const controls = document.getElementById('controls');
+  const btn = document.getElementById('toggle-ui');
+  controls.classList.toggle('hidden');
+  btn.textContent = controls.classList.contains('hidden') ? 'Show UI' : 'Hide UI';
+}
+
+const app = new LivingMandala();
+window.app = app;
+</script>
+</body>
+</html>
