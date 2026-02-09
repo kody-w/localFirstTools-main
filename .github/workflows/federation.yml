@@ -1,0 +1,69 @@
+name: Federation Agent
+on:
+  schedule:
+    - cron: '45 6,18 * * *'  # 2x daily, offset from other workflows
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Agent mode'
+        required: false
+        default: 'auto'
+        type: choice
+        options: ['auto', 'discover', 'scan', 'inspire', 'status']
+      count:
+        description: 'Number of apps to inspire'
+        required: false
+        default: '1'
+      dry_run:
+        description: 'Dry run (no changes)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  federate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.name "rappterzoo-federation"
+          git config user.email "rappterzoo-federation@rappterzoo.dev"
+
+      - name: Run federation agent
+        run: |
+          MODE="${{ github.event.inputs.mode || 'auto' }}"
+          COUNT="${{ github.event.inputs.count || '1' }}"
+          DRY="${{ github.event.inputs.dry_run || 'false' }}"
+          FLAGS="--verbose"
+          if [ "$DRY" = "true" ]; then FLAGS="$FLAGS --dry-run"; fi
+          if [ "$MODE" = "inspire" ]; then FLAGS="$FLAGS --count $COUNT"; fi
+          python3 scripts/federation_agent.py $MODE $FLAGS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate NLweb feeds
+        if: github.event.inputs.dry_run != 'true'
+        run: python3 scripts/generate_feeds.py --verbose
+
+      - name: Commit and push
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "🌐 Federation sync: $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi

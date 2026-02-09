@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Federation Hub — NLweb Network Map</title>
+<meta name="rappterzoo:author" content="federation-agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="productivity">
+<meta name="rappterzoo:type" content="interface">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-09">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#06060c;--surface:#0c0c16;--border:#1a1a2e;--text:#e0e0f0;--dim:#5a5a78;
+--green:#22c55e;--yellow:#eab308;--red:#ef4444;--blue:#3b82f6;--purple:#a855f7;--cyan:#06b6d4;--orange:#f97316}
+body{font-family:'SF Mono',Monaco,monospace;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+a{color:var(--cyan);text-decoration:none}
+
+.header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.header h1{font-size:16px;font-weight:600}
+.header .home{margin-left:auto;font-size:12px;color:var(--dim)}
+
+canvas{display:block;width:100%;height:400px;background:var(--surface);border-bottom:1px solid var(--border)}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:20px 24px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
+.panel h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+
+.peer{padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;transition:border-color .15s}
+.peer:hover{border-color:var(--blue)}
+.peer-header{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.peer-name{font-weight:600;font-size:13px}
+.peer-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.peer-dot.active{background:var(--green)}
+.peer-dot.rss-only{background:var(--yellow)}
+.peer-dot.pending{background:var(--dim)}
+.peer-dot.unreachable{background:var(--red)}
+.peer-meta{font-size:11px;color:var(--dim);display:flex;gap:12px;flex-wrap:wrap}
+.peer-themes{margin-top:6px;display:flex;gap:4px;flex-wrap:wrap}
+.theme-tag{font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(59,130,246,0.12);color:var(--blue)}
+
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 24px 16px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;text-align:center}
+.stat .val{font-size:24px;font-weight:700}
+.stat .lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+.stat.green .val{color:var(--green)}
+.stat.blue .val{color:var(--blue)}
+.stat.purple .val{color:var(--purple)}
+.stat.cyan .val{color:var(--cyan)}
+
+.sync-log{max-height:200px;overflow-y:auto;font-size:11px}
+.sync-entry{padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between}
+.sync-entry:last-child{border:none}
+
+.empty{text-align:center;padding:30px;color:var(--dim);font-size:12px}
+
+@media(max-width:768px){.grid{grid-template-columns:1fr}.stat-row{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🌐 Federation Hub</h1>
+  <span style="font-size:12px;color:var(--dim)">NLweb Cross-Platform Network</span>
+  <span class="home"><a href="../../index.html">← Gallery</a> · <a href="automation-dashboard.html">Dashboard</a></span>
+</div>
+
+<canvas id="network-canvas"></canvas>
+
+<div class="stat-row" id="stats"></div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Federated Peers</h2>
+    <div id="peers"></div>
+  </div>
+  <div class="panel">
+    <h2>Sync History</h2>
+    <div id="sync-log" class="sync-log"></div>
+    <div style="margin-top:12px">
+      <h2>Content Themes</h2>
+      <div id="all-themes" style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var fed = null;
+
+async function loadData() {
+  try {
+    var res = await fetch('../federation.json');
+    fed = await res.json();
+  } catch(e) {
+    fed = {peers:[], sync_history:[], stats:{}};
+  }
+  renderStats();
+  renderPeers();
+  renderSyncLog();
+  renderThemes();
+  renderNetwork();
+}
+
+function renderStats() {
+  var s = fed.stats || {};
+  var active = fed.peers.filter(function(p){return p.status==='active'||p.status==='rss-only'}).length;
+  document.getElementById('stats').innerHTML =
+    '<div class="stat green"><div class="val">'+active+'</div><div class="lbl">Active Peers</div></div>'+
+    '<div class="stat blue"><div class="val">'+(s.feeds_indexed||0)+'</div><div class="lbl">Items Indexed</div></div>'+
+    '<div class="stat purple"><div class="val">'+(s.apps_inspired||0)+'</div><div class="lbl">Apps Inspired</div></div>'+
+    '<div class="stat cyan"><div class="val">'+fed.peers.length+'</div><div class="lbl">Total Peers</div></div>';
+}
+
+function renderPeers() {
+  var el = document.getElementById('peers');
+  if (!fed.peers.length) { el.innerHTML='<div class="empty">No peers registered</div>'; return; }
+  el.innerHTML = fed.peers.map(function(p) {
+    var themes = (p.content_themes||[]).slice(0,8).map(function(t){
+      return '<span class="theme-tag">'+esc(t)+'</span>';
+    }).join('');
+    var feeds = (p.feeds_found||[]).length;
+    var probed = p.last_probed ? timeAgo(p.last_probed) : 'never';
+    return '<div class="peer">'+
+      '<div class="peer-header"><span class="peer-dot '+p.status+'"></span>'+
+      '<span class="peer-name">'+esc(p.name)+'</span>'+
+      '<a href="'+esc(p.url)+'" target="_blank" style="font-size:11px;color:var(--dim)">↗</a></div>'+
+      '<div class="peer-meta"><span>'+p.status+'</span><span>'+feeds+' feeds</span>'+
+      '<span>'+p.apps_inspired+' inspired</span><span>probed '+probed+'</span></div>'+
+      (themes?'<div class="peer-themes">'+themes+'</div>':'')+
+      '</div>';
+  }).join('');
+}
+
+function renderSyncLog() {
+  var el = document.getElementById('sync-log');
+  var log = (fed.sync_history||[]).slice(-20).reverse();
+  if (!log.length) { el.innerHTML='<div class="empty">No sync history</div>'; return; }
+  el.innerHTML = log.map(function(s) {
+    return '<div class="sync-entry"><span>'+
+      (s.dry_run?'🔸':'🔹')+' '+s.platforms_probed+' probed, '+s.apps_inspired+' inspired'+
+      (s.dry_run?' (dry)':'')+'</span><span style="color:var(--dim)">'+timeAgo(s.timestamp)+'</span></div>';
+  }).join('');
+}
+
+function renderThemes() {
+  var all = {};
+  fed.peers.forEach(function(p){(p.content_themes||[]).forEach(function(t){all[t]=(all[t]||0)+1})});
+  var sorted = Object.keys(all).sort(function(a,b){return all[b]-all[a]});
+  document.getElementById('all-themes').innerHTML = sorted.slice(0,40).map(function(t){
+    var size = Math.min(14, 10 + all[t]);
+    return '<span class="theme-tag" style="font-size:'+size+'px">'+esc(t)+' ('+all[t]+')</span>';
+  }).join('');
+}
+
+function renderNetwork() {
+  var canvas = document.getElementById('network-canvas');
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  ctx.scale(dpr, dpr);
+  var W = canvas.offsetWidth, H = canvas.offsetHeight;
+  var cx = W/2, cy = H/2;
+
+  // Draw background grid
+  ctx.strokeStyle = 'rgba(30,30,60,0.3)';
+  ctx.lineWidth = 0.5;
+  for(var x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(var y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+
+  // Draw RappterZoo (center node)
+  var selfR = 28;
+  ctx.beginPath();
+  ctx.arc(cx, cy, selfR+8, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(59,130,246,0.08)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, selfR, 0, Math.PI*2);
+  ctx.fillStyle = '#3b82f6';
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('RappterZoo', cx, cy-4);
+  ctx.font = '9px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText((fed.self||{}).total_apps||'648'+' apps', cx, cy+8);
+
+  // Draw peers in orbit
+  var peers = fed.peers || [];
+  var angleStep = (Math.PI*2)/Math.max(peers.length,1);
+  var orbitR = Math.min(W,H)*0.35;
+
+  peers.forEach(function(p, i) {
+    var angle = angleStep * i - Math.PI/2;
+    var px = cx + Math.cos(angle) * orbitR;
+    var py = cy + Math.sin(angle) * orbitR;
+    var r = 18;
+
+    // Connection line
+    var colors = {active:'rgba(34,197,94,0.4)', 'rss-only':'rgba(234,179,8,0.3)',
+                  pending:'rgba(100,100,130,0.15)', unreachable:'rgba(239,68,68,0.2)'};
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(px, py);
+    ctx.strokeStyle = colors[p.status] || colors.pending;
+    ctx.lineWidth = p.status==='active'?2:1;
+    if(p.status==='active'){
+      ctx.setLineDash([]);
+    } else {
+      ctx.setLineDash([4,4]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Data flow particles (for active connections)
+    if(p.status==='active' && p.apps_inspired>0){
+      var t = (Date.now()/2000 + i*0.3) % 1;
+      var particleX = cx + (px-cx)*t;
+      var particleY = cy + (py-cy)*t;
+      ctx.beginPath();
+      ctx.arc(particleX, particleY, 3, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(6,182,212,0.8)';
+      ctx.fill();
+    }
+
+    // Peer node
+    var nodeColors = {active:'#22c55e', 'rss-only':'#eab308', pending:'#3a3a50', unreachable:'#ef4444'};
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI*2);
+    ctx.fillStyle = nodeColors[p.status] || nodeColors.pending;
+    ctx.fill();
+
+    // Peer label
+    ctx.fillStyle = '#fff';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.name.length>12?p.name.slice(0,12)+'…':p.name, px, py+r+14);
+
+    // Feed count badge
+    var feeds = (p.feeds_found||[]).length;
+    if(feeds){
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.font = '8px monospace';
+      ctx.fillText(feeds+' feeds', px, py+r+24);
+    }
+  });
+
+  // Animate
+  requestAnimationFrame(function(){renderNetwork()});
+}
+
+function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function timeAgo(ts){
+  if(!ts)return 'never';
+  var s=Math.floor((Date.now()-new Date(ts).getTime())/1000);
+  if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';
+}
+
+loadData();
+</script>
+</body>
+</html>
