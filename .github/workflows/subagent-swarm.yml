@@ -1,0 +1,72 @@
+name: Subagent Swarm
+on:
+  schedule:
+    - cron: '15 3,11,19 * * *'  # 3x daily, offset from other workflows
+  workflow_dispatch:
+    inputs:
+      agent_count:
+        description: 'Number of subagents to spawn (1-5)'
+        required: false
+        default: '3'
+        type: choice
+        options: ['1', '2', '3', '4', '5']
+      dry_run:
+        description: 'Dry run (no changes)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  swarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.name "rappterzoo-swarm"
+          git config user.email "rappterzoo-swarm@rappterzoo.dev"
+
+      - name: Run subagent swarm
+        run: |
+          COUNT="${{ github.event.inputs.agent_count || '3' }}"
+          DRY="${{ github.event.inputs.dry_run || 'false' }}"
+          FLAGS=""
+          if [ "$DRY" = "true" ]; then FLAGS="--dry-run"; fi
+          python3 scripts/subagent_swarm.py --count "$COUNT" --verbose $FLAGS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate NLweb feeds
+        if: github.event.inputs.dry_run != 'true'
+        run: python3 scripts/generate_feeds.py --verbose
+
+      - name: Commit and push
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            AGENTS=$(python3 -c "
+          import json
+          try:
+            log = json.load(open('apps/swarm-log.json'))
+            names = [a['persona'] for a in log.get('last_run', [])]
+            print(', '.join(names[:5]))
+          except: print('subagents')
+          ")
+            git commit -m "🐝 Swarm: $AGENTS [skip ci]"
+            git push
+          fi

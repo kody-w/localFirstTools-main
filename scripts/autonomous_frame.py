@@ -395,6 +395,16 @@ def publish(frame, actions_log):
         files_to_stage.append("apps/content-graph.json")
     if GHOST_STATE_FILE.exists():
         files_to_stage.append("apps/ghost-state.json")
+    if (APPS_DIR / "agents.json").exists():
+        files_to_stage.append("apps/agents.json")
+    if (APPS_DIR / "molt-queue.json").exists():
+        files_to_stage.append("apps/molt-queue.json")
+    if (APPS_DIR / "feed.json").exists():
+        files_to_stage.append("apps/feed.json")
+    if (APPS_DIR / "feed.xml").exists():
+        files_to_stage.append("apps/feed.xml")
+    if (APPS_DIR / "activity-log.json").exists():
+        files_to_stage.append("apps/activity-log.json")
 
     # Stage molted HTML files
     for f in actions_log.get("molted", []):
@@ -499,7 +509,16 @@ def main():
 
     actions_log = {"cleaned": 0, "molted": [], "created": [],
                    "data_molted": False, "scored": False,
-                   "socialized": False, "broadcast": False}
+                   "socialized": False, "broadcast": False,
+                   "agent_issues": 0}
+
+    # Phase 2.5: PROCESS AGENT ISSUES
+    try:
+        from process_agent_issues import process_all_issues
+        print("\n[AGENT ISSUES] Processing agent submissions...")
+        actions_log["agent_issues"] = process_all_issues(verbose=VERBOSE)
+    except Exception as e:
+        print(f"  Agent issue processing skipped: {e}")
 
     # Phase 3: CLEANUP
     if actions["cleanup"]:
@@ -528,6 +547,17 @@ def main():
     # Phase 8.5: POKE GHOST
     actions_log["ghost_poked"] = poke_ghost(frame, obs, actions_log)
 
+    # Phase 8.7: REGENERATE NLWEB FEEDS
+    try:
+        print("\n[FEEDS] Regenerating NLweb feeds...")
+        ok, stdout, stderr = run_script("generate_feeds.py", ["--verbose"])
+        if ok:
+            print("  ✓ Feeds regenerated")
+        else:
+            print("  ⏭ Feed generation skipped")
+    except Exception as e:
+        print(f"  Feed generation error: {e}")
+
     # Phase 10: LOG (before publish so state is committed)
     log_frame(frame, obs, actions_log)
 
@@ -544,7 +574,25 @@ def main():
     print(f"║  Scored:  {'✓' if actions_log['scored'] else '⏭':<27}║")
     print(f"║  Social:  {'✓' if actions_log['socialized'] else '⏭':<27}║")
     print(f"║  Podcast: {'✓' if actions_log['broadcast'] else '⏭':<27}║")
+    print(f"║  Agents:  {actions_log.get('agent_issues', 0):<27}║")
     print(f"╚══════════════════════════════════════╝")
+
+    # Write to shared activity log
+    try:
+        from activity_log import log_activity
+        log_activity("molter-engine",
+                     "Frame {}: {} molted, {} cleaned".format(
+                         frame, len(actions_log['molted']), actions_log['cleaned']),
+                     {"frame": frame, "apps_created": len(actions_log.get('created', [])),
+                      "molts": len(actions_log['molted']),
+                      "comments": 0,
+                      "scored": bool(actions_log['scored']),
+                      "socialized": bool(actions_log['socialized']),
+                      "broadcast": bool(actions_log['broadcast']),
+                      "agent_issues": actions_log.get('agent_issues', 0),
+                      "elapsed_seconds": int(elapsed)})
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

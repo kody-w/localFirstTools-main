@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Logic Circuit Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #toolbar {
+            background: #2a2a2a;
+            border-bottom: 2px solid #3a3a3a;
+            padding: 12px 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .toolbar-section {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 0 12px;
+            border-right: 1px solid #3a3a3a;
+        }
+
+        .toolbar-section:last-child {
+            border-right: none;
+        }
+
+        .toolbar-section label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin-right: 4px;
+        }
+
+        button {
+            background: #3a3a3a;
+            border: 1px solid #4a4a4a;
+            color: #e0e0e0;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #4a4a4a;
+            border-color: #5a5a5a;
+        }
+
+        button.active {
+            background: #0066cc;
+            border-color: #0077dd;
+            color: white;
+        }
+
+        button.preset {
+            background: #2a4a2a;
+            border-color: #3a5a3a;
+        }
+
+        button.preset:hover {
+            background: #3a5a3a;
+        }
+
+        button.clear {
+            background: #4a2a2a;
+            border-color: #5a3a3a;
+        }
+
+        button.clear:hover {
+            background: #5a3a3a;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #1e1e1e;
+        }
+
+        #canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        #canvas.wire-mode {
+            cursor: pointer;
+        }
+
+        #canvas.delete-mode {
+            cursor: not-allowed;
+        }
+
+        .component-btn {
+            min-width: 60px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        #status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(42, 42, 42, 0.95);
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #aaa;
+            border: 1px solid #3a3a3a;
+        }
+
+        .hint {
+            color: #666;
+            font-size: 11px;
+            font-style: italic;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <div class="toolbar-section">
+            <label>Components</label>
+            <button class="component-btn" data-type="SWITCH">SWITCH</button>
+            <button class="component-btn" data-type="LED">LED</button>
+            <button class="component-btn" data-type="AND">AND</button>
+            <button class="component-btn" data-type="OR">OR</button>
+            <button class="component-btn" data-type="NOT">NOT</button>
+            <button class="component-btn" data-type="NAND">NAND</button>
+            <button class="component-btn" data-type="NOR">NOR</button>
+            <button class="component-btn" data-type="XOR">XOR</button>
+        </div>
+
+        <div class="toolbar-section">
+            <label>Mode</label>
+            <button id="modePlace" class="active">Place</button>
+            <button id="modeWire">Wire</button>
+            <button id="modeDelete">Delete</button>
+        </div>
+
+        <div class="toolbar-section">
+            <label>Presets</label>
+            <button class="preset" data-preset="halfadder">Half Adder</button>
+            <button class="preset" data-preset="srlatch">SR Latch</button>
+            <button class="preset" data-preset="counter">2-bit Counter</button>
+        </div>
+
+        <div class="toolbar-section">
+            <button class="clear" id="clearBtn">Clear All</button>
+        </div>
+
+        <span class="hint">Click to place | Wire: click output → input | Delete: click component/wire</span>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+        <div id="status">Ready</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const status = document.getElementById('status');
+
+        // State
+        let components = [];
+        let wires = [];
+        let selectedComponent = 'AND';
+        let mode = 'place'; // place, wire, delete
+        let wireStart = null;
+        let gridSize = 20;
+        let componentIdCounter = 0;
+
+        // Colors
+        const COLORS = {
+            bg: '#1e1e1e',
+            grid: '#2a2a2a',
+            component: '#3a3a3a',
+            componentBorder: '#4a4a4a',
+            componentActive: '#4a5a4a',
+            text: '#e0e0e0',
+            textDim: '#888',
+            high: '#00ff00',
+            low: '#555',
+            led: '#ff3333',
+            ledOn: '#00ff00',
+            pin: '#666',
+            pinHot: '#ffaa00',
+            wire: '#888',
+            wireHigh: '#00ff00',
+            wireLow: '#555'
+        };
+
+        // Component definitions
+        const COMPONENT_DEFS = {
+            SWITCH: { inputs: 0, outputs: 1, width: 3, height: 2, logic: (ins) => [ins.state ? 1 : 0] },
+            LED: { inputs: 1, outputs: 0, width: 2, height: 2, logic: (ins) => [] },
+            AND: { inputs: 2, outputs: 1, width: 4, height: 3, logic: (ins) => [ins[0] && ins[1] ? 1 : 0] },
+            OR: { inputs: 2, outputs: 1, width: 4, height: 3, logic: (ins) => [ins[0] || ins[1] ? 1 : 0] },
+            NOT: { inputs: 1, outputs: 1, width: 3, height: 2, logic: (ins) => [ins[0] ? 0 : 1] },
+            NAND: { inputs: 2, outputs: 1, width: 4, height: 3, logic: (ins) => [ins[0] && ins[1] ? 0 : 1] },
+            NOR: { inputs: 2, outputs: 1, width: 4, height: 3, logic: (ins) => [ins[0] || ins[1] ? 0 : 1] },
+            XOR: { inputs: 2, outputs: 1, width: 4, height: 3, logic: (ins) => [ins[0] !== ins[1] ? 1 : 0] }
+        };
+
+        // Setup canvas
+        function resizeCanvas() {
+            const container = document.getElementById('canvas-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            render();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Grid snap
+        function snap(val) {
+            return Math.round(val / gridSize) * gridSize;
+        }
+
+        // Component class
+        class Component {
+            constructor(type, x, y) {
+                this.id = componentIdCounter++;
+                this.type = type;
+                this.x = snap(x);
+                this.y = snap(y);
+                this.def = COMPONENT_DEFS[type];
+                this.inputValues = new Array(this.def.inputs).fill(0);
+                this.outputValues = new Array(this.def.outputs).fill(0);
+                this.state = false; // for switches
+                this.lastUpdate = 0;
+            }
+
+            getInputPos(index) {
+                const spacing = this.def.height * gridSize / (this.def.inputs + 1);
+                return {
+                    x: this.x,
+                    y: this.y + spacing * (index + 1)
+                };
+            }
+
+            getOutputPos(index) {
+                const spacing = this.def.height * gridSize / (this.def.outputs + 1);
+                return {
+                    x: this.x + this.def.width * gridSize,
+                    y: this.y + spacing * (index + 1)
+                };
+            }
+
+            contains(x, y) {
+                return x >= this.x && x <= this.x + this.def.width * gridSize &&
+                       y >= this.y && y <= this.y + this.def.height * gridSize;
+            }
+
+            getInputAt(x, y) {
+                for (let i = 0; i < this.def.inputs; i++) {
+                    const pos = this.getInputPos(i);
+                    const dist = Math.hypot(x - pos.x, y - pos.y);
+                    if (dist < 10) return i;
+                }
+                return -1;
+            }
+
+            getOutputAt(x, y) {
+                for (let i = 0; i < this.def.outputs; i++) {
+                    const pos = this.getOutputPos(i);
+                    const dist = Math.hypot(x - pos.x, y - pos.y);
+                    if (dist < 10) return i;
+                }
+                return -1;
+            }
+
+            compute() {
+                if (this.type === 'SWITCH') {
+                    this.outputValues = this.def.logic({ state: this.state });
+                } else {
+                    this.outputValues = this.def.logic(this.inputValues);
+                }
+            }
+
+            draw(ctx) {
+                const w = this.def.width * gridSize;
+                const h = this.def.height * gridSize;
+
+                // Component body
+                ctx.fillStyle = this.type === 'SWITCH' && this.state ? COLORS.componentActive : COLORS.component;
+                ctx.fillRect(this.x, this.y, w, h);
+                ctx.strokeStyle = COLORS.componentBorder;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x, this.y, w, h);
+
+                // Label
+                ctx.fillStyle = COLORS.text;
+                ctx.font = '12px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.type, this.x + w/2, this.y + h/2);
+
+                // Input pins
+                for (let i = 0; i < this.def.inputs; i++) {
+                    const pos = this.getInputPos(i);
+                    ctx.fillStyle = this.inputValues[i] ? COLORS.high : COLORS.pin;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = COLORS.componentBorder;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // Output pins
+                for (let i = 0; i < this.def.outputs; i++) {
+                    const pos = this.getOutputPos(i);
+                    ctx.fillStyle = this.outputValues[i] ? COLORS.high : COLORS.pin;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = COLORS.componentBorder;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // LED special rendering
+                if (this.type === 'LED') {
+                    const isOn = this.inputValues[0] === 1;
+                    ctx.fillStyle = isOn ? COLORS.ledOn : COLORS.led;
+                    ctx.globalAlpha = isOn ? 0.8 : 0.3;
+                    ctx.beginPath();
+                    ctx.arc(this.x + w/2, this.y + h/2, 15, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+        }
+
+        // Wire class
+        class Wire {
+            constructor(fromComp, fromPin, toComp, toPin) {
+                this.from = { comp: fromComp, pin: fromPin };
+                this.to = { comp: toComp, pin: toPin };
+                this.signal = 0;
+            }
+
+            getPath() {
+                const start = this.from.comp.getOutputPos(this.from.pin);
+                const end = this.to.comp.getInputPos(this.to.pin);
+
+                // Right-angle routing
+                const midX = (start.x + end.x) / 2;
+                return [
+                    start,
+                    { x: midX, y: start.y },
+                    { x: midX, y: end.y },
+                    end
+                ];
+            }
+
+            hitTest(x, y) {
+                const path = this.getPath();
+                for (let i = 0; i < path.length - 1; i++) {
+                    const p1 = path[i];
+                    const p2 = path[i + 1];
+                    const dist = distanceToSegment(x, y, p1.x, p1.y, p2.x, p2.y);
+                    if (dist < 8) return true;
+                }
+                return false;
+            }
+
+            draw(ctx) {
+                const path = this.getPath();
+                ctx.strokeStyle = this.signal ? COLORS.wireHigh : COLORS.wireLow;
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                ctx.beginPath();
+                ctx.moveTo(path[0].x, path[0].y);
+                for (let i = 1; i < path.length; i++) {
+                    ctx.lineTo(path[i].x, path[i].y);
+                }
+                ctx.stroke();
+            }
+        }
+
+        // Distance from point to line segment
+        function distanceToSegment(px, py, x1, y1, x2, y2) {
+            const A = px - x1;
+            const B = py - y1;
+            const C = x2 - x1;
+            const D = y2 - y1;
+            const dot = A * C + B * D;
+            const lenSq = C * C + D * D;
+            let param = -1;
+            if (lenSq !== 0) param = dot / lenSq;
+
+            let xx, yy;
+            if (param < 0) {
+                xx = x1;
+                yy = y1;
+            } else if (param > 1) {
+                xx = x2;
+                yy = y2;
+            } else {
+                xx = x1 + param * C;
+                yy = y1 + param * D;
+            }
+
+            const dx = px - xx;
+            const dy = py - yy;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Simulation
+        function propagateSignals() {
+            const maxIterations = 100;
+            let iteration = 0;
+            let changed = true;
+
+            while (changed && iteration < maxIterations) {
+                changed = false;
+                iteration++;
+
+                // Compute all components
+                components.forEach(comp => {
+                    const oldOutputs = [...comp.outputValues];
+                    comp.compute();
+                    if (JSON.stringify(oldOutputs) !== JSON.stringify(comp.outputValues)) {
+                        changed = true;
+                    }
+                });
+
+                // Propagate through wires
+                wires.forEach(wire => {
+                    const signal = wire.from.comp.outputValues[wire.from.pin] || 0;
+                    wire.signal = signal;
+                    const oldInput = wire.to.comp.inputValues[wire.to.pin];
+                    wire.to.comp.inputValues[wire.to.pin] = signal;
+                    if (oldInput !== signal) {
+                        changed = true;
+                    }
+                });
+            }
+        }
+
+        // Rendering
+        function render() {
+            // Clear
+            ctx.fillStyle = COLORS.bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Grid
+            ctx.strokeStyle = COLORS.grid;
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            // Wires
+            wires.forEach(wire => wire.draw(ctx));
+
+            // Components
+            components.forEach(comp => comp.draw(ctx));
+
+            // Wire preview
+            if (mode === 'wire' && wireStart) {
+                const pos = wireStart.comp.getOutputPos(wireStart.pin);
+                ctx.strokeStyle = COLORS.pinHot;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        // Mouse handling
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (mode === 'place') {
+                // Check if placement is valid
+                const newComp = new Component(selectedComponent, x, y);
+                const overlaps = components.some(comp => {
+                    return !(newComp.x + newComp.def.width * gridSize < comp.x ||
+                             newComp.x > comp.x + comp.def.width * gridSize ||
+                             newComp.y + newComp.def.height * gridSize < comp.y ||
+                             newComp.y > comp.y + comp.def.height * gridSize);
+                });
+
+                if (!overlaps) {
+                    components.push(newComp);
+                    status.textContent = `Placed ${selectedComponent} at (${newComp.x}, ${newComp.y})`;
+                    propagateSignals();
+                    render();
+                } else {
+                    status.textContent = 'Cannot place - overlaps existing component';
+                }
+            } else if (mode === 'wire') {
+                // Check for pin clicks
+                let found = false;
+                for (let comp of components) {
+                    const outputIdx = comp.getOutputAt(x, y);
+                    if (outputIdx !== -1) {
+                        if (!wireStart) {
+                            wireStart = { comp, pin: outputIdx };
+                            status.textContent = `Wire started from ${comp.type} output ${outputIdx}`;
+                            found = true;
+                        }
+                        break;
+                    }
+
+                    const inputIdx = comp.getInputAt(x, y);
+                    if (inputIdx !== -1 && wireStart) {
+                        // Complete wire
+                        wires.push(new Wire(wireStart.comp, wireStart.pin, comp, inputIdx));
+                        status.textContent = `Wire connected to ${comp.type} input ${inputIdx}`;
+                        wireStart = null;
+                        found = true;
+                        propagateSignals();
+                        break;
+                    }
+                }
+                if (!found && wireStart) {
+                    wireStart = null;
+                    status.textContent = 'Wire cancelled';
+                }
+                render();
+            } else if (mode === 'delete') {
+                // Delete component or wire
+                let deleted = false;
+
+                // Check components
+                for (let i = components.length - 1; i >= 0; i--) {
+                    if (components[i].contains(x, y)) {
+                        const comp = components[i];
+                        // Remove connected wires
+                        wires = wires.filter(wire =>
+                            wire.from.comp !== comp && wire.to.comp !== comp
+                        );
+                        components.splice(i, 1);
+                        status.textContent = `Deleted ${comp.type}`;
+                        deleted = true;
+                        break;
+                    }
+                }
+
+                // Check wires
+                if (!deleted) {
+                    for (let i = wires.length - 1; i >= 0; i--) {
+                        if (wires[i].hitTest(x, y)) {
+                            wires.splice(i, 1);
+                            status.textContent = 'Deleted wire';
+                            deleted = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (deleted) {
+                    propagateSignals();
+                    render();
+                }
+            }
+        });
+
+        // Toggle switches on click
+        canvas.addEventListener('click', (e) => {
+            if (mode !== 'place' && mode !== 'delete') return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            for (let comp of components) {
+                if (comp.type === 'SWITCH' && comp.contains(x, y)) {
+                    comp.state = !comp.state;
+                    status.textContent = `Switch ${comp.state ? 'ON' : 'OFF'}`;
+                    propagateSignals();
+                    render();
+                    break;
+                }
+            }
+        });
+
+        // Toolbar handlers
+        document.querySelectorAll('.component-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                selectedComponent = btn.dataset.type;
+                setMode('place');
+                status.textContent = `Selected ${selectedComponent}`;
+            });
+        });
+
+        document.getElementById('modePlace').addEventListener('click', () => setMode('place'));
+        document.getElementById('modeWire').addEventListener('click', () => setMode('wire'));
+        document.getElementById('modeDelete').addEventListener('click', () => setMode('delete'));
+
+        function setMode(newMode) {
+            mode = newMode;
+            wireStart = null;
+            document.querySelectorAll('#toolbar button').forEach(btn => btn.classList.remove('active'));
+
+            if (mode === 'place') {
+                document.getElementById('modePlace').classList.add('active');
+                canvas.className = '';
+            } else if (mode === 'wire') {
+                document.getElementById('modeWire').classList.add('active');
+                canvas.className = 'wire-mode';
+            } else if (mode === 'delete') {
+                document.getElementById('modeDelete').classList.add('active');
+                canvas.className = 'delete-mode';
+            }
+
+            status.textContent = `Mode: ${mode}`;
+            render();
+        }
+
+        // Clear all
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            if (confirm('Clear all components and wires?')) {
+                components = [];
+                wires = [];
+                wireStart = null;
+                status.textContent = 'Cleared all';
+                render();
+            }
+        });
+
+        // Presets
+        document.querySelectorAll('.preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                loadPreset(btn.dataset.preset);
+            });
+        });
+
+        function loadPreset(name) {
+            components = [];
+            wires = [];
+            wireStart = null;
+
+            if (name === 'halfadder') {
+                // Half adder: A XOR B = Sum, A AND B = Carry
+                const switchA = new Component('SWITCH', 100, 100);
+                const switchB = new Component('SWITCH', 100, 180);
+                const xorGate = new Component('XOR', 250, 120);
+                const andGate = new Component('AND', 250, 220);
+                const ledSum = new Component('LED', 400, 130);
+                const ledCarry = new Component('LED', 400, 230);
+
+                components.push(switchA, switchB, xorGate, andGate, ledSum, ledCarry);
+
+                wires.push(
+                    new Wire(switchA, 0, xorGate, 0),
+                    new Wire(switchB, 0, xorGate, 1),
+                    new Wire(switchA, 0, andGate, 0),
+                    new Wire(switchB, 0, andGate, 1),
+                    new Wire(xorGate, 0, ledSum, 0),
+                    new Wire(andGate, 0, ledCarry, 0)
+                );
+
+                status.textContent = 'Loaded Half Adder (A + B = Sum + Carry)';
+            } else if (name === 'srlatch') {
+                // SR Latch using NOR gates
+                const switchS = new Component('SWITCH', 100, 100);
+                const switchR = new Component('SWITCH', 100, 220);
+                const nor1 = new Component('NOR', 280, 100);
+                const nor2 = new Component('NOR', 280, 220);
+                const ledQ = new Component('LED', 460, 110);
+                const ledQbar = new Component('LED', 460, 230);
+
+                components.push(switchS, switchR, nor1, nor2, ledQ, ledQbar);
+
+                wires.push(
+                    new Wire(switchS, 0, nor1, 0),
+                    new Wire(switchR, 0, nor2, 1),
+                    new Wire(nor1, 0, nor2, 0),
+                    new Wire(nor2, 0, nor1, 1),
+                    new Wire(nor1, 0, ledQ, 0),
+                    new Wire(nor2, 0, ledQbar, 0)
+                );
+
+                status.textContent = 'Loaded SR Latch (Set/Reset memory)';
+            } else if (name === 'counter') {
+                // Simplified 2-bit counter visualization
+                const clock = new Component('SWITCH', 80, 150);
+                const not1 = new Component('NOT', 220, 100);
+                const not2 = new Component('NOT', 220, 200);
+                const and1 = new Component('AND', 360, 120);
+                const led0 = new Component('LED', 500, 110);
+                const led1 = new Component('LED', 500, 210);
+
+                components.push(clock, not1, not2, and1, led0, led1);
+
+                wires.push(
+                    new Wire(clock, 0, not1, 0),
+                    new Wire(not1, 0, not2, 0),
+                    new Wire(not1, 0, and1, 0),
+                    new Wire(not2, 0, and1, 1),
+                    new Wire(not1, 0, led0, 0),
+                    new Wire(and1, 0, led1, 0)
+                );
+
+                status.textContent = 'Loaded 2-bit Counter (toggle clock to count)';
+            }
+
+            propagateSignals();
+            render();
+        }
+
+        // Initial render
+        render();
+        status.textContent = 'Ready - Select a component and click to place';
+    </script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regex Playground</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e1113;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{background:#161a1e;padding:16px 24px;border-bottom:1px solid #2a2f35;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:1.4rem;color:#00d2d3}
+.tabs{display:flex;gap:8px;margin-left:auto}
+.tab{background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:.85rem}
+.tab.active{background:#00d2d3;color:#0e1113;border-color:#00d2d3}
+main{flex:1;display:flex;flex-direction:column;padding:16px;gap:12px;max-width:1200px;width:100%;margin:0 auto}
+.input-row{display:flex;gap:12px;flex-wrap:wrap}
+.input-group{flex:1;min-width:200px}
+label{display:block;font-size:.8rem;color:#888;margin-bottom:4px}
+input[type=text],textarea{width:100%;background:#161a1e;border:1px solid #2a2f35;color:#e0e0e0;padding:10px 12px;border-radius:6px;font-family:'Courier New',monospace;font-size:.95rem}
+input:focus,textarea:focus{outline:none;border-color:#00d2d3}
+textarea{resize:vertical;min-height:120px;line-height:1.6}
+.flags{display:flex;gap:8px;align-items:center}
+.flag-btn{background:#1e2329;border:1px solid #2a2f35;color:#888;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.8rem;font-family:monospace}
+.flag-btn.on{background:#00d2d3;color:#0e1113;border-color:#00d2d3}
+.result-area{flex:1;display:flex;gap:12px;min-height:0}
+.panel{background:#161a1e;border:1px solid #2a2f35;border-radius:8px;padding:16px;flex:1;overflow:auto}
+.panel h3{font-size:.85rem;color:#00d2d3;margin-bottom:8px}
+.match-text{font-family:'Courier New',monospace;font-size:.95rem;line-height:1.8;white-space:pre-wrap;word-break:break-all}
+.match-text .highlight{background:#00d2d344;border:1px solid #00d2d3;border-radius:2px;padding:0 1px}
+.match-text .group1{background:#ff634744;border-color:#ff6347}
+.match-text .group2{background:#4169e144;border-color:#4169e1}
+.match-text .group3{background:#ffa50044;border-color:#ffa500}
+.match-info{font-size:.85rem;color:#aaa;margin-bottom:8px}
+.explain-item{margin-bottom:8px;font-size:.85rem;line-height:1.5}
+.explain-token{color:#00d2d3;font-family:monospace;font-weight:bold}
+.cheat-sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
+.cheat-item{background:#1e2329;padding:8px 12px;border-radius:4px;font-size:.8rem;display:flex;gap:8px}
+.cheat-item code{color:#00d2d3;min-width:60px;font-weight:bold}
+.challenge-box{background:#1e2329;border-radius:8px;padding:16px;margin-bottom:12px}
+.challenge-box h4{color:#ffa500;margin-bottom:6px}
+.challenge-box p{font-size:.85rem;color:#ccc;margin-bottom:8px}
+.challenge-box .target{font-family:monospace;background:#0e1113;padding:8px;border-radius:4px;margin:6px 0}
+.challenge-box .status{font-size:.8rem;padding:4px 8px;border-radius:4px;display:inline-block}
+.status.pass{background:#2d6a4f;color:#95d5b2}
+.status.fail{background:#6a2d2d;color:#d59595}
+.score-bar{display:flex;align-items:center;gap:12px;font-size:.85rem;color:#aaa}
+.score-bar span{color:#00d2d3;font-weight:bold}
+.error-msg{color:#ff6347;font-size:.85rem;padding:8px;background:#2a1515;border-radius:4px;margin-top:4px}
+@media(max-width:768px){.result-area{flex-direction:column}.input-row{flex-direction:column}}
+</style>
+</head>
+<body>
+<header>
+<h1>🔍 Regex Playground</h1>
+<div class="tabs">
+<div class="tab active" data-tab="playground">Playground</div>
+<div class="tab" data-tab="cheatsheet">Cheat Sheet</div>
+<div class="tab" data-tab="challenges">Challenges</div>
+</div>
+</header>
+<main id="app"></main>
+<script>
+const state = {
+  tab: 'playground',
+  pattern: localStorage.getItem('regex_pattern') || '\\b\\w+ing\\b',
+  testText: localStorage.getItem('regex_text') || 'The running fox was jumping over the sleeping dog while singing a song.',
+  flags: JSON.parse(localStorage.getItem('regex_flags') || '{"g":true,"i":false,"m":false,"s":false}'),
+  challengeIdx: parseInt(localStorage.getItem('regex_challenge') || '0'),
+  challengeInput: '',
+  completed: JSON.parse(localStorage.getItem('regex_completed') || '[]')
+};
+
+const challenges = [
+  {title:'Match Emails',desc:'Write a regex that matches email addresses.',test:'Contact us at hello@example.com or support@test.org for help.',shouldMatch:['hello@example.com','support@test.org'],hint:'user@domain.tld'},
+  {title:'Match Dates',desc:'Match dates in YYYY-MM-DD format.',test:'Events on 2024-01-15 and 2023-12-25 were great.',shouldMatch:['2024-01-15','2023-12-25'],hint:'\\d{4}-\\d{2}-\\d{2}'},
+  {title:'Match Hex Colors',desc:'Match CSS hex color codes (#RGB or #RRGGBB).',test:'Colors: #fff, #00d2d3, #123, #abcdef and not #gg.',shouldMatch:['#fff','#00d2d3','#123','#abcdef'],hint:'#[0-9a-fA-F]{3,6}'},
+  {title:'Match Phone Numbers',desc:'Match US phone numbers like 555-123-4567.',test:'Call 555-123-4567 or 800-555-0199 today.',shouldMatch:['555-123-4567','800-555-0199'],hint:'\\d{3}-\\d{3}-\\d{4}'},
+  {title:'Capture Groups',desc:'Match and capture first and last name: "Last, First".',test:'Smith, John and Doe, Jane are here.',shouldMatch:['Smith, John','Doe, Jane'],hint:'(\\w+), (\\w+)'},
+  {title:'Match URLs',desc:'Match http or https URLs.',test:'Visit https://example.com or http://test.org/path?q=1 now.',shouldMatch:['https://example.com','http://test.org/path?q=1'],hint:'https?://\\S+'},
+  {title:'Word Boundaries',desc:'Match the word "the" (case insensitive, whole word only).',test:'The cat sat on the mat, not their mat or bathe.',shouldMatch:['The','the'],hint:'\\bthe\\b with i flag'},
+  {title:'Lookahead',desc:'Match a number followed by "px" (but don\'t include "px").',test:'Width: 100px, height: 50px, weight: 30kg.',shouldMatch:['100','50'],hint:'\\d+(?=px)'},
+];
+
+const cheatData = [
+  ['.','Any character except newline'],['\\d','Digit [0-9]'],['\\D','Non-digit'],['\\w','Word char [a-zA-Z0-9_]'],['\\W','Non-word char'],['\\s','Whitespace'],['\\S','Non-whitespace'],['\\b','Word boundary'],
+  ['^','Start of string'],['$','End of string'],['*','0 or more'],['+','1 or more'],['?','0 or 1'],['{n}','Exactly n'],['{n,m}','Between n and m'],
+  ['[abc]','Character class'],['[^abc]','Negated class'],['(...)','Capture group'],['(?:...)','Non-capture group'],['a|b','Alternation'],['(?=...)','Positive lookahead'],['(?!...)','Negative lookahead'],['(?<=...)','Positive lookbehind'],
+];
+
+const explanations = {
+  '.':'matches any single character','^':'matches start of string','$':'matches end of string','*':'matches 0 or more of preceding','+':'matches 1 or more of preceding','?':'makes preceding optional',
+  '\\d':'matches any digit','\\D':'matches any non-digit','\\w':'matches word character','\\W':'matches non-word character','\\s':'matches whitespace','\\S':'matches non-whitespace','\\b':'matches word boundary',
+  '|':'alternation (or)','[':'starts character class',']':'ends character class','(':'starts capture group',')':'ends capture group','{':'starts quantifier range','}':'ends quantifier range',
+};
+
+function save(){
+  localStorage.setItem('regex_pattern',state.pattern);
+  localStorage.setItem('regex_text',state.testText);
+  localStorage.setItem('regex_flags',JSON.stringify(state.flags));
+  localStorage.setItem('regex_challenge',state.challengeIdx);
+  localStorage.setItem('regex_completed',JSON.stringify(state.completed));
+}
+
+function getRegex(pat,fl){
+  const flagStr=Object.entries(fl).filter(([,v])=>v).map(([k])=>k).join('');
+  return new RegExp(pat,flagStr);
+}
+
+function highlightMatches(text,regex){
+  if(!regex)return esc(text);
+  let result='',last=0;
+  const r=new RegExp(regex.source,regex.flags.includes('g')?regex.flags:regex.flags+'g');
+  let m,safety=0;
+  while((m=r.exec(text))!==null&&safety++<1000){
+    if(m.index>=last){result+=esc(text.slice(last,m.index));result+=`<span class="highlight">${esc(m[0])}</span>`;last=m.index+m[0].length}
+    if(m[0].length===0)r.lastIndex++;
+  }
+  result+=esc(text.slice(last));
+  return result;
+}
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function explainPattern(pat){
+  const tokens=[];let i=0;
+  while(i<pat.length){
+    if(pat[i]==='\\' && i+1<pat.length){
+      const seq=pat.slice(i,i+2);
+      tokens.push({token:seq,desc:explanations[seq]||`escaped character: ${pat[i+1]}`});i+=2;
+    } else if(pat[i]==='{'){
+      const end=pat.indexOf('}',i);
+      if(end>i){const t=pat.slice(i,end+1);tokens.push({token:t,desc:`quantifier: repeat ${t}`});i=end+1}
+      else{tokens.push({token:pat[i],desc:explanations[pat[i]]||pat[i]});i++}
+    } else if(pat[i]==='(' && pat[i+1]==='?'){
+      let desc='group';
+      if(pat[i+2]==='=')desc='positive lookahead';
+      else if(pat[i+2]==='!')desc='negative lookahead';
+      else if(pat[i+2]==='<'&&pat[i+3]==='=')desc='positive lookbehind';
+      else if(pat[i+2]==='<'&&pat[i+3]==='!')desc='negative lookbehind';
+      else if(pat[i+2]===':')desc='non-capturing group';
+      tokens.push({token:pat.slice(i,i+3),desc});i+=3;
+    } else {
+      tokens.push({token:pat[i],desc:explanations[pat[i]]||`literal character: "${pat[i]}"`});i++;
+    }
+  }
+  return tokens;
+}
+
+function renderPlayground(){
+  let err='',regex=null,matchCount=0,matchList=[];
+  try{
+    regex=getRegex(state.pattern,state.flags);
+    const r=new RegExp(regex.source,regex.flags.includes('g')?regex.flags:regex.flags+'g');
+    let m;while((m=r.exec(state.testText))!==null&&matchCount<500){matchList.push({val:m[0],idx:m.index,groups:m.slice(1)});matchCount++;if(m[0].length===0)r.lastIndex++}
+  }catch(e){err=e.message}
+  const tokens=explainPattern(state.pattern);
+  return `
+    <div class="input-row">
+      <div class="input-group" style="flex:2">
+        <label>Regular Expression</label>
+        <input type="text" id="patInput" value="${esc(state.pattern)}" placeholder="Enter regex pattern...">
+        ${err?`<div class="error-msg">${esc(err)}</div>`:''}
+      </div>
+      <div class="flags">
+        <label style="margin-bottom:0">Flags:</label>
+        ${['g','i','m','s'].map(f=>`<div class="flag-btn ${state.flags[f]?'on':''}" data-flag="${f}">${f}</div>`).join('')}
+      </div>
+    </div>
+    <div class="input-group">
+      <label>Test String</label>
+      <textarea id="testInput" rows="4">${esc(state.testText)}</textarea>
+    </div>
+    <div class="match-info">${matchCount} match${matchCount!==1?'es':''} found</div>
+    <div class="result-area">
+      <div class="panel" style="flex:2">
+        <h3>Matches</h3>
+        <div class="match-text">${regex&&!err?highlightMatches(state.testText,regex):esc(state.testText)}</div>
+        ${matchList.length?`<div style="margin-top:12px;font-size:.8rem;color:#888">${matchList.map((m,i)=>`<div>#${i+1} "${esc(m.val)}" at index ${m.idx}${m.groups.length?` groups: ${m.groups.map((g,j)=>`<span style="color:${['#ff6347','#4169e1','#ffa500'][j%3]}">(${j+1}): "${esc(g||'')}"</span>`).join(', ')}`:''}</div>`).join('')}</div>`:''}
+      </div>
+      <div class="panel">
+        <h3>Pattern Explanation</h3>
+        ${tokens.map(t=>`<div class="explain-item"><span class="explain-token">${esc(t.token)}</span> — ${esc(t.desc)}</div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function renderCheatsheet(){
+  return `<div class="panel" style="flex:none"><h3>Regex Cheat Sheet</h3><div class="cheat-sheet">${cheatData.map(([c,d])=>`<div class="cheat-item"><code>${esc(c)}</code><span>${esc(d)}</span></div>`).join('')}</div></div>`;
+}
+
+function renderChallenges(){
+  const ch=challenges[state.challengeIdx];
+  let status='',pass=false;
+  if(state.challengeInput){
+    try{
+      const r=new RegExp(state.challengeInput,'gi');
+      const matches=[];let m;while((m=r.exec(ch.test))!==null){matches.push(m[0]);if(m[0].length===0)r.lastIndex++}
+      pass=ch.shouldMatch.every(s=>matches.some(m=>m.toLowerCase()===s.toLowerCase()))&&matches.length===ch.shouldMatch.length;
+      status=pass?'<span class="status pass">✓ Correct!</span>':'<span class="status fail">✗ Not quite — keep trying</span>';
+    }catch(e){status=`<span class="status fail">Invalid regex: ${esc(e.message)}</span>`}
+  }
+  return `
+    <div class="score-bar">Challenge ${state.challengeIdx+1}/${challenges.length} | Completed: <span>${state.completed.length}/${challenges.length}</span></div>
+    <div class="challenge-box">
+      <h4>${ch.title}</h4>
+      <p>${ch.desc}</p>
+      <div class="target">${esc(ch.test)}</div>
+      <p style="font-size:.8rem;color:#666">Expected matches: ${ch.shouldMatch.map(s=>`<code>${esc(s)}</code>`).join(', ')}</p>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="challengeInput" value="${esc(state.challengeInput)}" placeholder="Type your regex..." style="flex:1;min-width:200px">
+        <button onclick="document.getElementById('challengeInput').value=challenges[state.challengeIdx].hint;state.challengeInput=challenges[state.challengeIdx].hint;render()" style="background:#2a2f35;border:1px solid #444;color:#aaa;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:.8rem">Hint</button>
+      </div>
+      <div style="margin-top:8px">${status}</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="state.challengeIdx=Math.max(0,state.challengeIdx-1);state.challengeInput='';save();render()" style="background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:8px 16px;border-radius:6px;cursor:pointer" ${state.challengeIdx===0?'disabled':''}>← Previous</button>
+      <button onclick="state.challengeIdx=Math.min(challenges.length-1,state.challengeIdx+1);state.challengeInput='';save();render()" style="background:#1e2329;border:1px solid #2a2f35;color:#aaa;padding:8px 16px;border-radius:6px;cursor:pointer" ${state.challengeIdx===challenges.length-1?'disabled':''}>Next →</button>
+    </div>`;
+}
+
+function render(){
+  const app=document.getElementById('app');
+  if(state.tab==='playground')app.innerHTML=renderPlayground();
+  else if(state.tab==='cheatsheet')app.innerHTML=renderCheatsheet();
+  else app.innerHTML=renderChallenges();
+  document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.tab===state.tab);t.onclick=()=>{state.tab=t.dataset.tab;render()}});
+  const pi=document.getElementById('patInput');
+  if(pi){pi.oninput=()=>{state.pattern=pi.value;save();render();pi.focus();pi.selectionStart=pi.selectionEnd=pi.value.length}}
+  const ti=document.getElementById('testInput');
+  if(ti){ti.oninput=()=>{state.testText=ti.value;save();render()}}
+  const ci=document.getElementById('challengeInput');
+  if(ci){ci.oninput=()=>{
+    state.challengeInput=ci.value;
+    const ch=challenges[state.challengeIdx];
+    try{const r=new RegExp(ci.value,'gi');const ms=[];let m;while((m=r.exec(ch.test))!==null){ms.push(m[0]);if(m[0].length===0)r.lastIndex++}
+    if(ch.shouldMatch.every(s=>ms.some(m2=>m2.toLowerCase()===s.toLowerCase()))&&ms.length===ch.shouldMatch.length){if(!state.completed.includes(state.challengeIdx)){state.completed.push(state.challengeIdx);save()}}
+    }catch(e){}render();ci.focus();ci.selectionStart=ci.selectionEnd=ci.value.length}}
+  document.querySelectorAll('.flag-btn').forEach(b=>{b.onclick=()=>{state.flags[b.dataset.flag]=!state.flags[b.dataset.flag];save();render()}});
+}
+render();
+</script>
+</body>
+</html>

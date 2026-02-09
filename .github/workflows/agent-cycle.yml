@@ -1,0 +1,90 @@
+name: Agent Cycle
+on:
+  schedule:
+    - cron: '30 */8 * * *'  # Every 8 hours, offset from autonomous frame
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Agent mode'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - create
+          - comment
+          - molt
+          - analyze
+      count:
+        description: 'Number of items to create/comment/molt'
+        required: false
+        default: '3'
+      category:
+        description: 'Target category (for create mode)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (no changes)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.name "rappterzoo-agent"
+          git config user.email "rappterzoo-agent@rappterzoo.dev"
+
+      - name: Run agent cycle
+        run: |
+          MODE="${{ github.event.inputs.mode || 'auto' }}"
+          COUNT="${{ github.event.inputs.count || '3' }}"
+          CATEGORY="${{ github.event.inputs.category || '' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+
+          ARGS="$MODE"
+          if [ "$MODE" = "create" ] || [ "$MODE" = "comment" ] || [ "$MODE" = "molt" ]; then
+            ARGS="$ARGS --count $COUNT"
+          fi
+          if [ -n "$CATEGORY" ] && [ "$MODE" = "create" ]; then
+            ARGS="$ARGS --category $CATEGORY"
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          echo "Running: python3 scripts/rappterzoo_agent.py $ARGS --verbose"
+          python3 scripts/rappterzoo_agent.py $ARGS --verbose
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate NLweb feeds
+        if: github.event.inputs.dry_run != 'true'
+        run: python3 scripts/generate_feeds.py --verbose
+
+      - name: Commit and push
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "🤖 Agent cycle: $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi
