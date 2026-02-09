@@ -447,7 +447,24 @@ Output ONLY the complete HTML file, no explanation.
     filename = slug + ".html"
     filepath = APPS_DIR / folder / filename
 
-    # Handle collision
+    # Dedup: check manifest for existing filename
+    try:
+        existing_manifest = json.loads(MANIFEST_PATH.read_text())
+        existing_files = set()
+        for c in existing_manifest.get("categories", {}).values():
+            for a in c.get("apps", []):
+                existing_files.add(a.get("file", ""))
+        if filename in existing_files or filepath.exists():
+            suffix = random.randint(100, 999)
+            filename = "{}-{}.html".format(slug, suffix)
+            filepath = APPS_DIR / folder / filename
+            if filename in existing_files or filepath.exists():
+                print("  ✗ Duplicate detected, skipping")
+                return None
+    except Exception:
+        pass
+
+    # Handle collision (fallback)
     if filepath.exists():
         suffix = random.randint(100, 999)
         filename = "{}-{}.html".format(slug, suffix)

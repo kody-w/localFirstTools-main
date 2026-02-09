@@ -157,6 +157,14 @@ PERSONAS = [
 ]
 
 
+def _safe_load_json(path, default=None):
+    """Load JSON file with fallback on corruption."""
+    try:
+        return json.loads(Path(path).read_text())
+    except Exception:
+        return default
+
+
 # ── Copilot Integration ───────────────────────────────────────────
 
 def _has_copilot():
@@ -297,6 +305,23 @@ Output ONLY the complete HTML. No explanation.""".format(
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:50]
     filename = slug + ".html"
     filepath = APPS_DIR / folder / filename
+
+    # Dedup: check manifest for same filename in this category
+    try:
+        existing_manifest = json.loads(MANIFEST_PATH.read_text())
+        existing_files = set()
+        for c in existing_manifest.get("categories", {}).values():
+            for a in c.get("apps", []):
+                existing_files.add(a.get("file", ""))
+        if filename in existing_files or filepath.exists():
+            filename = "{}-{}.html".format(slug, random.randint(100, 999))
+            filepath = APPS_DIR / folder / filename
+            if filename in existing_files or filepath.exists():
+                print("    ✗ Duplicate detected, skipping")
+                return None
+    except Exception:
+        pass
+
     if filepath.exists():
         filename = "{}-{}.html".format(slug, random.randint(100, 999))
         filepath = APPS_DIR / folder / filename
@@ -304,7 +329,7 @@ Output ONLY the complete HTML. No explanation.""".format(
     filepath.write_text(html)
 
     # Update manifest
-    manifest = json.loads(MANIFEST_PATH.read_text())
+    manifest = _safe_load_json(MANIFEST_PATH, {"categories": {}})
     tags = []
     for tag, pat in {"canvas": r"<canvas", "audio": r"AudioContext", "animation": r"requestAnimationFrame", "3d": r"WebGL|THREE", "physics": r"velocity|gravity", "particles": r"particle"}.items():
         if re.search(pat, html, re.IGNORECASE):
@@ -332,7 +357,7 @@ Output ONLY the complete HTML. No explanation.""".format(
 
 def subagent_comment(persona):
     """A persona reviews a random app."""
-    manifest = json.loads(MANIFEST_PATH.read_text())
+    manifest = _safe_load_json(MANIFEST_PATH, {"categories": {}})
     all_apps = []
     for k, c in manifest.get("categories", {}).items():
         folder = c.get("folder", k.replace("_", "-"))
@@ -419,7 +444,8 @@ def subagent_molt(persona):
         print("    ✗ No rankings available")
         return None
 
-    rankings = json.loads(RANKINGS_PATH.read_text()).get("rankings", [])
+    rankings_data = _safe_load_json(RANKINGS_PATH, {})
+    rankings = rankings_data.get("rankings", []) if isinstance(rankings_data, dict) else []
     weak = [r for r in rankings if r.get("score", 100) < 45]
     if not weak:
         print("    No weak apps to molt")
@@ -500,7 +526,7 @@ def run_swarm(count=3):
     print("  LLM: {}".format("Copilot CLI" if HAS_COPILOT else "Keyword fallback"))
 
     # Weight selection toward underserved categories
-    manifest = json.loads(MANIFEST_PATH.read_text())
+    manifest = _safe_load_json(MANIFEST_PATH, {"categories": {}})
     cat_counts = {k: len(c.get("apps", [])) for k, c in manifest.get("categories", {}).items()}
     avg = sum(cat_counts.values()) / len(cat_counts) if cat_counts else 50
 
