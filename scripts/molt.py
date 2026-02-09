@@ -28,7 +28,7 @@ from copilot_utils import (
     MANIFEST_PATH,
     ROOT,
     VALID_CATEGORIES,
-    copilot_call,
+    copilot_call_with_retry,
     detect_backend,
     load_manifest,
     parse_llm_html,
@@ -514,7 +514,7 @@ def molt_app(
 
     # Scale timeout with file size: 180s base + 60s per MB
     timeout_secs = max(180, 180 + int(original_size / 1_000_000) * 60)
-    raw_output = copilot_call(prompt, timeout=timeout_secs)
+    raw_output = copilot_call_with_retry(prompt, timeout=timeout_secs)
     if verbose and raw_output:
         print(f"  Raw output length: {len(raw_output)} chars")
         print(f"  Raw output preview: {raw_output[:300]}...")

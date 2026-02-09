@@ -16,6 +16,7 @@ import json
 import subprocess
 import sys
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -217,8 +218,32 @@ def data_molt():
 
 # ── Phase 5: HTML MOLT ──
 
+def get_app_file_size(filename):
+    """Get file size for an app by searching category folders."""
+    for cat_dir in APPS_DIR.iterdir():
+        if not cat_dir.is_dir() or cat_dir.name in ("archive", "broadcasts"):
+            continue
+        path = cat_dir / filename
+        if path.exists():
+            return path.stat().st_size
+    return 0
+
+
+def _molt_one(filename, score, gen):
+    """Molt a single app. Returns (filename, success) for use with executor."""
+    file_size = get_app_file_size(filename)
+    timeout = max(300, 300 + int(file_size / 1024))  # 300s + 1s per KB
+    log(f"Molting: {filename} (score={score}, gen={gen}, timeout={timeout}s)")
+    ok, stdout, stderr = run_script("molt.py", [filename], timeout=timeout)
+    if ok:
+        log(f"  ✓ {filename} molted")
+    else:
+        log(f"  ⚠ {filename} molt failed")
+    return filename, ok
+
+
 def html_molt(count):
-    """Molt lowest-scoring HTML apps."""
+    """Molt lowest-scoring HTML apps in parallel."""
     print(f"\n[HTML MOLT] Improving {count} weakest apps...")
 
     rankings = load_json(RANKINGS_FILE)
@@ -237,16 +262,26 @@ def html_molt(count):
     candidates = sorted(ranked, key=lambda r: (app_gens.get(r["file"], 0), r.get("score", 0)))
     to_molt = candidates[:count]
 
+    if not to_molt:
+        print("  No candidates to molt")
+        return []
+
+    max_workers = min(3, len(to_molt))
     molted = []
-    for app in to_molt:
-        filename = app["file"]
-        log(f"Molting: {filename} (score={app.get('score', '?')}, gen={app_gens.get(filename, 0)})")
-        ok, stdout, stderr = run_script("molt.py", [filename], timeout=120)
-        if ok:
-            molted.append(filename)
-            log(f"  ✓ {filename} molted")
-        else:
-            log(f"  ⚠ {filename} molt failed")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _molt_one,
+                app["file"],
+                app.get("score", "?"),
+                app_gens.get(app["file"], 0),
+            ): app["file"]
+            for app in to_molt
+        }
+        for future in as_completed(futures):
+            filename, ok = future.result()
+            if ok:
+                molted.append(filename)
 
     print(f"  Molted {len(molted)}/{count} apps")
     return molted

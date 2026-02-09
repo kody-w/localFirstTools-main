@@ -589,7 +589,7 @@ class TestEndToEnd:
         """Dry run should not modify any files."""
         original = (tmp_project / "apps" / "games-puzzles" / "memory-training-game.html").read_text()
 
-        with mock.patch("molt.copilot_call", return_value=IMPROVED_HTML):
+        with mock.patch("molt.copilot_call_with_retry", return_value=IMPROVED_HTML):
             result = molt_mod.molt_app(
                 "memory-training-game.html",
                 dry_run=True,
@@ -604,7 +604,7 @@ class TestEndToEnd:
 
     def test_successful_molt(self, tmp_project):
         """Successful molt should archive, replace, and update manifest."""
-        with mock.patch("molt.copilot_call", return_value=IMPROVED_HTML):
+        with mock.patch("molt.copilot_call_with_retry", return_value=IMPROVED_HTML):
             result = molt_mod.molt_app(
                 "memory-training-game.html",
                 dry_run=False,
@@ -635,7 +635,7 @@ class TestEndToEnd:
         """If LLM output fails validation, original should be preserved."""
         bad_output = "<html><body>No DOCTYPE, no title</body></html>"
 
-        with mock.patch("molt.copilot_call", return_value=bad_output):
+        with mock.patch("molt.copilot_call_with_retry", return_value=bad_output):
             result = molt_mod.molt_app(
                 "memory-training-game.html",
                 dry_run=False,
@@ -651,7 +651,7 @@ class TestEndToEnd:
 
     def test_failure_on_copilot_error(self, tmp_project):
         """If Copilot returns None, molt should fail gracefully."""
-        with mock.patch("molt.copilot_call", return_value=None):
+        with mock.patch("molt.copilot_call_with_retry", return_value=None):
             result = molt_mod.molt_app(
                 "memory-training-game.html",
                 dry_run=False,
@@ -671,7 +671,7 @@ class TestEndToEnd:
         app = manifest["categories"]["games_puzzles"]["apps"][0]
         app["generation"] = 5
 
-        with mock.patch("molt.copilot_call", return_value=IMPROVED_HTML):
+        with mock.patch("molt.copilot_call_with_retry", return_value=IMPROVED_HTML):
             result = molt_mod.molt_app(
                 "memory-training-game.html",
                 dry_run=False,
@@ -732,7 +732,7 @@ class TestRollback:
 
     def test_rollback_restores_archived_version(self, tmp_project):
         # First, do a successful molt to create an archive
-        with mock.patch("molt.copilot_call", return_value=IMPROVED_HTML):
+        with mock.patch("molt.copilot_call_with_retry", return_value=IMPROVED_HTML):
             molt_mod.molt_app(
                 "memory-training-game.html",
                 dry_run=False,

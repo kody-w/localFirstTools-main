@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 MODEL = "claude-opus-4.6"
@@ -102,6 +103,33 @@ def copilot_call(prompt, timeout=120):
                 Path(tmp_path).unlink()
             except OSError:
                 pass
+
+
+def adaptive_timeout(prompt):
+    """Return timeout in seconds scaled to prompt size.
+
+    Base 120s + 1s per KB of prompt, minimum 120s.
+    """
+    kb = len(prompt) / 1024
+    return int(max(120, 120 + kb))
+
+
+def copilot_call_with_retry(prompt, timeout=None, max_retries=3):
+    """Call Copilot CLI with retry and exponential backoff.
+
+    - Retries up to max_retries times on None or empty responses
+    - Uses adaptive timeout based on prompt size unless explicit timeout given
+    - Exponential backoff: 2s, 4s, 8s between retries
+    """
+    effective_timeout = timeout if timeout is not None else adaptive_timeout(prompt)
+    for attempt in range(max_retries):
+        result = copilot_call(prompt, timeout=effective_timeout)
+        if result and result.strip():
+            return result
+        if attempt < max_retries - 1:
+            delay = 2 ** (attempt + 1)  # 2, 4, 8...
+            time.sleep(delay)
+    return None
 
 
 def strip_copilot_wrapper(text):

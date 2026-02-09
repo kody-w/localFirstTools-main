@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-**RappterZoo** — an autonomous game-making social network served as a GitHub Pages static site. ~635 self-contained HTML apps, zero external dependencies, no build process.
+**RappterZoo** — a local-first application platform served as a GitHub Pages static site. ~635 self-contained HTML apps spanning games, cryptocurrency, creative tools, file utilities, and more. Zero external dependencies, no build process. The platform hosts any self-contained browser application — not just games.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
@@ -334,9 +334,51 @@ python3 scripts/data_molt.py --molt --push
 
 **Tests:** `python3 -m pytest scripts/tests/test_data_molt.py -v` (19 tests, all mocked)
 
+## CryptoZoo — ZooCoin Blockchain Platform
+
+A suite of local-first apps implementing a cryptographically sound blockchain. All apps share the same `cryptozoo-chain` localStorage key for the blockchain and `cryptozoo-wallet` for key material.
+
+**Architecture:**
+- **Web Crypto API** for real cryptography — ECDSA P-256 for signing, SHA-256 for hashing (no polyfills, no libraries)
+- **UTXO model** (unspent transaction outputs) — transactions consume UTXOs and create new ones, like Bitcoin
+- **Merkle trees** for transaction integrity — each block header contains a merkle root
+- **Proof-of-work** mining with dynamic difficulty adjustment
+- **Manual peer exchange** — export/import chain JSON for cross-browser sync (longest valid chain wins)
+
+**Apps:**
+- `apps/experimental-ai/cryptozoo-network.html` — Core blockchain node: mining, wallet, transactions, block explorer
+- `apps/experimental-ai/cryptozoo-wallet.html` — Dedicated wallet: ECDSA key management, transaction signing, address book
+- `apps/experimental-ai/cryptozoo-exchange.html` — DEX: order book, local match engine, trade history, price charts
+- `apps/experimental-ai/cryptozoo-explorer.html` — Block explorer: merkle proof verification, chain stats, search
+
+**Shared localStorage schema:**
+- `cryptozoo-chain` — The blockchain (array of blocks with merkle roots)
+- `cryptozoo-wallet` — ECDSA key pairs, addresses
+- `cryptozoo-utxos` — Cached UTXO set for fast balance lookups
+- `cryptozoo-mempool` — Pending unconfirmed transactions
+- `cryptozoo-orders` — DEX order book
+
+**Tests:** `python3 -m pytest scripts/tests/test_cryptozoo.py -v`
+
 ## Known Pitfalls
 
 - `gh copilot -p` is an **agent**, not a code generator — it enters agent mode and gets permission denied. Always use direct `Write` in subagents instead.
 - Nested f-strings with quotes fail in Python — use string concatenation.
 - HTMLParser `_is_redirect` triggers Python name-mangling — use plain `is_redirect`.
 - `community.json` is ~3MB minified — regenerate with `scripts/generate_community.py`, don't edit by hand.
+
+### PTY Exhaustion — Sub-Agent Limits
+
+**Problem:** macOS has ~256 PTYs. Each sub-agent (task tool) spawns multiple shell sessions internally. Spawning >15 concurrent agents exhausts PTYs, causing `pty_posix_spawn failed` errors on ALL subsequent bash calls — effectively bricking the session's shell access.
+
+**Prevention rules (MANDATORY):**
+- **Never spawn more than 5 background sub-agents at once.** Use waves of 5, waiting for each wave to complete before launching the next.
+- **Prefer `sync` mode** for task agents when possible — sync agents release PTYs immediately on completion.
+- **For batch operations on 10+ files**, use a single general-purpose agent that processes them sequentially, NOT one agent per file.
+
+**Fallback when PTYs are exhausted (no bash available):**
+1. **File operations still work:** `view`, `edit`, `create`, `grep`, `glob` tools do NOT use PTYs.
+2. **SQL still works:** The `sql` tool is in-process.
+3. **Git operations:** Provide the user with exact shell commands to copy-paste into their own terminal. Format as a single copy-paste block.
+4. **Wait it out:** PTYs are reclaimed as zombie processes are reaped. May take 30-60 seconds. Retry `bash` periodically.
+5. **MCP tools work:** GitHub MCP server tools (search, read issues/PRs) don't need PTYs.
