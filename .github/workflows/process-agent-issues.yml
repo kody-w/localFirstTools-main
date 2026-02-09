@@ -1,0 +1,47 @@
+name: Process Agent Issues
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only run when an issue has the agent-action label
+    if: contains(github.event.issue.labels.*.name, 'agent-action') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.name "rappterzoo-agent"
+          git config user.email "rappterzoo-agent@rappterzoo.dev"
+
+      - name: Process agent issues
+        run: python3 scripts/process_agent_issues.py --verbose
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate NLweb feeds
+        run: python3 scripts/generate_feeds.py
+
+      - name: Commit and push
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "🤖 Processed agent issues: $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi
