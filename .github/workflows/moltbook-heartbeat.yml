@@ -1,0 +1,61 @@
+name: Moltbook Heartbeat
+on:
+  schedule:
+    - cron: '45 1,7,13,19 * * *'  # 4x daily, offset from other workflows
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: false
+        default: 'full'
+        type: choice
+        options: ['full', 'post-only', 'engage-only']
+      dry_run:
+        description: 'Dry run (no API calls)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config user.name "rappterzoo-heartbeat"
+          git config user.email "rappterzoo-heartbeat@rappterzoo.dev"
+
+      - name: Run Moltbook heartbeat
+        run: |
+          MODE="${{ github.event.inputs.mode || 'full' }}"
+          DRY="${{ github.event.inputs.dry_run || 'false' }}"
+          FLAGS="--verbose"
+          if [ "$DRY" = "true" ]; then FLAGS="$FLAGS --dry-run"; fi
+          if [ "$MODE" = "post-only" ]; then FLAGS="$FLAGS --post-only"; fi
+          if [ "$MODE" = "engage-only" ]; then FLAGS="$FLAGS --engage-only"; fi
+          python3 scripts/moltbook_heartbeat.py $FLAGS
+        env:
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+
+      - name: Commit state
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git add apps/moltbook-heartbeat-state.json apps/activity-log.json
+          if git diff --cached --quiet; then
+            echo "No state changes to commit"
+          else
+            git commit -m "heartbeat: Moltbook engagement run [skip ci]"
+            git push
+          fi
