@@ -584,19 +584,29 @@ def build_rankings(verbose: bool = False, legacy: bool = False) -> dict:
         for i, g in enumerate(by_engagement[:20])
     ]
 
+    summary = {
+        "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
+        "median_score": sorted(scores)[len(scores) // 2] if scores else 0,
+        "top_10_avg": round(sum(scores[:10]) / min(10, len(scores)), 1) if scores else 0,
+        "avg_engagement": round(sum(engage_scores) / len(engage_scores), 1) if engage_scores else 0,
+        "grade_distribution": grade_dist,
+        "score_histogram": histogram,
+        "runtime_health": health_verdicts,
+    }
+
     rankings = {
         "generated": datetime.now().isoformat(),
         "total_apps": len(all_games),
         "has_player_ratings": bool(player_ratings),
         "scoring_modes": mode_counts,
-        "summary": {
-            "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
-            "median_score": sorted(scores)[len(scores) // 2] if scores else 0,
-            "top_10_avg": round(sum(scores[:10]) / min(10, len(scores)), 1) if scores else 0,
-            "avg_engagement": round(sum(engage_scores) / len(engage_scores), 1) if engage_scores else 0,
+        "summary": summary,
+        # Backward-compat alias: some consumers (Molter Engine) read from "meta".
+        # Both point to the same data so they stay in sync.
+        "meta": {
+            "total_apps": len(all_games),
+            "avg_score": summary["avg_score"],
+            "avg_playability": summary["avg_engagement"],
             "grade_distribution": grade_dist,
-            "score_histogram": histogram,
-            "runtime_health": health_verdicts,
         },
         "categories": category_stats,
         "top_engaging": top_engaging,

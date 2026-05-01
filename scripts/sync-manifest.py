@@ -32,7 +32,35 @@ VALID_CATEGORIES = {
     "creative_tools",
     "educational_tools",
     "experimental_ai",
+    "data_tools",
+    "productivity",
 }
+
+# Apps frequently use folder-name (hyphen) form in their meta tags;
+# normalize either form to the canonical underscore key.
+CATEGORY_ALIASES = {
+    "3d-immersive": "3d_immersive",
+    "audio-music": "audio_music",
+    "games-puzzles": "games_puzzles",
+    "visual-art": "visual_art",
+    "generative-art": "generative_art",
+    "particle-physics": "particle_physics",
+    "creative-tools": "creative_tools",
+    "educational": "educational_tools",
+    "educational-tools": "educational_tools",
+    "experimental-ai": "experimental_ai",
+    "data-tools": "data_tools",
+}
+
+
+def _normalize_category(cat):
+    """Accept hyphen or underscore form; return canonical underscore key or None."""
+    if not cat:
+        return None
+    cat = cat.strip()
+    if cat in VALID_CATEGORIES:
+        return cat
+    return CATEGORY_ALIASES.get(cat)
 
 # Map category keys to folder names
 CATEGORY_FOLDERS = {
@@ -45,6 +73,8 @@ CATEGORY_FOLDERS = {
     "creative_tools": "creative-tools",
     "educational_tools": "educational",
     "experimental_ai": "experimental-ai",
+    "data_tools": "data-tools",
+    "productivity": "productivity",
 }
 
 
@@ -77,12 +107,13 @@ def parse_post(html, filename):
 
     Returns None if no rappterzoo tags are found (non-rappterzoo app).
     """
-    category = _extract_meta(html, "rappterzoo:category")
-    if category is None:
+    raw_category = _extract_meta(html, "rappterzoo:category")
+    category = _normalize_category(raw_category)
+    if raw_category is None:
         return None
 
-    if category not in VALID_CATEGORIES:
-        print(f"  WARNING: {filename} has invalid category '{category}', skipping", file=sys.stderr)
+    if category is None:
+        print(f"  WARNING: {filename} has invalid category '{raw_category}', skipping", file=sys.stderr)
         return None
 
     title = _extract_title(html) or filename
@@ -113,8 +144,10 @@ def parse_post(html, filename):
 def scan_posts():
     """Walk apps/ subfolders and parse all HTML files with rappterzoo tags."""
     posts = []
+    # Reverse alias: cat_key -> folder name
+    expected_folders = {v: k for k, v in CATEGORY_FOLDERS.items()}
     for folder in sorted(APPS_DIR.iterdir()):
-        if not folder.is_dir() or folder.name == "archive":
+        if not folder.is_dir() or folder.name in ("archive", "broadcasts", "dimensions"):
             continue
         for html_file in sorted(folder.glob("*.html")):
             try:
@@ -122,8 +155,19 @@ def scan_posts():
             except OSError:
                 continue
             result = parse_post(content, html_file.name)
-            if result is not None:
-                posts.append(result)
+            if result is None:
+                continue
+            # Sanity: the file's physical folder must match its meta-category folder.
+            # Otherwise we'd register a ghost manifest entry pointing to the wrong path.
+            expected_cat = expected_folders.get(folder.name)
+            if expected_cat and result["category"] != expected_cat:
+                print(
+                    f"  WARNING: {html_file.relative_to(ROOT)} meta-category '{result['category']}' "
+                    f"disagrees with physical folder '{folder.name}' (expected '{expected_cat}'); skipping",
+                    file=sys.stderr,
+                )
+                continue
+            posts.append(result)
     return posts
 
 
@@ -169,6 +213,14 @@ def sync_manifest(posts, manifest, dry_run=False):
             old = existing[key]
             # Preserve featured flag from existing manifest
             entry["featured"] = old.get("featured", False)
+            # Preserve hand-written manifest fields when HTML meta is missing/empty.
+            # The manifest is authoritative for these unless the HTML explicitly overrides.
+            preserve_if_empty = ("description", "title", "tags", "complexity", "type", "created")
+            for field in preserve_if_empty:
+                new_val = entry.get(field)
+                old_val = old.get(field)
+                if old_val and (new_val in (None, "", [], 0) or not new_val):
+                    entry[field] = old_val
             # Preserve any extra fields from existing entry
             for k, v in old.items():
                 if k not in entry:

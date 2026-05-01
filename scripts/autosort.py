@@ -33,11 +33,41 @@ ROOT_WHITELIST = {
     "index.html",
     "README.md",
     "CLAUDE.md",
+    "skill.md",
+    "skill.json",
     "skills.md",
-    "copilot-intelligence-pattern.md",
+    "package.json",
+    "package-lock.json",
     ".gitignore",
     ".gitattributes",
+    ".nojekyll",
 }
+
+# Folders that are legitimate at root
+ROOT_FOLDER_WHITELIST = {
+    "apps",
+    "scripts",
+    "cartridges",
+    "docs",
+    "node_modules",
+    ".git",
+    ".github",
+    ".githooks",
+    ".vscode",
+    ".idea",
+    ".well-known",
+    ".claude",
+    ".pytest_cache",
+}
+
+# Cruft patterns — non-HTML files at root that should never accumulate.
+# Matches one-off scripts, temp files, generated reports.
+CRUFT_PATTERNS = [
+    re.compile(r"^_[A-Za-z0-9_-]+\.(py|js|sh|ts|mjs|cjs)$"),  # _*.py, _gen_council.py
+    re.compile(r"^temp_[A-Za-z0-9_-]*\.(py|js|sh)$"),          # temp_script.py, temp_*.js
+    re.compile(r"^[A-Za-z0-9_-]*-report\.(md|json|txt)$"),     # migration-report.md
+    re.compile(r"^.*\.(tmp|bak|backup|swp|swo|orig)$"),
+]
 
 # Garbage filenames that need renaming
 GARBAGE_NAMES = re.compile(
@@ -680,6 +710,37 @@ def deep_clean_existing(manifest, backend, dry_run, verbose):
 # ─── Main Pipeline ───────────────────────────────────────────────────────────
 
 
+def find_root_cruft():
+    """Find non-HTML cruft files at repo root.
+
+    Returns a list of (path, reason) tuples for things that look like one-off
+    scripts, temp files, or stale reports that don't belong at root.
+    """
+    cruft = []
+    for f in ROOT.iterdir():
+        if not f.is_file():
+            continue
+        name = f.name
+        # Whitelisted explicitly
+        if name in ROOT_WHITELIST:
+            continue
+        # Dotfiles (e.g., .DS_Store) are handled by .gitignore
+        if name.startswith("."):
+            continue
+        # HTML files are handled by the existing autosort flow
+        if f.suffix.lower() in (".html", ".htm"):
+            continue
+        for pat in CRUFT_PATTERNS:
+            if pat.match(name):
+                cruft.append((f, f"matches cruft pattern {pat.pattern!r}"))
+                break
+        else:
+            # Unknown root file — flag but don't auto-delete
+            if f.suffix.lower() in (".py", ".js", ".sh", ".ts", ".mjs", ".md", ".json"):
+                cruft.append((f, "unrecognized non-HTML file at root"))
+    return cruft
+
+
 def main():
     dry_run = "--dry-run" in sys.argv
     verbose = "--verbose" in sys.argv or dry_run
@@ -718,8 +779,23 @@ def main():
         and f.is_file()
     ]
 
+    # Find non-HTML cruft at root (one-off scripts, temp files, stale reports)
+    cruft = find_root_cruft()
+    if cruft:
+        print(f"\n=== AUTOSORT: {len(cruft)} non-HTML cruft file(s) at root ===")
+        for path, reason in cruft:
+            if dry_run:
+                print(f"  [DRY-RUN] would delete: {path.name}  ({reason})")
+            else:
+                print(f"  delete: {path.name}  ({reason})")
+                try:
+                    path.unlink()
+                except OSError as e:
+                    print(f"    ERROR: {e}", file=sys.stderr)
+
     if not root_html and not deep_clean:
-        print("autosort: root is clean, nothing to do.")
+        if not cruft:
+            print("autosort: root is clean, nothing to do.")
         return 0
 
     if root_html:
