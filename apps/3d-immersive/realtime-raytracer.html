@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real-Time Ray Tracer</title>
+<meta name="rappterzoo:author" content="copilot">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="3d_immersive">
+<meta name="rappterzoo:tags" content="raytracing,3d,webworker,canvas,realtime,graphics">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-09">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;color:#eee;font-family:'Segoe UI',system-ui,sans-serif;display:flex;height:100vh;overflow:hidden}
+#sidebar{width:280px;background:#1a1a2e;padding:16px;overflow-y:auto;flex-shrink:0;border-right:1px solid #333}
+#sidebar h1{font-size:18px;margin-bottom:12px;color:#7fdbca}
+#sidebar h2{font-size:13px;margin:14px 0 6px;color:#c792ea;text-transform:uppercase;letter-spacing:1px}
+.sphere-panel{background:#16213e;border-radius:8px;padding:10px;margin-bottom:10px}
+.sphere-panel .name{font-weight:600;margin-bottom:6px;font-size:13px}
+label{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin:4px 0}
+label span{opacity:.7}
+input[type=range]{width:110px;accent-color:#7fdbca}
+input[type=color]{width:36px;height:22px;border:none;background:none;cursor:pointer}
+.info{font-size:11px;color:#888;margin-top:12px;line-height:1.5}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+canvas{image-rendering:pixelated;cursor:grab}
+canvas:active{cursor:grabbing}
+#fps{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:4px;font-size:12px;font-family:monospace}
+#res-label{font-size:11px;color:#888;margin-top:4px}
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h1>🔮 Ray Tracer</h1>
+  <h2>Render</h2>
+  <label><span>Resolution</span><input type="range" id="res" min="0.1" max="1" step="0.05" value="0.35"><span id="res-label">35%</span></label>
+  <label><span>Max Bounces</span><input type="range" id="bounces" min="1" max="6" step="1" value="3"><span id="bounces-val">3</span></label>
+  <label><span>Shadow Samples</span><input type="range" id="shadow-samples" min="1" max="8" step="1" value="3"><span id="shadow-val">3</span></label>
+  <h2>Spheres</h2>
+  <div id="sphere-controls"></div>
+  <h2>Floor</h2>
+  <label><span>Reflectivity</span><input type="range" id="floor-reflect" min="0" max="1" step="0.05" value="0.3"><span id="floor-reflect-val">0.30</span></label>
+  <label><span>Check Size</span><input type="range" id="floor-check" min="0.5" max="4" step="0.25" value="1.5"><span id="floor-check-val">1.50</span></label>
+  <div class="info">
+    🖱 Drag to orbit camera<br>
+    🔄 Scroll to zoom<br>
+    4 Web Workers for parallel rays
+  </div>
+</div>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+  <div id="fps">-- fps</div>
+</div>
+
+<script>
+// ── Scene defaults ──
+const defaultSpheres = [
+  { cx:0, cy:1, cz:0, r:1, color:[0.9,0.2,0.2], reflectivity:0.8, roughness:0.02, name:"Red" },
+  { cx:-2.2, cy:0.7, cz:-1, r:0.7, color:[0.2,0.9,0.3], reflectivity:0.6, roughness:0.08, name:"Green" },
+  { cx:2, cy:0.6, cz:-0.5, r:0.6, color:[0.2,0.3,0.95], reflectivity:0.9, roughness:0.01, name:"Blue" },
+  { cx:0.8, cy:0.45, cz:2, r:0.45, color:[0.95,0.85,0.2], reflectivity:0.5, roughness:0.15, name:"Gold" },
+  { cx:-1.2, cy:0.5, cz:1.8, r:0.5, color:[0.85,0.2,0.85], reflectivity:0.7, roughness:0.05, name:"Purple" }
+];
+
+let spheres = defaultSpheres.map(s => ({...s, color:[...s.color]}));
+let floorReflect = 0.3, floorCheckSize = 1.5;
+let maxBounces = 3, shadowSamples = 3;
+
+// ── Camera ──
+let camTheta = 0.4, camPhi = 0.45, camDist = 8;
+const camTarget = [0, 0.5, 0];
+
+function getCamPos() {
+  return [
+    camTarget[0] + camDist * Math.sin(camPhi) * Math.sin(camTheta),
+    camTarget[1] + camDist * Math.cos(camPhi),
+    camTarget[2] + camDist * Math.sin(camPhi) * Math.cos(camTheta)
+  ];
+}
+
+// ── Canvas & resolution ──
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let scale = 0.35;
+let W, H;
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  const dw = wrap.clientWidth, dh = wrap.clientHeight;
+  canvas.style.width = dw + 'px';
+  canvas.style.height = dh + 'px';
+  W = Math.max(32, Math.floor(dw * scale));
+  H = Math.max(32, Math.floor(dh * scale));
+  canvas.width = W;
+  canvas.height = H;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Mouse controls ──
+let dragging = false, lastX = 0, lastY = 0;
+canvas.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  camTheta += dx * 0.006;
+  camPhi = Math.max(0.1, Math.min(Math.PI * 0.48, camPhi - dy * 0.006));
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  camDist = Math.max(2, Math.min(20, camDist + e.deltaY * 0.01));
+}, {passive: false});
+
+// Touch support
+let touchId = null;
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    touchId = e.touches[0].identifier;
+    lastX = e.touches[0].clientX;
+    lastY = e.touches[0].clientY;
+    dragging = true;
+  }
+  e.preventDefault();
+}, {passive: false});
+canvas.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  for (const t of e.touches) {
+    if (t.identifier === touchId) {
+      const dx = t.clientX - lastX, dy = t.clientY - lastY;
+      camTheta += dx * 0.006;
+      camPhi = Math.max(0.1, Math.min(Math.PI * 0.48, camPhi - dy * 0.006));
+      lastX = t.clientX; lastY = t.clientY;
+    }
+  }
+  e.preventDefault();
+}, {passive: false});
+canvas.addEventListener('touchend', () => { dragging = false; touchId = null; });
+
+// ── Sidebar UI ──
+function buildSidebar() {
+  const container = document.getElementById('sphere-controls');
+  container.innerHTML = '';
+  spheres.forEach((s, i) => {
+    const panel = document.createElement('div');
+    panel.className = 'sphere-panel';
+    const hexColor = '#' + s.color.map(c => Math.round(c*255).toString(16).padStart(2,'0')).join('');
+    panel.innerHTML = `
+      <div class="name">${s.name} Sphere</div>
+      <label><span>Color</span><input type="color" data-i="${i}" data-prop="color" value="${hexColor}"></label>
+      <label><span>Reflectivity</span><input type="range" data-i="${i}" data-prop="reflectivity" min="0" max="1" step="0.05" value="${s.reflectivity}"><span>${s.reflectivity.toFixed(2)}</span></label>
+      <label><span>Roughness</span><input type="range" data-i="${i}" data-prop="roughness" min="0" max="0.3" step="0.01" value="${s.roughness}"><span>${s.roughness.toFixed(2)}</span></label>
+    `;
+    container.appendChild(panel);
+  });
+
+  container.addEventListener('input', e => {
+    const el = e.target;
+    const i = parseInt(el.dataset.i);
+    const prop = el.dataset.prop;
+    if (prop === 'color') {
+      const hex = el.value;
+      spheres[i].color = [parseInt(hex.slice(1,3),16)/255, parseInt(hex.slice(3,5),16)/255, parseInt(hex.slice(5,7),16)/255];
+    } else if (prop === 'reflectivity' || prop === 'roughness') {
+      spheres[i][prop] = parseFloat(el.value);
+      el.nextElementSibling.textContent = parseFloat(el.value).toFixed(2);
+    }
+  });
+}
+buildSidebar();
+
+// Global controls
+document.getElementById('res').addEventListener('input', e => {
+  scale = parseFloat(e.target.value);
+  document.getElementById('res-label').textContent = Math.round(scale*100)+'%';
+  resize();
+});
+document.getElementById('bounces').addEventListener('input', e => {
+  maxBounces = parseInt(e.target.value);
+  document.getElementById('bounces-val').textContent = maxBounces;
+});
+document.getElementById('shadow-samples').addEventListener('input', e => {
+  shadowSamples = parseInt(e.target.value);
+  document.getElementById('shadow-val').textContent = shadowSamples;
+});
+document.getElementById('floor-reflect').addEventListener('input', e => {
+  floorReflect = parseFloat(e.target.value);
+  document.getElementById('floor-reflect-val').textContent = floorReflect.toFixed(2);
+});
+document.getElementById('floor-check').addEventListener('input', e => {
+  floorCheckSize = parseFloat(e.target.value);
+  document.getElementById('floor-check-val').textContent = floorCheckSize.toFixed(2);
+});
+
+// ── Worker code (inlined as Blob) ──
+const workerCode = `
+'use strict';
+// Vector math
+function vadd(a,b){return[a[0]+b[0],a[1]+b[1],a[2]+b[2]]}
+function vsub(a,b){return[a[0]-b[0],a[1]-b[1],a[2]-b[2]]}
+function vmul(a,s){return[a[0]*s,a[1]*s,a[2]*s]}
+function vdot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]}
+function vlen(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])}
+function vnorm(a){var l=vlen(a);return l>1e-8?[a[0]/l,a[1]/l,a[2]/l]:[0,1,0]}
+function vmulv(a,b){return[a[0]*b[0],a[1]*b[1],a[2]*b[2]]}
+function vreflect(v,n){return vsub(v,vmul(n,2*vdot(v,n)))}
+function vlerp(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+
+// Pseudo-random for jittered soft shadows
+var _seed = 1;
+function rand(){_seed=(_seed*16807+0)%2147483647;return(_seed&0x7fffffff)/2147483647}
+
+// Intersect ray with sphere, returns t or -1
+function hitSphere(ro,rd,s){
+  var oc=vsub(ro,[s.cx,s.cy,s.cz]);
+  var b=vdot(oc,rd);
+  var c=vdot(oc,oc)-s.r*s.r;
+  var d=b*b-c;
+  if(d<0)return-1;
+  var sq=Math.sqrt(d);
+  var t=-b-sq;
+  if(t>0.001)return t;
+  t=-b+sq;
+  return t>0.001?t:-1;
+}
+
+// Intersect ray with floor plane y=0
+function hitFloor(ro,rd){
+  if(Math.abs(rd[1])<1e-8)return-1;
+  var t=-ro[1]/rd[1];
+  return t>0.001?t:-1;
+}
+
+// Scene intersection
+function intersect(ro,rd,spheres){
+  var best=1e20,hitType=-1,hitIdx=-1;
+  for(var i=0;i<spheres.length;i++){
+    var t=hitSphere(ro,rd,spheres[i]);
+    if(t>0&&t<best){best=t;hitType=0;hitIdx=i}
+  }
+  var tf=hitFloor(ro,rd);
+  if(tf>0&&tf<best){best=tf;hitType=1;hitIdx=-1}
+  return{t:best,type:hitType,idx:hitIdx};
+}
+
+// Soft shadow factor
+function softShadow(p,lightPos,spheres,samples){
+  var lightRadius=0.5;
+  var lit=0;
+  for(var s=0;s<samples;s++){
+    // Jitter light position
+    var jx=lightPos[0]+(rand()-0.5)*lightRadius*2;
+    var jy=lightPos[1]+(rand()-0.5)*lightRadius*2;
+    var jz=lightPos[2]+(rand()-0.5)*lightRadius*2;
+    var toLight=vsub([jx,jy,jz],p);
+    var dist=vlen(toLight);
+    var ld=vnorm(toLight);
+    var blocked=false;
+    for(var i=0;i<spheres.length;i++){
+      var t=hitSphere(vadd(p,vmul(ld,0.01)),ld,spheres[i]);
+      if(t>0&&t<dist){blocked=true;break}
+    }
+    if(!blocked)lit++;
+  }
+  return lit/samples;
+}
+
+// Sky gradient
+function sky(rd){
+  var t=0.5*(rd[1]+1);
+  return vlerp([0.6,0.75,1.0],[0.15,0.2,0.4],t);
+}
+
+// Trace a ray
+function trace(ro,rd,spheres,maxBounces,shadowSamples,floorReflect,floorCheckSize){
+  var color=[0,0,0];
+  var throughput=[1,1,1];
+  var lightPos=[4,8,2];
+  var lightColor=[1,0.95,0.85];
+  var ambient=[0.08,0.1,0.14];
+
+  for(var bounce=0;bounce<=maxBounces;bounce++){
+    var hit=intersect(ro,rd,spheres);
+    if(hit.type<0){
+      // Sky
+      var s=sky(rd);
+      color=vadd(color,vmulv(throughput,s));
+      break;
+    }
+
+    var p=vadd(ro,vmul(rd,hit.t));
+    var n,matColor,matReflect,matRoughness;
+
+    if(hit.type===0){
+      // Sphere
+      var sp=spheres[hit.idx];
+      n=vnorm(vsub(p,[sp.cx,sp.cy,sp.cz]));
+      matColor=sp.color;
+      matReflect=sp.reflectivity;
+      matRoughness=sp.roughness;
+    } else {
+      // Floor
+      n=[0,1,0];
+      var cx=Math.floor(p[0]/floorCheckSize);
+      var cz=Math.floor(p[2]/floorCheckSize);
+      matColor=((cx+cz)&1)?[0.85,0.85,0.85]:[0.15,0.15,0.15];
+      matReflect=floorReflect;
+      matRoughness=0.05;
+    }
+
+    // Direct lighting
+    var toLight=vnorm(vsub(lightPos,p));
+    var diff=Math.max(0,vdot(n,toLight));
+
+    // Specular (Blinn-Phong)
+    var halfV=vnorm(vadd(toLight,vnorm(vsub([0,0,0],rd))));
+    var specPow=Math.max(8,512*(1-matRoughness));
+    var spec=Math.pow(Math.max(0,vdot(n,halfV)),specPow);
+
+    // Shadow
+    var shadow=softShadow(vadd(p,vmul(n,0.01)),lightPos,spheres,shadowSamples);
+
+    // Combine
+    var directLight=vadd(ambient,vmul(vadd(vmulv(lightColor,vmul(matColor,diff)),vmul(lightColor,spec*0.5)),shadow));
+    var localColor=vmulv(matColor,directLight);
+
+    // Fresnel-ish boost
+    var fresnel=matReflect+(1-matReflect)*Math.pow(1-Math.abs(vdot(n,vnorm(vsub([0,0,0],rd)))),3);
+
+    // Blend local with reflection
+    color=vadd(color,vmulv(throughput,vmul(localColor,1-fresnel)));
+    throughput=vmul(vmulv(throughput,vlerp(matColor,[1,1,1],0.5)),fresnel);
+
+    if(fresnel<0.01)break;
+
+    // Reflect
+    var reflDir=vreflect(rd,n);
+    // Roughness perturbation
+    if(matRoughness>0){
+      reflDir[0]+=(rand()-0.5)*matRoughness;
+      reflDir[1]+=(rand()-0.5)*matRoughness;
+      reflDir[2]+=(rand()-0.5)*matRoughness;
+      reflDir=vnorm(reflDir);
+      if(vdot(reflDir,n)<0)reflDir=vreflect(reflDir,n);
+    }
+    ro=vadd(p,vmul(n,0.01));
+    rd=reflDir;
+  }
+
+  return color;
+}
+
+// Worker message handler
+self.onmessage=function(e){
+  var d=e.data;
+  if(d.type==='render'){
+    var spheres=d.spheres;
+    var camPos=d.camPos,camRight=d.camRight,camUp=d.camUp,camFwd=d.camFwd;
+    var W=d.W,H=d.H;
+    var startRow=d.startRow,endRow=d.endRow;
+    var maxB=d.maxBounces,ss=d.shadowSamples;
+    var fReflect=d.floorReflect,fCheck=d.floorCheckSize;
+    var aspect=W/H;
+    var fovScale=Math.tan(0.5*1.0); // ~57 deg FOV
+
+    var numRows=endRow-startRow;
+    var buf=new Uint8ClampedArray(W*numRows*4);
+
+    _seed=d.startRow*7919+d.frameId;
+
+    for(var y=startRow;y<endRow;y++){
+      for(var x=0;x<W;x++){
+        var u=(2*(x+0.5)/W-1)*aspect*fovScale;
+        var v=(1-2*(y+0.5)/H)*fovScale;
+        var rd=vnorm(vadd(vadd(vmul(camRight,u),vmul(camUp,v)),camFwd));
+        var col=trace(camPos,rd,spheres,maxB,ss,fReflect,fCheck);
+
+        // Tone map (simple Reinhard) + gamma
+        col=[col[0]/(1+col[0]),col[1]/(1+col[1]),col[2]/(1+col[2])];
+        col=[Math.pow(col[0],0.45),Math.pow(col[1],0.45),Math.pow(col[2],0.45)];
+
+        var idx=((y-startRow)*W+x)*4;
+        buf[idx]=Math.min(255,Math.round(col[0]*255));
+        buf[idx+1]=Math.min(255,Math.round(col[1]*255));
+        buf[idx+2]=Math.min(255,Math.round(col[2]*255));
+        buf[idx+3]=255;
+      }
+    }
+    self.postMessage({startRow:startRow,endRow:endRow,buf:buf},[buf.buffer]);
+  }
+};
+`;
+
+// ── Create 4 workers ──
+const NUM_WORKERS = 4;
+const blob = new Blob([workerCode], {type:'application/javascript'});
+const blobURL = URL.createObjectURL(blob);
+const workers = [];
+let pendingWorkers = 0;
+let frameId = 0;
+let currentImageData = null;
+
+for (let i = 0; i < NUM_WORKERS; i++) {
+  const w = new Worker(blobURL);
+  w.onmessage = function(e) {
+    const d = e.data;
+    if (currentImageData && d.buf) {
+      const src = new Uint8ClampedArray(d.buf);
+      const dst = currentImageData.data;
+      const off = d.startRow * W * 4;
+      dst.set(src, off);
+    }
+    pendingWorkers--;
+    if (pendingWorkers === 0) {
+      ctx.putImageData(currentImageData, 0, 0);
+      frameDone();
+    }
+  };
+  workers.push(w);
+}
+
+// ── Camera matrix ──
+function getCameraVectors() {
+  const pos = getCamPos();
+  const fwd = vnorm(vsub(camTarget, pos));
+  const worldUp = [0, 1, 0];
+  const right = vnorm(vcross(fwd, worldUp));
+  const up = vcross(right, fwd);
+  return { pos, fwd, right, up };
+}
+function vnorm(a) { const l = Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]); return l>1e-8?[a[0]/l,a[1]/l,a[2]/l]:[0,1,0]; }
+function vsub(a,b) { return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
+function vcross(a,b) { return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]; }
+
+// ── FPS tracking ──
+let lastFrameTime = 0, fpsDisplay = document.getElementById('fps');
+let frameCount = 0, fpsAccum = 0;
+
+function frameDone() {
+  const now = performance.now();
+  if (lastFrameTime > 0) {
+    fpsAccum += 1000 / (now - lastFrameTime);
+    frameCount++;
+    if (frameCount >= 10) {
+      fpsDisplay.textContent = (fpsAccum / frameCount).toFixed(1) + ' fps';
+      fpsAccum = 0; frameCount = 0;
+    }
+  }
+  lastFrameTime = now;
+  requestAnimationFrame(renderFrame);
+}
+
+// ── Render loop ──
+function renderFrame() {
+  if (pendingWorkers > 0) { requestAnimationFrame(renderFrame); return; }
+
+  frameId++;
+  const cam = getCameraVectors();
+  currentImageData = ctx.createImageData(W, H);
+
+  const rowsPerWorker = Math.ceil(H / NUM_WORKERS);
+  pendingWorkers = NUM_WORKERS;
+
+  for (let i = 0; i < NUM_WORKERS; i++) {
+    const startRow = i * rowsPerWorker;
+    const endRow = Math.min(H, (i + 1) * rowsPerWorker);
+    if (startRow >= H) { pendingWorkers--; continue; }
+
+    workers[i].postMessage({
+      type: 'render',
+      spheres: spheres,
+      camPos: cam.pos,
+      camRight: cam.right,
+      camUp: cam.up,
+      camFwd: cam.fwd,
+      W: W, H: H,
+      startRow: startRow,
+      endRow: endRow,
+      maxBounces: maxBounces,
+      shadowSamples: shadowSamples,
+      floorReflect: floorReflect,
+      floorCheckSize: floorCheckSize,
+      frameId: frameId
+    });
+  }
+}
+
+requestAnimationFrame(renderFrame);
+</script>
+</body>
+</html>

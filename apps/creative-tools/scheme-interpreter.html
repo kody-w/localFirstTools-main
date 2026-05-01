@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scheme Interpreter & Visual Debugger</title>
+<meta name="rappterzoo:author" content="copilot">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="creative_tools">
+<meta name="rappterzoo:tags" content="scheme,lisp,interpreter,debugger,repl,functional,programming">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-09">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#1e1e2e;--bg2:#181825;--bg3:#11111b;--surface:#313244;
+--overlay:#45475a;--text:#cdd6f4;--subtext:#a6adc8;--lavender:#b4befe;
+--blue:#89b4fa;--sapphire:#74c7ec;--teal:#94e2d5;--green:#a6e3a1;
+--yellow:#f9e2af;--peach:#fab387;--maroon:#eba0ac;--red:#f38ba8;
+--mauve:#cba6f7;--pink:#f5c2e7;--rosewater:#f5e0dc;--flamingo:#f2cdcd;
+}
+body{background:var(--bg);color:var(--text);font-family:'Cascadia Code','Fira Code','JetBrains Mono',monospace;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+#toolbar{background:var(--bg3);padding:6px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--surface);flex-shrink:0}
+#toolbar h1{font-size:14px;color:var(--mauve);margin-right:auto;font-weight:600}
+#toolbar button{background:var(--surface);color:var(--text);border:1px solid var(--overlay);padding:4px 12px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px;transition:all .15s}
+#toolbar button:hover{background:var(--overlay);border-color:var(--lavender)}
+#toolbar button.primary{background:var(--green);color:var(--bg3);border-color:var(--green);font-weight:600}
+#toolbar button.primary:hover{opacity:.85}
+#toolbar button.danger{background:var(--red);color:var(--bg3);border-color:var(--red)}
+#toolbar select{background:var(--surface);color:var(--text);border:1px solid var(--overlay);padding:4px 8px;border-radius:4px;font-family:inherit;font-size:12px}
+#main{display:flex;flex:1;overflow:hidden}
+#left-panel{display:flex;flex-direction:column;width:50%;min-width:300px;border-right:1px solid var(--surface)}
+#editor-wrap{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column}
+#editor-header{background:var(--bg2);padding:4px 12px;font-size:11px;color:var(--subtext);border-bottom:1px solid var(--surface);display:flex;justify-content:space-between}
+#editor-container{flex:1;position:relative;overflow:hidden}
+#editor-lines{position:absolute;left:0;top:0;bottom:0;width:44px;background:var(--bg3);padding:8px 4px;text-align:right;font-size:13px;line-height:1.6;color:var(--overlay);overflow:hidden;user-select:none;z-index:1}
+#editor{position:absolute;left:44px;top:0;right:0;bottom:0;background:var(--bg);color:var(--text);border:none;outline:none;resize:none;font-family:inherit;font-size:13px;line-height:1.6;padding:8px;tab-size:2;white-space:pre;overflow:auto;z-index:2}
+#highlight-layer{position:absolute;left:44px;top:0;right:0;bottom:0;pointer-events:none;font-family:inherit;font-size:13px;line-height:1.6;padding:8px;white-space:pre;overflow:hidden;z-index:3;color:transparent}
+.hl-keyword{color:var(--mauve)}
+.hl-builtin{color:var(--blue)}
+.hl-string{color:var(--green)}
+.hl-number{color:var(--peach)}
+.hl-comment{color:var(--overlay);font-style:italic}
+.hl-paren{color:var(--subtext)}
+.hl-match{background:var(--overlay);border-radius:2px}
+.hl-mismatch{background:var(--red);color:var(--bg3);border-radius:2px}
+.hl-symbol{color:var(--text)}
+.hl-boolean{color:var(--peach)}
+.hl-quote{color:var(--yellow)}
+#repl-panel{height:220px;display:flex;flex-direction:column;border-top:1px solid var(--surface);flex-shrink:0}
+#repl-header{background:var(--bg2);padding:4px 12px;font-size:11px;color:var(--subtext);border-bottom:1px solid var(--surface)}
+#repl-output{flex:1;overflow-y:auto;padding:8px;font-size:12px;line-height:1.5;background:var(--bg3)}
+.repl-in{color:var(--blue)}.repl-in::before{content:"λ> ";color:var(--mauve)}
+.repl-out{color:var(--green)}.repl-err{color:var(--red)}
+.repl-info{color:var(--subtext);font-style:italic}
+#repl-input-wrap{display:flex;border-top:1px solid var(--surface);background:var(--bg2)}
+#repl-input-wrap span{padding:4px 8px;color:var(--mauve);font-size:13px}
+#repl-input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-family:inherit;font-size:13px;padding:4px 8px}
+#right-panel{display:flex;flex-direction:column;flex:1;overflow:hidden}
+.tab-bar{display:flex;background:var(--bg3);border-bottom:1px solid var(--surface);flex-shrink:0}
+.tab{padding:6px 16px;font-size:11px;color:var(--subtext);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text)}.tab.active{color:var(--lavender);border-bottom-color:var(--lavender)}
+.panel-content{flex:1;overflow-y:auto;padding:12px;display:none}
+.panel-content.active{display:block}
+#scope-panel{background:var(--bg)}
+#debug-panel{background:var(--bg)}
+#help-panel{background:var(--bg);font-size:12px;line-height:1.6}
+.scope-frame{border:2px solid;border-radius:6px;padding:8px;margin:4px 0}
+.scope-title{font-size:11px;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px}
+.scope-binding{font-size:12px;padding:2px 6px;margin:1px 0;border-radius:3px;display:flex;justify-content:space-between}
+.scope-binding .name{color:var(--blue)}.scope-binding .val{color:var(--green);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#eval-stack{margin-top:12px}
+.stack-frame{background:var(--surface);border-left:3px solid var(--mauve);padding:6px 10px;margin:4px 0;border-radius:0 4px 4px 0;font-size:12px}
+.stack-frame .expr{color:var(--yellow)}.stack-frame .status{color:var(--subtext);font-size:10px}
+.stack-frame.current{border-left-color:var(--green);background:rgba(166,227,161,.1)}
+#debug-controls{display:flex;gap:6px;padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--surface);flex-shrink:0}
+#debug-controls button{background:var(--surface);color:var(--text);border:1px solid var(--overlay);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px}
+#debug-controls button:hover{background:var(--overlay)}
+#debug-controls button:disabled{opacity:.4;cursor:default}
+.debug-expr{padding:4px 8px;margin:2px 0;border-radius:3px;font-size:12px;cursor:pointer}
+.debug-expr.highlight{background:rgba(203,166,247,.15);border-left:3px solid var(--mauve)}
+.debug-expr:hover{background:var(--surface)}
+.help-section{margin-bottom:16px}.help-section h3{color:var(--mauve);margin-bottom:6px;font-size:13px}
+.help-section code{background:var(--surface);padding:1px 4px;border-radius:3px;color:var(--blue);font-size:11px}
+.help-section p{margin:4px 0}
+#resize-handle{width:4px;background:var(--surface);cursor:col-resize;flex-shrink:0;transition:background .15s}
+#resize-handle:hover,#resize-handle.active{background:var(--lavender)}
+#status-bar{background:var(--bg3);padding:2px 12px;font-size:10px;color:var(--subtext);display:flex;justify-content:space-between;border-top:1px solid var(--surface);flex-shrink:0}
+</style>
+</head>
+<body>
+<div id="toolbar">
+<h1>λ Scheme IDE</h1>
+<select id="examples" title="Load example"><option value="">📚 Examples…</option></select>
+<button class="primary" onclick="runCode()" title="Ctrl+Enter">▶ Run</button>
+<button onclick="startDebug()" title="Ctrl+Shift+Enter">🐛 Debug</button>
+<button onclick="clearRepl()">Clear</button>
+<button class="danger" onclick="resetEnv()">Reset</button>
+</div>
+<div id="main">
+<div id="left-panel">
+<div id="editor-wrap">
+<div id="editor-header"><span id="file-info">editor.scm</span><span id="paren-status"></span></div>
+<div id="editor-container">
+<div id="editor-lines"></div>
+<textarea id="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+</div>
+</div>
+<div id="repl-panel">
+<div id="repl-header">REPL</div>
+<div id="repl-output"></div>
+<div id="repl-input-wrap"><span>λ&gt;</span><input id="repl-input" placeholder="Type expression…" autocomplete="off"></div>
+</div>
+</div>
+<div id="resize-handle"></div>
+<div id="right-panel">
+<div class="tab-bar">
+<div class="tab active" data-panel="scope-panel">Scope Chain</div>
+<div class="tab" data-panel="debug-panel">Debugger</div>
+<div class="tab" data-panel="help-panel">Help</div>
+</div>
+<div id="debug-controls">
+<button id="btn-step" onclick="debugStep()" disabled>Step →</button>
+<button id="btn-over" onclick="debugStepOver()" disabled>Over ⤵</button>
+<button id="btn-continue" onclick="debugContinue()" disabled>Continue ▶</button>
+<button id="btn-stop" onclick="debugStop()" disabled>Stop ■</button>
+<span id="debug-status" style="color:var(--subtext);font-size:11px;line-height:28px;margin-left:auto">Idle</span>
+</div>
+<div id="scope-panel" class="panel-content active"></div>
+<div id="debug-panel" class="panel-content"></div>
+<div id="help-panel" class="panel-content"></div>
+</div>
+</div>
+<div id="status-bar"><span id="sb-pos">Ln 1, Col 1</span><span id="sb-info">Scheme R5RS subset • TCO enabled</span></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// SCHEME INTERPRETER — tokenizer, parser, evaluator with TCO
+// ═══════════════════════════════════════════════════════════════
+
+const KEYWORDS = new Set(['define','lambda','λ','let','let*','letrec','if','cond','else','and','or','not','begin','set!','quote','quasiquote','unquote','do','when','unless','case','delay','force']);
+const BUILTINS = new Set(['+','-','*','/','=','<','>','<=','>=','eq?','equal?','null?','pair?','list?','number?','string?','symbol?','boolean?','zero?','positive?','negative?','even?','odd?','abs','max','min','modulo','remainder','quotient','expt','sqrt','floor','ceiling','round','cons','car','cdr','caar','cadr','cdar','cddr','list','length','append','reverse','map','filter','reduce','fold','for-each','apply','assoc','member','display','newline','string-append','string-length','string-ref','number->string','string->number','not','void','error','gensym']);
+
+class SchemeError extends Error { constructor(msg){super(msg);this.name='SchemeError'} }
+
+// — Tokenizer —
+function tokenize(src) {
+  const tokens = []; let i = 0;
+  while (i < src.length) {
+    if (src[i] === ';') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (/\s/.test(src[i])) { i++; continue; }
+    if (src[i] === '(' || src[i] === ')') { tokens.push({ type: 'paren', value: src[i], pos: i }); i++; continue; }
+    if (src[i] === "'") { tokens.push({ type: 'quote', value: "'", pos: i }); i++; continue; }
+    if (src[i] === '`') { tokens.push({ type: 'quasiquote', value: '`', pos: i }); i++; continue; }
+    if (src[i] === ',') {
+      if (src[i+1] === '@') { tokens.push({ type: 'unquote-splicing', value: ',@', pos: i }); i += 2; }
+      else { tokens.push({ type: 'unquote', value: ',', pos: i }); i++; }
+      continue;
+    }
+    if (src[i] === '#') {
+      if (src[i+1] === 't' || src[i+1] === 'f') {
+        const val = src[i+1] === 't';
+        tokens.push({ type: 'boolean', value: val, pos: i });
+        i += 2; continue;
+      }
+      if (src[i+1] === '\\') {
+        i += 2; let ch = src[i] || ''; i++;
+        tokens.push({ type: 'char', value: ch, pos: i-3 }); continue;
+      }
+    }
+    if (src[i] === '"') {
+      let s = ''; const start = i; i++;
+      while (i < src.length && src[i] !== '"') { if (src[i]==='\\') { i++; s += src[i]||''; } else s += src[i]; i++; }
+      i++;
+      tokens.push({ type: 'string', value: s, pos: start }); continue;
+    }
+    let start = i;
+    while (i < src.length && !/[\s()";]/.test(src[i])) i++;
+    const word = src.slice(start, i);
+    const num = Number(word);
+    if (!isNaN(num) && word !== '') tokens.push({ type: 'number', value: num, pos: start });
+    else tokens.push({ type: 'symbol', value: word, pos: start });
+  }
+  return tokens;
+}
+
+// — Parser —
+function parse(tokens) {
+  let pos = 0;
+  function parseExpr() {
+    if (pos >= tokens.length) throw new SchemeError('Unexpected end of input');
+    const tok = tokens[pos];
+    if (tok.type === 'quote') { pos++; return ['quote', parseExpr()]; }
+    if (tok.type === 'quasiquote') { pos++; return ['quasiquote', parseExpr()]; }
+    if (tok.type === 'unquote') { pos++; return ['unquote', parseExpr()]; }
+    if (tok.type === 'unquote-splicing') { pos++; return ['unquote-splicing', parseExpr()]; }
+    if (tok.type === 'paren' && tok.value === '(') {
+      pos++;
+      const list = []; list._pos = tok.pos;
+      while (pos < tokens.length && !(tokens[pos].type === 'paren' && tokens[pos].value === ')')) {
+        list.push(parseExpr());
+      }
+      if (pos >= tokens.length) throw new SchemeError('Missing closing parenthesis');
+      pos++;
+      return list;
+    }
+    if (tok.type === 'paren' && tok.value === ')') throw new SchemeError('Unexpected )');
+    pos++;
+    if (tok.type === 'number') { const v = tok.value; return v; }
+    if (tok.type === 'string') { const v = new String(tok.value); v._isSchemeStr = true; return v; }
+    if (tok.type === 'boolean') return tok.value;
+    if (tok.type === 'char') return tok.value;
+    return Symbol.for(tok.value);
+  }
+  const exprs = [];
+  while (pos < tokens.length) exprs.push(parseExpr());
+  return exprs;
+}
+
+// — Environment —
+class Env {
+  constructor(bindings = {}, parent = null, name = 'anonymous') {
+    this.bindings = bindings; this.parent = parent; this.name = name;
+  }
+  lookup(sym) {
+    const name = Symbol.keyFor(sym);
+    if (name in this.bindings) return this.bindings[name];
+    if (this.parent) return this.parent.lookup(sym);
+    throw new SchemeError(`Unbound variable: ${name}`);
+  }
+  set(sym, val) {
+    const name = Symbol.keyFor(sym);
+    if (name in this.bindings) { this.bindings[name] = val; return; }
+    if (this.parent) { this.parent.set(sym, val); return; }
+    throw new SchemeError(`Cannot set! unbound variable: ${name}`);
+  }
+  define(sym, val) { this.bindings[typeof sym === 'symbol' ? Symbol.keyFor(sym) : sym] = val; }
+}
+
+// — Scheme values —
+class Pair { constructor(car, cdr) { this.car = car; this.cdr = cdr; } }
+class Lambda { constructor(params, body, env, name='λ') { this.params=params; this.body=body; this.env=env; this.name=name; } }
+class TailCall { constructor(func, args) { this.func=func; this.args=args; } }
+class Void {}
+const VOID = new Void();
+let gensymCounter = 0;
+
+function isList(v) { return v === null || v instanceof Pair; }
+function listToArray(v) { const a=[]; while(v instanceof Pair){a.push(v.car);v=v.cdr;} return a; }
+function arrayToList(a) { let r=null; for(let i=a.length-1;i>=0;i--) r=new Pair(a[i],r); return r; }
+
+function schemeToString(val, depth=0) {
+  if (depth > 50) return '...';
+  if (val === null) return "'()";
+  if (val === true) return '#t';
+  if (val === false) return '#f';
+  if (val === undefined || val instanceof Void) return '';
+  if (typeof val === 'number') return Object.is(val,-0)?'0':String(val);
+  if (typeof val === 'symbol') return Symbol.keyFor(val);
+  if (val instanceof String || (typeof val === 'string')) return `"${val}"`;
+  if (val instanceof Lambda) return `#<procedure:${val.name}>`;
+  if (typeof val === 'function') return `#<builtin:${val._name||'λ'}>`;
+  if (val instanceof Pair) {
+    let parts = []; let cur = val; let count = 0;
+    while (cur instanceof Pair && count < 100) { parts.push(schemeToString(cur.car, depth+1)); cur = cur.cdr; count++; }
+    if (cur === null) return '(' + parts.join(' ') + ')';
+    return '(' + parts.join(' ') + ' . ' + schemeToString(cur, depth+1) + ')';
+  }
+  return String(val);
+}
+
+// — Trampoline-based evaluator with TCO —
+let evalSteps = []; let debugMode = false; let debugResolve = null; let debugPaused = false;
+let stepLimit = 500000; let outputBuffer = '';
+
+function evaluate(expr, env) {
+  let result = evalInner(expr, env);
+  while (result instanceof TailCall) {
+    const tc = result;
+    if (tc.func instanceof Lambda) {
+      const lam = tc.func;
+      const newEnv = new Env({}, lam.env, lam.name);
+      for (let i = 0; i < lam.params.length; i++) {
+        newEnv.define(lam.params[i], tc.args[i]);
+      }
+      result = evalBody(lam.body, newEnv);
+    } else if (typeof tc.func === 'function') {
+      result = tc.func(...tc.args);
+    } else {
+      throw new SchemeError('Not a procedure: ' + schemeToString(tc.func));
+    }
+    while (result instanceof TailCall) {
+      const tc2 = result;
+      if (tc2.func instanceof Lambda) {
+        const lam = tc2.func;
+        const newEnv = new Env({}, lam.env, lam.name);
+        for (let i = 0; i < lam.params.length; i++) newEnv.define(lam.params[i], tc2.args[i]);
+        result = evalBody(lam.body, newEnv);
+      } else if (typeof tc2.func === 'function') {
+        result = tc2.func(...tc2.args);
+      } else throw new SchemeError('Not a procedure: ' + schemeToString(tc2.func));
+    }
+  }
+  return result;
+}
+
+function evalBody(body, env) {
+  for (let i = 0; i < body.length - 1; i++) evaluate(body[i], env);
+  return evalInner(body[body.length - 1], env);
+}
+
+function evalInner(expr, env) {
+  if (typeof expr === 'number') return expr;
+  if (typeof expr === 'boolean') return expr;
+  if (expr instanceof String) return expr;
+  if (typeof expr === 'string') return expr;
+  if (typeof expr === 'symbol') return env.lookup(expr);
+  if (!Array.isArray(expr)) return expr;
+  if (expr.length === 0) return null;
+
+  const head = expr[0];
+  const tag = typeof head === 'symbol' ? Symbol.keyFor(head) : null;
+
+  switch (tag) {
+    case 'quote': return quoteValue(expr[1]);
+    case 'quasiquote': return evalQuasi(expr[1], env);
+    case 'if': {
+      const test = evaluate(expr[1], env);
+      if (test !== false && test !== null) return evalInner(expr[2], env);
+      return expr.length > 3 ? evalInner(expr[3], env) : VOID;
+    }
+    case 'cond': {
+      for (let i = 1; i < expr.length; i++) {
+        const clause = expr[i];
+        if ((typeof clause[0] === 'symbol' && Symbol.keyFor(clause[0]) === 'else') || evaluate(clause[0], env) !== false) {
+          if (clause.length === 1) return true;
+          for (let j = 1; j < clause.length - 1; j++) evaluate(clause[j], env);
+          return evalInner(clause[clause.length - 1], env);
+        }
+      }
+      return VOID;
+    }
+    case 'and': {
+      let result = true;
+      for (let i = 1; i < expr.length; i++) {
+        result = evaluate(expr[i], env);
+        if (result === false) return false;
+      }
+      return result;
+    }
+    case 'or': {
+      for (let i = 1; i < expr.length; i++) {
+        const v = evaluate(expr[i], env);
+        if (v !== false) return v;
+      }
+      return false;
+    }
+    case 'define': {
+      if (Array.isArray(expr[1])) {
+        const name = expr[1][0]; const params = expr[1].slice(1);
+        const body = expr.slice(2);
+        const lam = new Lambda(params, body, env, Symbol.keyFor(name));
+        env.define(name, lam);
+        return VOID;
+      }
+      const val = evaluate(expr[2], env);
+      env.define(expr[1], val);
+      return VOID;
+    }
+    case 'set!': { const val = evaluate(expr[2], env); env.set(expr[1], val); return VOID; }
+    case 'lambda': case 'λ': {
+      const params = Array.isArray(expr[1]) ? expr[1] : [expr[1]];
+      return new Lambda(params, expr.slice(2), env);
+    }
+    case 'let': {
+      let bindings, body, name = null;
+      if (typeof expr[1] === 'symbol') {
+        name = expr[1]; bindings = expr[2]; body = expr.slice(3);
+      } else {
+        bindings = expr[1]; body = expr.slice(2);
+      }
+      const newEnv = new Env({}, env, name ? Symbol.keyFor(name) : 'let');
+      if (name) {
+        const params = bindings.map(b => b[0]);
+        const lam = new Lambda(params, body, newEnv, Symbol.keyFor(name));
+        newEnv.define(name, lam);
+        const args = bindings.map(b => evaluate(b[1], env));
+        return new TailCall(lam, args);
+      }
+      for (const [sym, valExpr] of bindings) newEnv.define(sym, evaluate(valExpr, env));
+      for (let i = 0; i < body.length - 1; i++) evaluate(body[i], newEnv);
+      return evalInner(body[body.length - 1], newEnv);
+    }
+    case 'let*': {
+      const newEnv = new Env({}, env, 'let*');
+      for (const [sym, valExpr] of expr[1]) newEnv.define(sym, evaluate(valExpr, newEnv));
+      const body = expr.slice(2);
+      for (let i = 0; i < body.length - 1; i++) evaluate(body[i], newEnv);
+      return evalInner(body[body.length - 1], newEnv);
+    }
+    case 'letrec': {
+      const newEnv = new Env({}, env, 'letrec');
+      for (const [sym] of expr[1]) newEnv.define(sym, VOID);
+      for (const [sym, valExpr] of expr[1]) newEnv.define(sym, evaluate(valExpr, newEnv));
+      const body = expr.slice(2);
+      for (let i = 0; i < body.length - 1; i++) evaluate(body[i], newEnv);
+      return evalInner(body[body.length - 1], newEnv);
+    }
+    case 'begin': {
+      for (let i = 1; i < expr.length - 1; i++) evaluate(expr[i], env);
+      return evalInner(expr[expr.length - 1], env);
+    }
+    case 'when': {
+      if (evaluate(expr[1], env) !== false) {
+        for (let i = 2; i < expr.length - 1; i++) evaluate(expr[i], env);
+        return evalInner(expr[expr.length - 1], env);
+      }
+      return VOID;
+    }
+    case 'unless': {
+      if (evaluate(expr[1], env) === false) {
+        for (let i = 2; i < expr.length - 1; i++) evaluate(expr[i], env);
+        return evalInner(expr[expr.length - 1], env);
+      }
+      return VOID;
+    }
+    case 'do': {
+      const specs = expr[1]; const test = expr[2]; const body = expr.slice(3);
+      const doEnv = new Env({}, env, 'do');
+      for (const spec of specs) doEnv.define(spec[0], evaluate(spec[1], env));
+      while (true) {
+        if (evaluate(test[0], doEnv) !== false) {
+          let r = VOID;
+          for (let i = 1; i < test.length; i++) r = evaluate(test[i], doEnv);
+          return r;
+        }
+        for (const b of body) evaluate(b, doEnv);
+        const newVals = [];
+        for (const spec of specs) {
+          newVals.push(spec.length > 2 ? evaluate(spec[2], doEnv) : doEnv.lookup(spec[0]));
+        }
+        for (let i = 0; i < specs.length; i++) doEnv.define(specs[i][0], newVals[i]);
+      }
+    }
+    case 'delay': return { _promise: true, _expr: expr[1], _env: env, _forced: false, _value: null };
+    case 'force': {
+      const p = evaluate(expr[1], env);
+      if (p && p._promise) { if (!p._forced){p._value=evaluate(p._expr,p._env);p._forced=true;} return p._value; }
+      return p;
+    }
+    case 'case': {
+      const key = evaluate(expr[1], env);
+      for (let i = 2; i < expr.length; i++) {
+        const clause = expr[i];
+        if (typeof clause[0] === 'symbol' && Symbol.keyFor(clause[0]) === 'else') {
+          for (let j = 1; j < clause.length - 1; j++) evaluate(clause[j], env);
+          return evalInner(clause[clause.length-1], env);
+        }
+        if (Array.isArray(clause[0]) && clause[0].some(v => { const qv = typeof v === 'symbol' ? Symbol.keyFor(v) : v; return qv === key || v === key; })) {
+          for (let j = 1; j < clause.length - 1; j++) evaluate(clause[j], env);
+          return evalInner(clause[clause.length-1], env);
+        }
+      }
+      return VOID;
+    }
+    default: {
+      const func = evaluate(head, env);
+      const args = [];
+      for (let i = 1; i < expr.length; i++) args.push(evaluate(expr[i], env));
+      if (func instanceof Lambda) return new TailCall(func, args);
+      if (typeof func === 'function') return func(...args);
+      throw new SchemeError('Not a procedure: ' + schemeToString(func));
+    }
+  }
+}
+
+function quoteValue(v) {
+  if (Array.isArray(v)) {
+    if (v.length === 0) return null;
+    if (v.length === 2 && typeof v[0] === 'symbol' && Symbol.keyFor(v[0]) === 'quote') return new Pair(Symbol.for('quote'), new Pair(quoteValue(v[1]), null));
+    return arrayToList(v.map(quoteValue));
+  }
+  return v;
+}
+
+function evalQuasi(tmpl, env) {
+  if (!Array.isArray(tmpl)) return quoteValue(tmpl);
+  if (tmpl.length === 2 && typeof tmpl[0] === 'string' && tmpl[0] === 'unquote') return evaluate(tmpl[1], env);
+  if (Array.isArray(tmpl) && tmpl.length >= 1 && typeof tmpl[0] === 'symbol' && Symbol.keyFor(tmpl[0]) === 'unquote') return evaluate(tmpl[1], env);
+  const parts = [];
+  for (const el of tmpl) {
+    if (Array.isArray(el) && el.length === 2 && typeof el[0] === 'symbol' && Symbol.keyFor(el[0]) === 'unquote-splicing') {
+      const spliced = evaluate(el[1], env);
+      let cur = spliced;
+      while (cur instanceof Pair) { parts.push(cur.car); cur = cur.cdr; }
+    } else {
+      parts.push(evalQuasi(el, env));
+    }
+  }
+  return arrayToList(parts);
+}
+
+// — Standard environment —
+function makeStdEnv() {
+  const env = new Env({}, null, 'global');
+  function def(name, fn) { fn._name = name; env.define(name, fn); }
+
+  def('+', (...a) => a.reduce((x,y) => x+y, 0));
+  def('-', (...a) => a.length===1 ? -a[0] : a.reduce((x,y) => x-y));
+  def('*', (...a) => a.reduce((x,y) => x*y, 1));
+  def('/', (a,b) => { if(b===0) throw new SchemeError('Division by zero'); return a/b; });
+  def('modulo', (a,b) => ((a%b)+b)%b);
+  def('remainder', (a,b) => a%b);
+  def('quotient', (a,b) => Math.trunc(a/b));
+  def('=', (...a) => a.every(x => x === a[0]));
+  def('<', (a,b) => a < b);
+  def('>', (a,b) => a > b);
+  def('<=', (a,b) => a <= b);
+  def('>=', (a,b) => a >= b);
+  def('abs', a => Math.abs(a));
+  def('max', (...a) => Math.max(...a));
+  def('min', (...a) => Math.min(...a));
+  def('expt', (a,b) => Math.pow(a,b));
+  def('sqrt', a => Math.sqrt(a));
+  def('floor', a => Math.floor(a));
+  def('ceiling', a => Math.ceil(a));
+  def('round', a => Math.round(a));
+  def('zero?', a => a === 0);
+  def('positive?', a => a > 0);
+  def('negative?', a => a < 0);
+  def('even?', a => a % 2 === 0);
+  def('odd?', a => a % 2 !== 0);
+  def('not', a => a === false);
+  def('eq?', (a,b) => a === b);
+  def('equal?', (a,b) => schemeToString(a) === schemeToString(b));
+  def('cons', (a,b) => new Pair(a,b));
+  def('car', a => { if(!(a instanceof Pair)) throw new SchemeError('car: not a pair'); return a.car; });
+  def('cdr', a => { if(!(a instanceof Pair)) throw new SchemeError('cdr: not a pair'); return a.cdr; });
+  def('caar', a => a.car.car);
+  def('cadr', a => a.cdr.car);
+  def('cdar', a => a.car.cdr);
+  def('cddr', a => a.cdr.cdr);
+  def('null?', a => a === null);
+  def('pair?', a => a instanceof Pair);
+  def('list?', a => { let c=a; while(c instanceof Pair)c=c.cdr; return c===null; });
+  def('number?', a => typeof a === 'number');
+  def('string?', a => a instanceof String || typeof a === 'string');
+  def('symbol?', a => typeof a === 'symbol');
+  def('boolean?', a => typeof a === 'boolean');
+  def('list', (...a) => arrayToList(a));
+  def('length', a => { let n=0,c=a; while(c instanceof Pair){n++;c=c.cdr;} return n; });
+  def('append', (...lists) => {
+    const all = [];
+    for (const l of lists) { let c=l; while(c instanceof Pair){all.push(c.car);c=c.cdr;} }
+    return arrayToList(all);
+  });
+  def('reverse', a => { let r=null,c=a; while(c instanceof Pair){r=new Pair(c.car,r);c=c.cdr;} return r; });
+  def('map', (fn, ...lists) => {
+    const results = [];
+    let cursors = lists.map(l => l);
+    while (cursors.every(c => c instanceof Pair)) {
+      const args = cursors.map(c => c.car);
+      results.push(evaluate([fn, ...args.map(a => ['quote-val', a])], null) || applyProc(fn, args));
+      cursors = cursors.map(c => c.cdr);
+    }
+    return arrayToList(results);
+  });
+  def('filter', (fn, lst) => {
+    const results = []; let c = lst;
+    while (c instanceof Pair) {
+      if (applyProc(fn, [c.car]) !== false) results.push(c.car);
+      c = c.cdr;
+    }
+    return arrayToList(results);
+  });
+  def('reduce', (fn, init, lst) => {
+    let acc = init, c = lst;
+    while (c instanceof Pair) { acc = applyProc(fn, [acc, c.car]); c = c.cdr; }
+    return acc;
+  });
+  def('fold', (fn, init, lst) => {
+    let acc = init, c = lst;
+    while (c instanceof Pair) { acc = applyProc(fn, [acc, c.car]); c = c.cdr; }
+    return acc;
+  });
+  def('for-each', (fn, lst) => {
+    let c = lst; while(c instanceof Pair){applyProc(fn,[c.car]);c=c.cdr;} return VOID;
+  });
+  def('apply', (fn, ...args) => {
+    const lastArg = args[args.length - 1];
+    const normalArgs = args.slice(0, -1);
+    const listArgs = listToArray(lastArg);
+    return applyProc(fn, [...normalArgs, ...listArgs]);
+  });
+  def('assoc', (key, lst) => {
+    let c = lst;
+    while (c instanceof Pair) {
+      if (c.car instanceof Pair && (c.car.car === key || schemeToString(c.car.car) === schemeToString(key))) return c.car;
+      c = c.cdr;
+    }
+    return false;
+  });
+  def('member', (item, lst) => {
+    let c = lst;
+    while (c instanceof Pair) {
+      if (schemeToString(c.car) === schemeToString(item)) return c;
+      c = c.cdr;
+    }
+    return false;
+  });
+  def('display', (...args) => {
+    const s = args.map(a => {
+      if (a instanceof String || typeof a === 'string') return String(a);
+      return schemeToString(a);
+    }).join('');
+    outputBuffer += s;
+    return VOID;
+  });
+  def('newline', () => { outputBuffer += '\n'; return VOID; });
+  def('string-append', (...a) => { const s = new String(a.map(x => String(x)).join('')); s._isSchemeStr = true; return s; });
+  def('string-length', s => String(s).length);
+  def('string-ref', (s,i) => String(s)[i]);
+  def('number->string', n => { const s = new String(String(n)); s._isSchemeStr = true; return s; });
+  def('string->number', s => Number(String(s)));
+  def('void', () => VOID);
+  def('error', (...a) => { throw new SchemeError(a.map(x=>schemeToString(x)).join(' ')); });
+  def('gensym', () => Symbol.for('g' + (gensymCounter++)));
+
+  return env;
+}
+
+function applyProc(fn, args) {
+  if (fn instanceof Lambda) {
+    const newEnv = new Env({}, fn.env, fn.name);
+    for (let i = 0; i < fn.params.length; i++) newEnv.define(fn.params[i], args[i]);
+    let result;
+    for (let i = 0; i < fn.body.length; i++) result = evaluate(fn.body[i], newEnv);
+    return result;
+  }
+  if (typeof fn === 'function') return fn(...args);
+  throw new SchemeError('Not a procedure: ' + schemeToString(fn));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STEP-THROUGH DEBUGGER
+// ═══════════════════════════════════════════════════════════════
+
+let debugState = null;
+
+class DebugEvaluator {
+  constructor(exprs, env) {
+    this.exprs = exprs; this.env = env;
+    this.stack = []; this.done = false; this.result = null;
+    this.stepCount = 0; this.paused = true;
+  }
+
+  pushFrame(expr, env, label='eval') {
+    this.stack.push({ expr, env, label, result: null });
+    this.updateUI();
+  }
+  popFrame(result) {
+    const f = this.stack.pop();
+    if (f) f.result = result;
+    this.updateUI();
+    return result;
+  }
+
+  updateUI() {
+    renderDebugStack(this.stack);
+    if (this.stack.length > 0) {
+      const top = this.stack[this.stack.length - 1];
+      renderScopeChain(top.env);
+    }
+  }
+
+  async run() {
+    for (const expr of this.exprs) {
+      this.result = await this.evalStep(expr, this.env);
+    }
+    this.done = true;
+    return this.result;
+  }
+
+  async waitForStep() {
+    this.stepCount++;
+    this.updateUI();
+    return new Promise(resolve => { debugResolve = resolve; });
+  }
+
+  async evalStep(expr, env) {
+    if (this.done) return VOID;
+    this.pushFrame(expr, env);
+
+    if (typeof expr === 'number' || typeof expr === 'boolean' || expr instanceof String || typeof expr === 'string') {
+      await this.waitForStep();
+      return this.popFrame(expr);
+    }
+    if (typeof expr === 'symbol') {
+      await this.waitForStep();
+      return this.popFrame(env.lookup(expr));
+    }
+    if (!Array.isArray(expr) || expr.length === 0) {
+      await this.waitForStep();
+      return this.popFrame(expr);
+    }
+
+    const head = expr[0];
+    const tag = typeof head === 'symbol' ? Symbol.keyFor(head) : null;
+
+    await this.waitForStep();
+
+    let result;
+    switch(tag) {
+      case 'quote': result = quoteValue(expr[1]); break;
+      case 'if': {
+        const test = await this.evalStep(expr[1], env);
+        result = (test !== false && test !== null)
+          ? await this.evalStep(expr[2], env)
+          : (expr.length > 3 ? await this.evalStep(expr[3], env) : VOID);
+        break;
+      }
+      case 'define': {
+        if (Array.isArray(expr[1])) {
+          const name = expr[1][0]; const params = expr[1].slice(1);
+          const lam = new Lambda(params, expr.slice(2), env, Symbol.keyFor(name));
+          env.define(name, lam); result = VOID;
+        } else {
+          const val = await this.evalStep(expr[2], env);
+          env.define(expr[1], val); result = VOID;
+        }
+        break;
+      }
+      case 'lambda': case 'λ': {
+        const params = Array.isArray(expr[1]) ? expr[1] : [expr[1]];
+        result = new Lambda(params, expr.slice(2), env);
+        break;
+      }
+      case 'let': {
+        const bindings = expr[1]; const body = expr.slice(2);
+        const newEnv = new Env({}, env, 'let');
+        for (const [sym, valExpr] of bindings) {
+          newEnv.define(sym, await this.evalStep(valExpr, env));
+        }
+        for (let i = 0; i < body.length - 1; i++) await this.evalStep(body[i], newEnv);
+        result = await this.evalStep(body[body.length-1], newEnv);
+        break;
+      }
+      case 'cond': {
+        result = VOID;
+        for (let i = 1; i < expr.length; i++) {
+          const clause = expr[i];
+          const isElse = typeof clause[0] === 'symbol' && Symbol.keyFor(clause[0]) === 'else';
+          if (isElse || (await this.evalStep(clause[0], env)) !== false) {
+            for (let j = 1; j < clause.length - 1; j++) await this.evalStep(clause[j], env);
+            result = clause.length > 1 ? await this.evalStep(clause[clause.length-1], env) : true;
+            break;
+          }
+        }
+        break;
+      }
+      case 'begin': {
+        for (let i = 1; i < expr.length - 1; i++) await this.evalStep(expr[i], env);
+        result = await this.evalStep(expr[expr.length-1], env);
+        break;
+      }
+      case 'and': {
+        result = true;
+        for (let i = 1; i < expr.length; i++) {
+          result = await this.evalStep(expr[i], env);
+          if (result === false) break;
+        }
+        break;
+      }
+      case 'or': {
+        result = false;
+        for (let i = 1; i < expr.length; i++) {
+          result = await this.evalStep(expr[i], env);
+          if (result !== false) break;
+        }
+        break;
+      }
+      case 'set!': {
+        const val = await this.evalStep(expr[2], env);
+        env.set(expr[1], val); result = VOID;
+        break;
+      }
+      default: {
+        const func = await this.evalStep(head, env);
+        const args = [];
+        for (let i = 1; i < expr.length; i++) args.push(await this.evalStep(expr[i], env));
+        if (func instanceof Lambda) {
+          const newEnv = new Env({}, func.env, func.name);
+          for (let i = 0; i < func.params.length; i++) newEnv.define(func.params[i], args[i]);
+          for (let i = 0; i < func.body.length - 1; i++) await this.evalStep(func.body[i], newEnv);
+          result = await this.evalStep(func.body[func.body.length-1], newEnv);
+        } else if (typeof func === 'function') {
+          result = func(...args);
+        } else {
+          throw new SchemeError('Not a procedure: ' + schemeToString(func));
+        }
+      }
+    }
+    return this.popFrame(result);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI: Editor, REPL, Scope Visualization, Debug panels
+// ═══════════════════════════════════════════════════════════════
+
+const editor = document.getElementById('editor');
+const replOutput = document.getElementById('repl-output');
+const replInput = document.getElementById('repl-input');
+const editorLines = document.getElementById('editor-lines');
+const parenStatus = document.getElementById('paren-status');
+const sbPos = document.getElementById('sb-pos');
+
+let globalEnv = makeStdEnv();
+let replHistory = []; let historyIndex = -1;
+
+// — Editor line numbers & paren matching —
+function updateLineNumbers() {
+  const lines = editor.value.split('\n');
+  editorLines.innerHTML = lines.map((_, i) => `<div style="height:1.6em">${i + 1}</div>`).join('');
+  editorLines.scrollTop = editor.scrollTop;
+}
+
+function getParenBalance(text) {
+  let depth = 0;
+  for (const ch of text) { if (ch === '(') depth++; if (ch === ')') depth--; }
+  return depth;
+}
+
+function findMatchingParen(text, pos) {
+  const ch = text[pos];
+  if (ch === '(') {
+    let depth = 1; let i = pos + 1;
+    while (i < text.length && depth > 0) {
+      if (text[i] === '(') depth++;
+      if (text[i] === ')') depth--;
+      if (depth === 0) return i; i++;
+    }
+  } else if (ch === ')') {
+    let depth = 1; let i = pos - 1;
+    while (i >= 0 && depth > 0) {
+      if (text[i] === ')') depth++;
+      if (text[i] === '(') depth--;
+      if (depth === 0) return i; i--;
+    }
+  }
+  return -1;
+}
+
+function updateParenStatus() {
+  const balance = getParenBalance(editor.value);
+  if (balance === 0) parenStatus.innerHTML = '<span style="color:var(--green)">✓ Balanced</span>';
+  else if (balance > 0) parenStatus.innerHTML = `<span style="color:var(--yellow)">${balance} unclosed (</span>`;
+  else parenStatus.innerHTML = `<span style="color:var(--red)">${-balance} extra )</span>`;
+}
+
+function updateCursorPos() {
+  const before = editor.value.substring(0, editor.selectionStart);
+  const line = before.split('\n').length;
+  const col = before.length - before.lastIndexOf('\n');
+  sbPos.textContent = `Ln ${line}, Col ${col}`;
+}
+
+editor.addEventListener('input', () => { updateLineNumbers(); updateParenStatus(); saveToStorage(); });
+editor.addEventListener('scroll', () => { editorLines.scrollTop = editor.scrollTop; });
+editor.addEventListener('click', updateCursorPos);
+editor.addEventListener('keyup', updateCursorPos);
+
+editor.addEventListener('keydown', e => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const start = editor.selectionStart;
+    editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(editor.selectionEnd);
+    editor.selectionStart = editor.selectionEnd = start + 2;
+    updateLineNumbers();
+  }
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    if (e.shiftKey) startDebug(); else runCode();
+  }
+  if (e.key === '(' || e.key === '[' || e.key === '"') {
+    const pairs = { '(': ')', '[': ']', '"': '"' };
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    if (start !== end) {
+      e.preventDefault();
+      const sel = editor.value.substring(start, end);
+      editor.value = editor.value.substring(0, start) + e.key + sel + pairs[e.key] + editor.value.substring(end);
+      editor.selectionStart = start + 1;
+      editor.selectionEnd = end + 1;
+      updateLineNumbers();
+    }
+  }
+});
+
+// — REPL —
+replInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const code = replInput.value.trim();
+    if (!code) return;
+    replHistory.push(code); historyIndex = replHistory.length;
+    appendRepl(code, 'repl-in');
+    try {
+      outputBuffer = '';
+      const tokens = tokenize(code);
+      const exprs = parse(tokens);
+      let result;
+      for (const expr of exprs) result = evaluate(expr, globalEnv);
+      if (outputBuffer) appendRepl(outputBuffer.replace(/\n$/, ''), 'repl-info');
+      if (!(result instanceof Void)) appendRepl(schemeToString(result), 'repl-out');
+    } catch (err) {
+      appendRepl(err.message, 'repl-err');
+    }
+    replInput.value = '';
+    renderScopeChain(globalEnv);
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (historyIndex > 0) { historyIndex--; replInput.value = replHistory[historyIndex]; }
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (historyIndex < replHistory.length - 1) { historyIndex++; replInput.value = replHistory[historyIndex]; }
+    else { historyIndex = replHistory.length; replInput.value = ''; }
+  }
+});
+
+function appendRepl(text, cls) {
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = text;
+  replOutput.appendChild(div);
+  replOutput.scrollTop = replOutput.scrollHeight;
+}
+
+function clearRepl() { replOutput.innerHTML = ''; }
+
+function runCode() {
+  const code = editor.value;
+  try {
+    outputBuffer = '';
+    const tokens = tokenize(code);
+    const exprs = parse(tokens);
+    let result;
+    const startTime = performance.now();
+    for (const expr of exprs) result = evaluate(expr, globalEnv);
+    const elapsed = (performance.now() - startTime).toFixed(1);
+    if (outputBuffer) appendRepl(outputBuffer.replace(/\n$/, ''), 'repl-info');
+    if (result !== undefined && !(result instanceof Void)) appendRepl(schemeToString(result), 'repl-out');
+    appendRepl(`Evaluated in ${elapsed}ms`, 'repl-info');
+  } catch (err) {
+    if (outputBuffer) appendRepl(outputBuffer.replace(/\n$/, ''), 'repl-info');
+    appendRepl('Error: ' + err.message, 'repl-err');
+  }
+  renderScopeChain(globalEnv);
+}
+
+function resetEnv() { globalEnv = makeStdEnv(); appendRepl('Environment reset.', 'repl-info'); renderScopeChain(globalEnv); }
+
+// — Scope Chain Visualization —
+const scopeColors = ['var(--mauve)','var(--blue)','var(--teal)','var(--green)','var(--yellow)','var(--peach)','var(--pink)','var(--flamingo)'];
+
+function renderScopeChain(env) {
+  const panel = document.getElementById('scope-panel');
+  panel.innerHTML = '';
+  let chain = []; let e = env; while (e) { chain.push(e); e = e.parent; }
+  chain.reverse();
+  let container = panel;
+  chain.forEach((env, i) => {
+    if (env.name === 'global') {
+      const userKeys = Object.keys(env.bindings).filter(k => !BUILTINS.has(k) && !KEYWORDS.has(k) && typeof env.bindings[k] !== 'function');
+      if (userKeys.length === 0 && chain.length === 1) {
+        panel.innerHTML = '<div style="color:var(--subtext);padding:20px;text-align:center">Run code to see scope bindings</div>';
+        return;
+      }
+    }
+    const color = scopeColors[i % scopeColors.length];
+    const frame = document.createElement('div');
+    frame.className = 'scope-frame';
+    frame.style.borderColor = color;
+    frame.style.background = `color-mix(in srgb, ${color} 5%, var(--bg))`;
+    const title = document.createElement('div');
+    title.className = 'scope-title';
+    title.style.color = color;
+    title.textContent = env.name || 'anonymous';
+    frame.appendChild(title);
+    const entries = Object.entries(env.bindings);
+    const show = env.name === 'global'
+      ? entries.filter(([k]) => !BUILTINS.has(k) && typeof env.bindings[k] !== 'function' || env.bindings[k] instanceof Lambda)
+        .filter(([k, v]) => v instanceof Lambda || typeof v !== 'function')
+      : entries;
+    for (const [k, v] of show) {
+      const row = document.createElement('div');
+      row.className = 'scope-binding';
+      row.innerHTML = `<span class="name">${k}</span><span class="val" title="${esc(schemeToString(v))}">${esc(schemeToString(v).substring(0,40))}</span>`;
+      frame.appendChild(row);
+    }
+    container.appendChild(frame);
+    container = frame;
+  });
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// — Debug panel —
+function renderDebugStack(stack) {
+  const panel = document.getElementById('debug-panel');
+  panel.innerHTML = '<div style="color:var(--subtext);font-size:11px;margin-bottom:8px">Evaluation Stack</div>';
+  if (stack.length === 0) {
+    panel.innerHTML += '<div style="color:var(--overlay);text-align:center;padding:20px">No active evaluation</div>';
+    return;
+  }
+  const container = document.createElement('div');
+  container.id = 'eval-stack';
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const f = stack[i];
+    const div = document.createElement('div');
+    div.className = 'stack-frame' + (i === stack.length - 1 ? ' current' : '');
+    const exprStr = exprToString(f.expr).substring(0, 80);
+    div.innerHTML = `<div class="expr">${esc(exprStr)}</div>
+      <div class="status">${f.label} in ${f.env.name}${f.result !== null ? ' → ' + esc(schemeToString(f.result).substring(0,30)) : ''}</div>`;
+    container.appendChild(div);
+  }
+  panel.appendChild(container);
+}
+
+function exprToString(expr) {
+  if (typeof expr === 'number') return String(expr);
+  if (typeof expr === 'boolean') return expr ? '#t' : '#f';
+  if (typeof expr === 'symbol') return Symbol.keyFor(expr);
+  if (expr instanceof String) return `"${expr}"`;
+  if (Array.isArray(expr)) return '(' + expr.map(exprToString).join(' ') + ')';
+  return String(expr);
+}
+
+// — Debug controls —
+async function startDebug() {
+  const code = editor.value;
+  try {
+    outputBuffer = '';
+    const tokens = tokenize(code);
+    const exprs = parse(tokens);
+    debugState = new DebugEvaluator(exprs, globalEnv);
+    setDebugButtons(true);
+    document.getElementById('debug-status').textContent = 'Paused';
+    switchTab('debug-panel');
+    debugState.run().then(result => {
+      setDebugButtons(false);
+      document.getElementById('debug-status').textContent = 'Done';
+      if (outputBuffer) appendRepl(outputBuffer.replace(/\n$/, ''), 'repl-info');
+      if (result !== undefined && !(result instanceof Void)) appendRepl(schemeToString(result), 'repl-out');
+      appendRepl('Debug session complete.', 'repl-info');
+      renderScopeChain(globalEnv);
+      debugState = null;
+    }).catch(err => {
+      setDebugButtons(false);
+      document.getElementById('debug-status').textContent = 'Error';
+      appendRepl('Debug error: ' + err.message, 'repl-err');
+      debugState = null;
+    });
+  } catch (err) {
+    appendRepl('Parse error: ' + err.message, 'repl-err');
+  }
+}
+
+function debugStep() { if (debugResolve) { const r = debugResolve; debugResolve = null; r(); } }
+function debugStepOver() { debugStep(); } // simplified step-over
+function debugContinue() {
+  if (!debugState) return;
+  const autoStep = () => {
+    if (debugResolve && debugState && !debugState.done) {
+      const r = debugResolve; debugResolve = null; r();
+      setTimeout(autoStep, 20);
+    }
+  };
+  autoStep();
+}
+function debugStop() {
+  if (debugState) { debugState.done = true; debugStep(); }
+  setDebugButtons(false);
+  document.getElementById('debug-status').textContent = 'Stopped';
+}
+
+function setDebugButtons(active) {
+  document.getElementById('btn-step').disabled = !active;
+  document.getElementById('btn-over').disabled = !active;
+  document.getElementById('btn-continue').disabled = !active;
+  document.getElementById('btn-stop').disabled = !active;
+}
+
+// — Tab switching —
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => switchTab(tab.dataset.panel));
+});
+
+function switchTab(panelId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.panel === panelId));
+  document.querySelectorAll('.panel-content').forEach(p => p.classList.toggle('active', p.id === panelId));
+}
+
+// — Resize handle —
+const resizeHandle = document.getElementById('resize-handle');
+let resizing = false;
+resizeHandle.addEventListener('mousedown', e => { resizing = true; resizeHandle.classList.add('active'); e.preventDefault(); });
+document.addEventListener('mousemove', e => {
+  if (!resizing) return;
+  const pct = (e.clientX / window.innerWidth) * 100;
+  document.getElementById('left-panel').style.width = Math.max(20, Math.min(80, pct)) + '%';
+});
+document.addEventListener('mouseup', () => { resizing = false; resizeHandle.classList.remove('active'); });
+
+// — LocalStorage persistence —
+function saveToStorage() { try { localStorage.setItem('scheme-ide-code', editor.value); } catch(e){} }
+function loadFromStorage() {
+  try { const c = localStorage.getItem('scheme-ide-code'); if (c) { editor.value = c; return true; } } catch(e){}
+  return false;
+}
+
+// — Examples —
+const EXAMPLES = [
+  { name: "Fibonacci (TCO)", code: `;; Fibonacci with tail-call optimization
+(define (fib n)
+  (define (fib-iter a b count)
+    (if (= count 0) b
+        (fib-iter (+ a b) a (- count 1))))
+  (fib-iter 1 0 n))
+
+;; Test: compute fib(30)
+(display "fib(30) = ")
+(display (fib 30))
+(newline)
+
+;; Show first 15 Fibonacci numbers
+(define (show-fibs n)
+  (when (> n 0)
+    (display (fib (- 15 n)))
+    (display " ")
+    (show-fibs (- n 1))))
+(show-fibs 15)
+(newline)` },
+
+  { name: "Quicksort", code: `;; Quicksort implementation
+(define (quicksort lst)
+  (if (or (null? lst) (null? (cdr lst)))
+      lst
+      (let ((pivot (car lst))
+            (rest (cdr lst)))
+        (let ((less (filter (lambda (x) (< x pivot)) rest))
+              (greater (filter (lambda (x) (>= x pivot)) rest)))
+          (append (quicksort less)
+                  (list pivot)
+                  (quicksort greater))))))
+
+(define test-data (list 38 27 43 3 9 82 10))
+(display "Input:  ")
+(display test-data)
+(newline)
+(display "Sorted: ")
+(display (quicksort test-data))
+(newline)
+
+;; Sort a larger list
+(define big-list (list 5 1 4 2 8 5 7 3 6 9 0))
+(display "Big:    ")
+(display (quicksort big-list))
+(newline)` },
+
+  { name: "Metacircular Evaluator", code: `;; A tiny metacircular Scheme evaluator
+;; Evaluates a subset of Scheme within Scheme!
+
+(define (mc-eval expr env)
+  (cond
+    ((number? expr) expr)
+    ((boolean? expr) expr)
+    ((symbol? expr) (mc-lookup expr env))
+    ((not (pair? expr)) expr)
+    ((eq? (car expr) 'quote) (cadr expr))
+    ((eq? (car expr) 'if)
+     (if (mc-eval (cadr expr) env)
+         (mc-eval (car (cddr expr)) env)
+         (mc-eval (cadr (cddr expr)) env)))
+    ((eq? (car expr) 'lambda)
+     (list 'closure (cadr expr) (cddr expr) env))
+    ((eq? (car expr) 'define)
+     (let ((val (mc-eval (car (cddr expr)) env)))
+       (cons (cons (cadr expr) val) env)))
+    (else
+     (let ((fn (mc-eval (car expr) env))
+           (args (mc-eval-list (cdr expr) env)))
+       (mc-apply fn args)))))
+
+(define (mc-eval-list exprs env)
+  (if (null? exprs) '()
+      (cons (mc-eval (car exprs) env)
+            (mc-eval-list (cdr exprs) env))))
+
+(define (mc-apply fn args)
+  (cond
+    ((eq? (car fn) 'primitive) ((cadr fn) args))
+    ((eq? (car fn) 'closure)
+     (let ((params (cadr fn))
+           (body (car (cddr fn)))
+           (env (cadr (cddr fn))))
+       (mc-eval body (mc-bind params args env))))
+    (else (error "Not a function"))))
+
+(define (mc-bind params args env)
+  (if (null? params) env
+      (mc-bind (cdr params) (cdr args)
+               (cons (cons (car params) (car args)) env))))
+
+(define (mc-lookup sym env)
+  (if (null? env) (error "Unbound:" sym)
+      (if (eq? (caar env) sym) (cdar env)
+          (mc-lookup sym (cdr env)))))
+
+;; Set up primitive environment
+(define base-env
+  (list
+    (cons '+ (list 'primitive (lambda (args) (+ (car args) (cadr args)))))
+    (cons '- (list 'primitive (lambda (args) (- (car args) (cadr args)))))
+    (cons '* (list 'primitive (lambda (args) (* (car args) (cadr args)))))
+    (cons '< (list 'primitive (lambda (args) (< (car args) (cadr args)))))))
+
+;; Test the metacircular evaluator!
+(display "Meta-eval (+ 2 3) = ")
+(display (mc-eval '(+ 2 3) base-env))
+(newline)
+
+(display "Meta-eval ((lambda (x) (* x x)) 7) = ")
+(display (mc-eval '((lambda (x) (* x x)) 7) base-env))
+(newline)
+
+(display "Meta-eval (if (< 1 2) 42 0) = ")
+(display (mc-eval '(if (< 1 2) 42 0) base-env))
+(newline)` },
+
+  { name: "Mandelbrot ASCII", code: `;; Mandelbrot set in ASCII art
+(define max-iter 30)
+(define chars " .:-=+*#%@")
+
+(define (mandelbrot cr ci)
+  (define (iterate zr zi n)
+    (if (or (>= n max-iter)
+            (> (+ (* zr zr) (* zi zi)) 4))
+        n
+        (iterate (+ (- (* zr zr) (* zi zi)) cr)
+                 (+ (* 2 zr zi) ci)
+                 (+ n 1))))
+  (iterate 0 0 0))
+
+(define (char-at n)
+  (let ((idx (floor (* (/ n max-iter) (- (string-length chars) 1)))))
+    (string-ref chars (min idx (- (string-length chars) 1)))))
+
+(define (render-row y x-start x-end x-step)
+  (when (< x-start x-end)
+    (display (char-at (mandelbrot x-start y)))
+    (render-row y (+ x-start x-step) x-end x-step)))
+
+(define (render y-start y-end y-step x-min x-max x-step)
+  (when (< y-start y-end)
+    (render-row y-start x-min x-max x-step)
+    (newline)
+    (render (+ y-start y-step) y-end y-step x-min x-max x-step)))
+
+(display "Mandelbrot Set")
+(newline)
+(render -1.2 1.2 0.1 -2.0 0.8 0.04)` },
+
+  { name: "Church Numerals", code: `;; Church encoding - numbers as functions!
+(define zero (lambda (f) (lambda (x) x)))
+(define (succ n) (lambda (f) (lambda (x) (f ((n f) x)))))
+
+;; Convert Church numeral to integer
+(define (church->int n) ((n (lambda (x) (+ x 1))) 0))
+
+;; Arithmetic
+(define one (succ zero))
+(define two (succ one))
+(define three (succ two))
+
+(define (church-add m n)
+  (lambda (f) (lambda (x) ((m f) ((n f) x)))))
+
+(define (church-mul m n)
+  (lambda (f) (n (m f))))
+
+(define (church-pow m n)
+  (n m))
+
+;; Tests
+(display "zero  = ") (display (church->int zero)) (newline)
+(display "one   = ") (display (church->int one)) (newline)
+(display "two   = ") (display (church->int two)) (newline)
+(display "three = ") (display (church->int three)) (newline)
+(display "2+3   = ") (display (church->int (church-add two three))) (newline)
+(display "2*3   = ") (display (church->int (church-mul two three))) (newline)
+(display "2^3   = ") (display (church->int (church-pow two three))) (newline)
+(display "3^2   = ") (display (church->int (church-pow three two))) (newline)
+
+;; Build 10 via repeated successor
+(define (build-church n)
+  (if (= n 0) zero (succ (build-church (- n 1)))))
+
+(define ten (build-church 10))
+(display "10    = ") (display (church->int ten)) (newline)
+(display "10+10 = ") (display (church->int (church-add ten ten))) (newline)` },
+
+  { name: "Stream Processing", code: `;; Lazy streams using closures
+;; A stream is either null or (cons value thunk)
+
+(define (stream-cons x thunk)
+  (cons x thunk))
+
+(define (stream-car s) (car s))
+(define (stream-cdr s) ((cdr s)))
+
+(define (stream-take n s)
+  (if (or (= n 0) (null? s)) '()
+      (cons (stream-car s)
+            (stream-take (- n 1) (stream-cdr s)))))
+
+(define (stream-map f s)
+  (if (null? s) '()
+      (stream-cons (f (stream-car s))
+                   (lambda () (stream-map f (stream-cdr s))))))
+
+(define (stream-filter pred s)
+  (cond
+    ((null? s) '())
+    ((pred (stream-car s))
+     (stream-cons (stream-car s)
+                  (lambda () (stream-filter pred (stream-cdr s)))))
+    (else (stream-filter pred (stream-cdr s)))))
+
+;; Infinite stream of integers from n
+(define (integers-from n)
+  (stream-cons n (lambda () (integers-from (+ n 1)))))
+
+(define naturals (integers-from 1))
+
+;; Sieve of Eratosthenes!
+(define (sieve s)
+  (let ((p (stream-car s)))
+    (stream-cons p
+      (lambda ()
+        (sieve (stream-filter
+                 (lambda (x) (not (= (modulo x p) 0)))
+                 (stream-cdr s)))))))
+
+(define primes (sieve (integers-from 2)))
+
+(display "First 25 primes: ")
+(display (stream-take 25 primes))
+(newline)
+
+;; Fibonacci stream
+(define (fib-stream a b)
+  (stream-cons a (lambda () (fib-stream b (+ a b)))))
+
+(define fibs (fib-stream 0 1))
+(display "First 15 fibs:   ")
+(display (stream-take 15 fibs))
+(newline)
+
+;; Powers of 2
+(define powers-of-2
+  (stream-map (lambda (n) (expt 2 n)) naturals))
+(display "Powers of 2:     ")
+(display (stream-take 10 powers-of-2))
+(newline)` },
+
+  { name: "Y Combinator", code: `;; The Y Combinator — recursion without naming!
+;; Y = λf. (λx. f(λv. x(x)(v))) (λx. f(λv. x(x)(v)))
+
+(define Y
+  (lambda (f)
+    ((lambda (x) (f (lambda (v) ((x x) v))))
+     (lambda (x) (f (lambda (v) ((x x) v)))))))
+
+;; Factorial using Y combinator (no define recursion!)
+(define factorial
+  (Y (lambda (self)
+       (lambda (n)
+         (if (= n 0) 1 (* n (self (- n 1))))))))
+
+(display "5! = ") (display (factorial 5)) (newline)
+(display "10! = ") (display (factorial 10)) (newline)
+
+;; Fibonacci using Y combinator
+(define fib
+  (Y (lambda (self)
+       (lambda (n)
+         (cond
+           ((= n 0) 0)
+           ((= n 1) 1)
+           (else (+ (self (- n 1)) (self (- n 2)))))))))
+
+(display "fib(10) = ") (display (fib 10)) (newline)
+
+;; Length using Y combinator
+(define my-length
+  (Y (lambda (self)
+       (lambda (lst)
+         (if (null? lst) 0 (+ 1 (self (cdr lst))))))))
+
+(display "length of (1 2 3 4 5) = ")
+(display (my-length (list 1 2 3 4 5)))
+(newline)
+
+;; Map using Y combinator
+(define my-map
+  (Y (lambda (self)
+       (lambda (f)
+         (lambda (lst)
+           (if (null? lst) '()
+               (cons (f (car lst)) ((self f) (cdr lst)))))))))
+
+(display "double (1 2 3) = ")
+(display ((my-map (lambda (x) (* x 2))) (list 1 2 3)))
+(newline)` },
+
+  { name: "Binary Search Tree", code: `;; Binary Search Tree with persistent (functional) operations
+;; A BST node is (value left right) or '()
+
+(define (bst-empty) '())
+(define (bst-empty? t) (null? t))
+
+(define (bst-make val left right)
+  (list val left right))
+
+(define (bst-value t) (car t))
+(define (bst-left t) (cadr t))
+(define (bst-right t) (car (cddr t)))
+
+(define (bst-insert t val)
+  (cond
+    ((bst-empty? t) (bst-make val (bst-empty) (bst-empty)))
+    ((< val (bst-value t))
+     (bst-make (bst-value t) (bst-insert (bst-left t) val) (bst-right t)))
+    ((> val (bst-value t))
+     (bst-make (bst-value t) (bst-left t) (bst-insert (bst-right t) val)))
+    (else t)))
+
+(define (bst-member? t val)
+  (cond
+    ((bst-empty? t) #f)
+    ((= val (bst-value t)) #t)
+    ((< val (bst-value t)) (bst-member? (bst-left t) val))
+    (else (bst-member? (bst-right t) val))))
+
+;; In-order traversal returns sorted list
+(define (bst-inorder t)
+  (if (bst-empty? t) '()
+      (append (bst-inorder (bst-left t))
+              (list (bst-value t))
+              (bst-inorder (bst-right t)))))
+
+(define (bst-size t)
+  (if (bst-empty? t) 0
+      (+ 1 (bst-size (bst-left t)) (bst-size (bst-right t)))))
+
+(define (bst-depth t)
+  (if (bst-empty? t) 0
+      (+ 1 (max (bst-depth (bst-left t))
+                 (bst-depth (bst-right t))))))
+
+;; Build a tree
+(define tree
+  (let ((t (bst-empty)))
+    (let ((t (bst-insert t 5)))
+      (let ((t (bst-insert t 3)))
+        (let ((t (bst-insert t 7)))
+          (let ((t (bst-insert t 1)))
+            (let ((t (bst-insert t 4)))
+              (let ((t (bst-insert t 6)))
+                (let ((t (bst-insert t 9)))
+                  (let ((t (bst-insert t 2)))
+                    (let ((t (bst-insert t 8)))
+                      t)))))))))))
+
+(display "BST In-order: ") (display (bst-inorder tree)) (newline)
+(display "Size:  ") (display (bst-size tree)) (newline)
+(display "Depth: ") (display (bst-depth tree)) (newline)
+(display "Has 4? ") (display (bst-member? tree 4)) (newline)
+(display "Has 10? ") (display (bst-member? tree 10)) (newline)` },
+
+  { name: "Higher-Order Fun", code: `;; Higher-order function showcase
+
+;; Compose: (f ∘ g)(x) = f(g(x))
+(define (compose f g)
+  (lambda (x) (f (g x))))
+
+(define add1 (lambda (x) (+ x 1)))
+(define double (lambda (x) (* x 2)))
+
+(define add1-then-double (compose double add1))
+(define double-then-add1 (compose add1 double))
+
+(display "add1-then-double(5) = ")
+(display (add1-then-double 5))
+(newline)
+
+(display "double-then-add1(5) = ")
+(display (double-then-add1 5))
+(newline)
+
+;; Curry & uncurry
+(define (curry f)
+  (lambda (x) (lambda (y) (f x y))))
+
+(define (uncurry f)
+  (lambda (x y) ((f x) y)))
+
+(define curried-add (curry +))
+(define add5 (curried-add 5))
+
+(display "add5(10) = ") (display (add5 10)) (newline)
+
+;; Repeated application
+(define (repeated f n)
+  (if (= n 0) (lambda (x) x)
+      (compose f (repeated f (- n 1)))))
+
+(display "double applied 4 times to 1 = ")
+(display ((repeated double 4) 1))
+(newline)
+
+;; Flip: swap arguments
+(define (flip f) (lambda (a b) (f b a)))
+
+;; Pipeline (like |> in F#)
+(define (pipe val . fns)
+  (reduce (lambda (acc fn) (fn acc)) val fns))
+
+(display "pipe 5 through add1, double, add1 = ")
+(display (pipe 5 add1 double add1))
+(newline)
+
+;; Fixed-point combinator for numeric approximation
+(define (fixed-point f guess)
+  (let ((next (f guess)))
+    (if (< (abs (- next guess)) 0.00001)
+        next
+        (fixed-point f next))))
+
+(display "sqrt(2) ≈ ")
+(display (fixed-point (lambda (x) (/ (+ x (/ 2 x)) 2)) 1.0))
+(newline)
+
+;; Memoize
+(define (memoize f)
+  (let ((cache '()))
+    (lambda args
+      (let ((entry (assoc args cache)))
+        (if entry
+            (cdr entry)
+            (let ((result (apply f args)))
+              (set! cache (cons (cons args result) cache))
+              result))))))` },
+
+  { name: "Pattern Matching", code: `;; Simple pattern matching via macros (simulated)
+;; Since we don't have real macros, we use functions
+
+(define (match-pattern pat val)
+  (cond
+    ((eq? pat '_) '())  ; wildcard
+    ((symbol? pat) (list (cons pat val)))  ; binding
+    ((and (number? pat) (number? val) (= pat val)) '())
+    ((and (boolean? pat) (boolean? val) (eq? pat val)) '())
+    ((and (null? pat) (null? val)) '())
+    ((and (pair? pat) (pair? val))
+     (let ((car-match (match-pattern (car pat) (car val))))
+       (if (eq? car-match #f) #f
+           (let ((cdr-match (match-pattern (cdr pat) (cdr val))))
+             (if (eq? cdr-match #f) #f
+                 (append car-match cdr-match))))))
+    (else #f)))
+
+(define (lookup-binding name bindings)
+  (cond
+    ((null? bindings) #f)
+    ((eq? (caar bindings) name) (cdar bindings))
+    (else (lookup-binding name (cdr bindings)))))
+
+;; Test pattern matching
+(define result (match-pattern '(x y z) (list 1 2 3)))
+(display "Match (x y z) ~ (1 2 3):") (newline)
+(display "  x = ") (display (lookup-binding 'x result)) (newline)
+(display "  y = ") (display (lookup-binding 'y result)) (newline)
+(display "  z = ") (display (lookup-binding 'z result)) (newline)
+
+;; Nested pattern
+(define result2 (match-pattern '(a (b c)) (list 1 (list 2 3))))
+(display "Match (a (b c)) ~ (1 (2 3)):") (newline)
+(display "  a = ") (display (lookup-binding 'a result2)) (newline)
+(display "  b = ") (display (lookup-binding 'b result2)) (newline)
+(display "  c = ") (display (lookup-binding 'c result2)) (newline)
+
+;; Use pattern matching for a simple calculator
+(define (calc expr)
+  (if (number? expr) expr
+      (let ((op (car expr))
+            (a (calc (cadr expr)))
+            (b (calc (car (cddr expr)))))
+        (cond
+          ((eq? op '+) (+ a b))
+          ((eq? op '-) (- a b))
+          ((eq? op '*) (* a b))
+          ((eq? op '/) (/ a b))))))
+
+(display "calc (+ (* 3 4) (- 10 5)) = ")
+(display (calc '(+ (* 3 4) (- 10 5))))
+(newline)` },
+
+  { name: "Towers of Hanoi", code: `;; Towers of Hanoi with move visualization
+
+(define move-count 0)
+
+(define (hanoi n from to via)
+  (when (> n 0)
+    (hanoi (- n 1) from via to)
+    (set! move-count (+ move-count 1))
+    (display "  Move ")
+    (display move-count)
+    (display ": disk ")
+    (display n)
+    (display " from ")
+    (display from)
+    (display " → ")
+    (display to)
+    (newline)
+    (hanoi (- n 1) via to from)))
+
+(display "=== Towers of Hanoi (4 disks) ===")
+(newline)
+(set! move-count 0)
+(hanoi 4 'A 'C 'B)
+(display "Total moves: ")
+(display move-count)
+(newline)
+(newline)
+
+;; Prove it's always 2^n - 1 moves
+(define (count-hanoi-moves n)
+  (if (= n 0) 0
+      (+ 1 (* 2 (count-hanoi-moves (- n 1))))))
+
+(display "=== Move counts ===")
+(newline)
+(define (show-counts n)
+  (when (<= n 10)
+    (display "  n=")
+    (display n)
+    (display ": ")
+    (display (count-hanoi-moves n))
+    (display " moves (2^n-1 = ")
+    (display (- (expt 2 n) 1))
+    (display ")")
+    (newline)
+    (show-counts (+ n 1))))
+(show-counts 1)` }
+];
+
+// — Populate examples dropdown —
+const exSelect = document.getElementById('examples');
+EXAMPLES.forEach((ex, i) => {
+  const opt = document.createElement('option');
+  opt.value = i; opt.textContent = ex.name;
+  exSelect.appendChild(opt);
+});
+exSelect.addEventListener('change', () => {
+  if (exSelect.value !== '') {
+    editor.value = EXAMPLES[+exSelect.value].code;
+    updateLineNumbers(); updateParenStatus(); saveToStorage();
+    exSelect.value = '';
+  }
+});
+
+// — Help panel —
+document.getElementById('help-panel').innerHTML = `
+<div class="help-section">
+  <h3>Keyboard Shortcuts</h3>
+  <p><code>Ctrl+Enter</code> — Run code</p>
+  <p><code>Ctrl+Shift+Enter</code> — Start debugger</p>
+  <p><code>Tab</code> — Insert 2 spaces</p>
+  <p><code>↑/↓</code> in REPL — History navigation</p>
+</div>
+<div class="help-section">
+  <h3>Supported Forms</h3>
+  <p><code>define</code> <code>lambda</code> <code>λ</code> <code>let</code> <code>let*</code> <code>letrec</code></p>
+  <p><code>if</code> <code>cond</code> <code>case</code> <code>when</code> <code>unless</code></p>
+  <p><code>and</code> <code>or</code> <code>not</code> <code>begin</code> <code>set!</code></p>
+  <p><code>quote</code> <code>quasiquote</code> <code>do</code> <code>delay</code> <code>force</code></p>
+</div>
+<div class="help-section">
+  <h3>Built-in Procedures</h3>
+  <p><b>Arithmetic:</b> <code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>modulo</code> <code>expt</code> <code>sqrt</code> <code>abs</code> <code>floor</code> <code>ceiling</code></p>
+  <p><b>Comparison:</b> <code>=</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code> <code>eq?</code> <code>equal?</code></p>
+  <p><b>Lists:</b> <code>cons</code> <code>car</code> <code>cdr</code> <code>list</code> <code>append</code> <code>reverse</code> <code>length</code></p>
+  <p><b>Higher-order:</b> <code>map</code> <code>filter</code> <code>reduce</code> <code>fold</code> <code>for-each</code> <code>apply</code></p>
+  <p><b>Predicates:</b> <code>null?</code> <code>pair?</code> <code>number?</code> <code>string?</code> <code>symbol?</code> <code>zero?</code> <code>even?</code> <code>odd?</code></p>
+  <p><b>I/O:</b> <code>display</code> <code>newline</code> <code>error</code></p>
+  <p><b>Strings:</b> <code>string-append</code> <code>string-length</code> <code>string-ref</code> <code>number-&gt;string</code></p>
+</div>
+<div class="help-section">
+  <h3>Features</h3>
+  <p>✅ Tail-call optimization (TCO) via trampolining</p>
+  <p>✅ Proper lexical closures</p>
+  <p>✅ Named let for loops</p>
+  <p>✅ Lazy streams via closures</p>
+  <p>✅ Quasiquote with unquote/splicing</p>
+  <p>✅ Step-through visual debugger</p>
+  <p>✅ Scope chain visualization</p>
+  <p>✅ 10 example programs</p>
+</div>
+<div class="help-section">
+  <h3>Debugger</h3>
+  <p><b>Step →</b> — evaluate one sub-expression</p>
+  <p><b>Over ⤵</b> — step over current expression</p>
+  <p><b>Continue ▶</b> — run to completion</p>
+  <p><b>Stop ■</b> — halt debugging session</p>
+  <p>The scope panel shows live variable bindings as nested colored boxes.</p>
+  <p>The evaluation stack shows the call chain with current expression highlighted.</p>
+</div>`;
+
+// — Init —
+if (!loadFromStorage()) {
+  editor.value = EXAMPLES[0].code;
+}
+updateLineNumbers();
+updateParenStatus();
+renderScopeChain(globalEnv);
+<\/script>
+</body>
+</html>

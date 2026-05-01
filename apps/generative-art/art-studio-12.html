@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generative Art Studio — 12 Algorithms</title>
+<meta name="rappterzoo:author" content="copilot">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="generative_art">
+<meta name="rappterzoo:tags" content="generative,algorithms,flow-field,reaction-diffusion,l-system,voronoi,circle-packing,wave-function-collapse,attractor,fractal,perlin,spirograph,cellular-automata,particle-swarm,export,4k">
+<meta name="rappterzoo:type" content="visual">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-09">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d0d0d;--panel:#181818;--border:#2a2a2a;--text:#e0e0e0;--accent:#6cf;--dim:#666;--radius:6px}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden;height:100vh;display:flex}
+#sidebar{width:280px;min-width:280px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;scrollbar-width:thin}
+#sidebar::-webkit-scrollbar{width:5px}
+#sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#000;position:relative}
+canvas{display:block;image-rendering:pixelated}
+.section{padding:10px 14px;border-bottom:1px solid var(--border)}
+.section-title{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim);margin-bottom:8px;font-weight:600}
+.algo-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.algo-btn{background:#222;border:1px solid var(--border);color:var(--text);padding:6px 4px;border-radius:var(--radius);cursor:pointer;font-size:10px;text-align:center;transition:all .15s}
+.algo-btn:hover{background:#2a2a2a;border-color:#444}
+.algo-btn.active{background:#1a3a5c;border-color:var(--accent);color:var(--accent)}
+.param-row{margin-bottom:8px}
+.param-label{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
+.param-label span:last-child{color:var(--accent);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;height:4px;-webkit-appearance:none;background:#333;border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer}
+.palette-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px}
+.palette-swatch{width:28px;height:20px;border-radius:3px;cursor:pointer;border:2px solid transparent;transition:border-color .15s}
+.palette-swatch.active{border-color:#fff}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap}
+.btn{background:#222;border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:var(--radius);cursor:pointer;font-size:11px;transition:all .15s;flex:1;text-align:center}
+.btn:hover{background:#2a2a2a;border-color:#555}
+.btn.accent{background:#1a3a5c;border-color:var(--accent);color:var(--accent)}
+.seed-row{display:flex;gap:4px;align-items:center}
+.seed-row input[type=number]{flex:1;background:#222;border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:12px;outline:none;font-variant-numeric:tabular-nums}
+.seed-row input[type=number]:focus{border-color:var(--accent)}
+.seed-row .btn{flex:0}
+select{background:#222;border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:12px;outline:none;width:100%}
+select:focus{border-color:var(--accent)}
+#fps-counter{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);color:var(--dim);padding:3px 8px;border-radius:4px;font-size:11px;font-variant-numeric:tabular-nums;pointer-events:none}
+.logo{padding:12px 14px;font-size:14px;font-weight:700;letter-spacing:.5px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.logo .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@media(max-width:700px){#sidebar{width:100%;min-width:0;height:auto;max-height:45vh;position:fixed;bottom:0;left:0;right:0;z-index:10;border-right:none;border-top:1px solid var(--border)}#canvas-wrap{height:55vh}}
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <div class="logo"><span class="dot"></span>Art Studio 12</div>
+  <div class="section">
+    <div class="section-title">Algorithm</div>
+    <div class="algo-grid" id="algo-grid"></div>
+  </div>
+  <div class="section" id="params-section">
+    <div class="section-title">Parameters</div>
+    <div id="params"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">Color Palette</div>
+    <div id="palettes"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">Seed</div>
+    <div class="seed-row">
+      <input type="number" id="seed" value="42" min="0" max="999999">
+      <button class="btn" onclick="randomSeed()" title="Random seed">🎲</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">Resolution</div>
+    <select id="res-select">
+      <option value="0.5">Half (fast)</option>
+      <option value="1" selected>1× Native</option>
+      <option value="2">2× HiDPI</option>
+      <option value="4">4K Export</option>
+    </select>
+  </div>
+  <div class="section">
+    <div class="btn-row">
+      <button class="btn accent" id="play-btn" onclick="togglePlay()">⏸ Pause</button>
+      <button class="btn" onclick="resetAlgo()">↺ Reset</button>
+    </div>
+    <div class="btn-row" style="margin-top:6px">
+      <button class="btn accent" onclick="exportPNG()">📷 Export 4K PNG</button>
+    </div>
+  </div>
+</div>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+  <div id="fps-counter">0 fps</div>
+</div>
+
+<script>
+"use strict";
+
+/* ── Noise (simplified Perlin) ── */
+const Noise=(()=>{const p=new Uint8Array(512);function seed(s){const m=4294967295;let z=s>>>0;for(let i=0;i<256;i++){z=(z*1664525+1013904223)&m;p[i]=p[i+256]=(z>>>16)&255}}function fade(t){return t*t*t*(t*(t*6-15)+10)}function lerp(a,b,t){return a+t*(b-a)}function grad(h,x,y){const v=h&3;return(v===0?x+y:v===1?-x+y:v===2?x-y:-x-y)}function noise2(x,y){const X=Math.floor(x)&255,Y=Math.floor(y)&255;x-=Math.floor(x);y-=Math.floor(y);const u=fade(x),v=fade(y);const A=p[X]+Y,B=p[X+1]+Y;return lerp(lerp(grad(p[A],x,y),grad(p[B],x-1,y),u),lerp(grad(p[A+1],x,y-1),grad(p[B+1],x-1,y-1),u),v)}function fbm(x,y,oct=4){let v=0,a=1,f=1,t=0;for(let i=0;i<oct;i++){v+=a*noise2(x*f,y*f);t+=a;a*=.5;f*=2}return v/t}return{seed,noise2,fbm}})();
+
+/* ── PRNG ── */
+let _seed=42;
+function setSeed(s){_seed=s;Noise.seed(s)}
+function rng(){_seed=(_seed*1664525+1013904223)&4294967295;return(_seed>>>0)/4294967296}
+function rngRange(a,b){return a+rng()*(b-a)}
+function rngInt(a,b){return Math.floor(rngRange(a,b+1))}
+
+/* ── Palettes ── */
+const PALETTES=[
+  {name:"Sunset",colors:["#FF6B6B","#FEC89A","#FFD93D","#6BCB77","#4D96FF"]},
+  {name:"Ocean",colors:["#0B2545","#13315C","#134074","#8DA9C4","#EEF4ED"]},
+  {name:"Neon",colors:["#FF00FF","#00FFFF","#FFFF00","#FF3366","#33FF99"]},
+  {name:"Earth",colors:["#5C4033","#8B6914","#DAA520","#6B8E23","#2E8B57"]},
+  {name:"Pastel",colors:["#FFB5E8","#B5DEFF","#E7FFAC","#FFF5BA","#DCD3FF"]},
+  {name:"Mono",colors:["#FFFFFF","#CCCCCC","#888888","#444444","#111111"]},
+  {name:"Fire",colors:["#1A0000","#8B0000","#FF4500","#FF8C00","#FFD700"]},
+  {name:"Arctic",colors:["#D6E5FA","#AAC4FF","#B1B2FF","#EEF1FF","#7B8EC8"]}
+];
+let paletteIdx=0;
+function pal(i){const c=PALETTES[paletteIdx].colors;return c[((i%c.length)+c.length)%c.length]}
+function palRGB(i){const h=pal(i);return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]}
+
+/* ── Algorithms ── */
+const ALGOS=[
+  {id:"flow",name:"Flow Fields"},
+  {id:"rd",name:"Reaction-Diff"},
+  {id:"lsys",name:"L-System Trees"},
+  {id:"voronoi",name:"Voronoi Land"},
+  {id:"circles",name:"Circle Pack"},
+  {id:"wfc",name:"WFC Tiles"},
+  {id:"attractor",name:"Attractors"},
+  {id:"flame",name:"Fractal Flames"},
+  {id:"worms",name:"Perlin Worms"},
+  {id:"spiro",name:"Spirograph"},
+  {id:"ca",name:"Cellular Auto"},
+  {id:"swarm",name:"Particle Swarm"}
+];
+
+/* ── Parameters per algorithm ── */
+const ALGO_PARAMS={
+  flow:[
+    {id:"fScale",label:"Noise Scale",min:.5,max:8,step:.1,def:3},
+    {id:"fSpeed",label:"Particle Speed",min:.5,max:5,step:.1,def:2},
+    {id:"fCount",label:"Particles",min:500,max:8000,step:100,def:3000},
+    {id:"fOct",label:"Octaves",min:1,max:6,step:1,def:3},
+    {id:"fFade",label:"Trail Fade",min:1,max:30,step:1,def:8}
+  ],
+  rd:[
+    {id:"rdF",label:"Feed Rate",min:.01,max:.08,step:.001,def:.055},
+    {id:"rdK",label:"Kill Rate",min:.04,max:.07,step:.001,def:.062},
+    {id:"rdDa",label:"Diffuse A",min:.5,max:1.5,step:.01,def:1},
+    {id:"rdDb",label:"Diffuse B",min:.2,max:.8,step:.01,def:.5}
+  ],
+  lsys:[
+    {id:"lAngle",label:"Branch Angle",min:10,max:50,step:1,def:25},
+    {id:"lLen",label:"Branch Length",min:3,max:20,step:1,def:8},
+    {id:"lIter",label:"Iterations",min:3,max:7,step:1,def:5},
+    {id:"lShrink",label:"Shrink Factor",min:.5,max:.85,step:.01,def:.7},
+    {id:"lWind",label:"Wind",min:-15,max:15,step:1,def:0}
+  ],
+  voronoi:[
+    {id:"vPoints",label:"Sites",min:10,max:200,step:5,def:60},
+    {id:"vJitter",label:"Jitter",min:0,max:50,step:1,def:20},
+    {id:"vHeight",label:"Height Scale",min:.2,max:2,step:.1,def:1},
+    {id:"vEdge",label:"Edge Width",min:0,max:5,step:.5,def:1.5}
+  ],
+  circles:[
+    {id:"cMax",label:"Max Radius",min:10,max:120,step:5,def:60},
+    {id:"cMin",label:"Min Radius",min:1,max:10,step:1,def:2},
+    {id:"cGrow",label:"Growth Rate",min:.2,max:3,step:.1,def:1},
+    {id:"cAttempts",label:"Attempts/frame",min:5,max:80,step:5,def:30}
+  ],
+  wfc:[
+    {id:"wGrid",label:"Grid Size",min:8,max:40,step:2,def:20},
+    {id:"wTiles",label:"Tile Types",min:3,max:8,step:1,def:5},
+    {id:"wSpeed",label:"Collapse Speed",min:1,max:20,step:1,def:5},
+    {id:"wBorder",label:"Border Width",min:0,max:4,step:1,def:1}
+  ],
+  attractor:[
+    {id:"aType",label:"Type (0=Lorenz 1=Rössler)",min:0,max:1,step:1,def:0},
+    {id:"aDt",label:"Step Size",min:.001,max:.02,step:.001,def:.005},
+    {id:"aTrail",label:"Trail Length",min:500,max:20000,step:500,def:8000},
+    {id:"aScale",label:"Zoom",min:5,max:30,step:1,def:12},
+    {id:"aRotate",label:"Rotation Speed",min:0,max:2,step:.1,def:.3}
+  ],
+  flame:[
+    {id:"flIter",label:"Iterations/frame",min:1000,max:50000,step:1000,def:15000},
+    {id:"flVar",label:"Variation Mix",min:0,max:1,step:.05,def:.5},
+    {id:"flGamma",label:"Gamma",min:.5,max:4,step:.1,def:2.2},
+    {id:"flZoom",label:"Zoom",min:.3,max:3,step:.1,def:1}
+  ],
+  worms:[
+    {id:"wCount",label:"Worms",min:5,max:80,step:5,def:25},
+    {id:"wLen",label:"Trail Length",min:50,max:500,step:10,def:200},
+    {id:"wScale",label:"Noise Scale",min:.5,max:5,step:.1,def:2},
+    {id:"wThick",label:"Thickness",min:1,max:8,step:.5,def:3},
+    {id:"wCurl",label:"Curl",min:0,max:3,step:.1,def:1}
+  ],
+  spiro:[
+    {id:"sR",label:"Outer Radius",min:50,max:300,step:10,def:180},
+    {id:"sr",label:"Inner Radius",min:10,max:150,step:5,def:75},
+    {id:"sd",label:"Pen Distance",min:10,max:200,step:5,def:100},
+    {id:"sLayers",label:"Layers",min:1,max:6,step:1,def:3},
+    {id:"sSpeed",label:"Speed",min:.5,max:5,step:.1,def:2}
+  ],
+  ca:[
+    {id:"caType",label:"Type (0=Life 1=R110 2=Ant)",min:0,max:2,step:1,def:0},
+    {id:"caSize",label:"Cell Size",min:1,max:8,step:1,def:3},
+    {id:"caSpeed",label:"Steps/frame",min:1,max:20,step:1,def:4},
+    {id:"caDensity",label:"Init Density",min:.1,max:.9,step:.05,def:.4}
+  ],
+  swarm:[
+    {id:"pCount",label:"Particles",min:50,max:1000,step:50,def:300},
+    {id:"pSize",label:"Brush Size",min:1,max:12,step:1,def:4},
+    {id:"pInertia",label:"Inertia",min:.1,max:1,step:.05,def:.7},
+    {id:"pSocial",label:"Social Pull",min:.1,max:3,step:.1,def:1.5},
+    {id:"pCognitive",label:"Cognitive Pull",min:.1,max:3,step:.1,def:1.2}
+  ]
+};
+
+/* ── State ── */
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+let W=800,H=600,playing=true,currentAlgo="flow",params={},frameCount=0;
+let algoState={};
+let transAlpha=1;
+
+function P(id){return params[id]||0}
+
+/* ── UI Build ── */
+function buildAlgoGrid(){
+  const g=document.getElementById("algo-grid");
+  ALGOS.forEach(a=>{
+    const b=document.createElement("button");
+    b.className="algo-btn"+(a.id===currentAlgo?" active":"");
+    b.textContent=a.name;
+    b.dataset.id=a.id;
+    b.onclick=()=>switchAlgo(a.id);
+    g.appendChild(b);
+  });
+}
+
+function buildParams(){
+  const el=document.getElementById("params");
+  el.innerHTML="";
+  const defs=ALGO_PARAMS[currentAlgo]||[];
+  defs.forEach(p=>{
+    const v=params[p.id]!==undefined?params[p.id]:p.def;
+    params[p.id]=v;
+    const row=document.createElement("div");
+    row.className="param-row";
+    row.innerHTML=`<div class="param-label"><span>${p.label}</span><span id="pv_${p.id}">${v}</span></div><input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}" id="pi_${p.id}">`;
+    el.appendChild(row);
+    row.querySelector("input").addEventListener("input",e=>{
+      params[p.id]=parseFloat(e.target.value);
+      document.getElementById("pv_"+p.id).textContent=params[p.id];
+    });
+  });
+}
+
+function buildPalettes(){
+  const el=document.getElementById("palettes");
+  el.innerHTML="";
+  PALETTES.forEach((p,i)=>{
+    const row=document.createElement("div");
+    row.className="palette-row";
+    row.title=p.name;
+    p.colors.forEach(c=>{
+      const s=document.createElement("div");
+      s.className="palette-swatch"+(i===paletteIdx?" active":"");
+      s.style.background=c;
+      s.onclick=()=>{paletteIdx=i;buildPalettes();resetAlgo()};
+      row.appendChild(s);
+    });
+    el.appendChild(row);
+  });
+}
+
+function switchAlgo(id){
+  currentAlgo=id;
+  document.querySelectorAll(".algo-btn").forEach(b=>b.classList.toggle("active",b.dataset.id===id));
+  const defs=ALGO_PARAMS[id]||[];
+  params={};
+  defs.forEach(p=>params[p.id]=p.def);
+  buildParams();
+  transAlpha=0;
+  resetAlgo();
+}
+
+function resetAlgo(){
+  setSeed(parseInt(document.getElementById("seed").value)||42);
+  frameCount=0;
+  algoState={};
+  initAlgo();
+}
+
+function togglePlay(){
+  playing=!playing;
+  document.getElementById("play-btn").innerHTML=playing?"⏸ Pause":"▶ Play";
+  if(playing)requestAnimationFrame(loop);
+}
+
+function randomSeed(){
+  document.getElementById("seed").value=Math.floor(Math.random()*999999);
+  resetAlgo();
+}
+
+/* ── Resize ── */
+function resize(){
+  const wrap=document.getElementById("canvas-wrap");
+  const scale=parseFloat(document.getElementById("res-select").value);
+  W=wrap.clientWidth;H=wrap.clientHeight;
+  canvas.style.width=W+"px";canvas.style.height=H+"px";
+  canvas.width=Math.floor(W*scale);canvas.height=Math.floor(H*scale);
+  resetAlgo();
+}
+window.addEventListener("resize",resize);
+document.getElementById("res-select").addEventListener("change",resize);
+
+/* ── Export ── */
+function exportPNG(){
+  const oldW=canvas.width,oldH=canvas.height,oldSW=canvas.style.width,oldSH=canvas.style.height;
+  const aspect=W/H;
+  canvas.width=3840;canvas.height=Math.floor(3840/aspect);
+  canvas.style.width=canvas.width+"px";canvas.style.height=canvas.height+"px";
+  const saveSeed=_seed;
+  resetAlgo();
+  for(let i=0;i<300;i++)drawAlgo();
+  const link=document.createElement("a");
+  link.download=`art-studio-${currentAlgo}-${Date.now()}.png`;
+  link.href=canvas.toDataURL("image/png");
+  link.click();
+  canvas.width=oldW;canvas.height=oldH;
+  canvas.style.width=oldSW;canvas.style.height=oldSH;
+  _seed=saveSeed;
+  resetAlgo();
+}
+
+/* ═══════════════════════════════════════════════════
+   ALGORITHM IMPLEMENTATIONS
+   ═══════════════════════════════════════════════════ */
+
+function initAlgo(){
+  const cw=canvas.width,ch=canvas.height;
+  ctx.fillStyle="#000";ctx.fillRect(0,0,cw,ch);
+
+  switch(currentAlgo){
+    case "flow": initFlow(cw,ch); break;
+    case "rd": initRD(cw,ch); break;
+    case "lsys": initLsys(cw,ch); break;
+    case "voronoi": initVoronoi(cw,ch); break;
+    case "circles": initCircles(cw,ch); break;
+    case "wfc": initWFC(cw,ch); break;
+    case "attractor": initAttractor(cw,ch); break;
+    case "flame": initFlame(cw,ch); break;
+    case "worms": initWorms(cw,ch); break;
+    case "spiro": initSpiro(cw,ch); break;
+    case "ca": initCA(cw,ch); break;
+    case "swarm": initSwarm(cw,ch); break;
+  }
+}
+
+function drawAlgo(){
+  const cw=canvas.width,ch=canvas.height;
+  switch(currentAlgo){
+    case "flow": drawFlow(cw,ch); break;
+    case "rd": drawRD(cw,ch); break;
+    case "lsys": drawLsys(cw,ch); break;
+    case "voronoi": drawVoronoi(cw,ch); break;
+    case "circles": drawCircles(cw,ch); break;
+    case "wfc": drawWFC(cw,ch); break;
+    case "attractor": drawAttractor(cw,ch); break;
+    case "flame": drawFlame(cw,ch); break;
+    case "worms": drawWorms(cw,ch); break;
+    case "spiro": drawSpiro(cw,ch); break;
+    case "ca": drawCA(cw,ch); break;
+    case "swarm": drawSwarm(cw,ch); break;
+  }
+}
+
+/* ── 1. Flow Fields ── */
+function initFlow(w,h){
+  const n=Math.floor(P("fCount"));
+  const pts=[];
+  for(let i=0;i<n;i++) pts.push({x:rng()*w,y:rng()*h,ci:rngInt(0,4)});
+  algoState={pts};
+}
+function drawFlow(w,h){
+  ctx.fillStyle=`rgba(0,0,0,${P("fFade")/255})`;
+  ctx.fillRect(0,0,w,h);
+  const {pts}=algoState;
+  const sc=P("fScale")*.003,sp=P("fSpeed"),oct=Math.floor(P("fOct"));
+  for(let i=0;i<pts.length;i++){
+    const p=pts[i];
+    const a=Noise.fbm(p.x*sc,p.y*sc,oct)*Math.PI*4;
+    p.x+=Math.cos(a)*sp;p.y+=Math.sin(a)*sp;
+    if(p.x<0||p.x>w||p.y<0||p.y>h){p.x=rng()*w;p.y=rng()*h}
+    ctx.fillStyle=pal(p.ci);
+    ctx.fillRect(p.x,p.y,1.5,1.5);
+  }
+}
+
+/* ── 2. Reaction-Diffusion ── */
+function initRD(w,h){
+  const sw=Math.min(w,400),sh=Math.min(h,300);
+  const size=sw*sh;
+  const a=new Float32Array(size).fill(1);
+  const b=new Float32Array(size).fill(0);
+  for(let i=0;i<20;i++){
+    const cx=rngInt(sw*.2,sw*.8),cy=rngInt(sh*.2,sh*.8),r=rngInt(3,12);
+    for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+      if(dx*dx+dy*dy>r*r)continue;
+      const idx=(cy+dy)*sw+(cx+dx);
+      if(idx>=0&&idx<size)b[idx]=1;
+    }
+  }
+  algoState={a,b,na:new Float32Array(size),nb:new Float32Array(size),sw,sh,img:ctx.createImageData(sw,sh)};
+}
+function drawRD(w,h){
+  const s=algoState,{a,b,na,nb,sw,sh,img}=s;
+  const F=P("rdF"),K=P("rdK"),Da=P("rdDa"),Db=P("rdDb");
+  for(let iter=0;iter<6;iter++){
+    for(let y=1;y<sh-1;y++)for(let x=1;x<sw-1;x++){
+      const i=y*sw+x;
+      const lapA=a[i-1]+a[i+1]+a[i-sw]+a[i+sw]-4*a[i];
+      const lapB=b[i-1]+b[i+1]+b[i-sw]+b[i+sw]-4*b[i];
+      const ab2=a[i]*b[i]*b[i];
+      na[i]=a[i]+(Da*lapA-ab2+F*(1-a[i]))*.9;
+      nb[i]=b[i]+(Db*lapB+ab2-(K+F)*b[i])*.9;
+    }
+    for(let i=0;i<a.length;i++){a[i]=Math.max(0,Math.min(1,na[i]));b[i]=Math.max(0,Math.min(1,nb[i]))}
+  }
+  const d=img.data;
+  for(let i=0;i<a.length;i++){
+    const v=b[i];
+    const ci=Math.floor(v*4);
+    const [r,g,bl]=palRGB(ci);
+    const f=v;
+    d[i*4]=r*f|0;d[i*4+1]=g*f|0;d[i*4+2]=bl*f|0;d[i*4+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  if(sw<w||sh<h){
+    ctx.save();ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(canvas,0,0,sw,sh,0,0,w,h);
+    ctx.restore();
+  }
+}
+
+/* ── 3. L-System Trees ── */
+function initLsys(w,h){
+  const rules={"F":"FF+[+F-F-F]-[-F+F+F]"};
+  let str="F";
+  const iters=Math.min(Math.floor(P("lIter")),7);
+  for(let i=0;i<iters;i++){
+    let next="";
+    for(const c of str)next+=rules[c]||c;
+    str=next;
+    if(str.length>200000)break;
+  }
+  algoState={str,drawn:false};
+}
+function drawLsys(w,h){
+  if(algoState.drawn)return;
+  algoState.drawn=true;
+  ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);
+  const {str}=algoState;
+  const ang=P("lAngle")*Math.PI/180,len=P("lLen")*(w/800),shrink=P("lShrink"),wind=P("lWind")*Math.PI/180;
+  const stack=[];
+  let x=w/2,y=h*.92,a=-Math.PI/2,d=1,l=len;
+  ctx.lineWidth=Math.max(1,w/400);
+  ctx.lineCap="round";
+  for(const c of str){
+    if(c==="F"){
+      const nx=x+Math.cos(a+wind*d*.1)*l,ny=y+Math.sin(a+wind*d*.1)*l;
+      ctx.strokeStyle=pal(Math.floor(d)%5);
+      ctx.globalAlpha=Math.max(.3,1-d*.08);
+      ctx.lineWidth=Math.max(.5,(6-d)*(w/800));
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(nx,ny);ctx.stroke();
+      x=nx;y=ny;
+    }else if(c==="+"){a+=ang+rngRange(-.05,.05)}
+    else if(c==="-"){a-=ang+rngRange(-.05,.05)}
+    else if(c==="["){stack.push({x,y,a,d,l});d++;l*=shrink}
+    else if(c==="]"&&stack.length){const s=stack.pop();x=s.x;y=s.y;a=s.a;d=s.d;l=s.l}
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ── 4. Voronoi Landscapes ── */
+function initVoronoi(w,h){
+  const n=Math.floor(P("vPoints"));
+  const sites=[];
+  for(let i=0;i<n;i++) sites.push({x:rng()*w,y:rng()*h,h:rng()});
+  algoState={sites,drawn:false};
+}
+function drawVoronoi(w,h){
+  if(algoState.drawn)return;
+  algoState.drawn=true;
+  const {sites}=algoState;
+  const hScale=P("vHeight"),edge=P("vEdge");
+  const img=ctx.createImageData(w,h);
+  const d=img.data;
+  for(let py=0;py<h;py++)for(let px=0;px<w;px++){
+    let min1=Infinity,min2=Infinity,ci=0;
+    for(let i=0;i<sites.length;i++){
+      const dx=px-sites[i].x,dy=py-sites[i].y;
+      const dist=dx*dx+dy*dy;
+      if(dist<min1){min2=min1;min1=dist;ci=i}
+      else if(dist<min2)min2=dist;
+    }
+    const edgeDist=Math.sqrt(min2)-Math.sqrt(min1);
+    const isEdge=edgeDist<edge;
+    const elev=sites[ci].h*hScale;
+    const cIdx=Math.floor(elev*4);
+    let [r,g,b]=palRGB(cIdx);
+    const bright=.5+elev*.5;
+    r=Math.min(255,r*bright)|0;g=Math.min(255,g*bright)|0;b=Math.min(255,b*bright)|0;
+    if(isEdge){r=r*.3|0;g=g*.3|0;b=b*.3|0}
+    const idx=(py*w+px)*4;
+    d[idx]=r;d[idx+1]=g;d[idx+2]=b;d[idx+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+/* ── 5. Circle Packing ── */
+function initCircles(w,h){
+  algoState={circles:[],maxR:P("cMax"),minR:P("cMin"),grow:P("cGrow")};
+}
+function drawCircles(w,h){
+  const s=algoState;
+  const attempts=Math.floor(P("cAttempts"));
+  for(let a=0;a<attempts;a++){
+    const x=rng()*w,y=rng()*h;
+    let ok=true;
+    for(const c of s.circles){
+      const dx=x-c.x,dy=y-c.y;
+      if(dx*dx+dy*dy<(c.r+s.minR)*(c.r+s.minR)){ok=false;break}
+    }
+    if(ok)s.circles.push({x,y,r:s.minR,ci:rngInt(0,4),growing:true});
+  }
+  ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);
+  for(const c of s.circles){
+    if(c.growing){
+      c.r+=s.grow;
+      if(c.r>=s.maxR||c.x-c.r<0||c.x+c.r>w||c.y-c.r<0||c.y+c.r>h)c.growing=false;
+      for(const o of s.circles){
+        if(o===c)continue;
+        const dx=c.x-o.x,dy=c.y-o.y;
+        if(dx*dx+dy*dy<(c.r+o.r)*(c.r+o.r)){c.growing=false;break}
+      }
+    }
+    ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,Math.PI*2);
+    ctx.strokeStyle=pal(c.ci);ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle=pal(c.ci)+"22";ctx.fill();
+  }
+}
+
+/* ── 6. Wave Function Collapse Tiles ── */
+function initWFC(w,h){
+  const gs=Math.floor(P("wGrid"));
+  const nt=Math.max(2,Math.floor(P("wTiles")));
+  const grid=new Int8Array(gs*gs).fill(-1);
+  const entropy=new Float32Array(gs*gs).fill(nt);
+  algoState={grid,entropy,gs,nt,done:false,cellW:w/gs,cellH:h/gs,collapsed:0};
+  const cx=Math.floor(gs/2),cy=Math.floor(gs/2);
+  collapseCell(cx,cy);
+}
+function collapseCell(x,y){
+  const s=algoState,{grid,entropy,gs,nt}=s;
+  const i=y*gs+x;
+  if(grid[i]>=0)return;
+  const neighbors=[];
+  if(x>0&&grid[i-1]>=0)neighbors.push(grid[i-1]);
+  if(x<gs-1&&grid[i+1]>=0)neighbors.push(grid[i+1]);
+  if(y>0&&grid[i-gs]>=0)neighbors.push(grid[i-gs]);
+  if(y<gs-1&&grid[i+gs]>=0)neighbors.push(grid[i+gs]);
+  let tile;
+  if(neighbors.length===0){tile=rngInt(0,nt-1)}
+  else{
+    const w=new Float32Array(nt);
+    for(let t=0;t<nt;t++){
+      w[t]=1;
+      for(const n of neighbors){
+        const diff=Math.abs(t-n);
+        w[t]*=(diff<=1)?3:0.3;
+      }
+    }
+    const sum=w.reduce((a,b)=>a+b);
+    let r=rng()*sum,t=0;
+    for(;t<nt-1;t++){r-=w[t];if(r<=0)break}
+    tile=t;
+  }
+  grid[i]=tile;entropy[i]=0;s.collapsed++;
+  const dirs=[[-1,0],[1,0],[0,-1],[0,1]];
+  for(const[dx,dy]of dirs){
+    const nx=x+dx,ny=y+dy;
+    if(nx>=0&&nx<gs&&ny>=0&&ny<gs){
+      const ni=ny*gs+nx;
+      if(grid[ni]<0)entropy[ni]=Math.max(.1,entropy[ni]-.5);
+    }
+  }
+}
+function drawWFC(w,h){
+  const s=algoState;
+  if(s.done)return;
+  const speed=Math.floor(P("wSpeed")),border=P("wBorder");
+  for(let step=0;step<speed;step++){
+    if(s.collapsed>=s.gs*s.gs){s.done=true;break}
+    let minE=Infinity,mi=-1;
+    for(let i=0;i<s.entropy.length;i++){
+      if(s.grid[i]<0&&s.entropy[i]<minE){minE=s.entropy[i];mi=i}
+    }
+    if(mi<0){s.done=true;break}
+    collapseCell(mi%s.gs,Math.floor(mi/s.gs));
+  }
+  ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);
+  for(let y=0;y<s.gs;y++)for(let x=0;x<s.gs;x++){
+    const t=s.grid[y*s.gs+x];
+    if(t<0)continue;
+    const px=x*s.cellW,py=y*s.cellH;
+    ctx.fillStyle=pal(t);
+    ctx.fillRect(px+border,py+border,s.cellW-border*2,s.cellH-border*2);
+    const pat=t%3;
+    ctx.save();ctx.globalAlpha=.3;ctx.fillStyle="#000";
+    if(pat===0){ctx.beginPath();ctx.arc(px+s.cellW/2,py+s.cellH/2,s.cellW*.3,0,Math.PI*2);ctx.fill()}
+    else if(pat===1){ctx.fillRect(px+s.cellW*.2,py+s.cellH*.2,s.cellW*.6,s.cellH*.6)}
+    else{ctx.beginPath();ctx.moveTo(px+s.cellW/2,py+border);ctx.lineTo(px+s.cellW-border,py+s.cellH-border);ctx.lineTo(px+border,py+s.cellH-border);ctx.fill()}
+    ctx.restore();
+  }
+}
+
+/* ── 7. Strange Attractors ── */
+function initAttractor(w,h){
+  const trail=[];
+  const type=Math.floor(P("aType"));
+  let x,y,z;
+  if(type===0){x=.1;y=0;z=0}else{x=.1;y=0;z=0}
+  algoState={trail,x,y,z,type,angle:0};
+}
+function drawAttractor(w,h){
+  const s=algoState,dt=P("aDt"),maxLen=Math.floor(P("aTrail")),sc=P("aScale"),rot=P("aRotate");
+  s.angle+=rot*.01;
+  for(let i=0;i<100;i++){
+    let dx,dy,dz;
+    if(s.type===0){dx=10*(s.y-s.x);dy=s.x*(28-s.z)-s.y;dz=s.x*s.y-8/3*s.z}
+    else{dx=-(s.y+s.z);dy=s.x+.2*s.y;dz=.2+s.z*(s.x-5.7)}
+    s.x+=dx*dt;s.y+=dy*dt;s.z+=dz*dt;
+    const ca=Math.cos(s.angle),sa=Math.sin(s.angle);
+    const rx=s.x*ca-s.y*sa,ry=s.x*sa+s.y*ca;
+    s.trail.push({x:rx,y:s.z,ci:Math.floor(Math.abs(s.z))%5});
+    if(s.trail.length>maxLen)s.trail.shift();
+  }
+  ctx.fillStyle="rgba(0,0,0,.08)";ctx.fillRect(0,0,w,h);
+  const cx=w/2,cy=h/2;
+  ctx.lineWidth=1;
+  for(let i=1;i<s.trail.length;i++){
+    const p=s.trail[i-1],q=s.trail[i];
+    ctx.strokeStyle=pal(q.ci);
+    ctx.globalAlpha=i/s.trail.length;
+    ctx.beginPath();
+    ctx.moveTo(cx+p.x*sc,cy+p.y*sc);
+    ctx.lineTo(cx+q.x*sc,cy+q.y*sc);
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ── 8. Fractal Flames ── */
+function initFlame(w,h){
+  const buf=new Float64Array(w*h*4);
+  algoState={buf,maxHit:1,x:rng()*2-1,y:rng()*2-1};
+}
+function drawFlame(w,h){
+  const s=algoState,iter=Math.floor(P("flIter")),mix=P("flVar"),gamma=P("flGamma"),zoom=P("flZoom");
+  const {buf}=s;
+  for(let i=0;i<iter;i++){
+    const v=rng();
+    let nx,ny;
+    if(v<.33){const r=Math.sqrt(s.x*s.x+s.y*s.y);nx=Math.sin(r*Math.PI)/r||0;ny=Math.cos(r*Math.PI)/r||0}
+    else if(v<.66){const r2=s.x*s.x+s.y*s.y+1e-10;nx=s.x/r2;ny=s.y/r2}
+    else{nx=Math.sin(s.x)+Math.sin(s.y*s.y);ny=Math.cos(s.y)+Math.cos(s.x*s.x)}
+    s.x=nx*mix+s.x*(1-mix)*.5;s.y=ny*mix+s.y*(1-mix)*.5;
+    const px=Math.floor((s.x/zoom+1)*w/2),py=Math.floor((s.y/zoom+1)*h/2);
+    if(px>=0&&px<w&&py>=0&&py<h){
+      const idx=(py*w+px)*4;
+      buf[idx]++;buf[idx+1]+=Math.abs(s.x);buf[idx+2]+=Math.abs(s.y);buf[idx+3]++;
+      if(buf[idx]>s.maxHit)s.maxHit=buf[idx];
+    }
+  }
+  const img=ctx.createImageData(w,h);
+  const d=img.data;
+  const logMax=Math.log(s.maxHit+1);
+  for(let i=0;i<w*h;i++){
+    const hits=buf[i*4];
+    if(hits===0){d[i*4+3]=255;continue}
+    const alpha=Math.pow(Math.log(hits+1)/logMax,1/gamma);
+    const ci=Math.floor((buf[i*4+1]/hits)*3)%5;
+    const [r,g,b]=palRGB(ci);
+    d[i*4]=Math.min(255,r*alpha)|0;
+    d[i*4+1]=Math.min(255,g*alpha)|0;
+    d[i*4+2]=Math.min(255,b*alpha)|0;
+    d[i*4+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+/* ── 9. Perlin Worm Trails ── */
+function initWorms(w,h){
+  const n=Math.floor(P("wCount"));
+  const worms=[];
+  for(let i=0;i<n;i++){
+    const trail=[];
+    const x=rng()*w,y=rng()*h;
+    trail.push({x,y});
+    worms.push({trail,ci:rngInt(0,4),off:rng()*100});
+  }
+  algoState={worms};
+}
+function drawWorms(w,h){
+  ctx.fillStyle="rgba(0,0,0,.03)";ctx.fillRect(0,0,w,h);
+  const {worms}=algoState;
+  const maxLen=Math.floor(P("wLen")),sc=P("wScale")*.003,thick=P("wThick"),curl=P("wCurl");
+  const t=frameCount*.01;
+  for(const wm of worms){
+    const last=wm.trail[wm.trail.length-1];
+    const a=Noise.fbm(last.x*sc+wm.off,last.y*sc+wm.off,3)*Math.PI*2*curl+Noise.noise2(t,wm.off)*Math.PI;
+    const nx=last.x+Math.cos(a)*3,ny=last.y+Math.sin(a)*3;
+    wm.trail.push({x:nx<0||nx>w?rng()*w:nx,y:ny<0||ny>h?rng()*h:ny});
+    if(wm.trail.length>maxLen)wm.trail.shift();
+    ctx.strokeStyle=pal(wm.ci);
+    ctx.lineWidth=thick;
+    ctx.lineCap="round";
+    ctx.beginPath();
+    for(let i=0;i<wm.trail.length;i++){
+      const p=wm.trail[i];
+      ctx.globalAlpha=i/wm.trail.length;
+      if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ── 10. Recursive Spirograph ── */
+function initSpiro(w,h){
+  algoState={t:0,pts:[]};
+}
+function drawSpiro(w,h){
+  const s=algoState,R=P("sR")*(w/800),r=P("sr")*(w/800),d=P("sd")*(w/800),layers=Math.floor(P("sLayers")),sp=P("sSpeed")*.02;
+  ctx.fillStyle="rgba(0,0,0,.01)";ctx.fillRect(0,0,w,h);
+  const cx=w/2,cy=h/2;
+  for(let L=0;L<layers;L++){
+    const Rl=R*(1-L*.15),rl=r*(1+L*.1),dl=d*(1-L*.05);
+    const ratio=(Rl-rl)/rl;
+    ctx.strokeStyle=pal(L);
+    ctx.lineWidth=1.5;
+    ctx.globalAlpha=.6;
+    ctx.beginPath();
+    for(let i=0;i<50;i++){
+      const tt=s.t+i*.02+L*.5;
+      const x=cx+(Rl-rl)*Math.cos(tt)+dl*Math.cos(ratio*tt);
+      const y=cy+(Rl-rl)*Math.sin(tt)-dl*Math.sin(ratio*tt);
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  s.t+=sp;
+}
+
+/* ── 11. Cellular Automata ── */
+function initCA(w,h){
+  const cs=Math.max(1,Math.floor(P("caSize")));
+  const gw=Math.floor(w/cs),gh=Math.floor(h/cs);
+  const type=Math.floor(P("caType"));
+  const grid=new Uint8Array(gw*gh);
+  const density=P("caDensity");
+  if(type===0){
+    for(let i=0;i<grid.length;i++)grid[i]=rng()<density?1:0;
+  }else if(type===1){
+    grid[Math.floor(gw/2)]=1;
+    algoState={grid,gw,gh,cs,type,row:0};return;
+  }else{
+    algoState={grid,gw,gh,cs,type,antX:Math.floor(gw/2),antY:Math.floor(gh/2),antDir:0};return;
+  }
+  algoState={grid,gw,gh,cs,type};
+}
+function drawCA(w,h){
+  const s=algoState;
+  const steps=Math.floor(P("caSpeed"));
+  if(s.type===0){
+    for(let step=0;step<steps;step++){
+      const next=new Uint8Array(s.gw*s.gh);
+      for(let y=1;y<s.gh-1;y++)for(let x=1;x<s.gw-1;x++){
+        let n=0;
+        for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+          if(dx===0&&dy===0)continue;
+          n+=s.grid[(y+dy)*s.gw+(x+dx)];
+        }
+        const alive=s.grid[y*s.gw+x];
+        next[y*s.gw+x]=(alive&&(n===2||n===3))||(!alive&&n===3)?1:0;
+      }
+      s.grid=next;
+    }
+  }else if(s.type===1){
+    for(let step=0;step<steps;step++){
+      if(s.row>=s.gh-1)break;
+      const y=s.row,ny=y+1;
+      for(let x=1;x<s.gw-1;x++){
+        const l=s.grid[y*s.gw+(x-1)],c=s.grid[y*s.gw+x],r=s.grid[y*s.gw+(x+1)];
+        const pat=(l<<2)|(c<<1)|r;
+        s.grid[ny*s.gw+x]=(110>>pat)&1;
+      }
+      s.row=ny;
+    }
+  }else{
+    for(let step=0;step<steps*20;step++){
+      const {antX,antY,antDir,grid,gw}=s;
+      const i=antY*gw+antX;
+      if(grid[i]){s.antDir=(antDir+3)%4;grid[i]=0}
+      else{s.antDir=(antDir+1)%4;grid[i]=1}
+      const dirs=[[0,-1],[1,0],[0,1],[-1,0]];
+      s.antX=(antX+dirs[s.antDir][0]+s.gw)%s.gw;
+      s.antY=(antY+dirs[s.antDir][1]+s.gh)%s.gh;
+    }
+  }
+  ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);
+  for(let y=0;y<s.gh;y++)for(let x=0;x<s.gw;x++){
+    if(s.grid[y*s.gw+x]){
+      ctx.fillStyle=pal((x+y)%5);
+      ctx.fillRect(x*s.cs,y*s.cs,s.cs,s.cs);
+    }
+  }
+  if(s.type===2){
+    ctx.fillStyle="#fff";
+    ctx.fillRect(s.antX*s.cs,s.antY*s.cs,s.cs,s.cs);
+  }
+}
+
+/* ── 12. Particle Swarm Painting ── */
+function initSwarm(w,h){
+  const n=Math.floor(P("pCount"));
+  const particles=[];
+  const gx=rng()*w,gy=rng()*h;
+  for(let i=0;i<n;i++){
+    const x=rng()*w,y=rng()*h;
+    particles.push({x,y,vx:rngRange(-2,2),vy:rngRange(-2,2),bx:x,by:y,bf:Infinity,ci:rngInt(0,4)});
+  }
+  algoState={particles,gx,gy,gf:Infinity,tick:0};
+}
+function drawSwarm(w,h){
+  const s=algoState;
+  const inertia=P("pInertia"),social=P("pSocial"),cognitive=P("pCognitive"),size=P("pSize");
+  s.tick++;
+  if(s.tick%120===0){s.gx=rng()*w;s.gy=rng()*h;s.gf=Infinity}
+  ctx.fillStyle="rgba(0,0,0,.02)";ctx.fillRect(0,0,w,h);
+  for(const p of s.particles){
+    const fitness=Math.sqrt((p.x-s.gx)**2+(p.y-s.gy)**2);
+    if(fitness<p.bf){p.bf=fitness;p.bx=p.x;p.by=p.y}
+    if(fitness<s.gf){s.gf=fitness;s.gx=p.x;s.gy=p.y}
+    const r1=rng(),r2=rng();
+    p.vx=inertia*p.vx+cognitive*r1*(p.bx-p.x)+social*r2*(s.gx-p.x);
+    p.vy=inertia*p.vy+cognitive*r1*(p.by-p.y)+social*r2*(s.gy-p.y);
+    const maxV=8;
+    const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
+    if(spd>maxV){p.vx=p.vx/spd*maxV;p.vy=p.vy/spd*maxV}
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0){p.x=0;p.vx*=-.5}if(p.x>w){p.x=w;p.vx*=-.5}
+    if(p.y<0){p.y=0;p.vy*=-.5}if(p.y>h){p.y=h;p.vy*=-.5}
+    ctx.fillStyle=pal(p.ci);
+    ctx.globalAlpha=.4;
+    ctx.beginPath();ctx.arc(p.x,p.y,size,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ── Main Loop ── */
+let lastTime=0,fps=0,fpsAcc=0,fpsCount=0;
+function loop(ts){
+  if(!playing)return;
+  const dt=ts-lastTime;lastTime=ts;
+  fpsAcc+=dt;fpsCount++;
+  if(fpsAcc>500){fps=Math.round(1000*fpsCount/fpsAcc);fpsAcc=0;fpsCount=0;document.getElementById("fps-counter").textContent=fps+" fps"}
+  if(transAlpha<1){transAlpha=Math.min(1,transAlpha+.05);ctx.globalAlpha=transAlpha}
+  drawAlgo();
+  frameCount++;
+  ctx.globalAlpha=1;
+  requestAnimationFrame(loop);
+}
+
+/* ── Init ── */
+buildAlgoGrid();buildPalettes();
+setTimeout(()=>{resize();requestAnimationFrame(loop)},50);
+</script>
+</body>
+</html>

@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shadowveil: Card Battler</title>
+<meta name="rappterzoo:author" content="copilot">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="games_puzzles">
+<meta name="rappterzoo:tags" content="cards,ccg,strategy,pixel-art,battle,deck-builder">
+<meta name="rappterzoo:type" content="game">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-09">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;color:#d4c9a8;font-family:'Segoe UI',sans-serif;overflow:hidden;height:100vh;width:100vw;user-select:none}
+#app{width:100%;height:100%;position:relative}
+canvas#particles{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100}
+.screen{display:none;width:100%;height:100%;position:absolute;top:0;left:0;flex-direction:column;align-items:center}
+.screen.active{display:flex}
+/* Title */
+#title-screen{justify-content:center;gap:20px;background:radial-gradient(ellipse at center,#1a1028 0%,#0a0a12 70%)}
+#title-screen h1{font-size:3em;color:#c9a84c;text-shadow:0 0 30px rgba(201,168,76,0.5);letter-spacing:4px}
+#title-screen .subtitle{color:#8a7eb0;font-size:1.1em;margin-top:-10px}
+.btn{padding:12px 36px;border:1px solid #c9a84c44;background:linear-gradient(135deg,#1a1028,#2a1838);color:#c9a84c;font-size:1em;cursor:pointer;border-radius:4px;transition:all .2s;letter-spacing:1px}
+.btn:hover{background:linear-gradient(135deg,#2a1838,#3a2848);border-color:#c9a84c;box-shadow:0 0 15px rgba(201,168,76,0.3)}
+.btn-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+/* Collection */
+#collection-screen{overflow-y:auto;padding:20px}
+.coll-header{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:1200px;padding:10px 0;flex-shrink:0}
+.coll-header h2{color:#c9a84c;font-size:1.5em}
+.stats-bar{color:#8a7eb0;font-size:.85em}
+.card-grid{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:1200px;padding:20px 0}
+/* Cards */
+.card{width:140px;height:200px;border-radius:8px;position:relative;cursor:pointer;transition:transform .2s,box-shadow .2s;perspective:600px}
+.card:hover{transform:translateY(-5px)}
+.card-inner{width:100%;height:100%;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;background:#1a1028;border:2px solid #333}
+.card.common .card-inner{border-color:#556}
+.card.rare .card-inner{border-color:#3388cc}
+.card.epic .card-inner{border-color:#9944cc}
+.card.legendary .card-inner{border-color:#cc8800;box-shadow:0 0 12px rgba(204,136,0,0.4)}
+.card.legendary{animation:legendGlow 2s infinite alternate}
+@keyframes legendGlow{0%{filter:drop-shadow(0 0 4px rgba(204,136,0,0.3))}100%{filter:drop-shadow(0 0 12px rgba(204,136,0,0.6))}}
+.card-portrait{width:100%;height:90px;image-rendering:pixelated;background:#111}
+.card-name{font-size:.65em;padding:2px 4px;color:#c9a84c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;background:#12101a}
+.card-ability{font-size:.5em;padding:1px 4px;color:#8a7eb0;text-align:center;height:22px;overflow:hidden;line-height:1.3}
+.card-stats{display:flex;justify-content:space-between;padding:2px 6px;margin-top:auto;font-size:.6em;font-weight:bold}
+.stat-atk{color:#cc4444}.stat-hp{color:#44cc44}.stat-mana{color:#4488ff}
+.card-rarity-gem{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%}
+.common .card-rarity-gem{background:#667}
+.rare .card-rarity-gem{background:#3af;box-shadow:0 0 4px #3af}
+.epic .card-rarity-gem{background:#a4f;box-shadow:0 0 6px #a4f}
+.legendary .card-rarity-gem{background:#fa0;box-shadow:0 0 8px #fa0}
+.card.selected .card-inner{border-color:#c9a84c!important;box-shadow:0 0 10px rgba(201,168,76,0.5)}
+.card.dim{opacity:.35;pointer-events:none}
+.card.owned-0{opacity:.2;filter:grayscale(1)}
+.card-count{position:absolute;bottom:4px;right:4px;background:#000a;color:#fff;font-size:.55em;padding:1px 4px;border-radius:3px}
+/* Deck Builder */
+#deck-screen{overflow-y:auto;padding:20px}
+.deck-area{display:flex;gap:20px;max-width:1200px;width:100%;flex-wrap:wrap;justify-content:center}
+.deck-pool{flex:1;min-width:300px}.deck-chosen{width:260px;flex-shrink:0}
+.deck-list{display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow-y:auto;padding:8px;background:#12101a;border-radius:6px;border:1px solid #333}
+.deck-entry{display:flex;justify-content:space-between;align-items:center;padding:4px 8px;background:#1a1028;border-radius:4px;font-size:.75em;cursor:pointer}
+.deck-entry:hover{background:#2a1838}
+.deck-entry .de-name{flex:1}
+.deck-entry .de-mana{color:#4488ff;width:20px;text-align:center}
+.deck-entry .de-remove{color:#c44;cursor:pointer;margin-left:8px}
+/* Battle */
+#battle-screen{justify-content:space-between;padding:10px;overflow:hidden}
+.battle-top,.battle-bot{display:flex;align-items:center;gap:10px;width:100%;max-width:900px}
+.battle-mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;max-width:900px}
+.hero-portrait{width:60px;height:60px;border-radius:50%;border:2px solid #c9a84c;display:flex;align-items:center;justify-content:center;font-size:1.5em;flex-shrink:0}
+.hero-info{display:flex;flex-direction:column;gap:2px}
+.hero-name{font-size:.8em;color:#c9a84c}
+.hp-bar{width:120px;height:12px;background:#222;border-radius:6px;overflow:hidden;position:relative}
+.hp-fill{height:100%;background:linear-gradient(90deg,#44cc44,#88ee44);transition:width .5s;border-radius:6px}
+.hp-text{position:absolute;top:0;left:0;width:100%;text-align:center;font-size:.55em;line-height:12px;color:#fff;text-shadow:0 0 2px #000}
+.mana-bar{width:120px;height:8px;background:#222;border-radius:4px;overflow:hidden}
+.mana-fill{height:100%;background:linear-gradient(90deg,#4488ff,#66aaff);transition:width .3s;border-radius:4px}
+.board-row{display:flex;gap:8px;justify-content:center;min-height:80px;padding:4px}
+.board-slot{width:90px;height:130px;border:1px dashed #333;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.board-slot .card{width:86px;height:126px;font-size:.75em}
+.board-slot .card .card-portrait{height:55px}
+.hand-area{display:flex;gap:6px;justify-content:center;overflow-x:auto;padding:4px;max-width:100%}
+.hand-area .card{width:100px;height:145px;flex-shrink:0}
+.hand-area .card .card-portrait{height:65px}
+.hand-area .card:hover{transform:translateY(-10px) scale(1.05);z-index:10}
+.hand-area .card.unplayable{opacity:.5}
+.turn-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:2em;color:#c9a84c;text-shadow:0 0 20px rgba(201,168,76,0.8);z-index:200;pointer-events:none;animation:bannerFade 1.5s forwards}
+@keyframes bannerFade{0%{opacity:0;transform:translate(-50%,-50%) scale(0.5)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}40%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0}}
+.end-turn-btn{position:absolute;right:20px;bottom:50%;transform:translateY(50%);z-index:50}
+.battle-log{position:absolute;left:10px;bottom:80px;width:180px;max-height:120px;overflow-y:auto;font-size:.55em;color:#8a7eb0;background:#0a0a12cc;padding:6px;border-radius:4px;border:1px solid #222;z-index:50}
+.battle-log div{padding:1px 0;border-bottom:1px solid #1a1028}
+/* Booster */
+#booster-screen{justify-content:center;gap:20px;background:radial-gradient(ellipse at center,#1a1028 0%,#0a0a12 70%)}
+.booster-pack{width:200px;height:280px;background:linear-gradient(135deg,#2a1838,#1a1028);border:2px solid #c9a84c;border-radius:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;transition:transform .3s,box-shadow .3s}
+.booster-pack:hover{transform:scale(1.05);box-shadow:0 0 30px rgba(201,168,76,0.4)}
+.booster-pack h3{color:#c9a84c;font-size:1.2em}
+.booster-pack .pack-desc{color:#8a7eb0;font-size:.75em}
+.booster-reveal{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;max-width:900px}
+.booster-reveal .card{animation:cardReveal .5s ease-out backwards}
+@keyframes cardReveal{0%{opacity:0;transform:rotateY(90deg) scale(0.5)}100%{opacity:1;transform:rotateY(0) scale(1)}}
+/* Difficulty select */
+.diff-select{display:flex;gap:12px;margin-top:10px}
+.diff-btn{padding:8px 20px;cursor:pointer;border-radius:4px;border:1px solid #444;background:#1a1028;color:#d4c9a8;transition:all .2s}
+.diff-btn:hover,.diff-btn.active{border-color:#c9a84c;color:#c9a84c;background:#2a1838}
+/* Results */
+#result-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#000c;z-index:300;flex-direction:column;align-items:center;justify-content:center;gap:20px}
+#result-overlay.active{display:flex}
+#result-overlay h2{font-size:2.5em;text-shadow:0 0 20px currentColor}
+.win-text{color:#44cc44}
+.lose-text{color:#cc4444}
+/* Scrollbar */
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#0a0a12}::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
+/* Responsive */
+@media(max-width:600px){
+.card{width:100px;height:145px}.card-portrait{height:60px}.card-name{font-size:.55em}
+.board-slot{width:70px;height:100px}.board-slot .card{width:66px;height:96px}.board-slot .card .card-portrait{height:40px}
+.hand-area .card{width:80px;height:115px}.hand-area .card .card-portrait{height:50px}
+#title-screen h1{font-size:2em}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<canvas id="particles"></canvas>
+
+<div id="title-screen" class="screen active">
+<h1>SHADOWVEIL</h1>
+<div class="subtitle">A Dark Fantasy Card Battler</div>
+<div class="stats-bar" id="title-stats"></div>
+<div class="btn-row">
+<button class="btn" onclick="showScreen('battle-select')">⚔️ Battle</button>
+<button class="btn" onclick="showScreen('deck-screen')">📋 Deck Builder</button>
+<button class="btn" onclick="showScreen('booster-screen')">🎴 Open Packs</button>
+<button class="btn" onclick="showScreen('collection-screen')">📚 Collection</button>
+</div>
+</div>
+
+<div id="battle-select" class="screen">
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:20px">
+<h2 style="color:#c9a84c">Choose Your Opponent</h2>
+<div class="diff-select">
+<button class="diff-btn" onclick="startBattle('easy')">🟢 Easy<br><small>Random plays</small></button>
+<button class="diff-btn" onclick="startBattle('medium')">🟡 Medium<br><small>Mana curve</small></button>
+<button class="diff-btn" onclick="startBattle('hard')">🔴 Hard<br><small>Lookahead</small></button>
+</div>
+<button class="btn" onclick="showScreen('title-screen')" style="margin-top:10px">← Back</button>
+</div>
+</div>
+
+<div id="collection-screen" class="screen">
+<div class="coll-header">
+<h2>📚 Collection</h2>
+<div class="stats-bar" id="coll-stats"></div>
+<button class="btn" onclick="showScreen('title-screen')">← Back</button>
+</div>
+<div class="card-grid" id="coll-grid"></div>
+</div>
+
+<div id="deck-screen" class="screen">
+<div class="coll-header">
+<h2>📋 Deck Builder</h2>
+<div id="deck-count" style="color:#c9a84c">0 / 20</div>
+<div class="btn-row">
+<button class="btn" onclick="saveDeck()">💾 Save Deck</button>
+<button class="btn" onclick="showScreen('title-screen')">← Back</button>
+</div>
+</div>
+<div class="deck-area">
+<div class="deck-pool">
+<div class="card-grid" id="deck-pool-grid"></div>
+</div>
+<div class="deck-chosen">
+<h3 style="color:#8a7eb0;margin-bottom:8px;font-size:.9em">Your Deck</h3>
+<div class="deck-list" id="deck-list"></div>
+</div>
+</div>
+</div>
+
+<div id="booster-screen" class="screen">
+<div class="coll-header">
+<h2>🎴 Booster Packs</h2>
+<div class="stats-bar" id="pack-currency"></div>
+<button class="btn" onclick="showScreen('title-screen')">← Back</button>
+</div>
+<div id="booster-area" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:20px">
+<div class="booster-pack" onclick="openBooster()">
+<h3>🎴 Shadowveil Pack</h3>
+<div class="pack-desc">5 Cards — Cost: 100 gold</div>
+</div>
+<div class="booster-reveal" id="booster-reveal"></div>
+</div>
+</div>
+
+<div id="battle-screen" class="screen">
+<div class="battle-top">
+<div class="hero-portrait" style="background:#1a1028">🦇</div>
+<div class="hero-info">
+<div class="hero-name" id="enemy-name">Enemy</div>
+<div class="hp-bar"><div class="hp-fill" id="enemy-hp-fill" style="width:100%"></div><div class="hp-text" id="enemy-hp-text">30/30</div></div>
+<div class="mana-bar"><div class="mana-fill" id="enemy-mana-fill" style="width:0%"></div></div>
+<div style="font-size:.55em;color:#4488ff" id="enemy-mana-text">Mana: 0/0</div>
+</div>
+<div style="flex:1"></div>
+<div style="font-size:.7em;color:#8a7eb0" id="turn-indicator">Turn 1</div>
+</div>
+<div class="board-row" id="enemy-board"></div>
+<div class="battle-mid">
+<div style="font-size:.6em;color:#555">— Battlefield —</div>
+</div>
+<div class="board-row" id="player-board"></div>
+<div class="battle-top battle-bot">
+<div class="hero-portrait" style="background:#1a1028">⚔️</div>
+<div class="hero-info">
+<div class="hero-name" id="player-name">You</div>
+<div class="hp-bar"><div class="hp-fill" id="player-hp-fill" style="width:100%"></div><div class="hp-text" id="player-hp-text">30/30</div></div>
+<div class="mana-bar"><div class="mana-fill" id="player-mana-fill" style="width:0%"></div></div>
+<div style="font-size:.55em;color:#4488ff" id="player-mana-text">Mana: 0/0</div>
+</div>
+</div>
+<div class="hand-area" id="player-hand"></div>
+<button class="btn end-turn-btn" id="end-turn-btn" onclick="endPlayerTurn()">End Turn ⏭</button>
+<div class="battle-log" id="battle-log"></div>
+</div>
+
+<div id="result-overlay">
+<h2 id="result-text"></h2>
+<div id="result-reward" style="color:#c9a84c"></div>
+<div class="btn-row">
+<button class="btn" onclick="hideResult();showScreen('title-screen')">Main Menu</button>
+<button class="btn" onclick="hideResult();showScreen('battle-select')">Battle Again</button>
+</div>
+</div>
+</div>
+
+<script>
+// ─── SEEDED RNG ───
+class RNG{constructor(s){this.s=s|0||1}next(){this.s^=this.s<<13;this.s^=this.s>>17;this.s^=this.s<<5;return(this.s>>>0)/4294967296}int(a,b){return a+Math.floor(this.next()*(b-a+1))}}
+const rng=new RNG(42);
+
+// ─── CARD DATABASE ───
+const ABILITIES=[
+{id:'freeze',name:'Freeze',desc:'Freezes a target for 1 turn',color:'#66ccff'},
+{id:'burn',name:'Burn',desc:'Deals 2 damage over 2 turns',color:'#ff6633'},
+{id:'heal',name:'Heal',desc:'Restores 3 HP to your hero',color:'#66ff66'},
+{id:'draw',name:'Draw',desc:'Draw 1 extra card',color:'#ffcc33'},
+{id:'buff',name:'Buff',desc:'+2 ATK to a friendly minion',color:'#cc66ff'},
+{id:'steal',name:'Steal',desc:'Steal 1 ATK from enemy minion',color:'#ff66cc'},
+{id:'shield',name:'Shield',desc:'Gain +2 HP shield',color:'#aaaaff'},
+{id:'poison',name:'Poison',desc:'Deals 1 damage each turn',color:'#88cc44'},
+{id:'lifesteal',name:'Lifesteal',desc:'Heals hero for damage dealt',color:'#cc4466'},
+{id:'taunt',name:'Taunt',desc:'Enemies must attack this first',color:'#ccaa44'}
+];
+
+const NAMES_P1=['Shadow','Void','Dark','Blood','Bone','Fell','Grim','Dread','Night','Ash','Iron','Storm','Fire','Frost','Plague','Doom','Soul','Thorn','Rune','Hex'];
+const NAMES_P2=['Walker','Fiend','Knight','Mage','Wraith','Hunter','Lord','Beast','Golem','Shade','Reaver','Seer','Warden','Stalker','Bringer','Weaver','Fang','Claw','Wing','Eye'];
+
+function genCardDef(id,r){
+  const rarity=['common','common','common','rare','rare','epic','legendary'][r.int(0,6)];
+  const rarMul={common:1,rare:1.2,epic:1.5,legendary:1.8}[rarity];
+  const mana=r.int(1,8);
+  const baseAtk=Math.max(1,Math.round((mana*0.8+r.int(-1,2))*rarMul));
+  const baseHp=Math.max(1,Math.round((mana*0.9+r.int(0,3))*rarMul));
+  const atk=Math.min(12,baseAtk);
+  const hp=Math.min(15,baseHp);
+  const numAb=rarity==='legendary'?2:rarity==='epic'?r.int(1,2):rarity==='rare'?1:r.int(0,1);
+  const abs=[];
+  const pool=[...ABILITIES];
+  for(let i=0;i<numAb&&pool.length;i++){const idx=r.int(0,pool.length-1);abs.push(pool.splice(idx,1)[0].id)}
+  const name=NAMES_P1[r.int(0,NAMES_P1.length-1)]+' '+NAMES_P2[r.int(0,NAMES_P2.length-1)];
+  const seed=r.int(0,999999);
+  return{id,name,mana,atk,hp,abilities:abs,rarity,seed};
+}
+
+const ALL_CARDS=[];
+{const cr=new RNG(12345);for(let i=0;i<50;i++)ALL_CARDS.push(genCardDef(i,cr))}
+
+// ─── PIXEL ART GENERATOR ───
+function genPortrait(seed,w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');
+  const r=new RNG(seed);
+  // Background gradient
+  const bg1=`hsl(${r.int(200,300)},${r.int(15,30)}%,${r.int(5,12)}%)`;
+  const bg2=`hsl(${r.int(200,300)},${r.int(15,30)}%,${r.int(12,20)}%)`;
+  const grd=ctx.createLinearGradient(0,0,0,h);grd.addColorStop(0,bg1);grd.addColorStop(1,bg2);
+  ctx.fillStyle=grd;ctx.fillRect(0,0,w,h);
+  // Body color
+  const hue=r.int(0,360);const bodyCol=`hsl(${hue},${r.int(40,80)}%,${r.int(30,55)}%)`;
+  const darkCol=`hsl(${hue},${r.int(40,80)}%,${r.int(15,30)}%)`;
+  const lightCol=`hsl(${hue},${r.int(30,60)}%,${r.int(55,75)}%)`;
+  const px=Math.max(2,Math.floor(w/16));
+  const gw=Math.floor(w/px);const gh=Math.floor(h/px);
+  // Symmetric creature
+  const halfW=Math.ceil(gw/2);
+  const grid=[];
+  for(let y=0;y<gh;y++){
+    grid[y]=[];
+    for(let x=0;x<halfW;x++){
+      const cy=y/gh;const cx=x/halfW;
+      let fill=0;
+      // Body shape
+      if(cy>0.15&&cy<0.9&&cx<0.7){
+        fill=r.next()>0.35?1:0;
+        if(cy>0.2&&cy<0.5&&cx<0.5)fill=r.next()>0.2?1:0; // head area
+      }
+      // Eyes
+      if(cy>0.25&&cy<0.35&&cx>0.15&&cx<0.4)fill=r.next()>0.4?2:fill;
+      grid[y][x]=fill;
+    }
+  }
+  // Draw pixels mirrored
+  for(let y=0;y<gh;y++){
+    for(let x=0;x<halfW;x++){
+      if(grid[y][x]){
+        const col=grid[y][x]===2?lightCol:(r.next()>0.7?darkCol:bodyCol);
+        ctx.fillStyle=col;
+        ctx.fillRect(x*px,y*px,px,px);
+        ctx.fillRect((gw-1-x)*px,y*px,px,px);
+      }
+    }
+  }
+  return c.toDataURL();
+}
+
+// Cache portraits
+const portraitCache={};
+function getPortrait(card,w,h){
+  const k=card.seed+'_'+w+'_'+h;
+  if(!portraitCache[k])portraitCache[k]=genPortrait(card.seed,w||140,h||90);
+  return portraitCache[k];
+}
+
+// ─── PERSISTENCE ───
+const SAVE_KEY='shadowveil-save';
+let save={collection:{},deck:[],gold:300,wins:0,losses:0};
+function loadSave(){
+  try{const d=localStorage.getItem(SAVE_KEY);if(d)save=JSON.parse(d)}catch(e){}
+  if(!save.collection)save.collection={};
+  if(!save.deck)save.deck=[];
+  if(save.gold==null)save.gold=300;
+  // Give starter cards
+  let hasAny=false;
+  for(const k in save.collection)if(save.collection[k]>0){hasAny=true;break}
+  if(!hasAny){
+    for(let i=0;i<20;i++){save.collection[i]=(save.collection[i]||0)+1}
+    save.deck=Array.from({length:20},(_,i)=>i);
+  }
+}
+function saveSave(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save))}catch(e){}}
+loadSave();
+
+// ─── PARTICLES ───
+const pCanvas=document.getElementById('particles');
+const pCtx=pCanvas.getContext('2d');
+let particles=[];
+function resizeParticles(){pCanvas.width=window.innerWidth;pCanvas.height=window.innerHeight}
+window.addEventListener('resize',resizeParticles);resizeParticles();
+class Particle{
+  constructor(x,y,col,vx,vy,life,size){
+    this.x=x;this.y=y;this.col=col;this.vx=vx;this.vy=vy;this.life=life;this.maxLife=life;this.size=size||3;
+  }
+  update(){this.x+=this.vx;this.y+=this.vy;this.vy+=0.02;this.life--}
+  draw(ctx){
+    const a=this.life/this.maxLife;
+    ctx.globalAlpha=a;
+    ctx.fillStyle=this.col;
+    ctx.fillRect(this.x-this.size/2,this.y-this.size/2,this.size,this.size);
+  }
+}
+function spawnParticles(x,y,col,count,spread){
+  for(let i=0;i<count;i++){
+    particles.push(new Particle(x,y,col,(Math.random()-0.5)*spread,(Math.random()-0.5)*spread-1,30+Math.random()*30,2+Math.random()*3));
+  }
+}
+function animParticles(){
+  pCtx.clearRect(0,0,pCanvas.width,pCanvas.height);
+  particles=particles.filter(p=>{p.update();p.draw(pCtx);return p.life>0});
+  pCtx.globalAlpha=1;
+  requestAnimationFrame(animParticles);
+}
+animParticles();
+
+// ─── SCREENS ───
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const el=document.getElementById(id);if(el)el.classList.add('active');
+  if(id==='collection-screen')renderCollection();
+  if(id==='deck-screen')renderDeckBuilder();
+  if(id==='booster-screen')renderBooster();
+  if(id==='title-screen')renderTitle();
+}
+
+function renderTitle(){
+  const ts=document.getElementById('title-stats');
+  ts.textContent=`Wins: ${save.wins} | Losses: ${save.losses} | Gold: ${save.gold} | Cards: ${Object.values(save.collection).reduce((a,b)=>a+b,0)}`;
+}
+renderTitle();
+
+// ─── CARD ELEMENT ───
+function createCardEl(cardDef,opts={}){
+  const div=document.createElement('div');
+  div.className='card '+cardDef.rarity;
+  if(opts.className)div.className+=' '+opts.className;
+  div.dataset.cardId=cardDef.id;
+  const pw=opts.pw||140,ph=opts.ph||90;
+  const abText=cardDef.abilities.map(a=>{const ab=ABILITIES.find(x=>x.id===a);return ab?ab.name:''}).join(', ')||'—';
+  div.innerHTML=`
+    <div class="card-inner">
+      <img class="card-portrait" src="${getPortrait(cardDef,pw,ph)}" alt="${cardDef.name}">
+      <div class="card-rarity-gem"></div>
+      <div class="card-name">${cardDef.name}</div>
+      <div class="card-ability">${abText}</div>
+      <div class="card-stats">
+        <span class="stat-atk">⚔${cardDef.atk}</span>
+        <span class="stat-hp">♥${cardDef.hp}</span>
+        <span class="stat-mana">💧${cardDef.mana}</span>
+      </div>
+    </div>`;
+  if(opts.count!=null){
+    const cnt=document.createElement('div');cnt.className='card-count';cnt.textContent='×'+opts.count;div.appendChild(cnt);
+    if(opts.count===0)div.classList.add('owned-0');
+  }
+  if(opts.onClick)div.addEventListener('click',()=>opts.onClick(cardDef,div));
+  if(opts.delay!=null)div.style.animationDelay=opts.delay+'s';
+  return div;
+}
+
+// ─── COLLECTION ───
+function renderCollection(){
+  const grid=document.getElementById('coll-grid');grid.innerHTML='';
+  const stats=document.getElementById('coll-stats');
+  let owned=0,total=ALL_CARDS.length;
+  ALL_CARDS.forEach(c=>{
+    const cnt=save.collection[c.id]||0;
+    if(cnt>0)owned++;
+    grid.appendChild(createCardEl(c,{count:cnt}));
+  });
+  stats.textContent=`${owned}/${total} unique | Gold: ${save.gold}`;
+}
+
+// ─── DECK BUILDER ───
+let tempDeck=[];
+function renderDeckBuilder(){
+  tempDeck=[...save.deck];
+  renderDeckPool();
+  renderDeckList();
+}
+function renderDeckPool(){
+  const grid=document.getElementById('deck-pool-grid');grid.innerHTML='';
+  ALL_CARDS.forEach(c=>{
+    const owned=save.collection[c.id]||0;
+    const inDeck=tempDeck.filter(x=>x===c.id).length;
+    const canAdd=owned>inDeck&&tempDeck.length<20;
+    const el=createCardEl(c,{count:owned,onClick:(cd)=>{
+      if(tempDeck.length>=20)return;
+      const ow=save.collection[cd.id]||0;
+      const inD=tempDeck.filter(x=>x===cd.id).length;
+      if(inD>=ow)return;
+      tempDeck.push(cd.id);
+      renderDeckPool();renderDeckList();
+    }});
+    if(!canAdd&&owned>0)el.classList.add('dim');
+    grid.appendChild(el);
+  });
+}
+function renderDeckList(){
+  const list=document.getElementById('deck-list');list.innerHTML='';
+  const cnt=document.getElementById('deck-count');
+  cnt.textContent=tempDeck.length+' / 20';
+  cnt.style.color=tempDeck.length===20?'#44cc44':'#c9a84c';
+  // Sort by mana
+  const sorted=[...tempDeck].sort((a,b)=>ALL_CARDS[a].mana-ALL_CARDS[b].mana);
+  sorted.forEach((cid,i)=>{
+    const c=ALL_CARDS[cid];
+    const entry=document.createElement('div');entry.className='deck-entry';
+    entry.innerHTML=`<span class="de-mana" style="color:${({common:'#667',rare:'#3af',epic:'#a4f',legendary:'#fa0'})[c.rarity]}">${c.mana}</span><span class="de-name">${c.name}</span><span class="de-remove">✕</span>`;
+    entry.querySelector('.de-remove').addEventListener('click',()=>{
+      const idx=tempDeck.indexOf(cid);if(idx>=0)tempDeck.splice(idx,1);
+      renderDeckPool();renderDeckList();
+    });
+    list.appendChild(entry);
+  });
+}
+function saveDeck(){
+  if(tempDeck.length!==20){alert('Deck must have exactly 20 cards!');return}
+  save.deck=[...tempDeck];saveSave();
+  showScreen('title-screen');
+}
+
+// ─── BOOSTER PACKS ───
+function renderBooster(){
+  document.getElementById('pack-currency').textContent='Gold: '+save.gold;
+  document.getElementById('booster-reveal').innerHTML='';
+}
+function openBooster(){
+  if(save.gold<100){alert('Not enough gold! Win battles to earn gold.');return}
+  save.gold-=100;saveSave();
+  document.getElementById('pack-currency').textContent='Gold: '+save.gold;
+  const reveal=document.getElementById('booster-reveal');reveal.innerHTML='';
+  const cards=[];
+  for(let i=0;i<5;i++){
+    // Weighted rarity
+    const roll=Math.random();
+    let pool;
+    if(roll<0.05)pool=ALL_CARDS.filter(c=>c.rarity==='legendary');
+    else if(roll<0.2)pool=ALL_CARDS.filter(c=>c.rarity==='epic');
+    else if(roll<0.5)pool=ALL_CARDS.filter(c=>c.rarity==='rare');
+    else pool=ALL_CARDS.filter(c=>c.rarity==='common');
+    if(!pool.length)pool=ALL_CARDS;
+    const card=pool[Math.floor(Math.random()*pool.length)];
+    cards.push(card);
+    save.collection[card.id]=(save.collection[card.id]||0)+1;
+  }
+  saveSave();
+  // Animate reveal
+  cards.forEach((c,i)=>{
+    setTimeout(()=>{
+      const el=createCardEl(c,{delay:0});
+      reveal.appendChild(el);
+      const rect=el.getBoundingClientRect();
+      const col={common:'#667',rare:'#3af',epic:'#a4f',legendary:'#fa0'}[c.rarity];
+      spawnParticles(rect.left+rect.width/2,rect.top+rect.height/2,col,c.rarity==='legendary'?40:c.rarity==='epic'?25:10,4);
+    },i*300);
+  });
+}
+
+// ─── BATTLE SYSTEM ───
+let battle=null;
+
+function cloneCard(def){return{...def,curHp:def.hp,curAtk:def.atk,frozen:false,burnTurns:0,poisonTurns:0,shieldHp:0,hasTaunt:def.abilities.includes('taunt'),hasLifesteal:def.abilities.includes('lifesteal'),attacked:false,uid:Math.random()}}
+
+function startBattle(diff){
+  if(save.deck.length<20){alert('Build a 20-card deck first!');showScreen('deck-screen');return}
+  const pDeck=shuffle([...save.deck]).map(id=>cloneCard(ALL_CARDS[id]));
+  // Enemy gets a balanced deck from all cards
+  const eDeckIds=[];
+  const pool=ALL_CARDS.filter(c=>(save.collection[c.id]||0)>0||Math.random()>0.3);
+  while(eDeckIds.length<20){eDeckIds.push(pool[Math.floor(Math.random()*pool.length)].id)}
+  const eDeck=shuffle(eDeckIds).map(id=>cloneCard(ALL_CARDS[id]));
+
+  battle={
+    diff,turn:1,phase:'player',
+    player:{hp:30,maxHp:30,mana:0,maxMana:0,deck:pDeck,hand:[],board:[],fatigue:0},
+    enemy:{hp:30,maxHp:30,mana:0,maxMana:0,deck:eDeck,hand:[],board:[],fatigue:0},
+    selectedCard:null,attackSource:null,log:[]
+  };
+  showScreen('battle-screen');
+  battleLog('Battle begins!');
+  startTurn('player');
+}
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+function drawCard(who){
+  const s=battle[who];
+  if(s.deck.length===0){s.fatigue++;s.hp-=s.fatigue;battleLog(`${who} takes ${s.fatigue} fatigue!`);return}
+  if(s.hand.length>=8){battleLog(`${who}'s hand is full!`);s.deck.shift();return}
+  s.hand.push(s.deck.shift());
+}
+
+function startTurn(who){
+  const s=battle[who];
+  battle.phase=who;
+  battle.turn=who==='player'?battle.turn:battle.turn;
+  s.maxMana=Math.min(10,who==='player'?Math.ceil(battle.turn/1):Math.ceil(battle.turn/1));
+  // Increment mana each new turn pair
+  if(who==='player'){
+    battle.player.maxMana=Math.min(10,battle.turn);
+    battle.enemy.maxMana=Math.min(10,battle.turn);
+  }
+  s.mana=s.maxMana;
+  // Unfreeze, tick burns/poison
+  s.board.forEach(c=>{
+    c.attacked=false;
+    if(c.frozen){c.frozen=false;battleLog(`${c.name} thaws out`)}
+    if(c.burnTurns>0){c.curHp-=2;c.burnTurns--;battleLog(`${c.name} burns for 2!`)}
+    if(c.poisonTurns>0){c.curHp-=1;c.poisonTurns--;battleLog(`${c.name} poisoned for 1!`)}
+  });
+  s.board=s.board.filter(c=>c.curHp>0);
+  drawCard(who);
+  showBanner(who==='player'?'Your Turn':'Enemy Turn');
+  renderBattle();
+  if(who==='enemy')setTimeout(()=>aiTurn(),1200);
+}
+
+function showBanner(text){
+  const b=document.createElement('div');b.className='turn-banner';b.textContent=text;
+  document.body.appendChild(b);setTimeout(()=>b.remove(),1600);
+}
+
+function battleLog(msg){
+  if(!battle)return;
+  battle.log.push(msg);
+  const el=document.getElementById('battle-log');
+  const d=document.createElement('div');d.textContent=msg;el.appendChild(d);
+  el.scrollTop=el.scrollHeight;
+}
+
+function renderBattle(){
+  if(!battle)return;
+  const p=battle.player,e=battle.enemy;
+  // HP bars
+  updBar('player',p);updBar('enemy',e);
+  document.getElementById('turn-indicator').textContent='Turn '+battle.turn;
+  // Boards
+  renderBoard('player-board',p.board,false);
+  renderBoard('enemy-board',e.board,true);
+  // Hand
+  renderHand();
+  // End turn button
+  document.getElementById('end-turn-btn').style.display=battle.phase==='player'?'block':'none';
+}
+
+function updBar(who,s){
+  const pct=Math.max(0,s.hp/s.maxHp*100);
+  document.getElementById(who+'-hp-fill').style.width=pct+'%';
+  document.getElementById(who+'-hp-text').textContent=Math.max(0,s.hp)+'/'+s.maxHp;
+  document.getElementById(who+'-mana-fill').style.width=(s.mana/Math.max(1,s.maxMana)*100)+'%';
+  document.getElementById(who+'-mana-text').textContent='Mana: '+s.mana+'/'+s.maxMana;
+}
+
+function renderBoard(elId,board,isEnemy){
+  const cont=document.getElementById(elId);cont.innerHTML='';
+  for(let i=0;i<5;i++){
+    const slot=document.createElement('div');slot.className='board-slot';
+    if(board[i]){
+      const c=board[i];
+      const def=ALL_CARDS[c.id];
+      const el=createCardEl({...def,atk:c.curAtk,hp:c.curHp,abilities:def.abilities},{pw:90,ph:55});
+      if(c.frozen)el.style.filter='brightness(0.6) saturate(0.3)';
+      if(c.hasTaunt)el.style.outline='2px solid #ccaa44';
+      // Click for attack targeting
+      if(isEnemy&&battle.phase==='player'){
+        el.style.cursor='crosshair';
+        el.addEventListener('click',()=>attackTarget(i));
+      }
+      if(!isEnemy&&battle.phase==='player'){
+        el.addEventListener('click',()=>selectAttacker(i));
+        if(battle.attackSource===i)el.classList.add('selected');
+      }
+      slot.appendChild(el);
+    }
+    cont.appendChild(slot);
+  }
+}
+
+function renderHand(){
+  const cont=document.getElementById('player-hand');cont.innerHTML='';
+  battle.player.hand.forEach((c,i)=>{
+    const def=ALL_CARDS[c.id];
+    const canPlay=c.mana<=battle.player.mana&&battle.player.board.length<5&&battle.phase==='player';
+    const el=createCardEl({...def,atk:c.curAtk,hp:c.curHp},{pw:100,ph:65,onClick:()=>{
+      if(!canPlay)return;
+      playCard('player',i);
+    }});
+    if(!canPlay)el.classList.add('unplayable');
+    cont.appendChild(el);
+  });
+}
+
+function playCard(who,handIdx){
+  const s=battle[who];
+  const card=s.hand[handIdx];
+  if(card.mana>s.mana||s.board.length>=5)return;
+  s.mana-=card.mana;
+  s.hand.splice(handIdx,1);
+  s.board.push(card);
+  card.attacked=true; // Summoning sickness
+  // Trigger abilities
+  triggerAbilities(who,card);
+  // Particles
+  const boardEl=document.getElementById(who+'-board');
+  const rect=boardEl.getBoundingClientRect();
+  const col={common:'#667',rare:'#3af',epic:'#a4f',legendary:'#fa0'}[card.rarity];
+  spawnParticles(rect.left+rect.width/2,rect.top+rect.height/2,col,15,5);
+  battleLog(`${who==='player'?'You play':'Enemy plays'} ${card.name}`);
+  renderBattle();
+  checkWin();
+}
+
+function triggerAbilities(who,card){
+  const opp=who==='player'?'enemy':'player';
+  card.abilities.forEach(ab=>{
+    switch(ab){
+      case 'heal':
+        battle[who].hp=Math.min(battle[who].maxHp,battle[who].hp+3);
+        battleLog(`${card.name} heals for 3!`);break;
+      case 'draw':
+        drawCard(who);battleLog(`${card.name} draws a card!`);break;
+      case 'buff':{
+        const allies=battle[who].board.filter(c=>c.uid!==card.uid);
+        if(allies.length){const t=allies[Math.floor(Math.random()*allies.length)];t.curAtk+=2;battleLog(`${card.name} buffs ${t.name} +2 ATK!`)}
+        break;}
+      case 'burn':{
+        const enemies=battle[opp].board;
+        if(enemies.length){const t=enemies[Math.floor(Math.random()*enemies.length)];t.burnTurns+=2;battleLog(`${card.name} sets ${t.name} on fire!`)}
+        break;}
+      case 'freeze':{
+        const enemies=battle[opp].board;
+        if(enemies.length){const t=enemies[Math.floor(Math.random()*enemies.length)];t.frozen=true;battleLog(`${card.name} freezes ${t.name}!`)}
+        break;}
+      case 'steal':{
+        const enemies=battle[opp].board;
+        if(enemies.length){const t=enemies[Math.floor(Math.random()*enemies.length)];const s=Math.min(t.curAtk,1);t.curAtk-=s;card.curAtk+=s;battleLog(`${card.name} steals ${s} ATK from ${t.name}!`)}
+        break;}
+      case 'shield':
+        card.shieldHp+=2;card.curHp+=2;battleLog(`${card.name} gains +2 shield!`);break;
+      case 'poison':{
+        const enemies=battle[opp].board;
+        if(enemies.length){const t=enemies[Math.floor(Math.random()*enemies.length)];t.poisonTurns+=3;battleLog(`${card.name} poisons ${t.name}!`)}
+        break;}
+      // taunt and lifesteal are passive
+    }
+  });
+}
+
+function selectAttacker(idx){
+  const card=battle.player.board[idx];
+  if(!card||card.attacked||card.frozen)return;
+  battle.attackSource=battle.attackSource===idx?null:idx;
+  renderBattle();
+}
+
+function attackTarget(enemyIdx){
+  if(battle.attackSource==null)return;
+  const attacker=battle.player.board[battle.attackSource];
+  if(!attacker||attacker.attacked||attacker.frozen)return;
+  // Check taunt
+  const hasTaunter=battle.enemy.board.some((c,i)=>c.hasTaunt&&i!==enemyIdx);
+  const target=battle.enemy.board[enemyIdx];
+  if(hasTaunter&&target&&!target.hasTaunt){battleLog('Must attack taunt minion first!');return}
+  if(target){
+    doAttack(attacker,target,'player','enemy');
+  }
+  attacker.attacked=true;
+  battle.attackSource=null;
+  // Clean dead
+  battle.player.board=battle.player.board.filter(c=>c.curHp>0);
+  battle.enemy.board=battle.enemy.board.filter(c=>c.curHp>0);
+  renderBattle();
+  checkWin();
+}
+
+function doAttack(atk,def,atkOwner,defOwner){
+  def.curHp-=atk.curAtk;
+  atk.curHp-=def.curAtk;
+  battleLog(`${atk.name} (${atk.curAtk}) attacks ${def.name} (${def.curAtk})`);
+  if(atk.hasLifesteal){battle[atkOwner].hp=Math.min(battle[atkOwner].maxHp,battle[atkOwner].hp+atk.curAtk);battleLog(`${atk.name} heals ${atk.curAtk}!`)}
+  // Particles at approximate positions
+  spawnParticles(pCanvas.width/2+(atkOwner==='player'?-50:50),pCanvas.height/2,'#ff4444',12,4);
+  if(def.curHp<=0)battleLog(`${def.name} is destroyed!`);
+  if(atk.curHp<=0)battleLog(`${atk.name} is destroyed!`);
+}
+
+// Player can also attack face
+function attackFace(){
+  if(battle.attackSource==null)return;
+  const attacker=battle.player.board[battle.attackSource];
+  if(!attacker||attacker.attacked||attacker.frozen)return;
+  const hasTaunter=battle.enemy.board.some(c=>c.hasTaunt);
+  if(hasTaunter){battleLog('Must attack taunt minion first!');battle.attackSource=null;renderBattle();return}
+  battle.enemy.hp-=attacker.curAtk;
+  battleLog(`${attacker.name} hits enemy face for ${attacker.curAtk}!`);
+  if(attacker.hasLifesteal){battle.player.hp=Math.min(battle.player.maxHp,battle.player.hp+attacker.curAtk)}
+  spawnParticles(pCanvas.width/2,80,'#ff4444',20,6);
+  attacker.attacked=true;
+  battle.attackSource=null;
+  renderBattle();
+  checkWin();
+}
+// Clicking enemy portrait attacks face
+document.querySelector('#battle-screen .battle-top .hero-portrait').addEventListener('click',()=>{
+  if(battle&&battle.phase==='player')attackFace();
+});
+
+function endPlayerTurn(){
+  if(!battle||battle.phase!=='player')return;
+  battle.attackSource=null;
+  battle.turn++;
+  startTurn('enemy');
+}
+
+// ─── AI ───
+function aiTurn(){
+  if(!battle||battle.phase!=='enemy')return;
+  const e=battle.enemy;
+  const p=battle.player;
+
+  if(battle.diff==='easy')aiEasy(e,p);
+  else if(battle.diff==='medium')aiMedium(e,p);
+  else aiHard(e,p);
+}
+
+function aiPlaySequence(plays,attacks,cb){
+  let i=0;
+  function next(){
+    if(i<plays.length){
+      const idx=plays[i];
+      if(idx<battle.enemy.hand.length&&battle.enemy.hand[idx].mana<=battle.enemy.mana&&battle.enemy.board.length<5){
+        playCard('enemy',idx);
+        // Adjust indices for removed cards
+        for(let j=i+1;j<plays.length;j++){if(plays[j]>idx)plays[j]--}
+      }
+      i++;
+      setTimeout(next,600);
+    } else {
+      // Attacks
+      aiDoAttacks(attacks,cb);
+    }
+  }
+  next();
+}
+
+function aiDoAttacks(attacks,cb){
+  let i=0;
+  function next(){
+    // Clean dead
+    battle.enemy.board=battle.enemy.board.filter(c=>c.curHp>0);
+    battle.player.board=battle.player.board.filter(c=>c.curHp>0);
+    if(i<battle.enemy.board.length){
+      const atk=battle.enemy.board[i];
+      if(atk&&!atk.attacked&&!atk.frozen){
+        // Find target
+        const taunters=battle.player.board.filter(c=>c.hasTaunt);
+        const targets=taunters.length?taunters:battle.player.board;
+        if(targets.length&&attacks!=='face'){
+          const t=targets[Math.floor(Math.random()*targets.length)];
+          const tidx=battle.player.board.indexOf(t);
+          doAttack(atk,t,'enemy','player');
+          atk.attacked=true;
+          battle.player.board=battle.player.board.filter(c=>c.curHp>0);
+          battle.enemy.board=battle.enemy.board.filter(c=>c.curHp>0);
+        } else {
+          // Go face
+          const hasTaunter=battle.player.board.some(c=>c.hasTaunt);
+          if(!hasTaunter){
+            battle.player.hp-=atk.curAtk;
+            battleLog(`${atk.name} hits your face for ${atk.curAtk}!`);
+            if(atk.hasLifesteal){battle.enemy.hp=Math.min(battle.enemy.maxHp,battle.enemy.hp+atk.curAtk)}
+            spawnParticles(pCanvas.width/2,pCanvas.height-80,'#ff4444',20,6);
+          }
+          atk.attacked=true;
+        }
+      }
+      i++;
+      renderBattle();
+      if(checkWin())return;
+      setTimeout(next,500);
+    } else {
+      renderBattle();
+      if(!checkWin()){
+        cb();
+      }
+    }
+  }
+  next();
+}
+
+function aiEasy(e,p){
+  // Play random affordable cards
+  const plays=[];
+  let mana=e.mana;
+  const hand=[...e.hand];
+  for(let i=0;i<hand.length;i++){
+    if(hand[i].mana<=mana&&e.board.length+plays.length<5){
+      plays.push(i);mana-=hand[i].mana;
+    }
+  }
+  aiPlaySequence(plays,null,()=>{
+    battle.turn++;startTurn('player');
+  });
+}
+
+function aiMedium(e,p){
+  // Prefer cards that fit mana curve, prioritize board presence
+  const indexed=e.hand.map((c,i)=>({c,i})).filter(x=>x.c.mana<=e.mana).sort((a,b)=>b.c.mana-a.c.mana);
+  const plays=[];let mana=e.mana;
+  for(const {c,i} of indexed){
+    if(c.mana<=mana&&e.board.length+plays.length<5){plays.push(i);mana-=c.mana}
+  }
+  plays.sort((a,b)=>a-b);
+  aiPlaySequence(plays,null,()=>{
+    battle.turn++;startTurn('player');
+  });
+}
+
+function aiHard(e,p){
+  // Lookahead: evaluate plays by board value + ability value
+  function evalState(eBoard,pBoard,eHp,pHp){
+    let score=0;
+    eBoard.forEach(c=>{score+=c.curAtk+c.curHp+c.abilities.length*2});
+    pBoard.forEach(c=>{score-=c.curAtk+c.curHp+c.abilities.length*2});
+    score+=(eHp-pHp)*0.5;
+    return score;
+  }
+  // Try all subsets of playable cards (limited to first 6 for performance)
+  const playable=e.hand.map((c,i)=>({c,i})).filter(x=>x.c.mana<=e.mana).slice(0,6);
+  let bestPlays=[];let bestScore=-Infinity;
+  const n=playable.length;
+  for(let mask=0;mask<(1<<n);mask++){
+    let mana=e.mana;let boardSize=e.board.length;let valid=true;
+    const plays=[];
+    for(let b=0;b<n;b++){
+      if(mask&(1<<b)){
+        if(playable[b].c.mana>mana||boardSize>=5){valid=false;break}
+        mana-=playable[b].c.mana;boardSize++;
+        plays.push(playable[b].i);
+      }
+    }
+    if(!valid)continue;
+    // Simulate
+    const simEBoard=[...e.board.map(c=>({...c}))];
+    plays.forEach(idx=>{simEBoard.push({...e.hand[idx],curAtk:e.hand[idx].curAtk,curHp:e.hand[idx].curHp,abilities:e.hand[idx].abilities})});
+    const simPBoard=[...p.board.map(c=>({...c}))];
+    // Simple attack sim: each attacker hits weakest enemy or face
+    let simPHp=p.hp;let simEHp=e.hp;
+    simEBoard.forEach(atk=>{
+      if(simPBoard.length){
+        simPBoard.sort((a,b)=>a.curHp-b.curHp);
+        const t=simPBoard[0];
+        t.curHp-=atk.curAtk;atk.curHp-=t.curAtk;
+      } else {
+        simPHp-=atk.curAtk;
+      }
+    });
+    const aliveE=simEBoard.filter(c=>c.curHp>0);
+    const aliveP=simPBoard.filter(c=>c.curHp>0);
+    const score=evalState(aliveE,aliveP,simEHp,simPHp);
+    if(score>bestScore){bestScore=score;bestPlays=plays}
+  }
+  bestPlays.sort((a,b)=>a-b);
+  aiPlaySequence(bestPlays,null,()=>{
+    battle.turn++;startTurn('player');
+  });
+}
+
+function checkWin(){
+  if(!battle)return false;
+  if(battle.enemy.hp<=0){
+    endBattle(true);return true;
+  }
+  if(battle.player.hp<=0){
+    endBattle(false);return true;
+  }
+  return false;
+}
+
+function endBattle(won){
+  const overlay=document.getElementById('result-overlay');
+  const text=document.getElementById('result-text');
+  const reward=document.getElementById('result-reward');
+  overlay.classList.add('active');
+  if(won){
+    save.wins++;
+    const gold={easy:50,medium:100,hard:200}[battle.diff];
+    save.gold+=gold;
+    text.textContent='🏆 VICTORY!';text.className='win-text';
+    reward.textContent=`+${gold} gold earned!`;
+    spawnParticles(pCanvas.width/2,pCanvas.height/2,'#c9a84c',50,8);
+    spawnParticles(pCanvas.width/2,pCanvas.height/2,'#44cc44',30,6);
+  } else {
+    save.losses++;
+    const gold=Math.floor({easy:15,medium:30,hard:50}[battle.diff]);
+    save.gold+=gold;
+    text.textContent='💀 DEFEAT';text.className='lose-text';
+    reward.textContent=`+${gold} gold (consolation)`;
+    spawnParticles(pCanvas.width/2,pCanvas.height/2,'#cc4444',30,5);
+  }
+  saveSave();
+  battle=null;
+}
+function hideResult(){document.getElementById('result-overlay').classList.remove('active')}
+
+// ─── AMBIENT PARTICLES ───
+setInterval(()=>{
+  if(document.getElementById('title-screen').classList.contains('active')){
+    spawnParticles(Math.random()*pCanvas.width,pCanvas.height,'#c9a84c22',1,1);
+  }
+},200);
+
+// ─── INIT ───
+showScreen('title-screen');
+</script>
+</body>
+</html>

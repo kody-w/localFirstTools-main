@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navier-Stokes Fluid Dynamics</title>
+<meta name="rappterzoo:author" content="copilot">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="particle_physics">
+<meta name="rappterzoo:tags" content="fluid,simulation,navier-stokes,webgl2,physics,shader">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-02-09">
+<meta name="rappterzoo:generation" content="1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;color:#ccc;font-family:'Segoe UI',system-ui,sans-serif;display:flex;height:100vh;overflow:hidden;user-select:none}
+#sidebar{width:220px;padding:14px;background:#1a1a1a;border-right:1px solid #333;display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex-shrink:0}
+#sidebar h1{font-size:15px;color:#7af;margin-bottom:4px}
+#sidebar h2{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-top:6px}
+.ctrl{display:flex;flex-direction:column;gap:2px}
+.ctrl label{font-size:11px;color:#aaa;display:flex;justify-content:space-between}
+.ctrl label span{color:#7af;font-variant-numeric:tabular-nums}
+.ctrl input[type=range]{width:100%;accent-color:#7af;height:16px}
+button{background:#333;color:#ccc;border:1px solid #555;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px}
+button:hover{background:#444}
+button.active{background:#447;border-color:#7af;color:#7af}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#000}
+canvas{image-rendering:pixelated}
+.mode-row{display:flex;gap:4px;flex-wrap:wrap}
+.mode-row button{flex:1;min-width:60px;font-size:10px;padding:4px}
+#fps{font-size:10px;color:#666;text-align:center;margin-top:auto}
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h1>🌊 Navier-Stokes Fluid</h1>
+  <h2>Interaction</h2>
+  <div class="mode-row">
+    <button id="btn-dye" class="active" onclick="setMode('dye')">Dye</button>
+    <button id="btn-obstacle" onclick="setMode('obstacle')">Obstacle</button>
+    <button id="btn-temp" onclick="setMode('temp')">Heat</button>
+    <button id="btn-erase" onclick="setMode('erase')">Erase</button>
+  </div>
+  <h2>Simulation</h2>
+  <div class="ctrl"><label>Viscosity <span id="v-visc">0.0001</span></label><input type="range" id="r-visc" min="0" max="5" step="0.01" value="1.3"></div>
+  <div class="ctrl"><label>Diffusion <span id="v-diff">0.0001</span></label><input type="range" id="r-diff" min="0" max="5" step="0.01" value="1.0"></div>
+  <div class="ctrl"><label>Vorticity <span id="v-vort">5.0</span></label><input type="range" id="r-vort" min="0" max="50" step="0.1" value="5.0"></div>
+  <div class="ctrl"><label>Timestep <span id="v-dt">0.016</span></label><input type="range" id="r-dt" min="0.001" max="0.05" step="0.001" value="0.016"></div>
+  <div class="ctrl"><label>Buoyancy <span id="v-buoy">1.0</span></label><input type="range" id="r-buoy" min="0" max="5" step="0.1" value="1.0"></div>
+  <div class="ctrl"><label>Jacobi Iter. <span id="v-jac">40</span></label><input type="range" id="r-jac" min="10" max="80" step="1" value="40"></div>
+  <div class="ctrl"><label>Brush Size <span id="v-brush">20</span></label><input type="range" id="r-brush" min="2" max="60" step="1" value="20"></div>
+  <div class="ctrl"><label>Dye Intensity <span id="v-dint">1.0</span></label><input type="range" id="r-dint" min="0.1" max="3" step="0.1" value="1.0"></div>
+  <h2>Display</h2>
+  <div class="mode-row">
+    <button id="btn-disp-dye" class="active" onclick="setDisplay('dye')">Dye</button>
+    <button id="btn-disp-vel" onclick="setDisplay('velocity')">Velocity</button>
+    <button id="btn-disp-pres" onclick="setDisplay('pressure')">Pressure</button>
+    <button id="btn-disp-vort" onclick="setDisplay('vorticity')">Vorticity</button>
+    <button id="btn-disp-temp" onclick="setDisplay('temperature')">Temp</button>
+  </div>
+  <h2>Actions</h2>
+  <button onclick="resetSim()">Reset Simulation</button>
+  <button onclick="clearObstacles()">Clear Obstacles</button>
+  <div id="fps">60 FPS</div>
+</div>
+<div id="canvas-wrap"><canvas id="c"></canvas></div>
+<script>
+"use strict";
+const N = 512;
+const canvas = document.getElementById('c');
+canvas.width = N; canvas.height = N;
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, preserveDrawingBuffer:false});
+if(!gl){document.body.innerHTML='<h1 style="color:red;padding:40px">WebGL2 not supported</h1>';throw'no webgl2';}
+
+// --- State ---
+let interactionMode = 'dye';
+let displayMode = 'dye';
+let params = {
+  viscosity:0.0001, diffusion:0.0001, vorticity:5.0, dt:0.016,
+  buoyancy:1.0, jacobiIter:40, brushSize:20, dyeIntensity:1.0
+};
+let mouse = {x:0,y:0,px:0,py:0,down:false};
+let hue = 0;
+
+// --- Helpers ---
+function hsl2rgb(h,s,l){
+  const a=s*Math.min(l,1-l);
+  const f=n=>{const k=(n+h/30)%12;return l-a*Math.max(Math.min(k-3,9-k,1),-1);};
+  return [f(0),f(8),f(4)];
+}
+
+// --- Slider wiring ---
+const sliders = [
+  ['r-visc','v-visc',v=>{params.viscosity=Math.pow(10,-1-v);return params.viscosity.toFixed(6)}],
+  ['r-diff','v-diff',v=>{params.diffusion=Math.pow(10,-1-v);return params.diffusion.toFixed(6)}],
+  ['r-vort','v-vort',v=>{params.vorticity=+v;return(+v).toFixed(1)}],
+  ['r-dt','v-dt',v=>{params.dt=+v;return(+v).toFixed(3)}],
+  ['r-buoy','v-buoy',v=>{params.buoyancy=+v;return(+v).toFixed(1)}],
+  ['r-jac','v-jac',v=>{params.jacobiIter=+v|0;return+v|0}],
+  ['r-brush','v-brush',v=>{params.brushSize=+v|0;return+v|0}],
+  ['r-dint','v-dint',v=>{params.dyeIntensity=+v;return(+v).toFixed(1)}],
+];
+sliders.forEach(([rid,vid,fn])=>{
+  const r=document.getElementById(rid);
+  const disp=document.getElementById(vid);
+  r.addEventListener('input',()=>{disp.textContent=fn(r.value)});
+  fn(r.value);
+});
+
+function setMode(m){
+  interactionMode=m;
+  ['dye','obstacle','temp','erase'].forEach(k=>{
+    document.getElementById('btn-'+k).classList.toggle('active',k===m);
+  });
+}
+function setDisplay(m){
+  displayMode=m;
+  ['dye','velocity','pressure','vorticity','temperature'].forEach(k=>{
+    document.getElementById('btn-disp-'+(k==='dye'?'dye':k==='velocity'?'vel':k==='pressure'?'pres':k==='vorticity'?'vort':'temp'))
+      .classList.toggle('active',k===m);
+  });
+}
+
+// --- WebGL2 Setup ---
+const ext = gl.getExtension('EXT_color_buffer_float');
+gl.getExtension('OES_texture_float_linear');
+
+function createShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s),src);gl.deleteShader(s);return null;}
+  return s;
+}
+function createProgram(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,createShader(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,createShader(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null;}
+  return p;
+}
+
+// Fullscreen quad
+const quadVAO = gl.createVertexArray();
+gl.bindVertexArray(quadVAO);
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+gl.bindVertexArray(null);
+
+const baseVS=`#version 300 es
+precision highp float;
+layout(location=0) in vec2 a_pos;
+out vec2 vUv;
+void main(){vUv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0,1);}`;
+
+// --- Double (ping-pong) framebuffer ---
+function createDoubleFBO(w,h,internalFormat,format,type,filter){
+  function makeFBO(){
+    const tex=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,filter);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,filter);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D,0,internalFormat,w,h,0,format,type,null);
+    const fbo=gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+    return {tex,fbo,w,h};
+  }
+  let fbo1=makeFBO(),fbo2=makeFBO();
+  return {
+    get read(){return fbo1},
+    get write(){return fbo2},
+    swap(){[fbo1,fbo2]=[fbo2,fbo1];}
+  };
+}
+function createSingleFBO(w,h,internalFormat,format,type,filter){
+  const tex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,filter);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,filter);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D,0,internalFormat,w,h,0,format,type,null);
+  const fbo=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+  return {tex,fbo,w,h};
+}
+
+// FBOs: velocity(RG), pressure(R), dye(RGBA), temperature(R), obstacles(R), divergence(R), vorticity(R)
+let velocity, pressure, dye, temperature, obstacles, divergenceFBO, vorticityFBO;
+
+function initFBOs(){
+  velocity = createDoubleFBO(N,N,gl.RG32F,gl.RG,gl.FLOAT,gl.LINEAR);
+  pressure = createDoubleFBO(N,N,gl.R32F,gl.RED,gl.FLOAT,gl.LINEAR);
+  dye = createDoubleFBO(N,N,gl.RGBA32F,gl.RGBA,gl.FLOAT,gl.LINEAR);
+  temperature = createDoubleFBO(N,N,gl.R32F,gl.RED,gl.FLOAT,gl.LINEAR);
+  obstacles = createSingleFBO(N,N,gl.R32F,gl.RED,gl.FLOAT,gl.NEAREST);
+  divergenceFBO = createSingleFBO(N,N,gl.R32F,gl.RED,gl.FLOAT,gl.NEAREST);
+  vorticityFBO = createSingleFBO(N,N,gl.R32F,gl.RED,gl.FLOAT,gl.NEAREST);
+}
+initFBOs();
+
+// --- Shader programs ---
+function makeFS(body){
+  return `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform vec2 texelSize;
+${body}`;
+}
+
+// Advection
+const advectProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uVelocity;
+uniform sampler2D uSource;
+uniform sampler2D uObstacles;
+uniform float dt;
+uniform float dissipation;
+void main(){
+  if(texture(uObstacles,vUv).r>0.5){fragColor=vec4(0);return;}
+  vec2 vel=texture(uVelocity,vUv).xy;
+  vec2 pos=vUv-vel*dt*texelSize;
+  fragColor=dissipation*texture(uSource,pos);
+}`));
+
+// Splat (add force/dye/temp)
+const splatProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uTarget;
+uniform vec3 color;
+uniform vec2 point;
+uniform float radius;
+uniform float aspectRatio;
+void main(){
+  vec4 base=texture(uTarget,vUv);
+  vec2 d=vUv-point;
+  d.x*=aspectRatio;
+  float e=exp(-dot(d,d)/(radius*radius));
+  fragColor=base+e*vec4(color,1.0);
+}`));
+
+// Divergence
+const divergenceProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uVelocity;
+uniform sampler2D uObstacles;
+void main(){
+  float oL=texture(uObstacles,vUv-vec2(texelSize.x,0)).r;
+  float oR=texture(uObstacles,vUv+vec2(texelSize.x,0)).r;
+  float oB=texture(uObstacles,vUv-vec2(0,texelSize.y)).r;
+  float oT=texture(uObstacles,vUv+vec2(0,texelSize.y)).r;
+  vec2 vL=oL>0.5?vec2(0):texture(uVelocity,vUv-vec2(texelSize.x,0)).xy;
+  vec2 vR=oR>0.5?vec2(0):texture(uVelocity,vUv+vec2(texelSize.x,0)).xy;
+  vec2 vB=oB>0.5?vec2(0):texture(uVelocity,vUv-vec2(0,texelSize.y)).xy;
+  vec2 vT=oT>0.5?vec2(0):texture(uVelocity,vUv+vec2(0,texelSize.y)).xy;
+  fragColor=vec4(0.5*(vR.x-vL.x+vT.y-vB.y),0,0,1);
+}`));
+
+// Jacobi pressure solve
+const jacobiProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uPressure;
+uniform sampler2D uDivergence;
+uniform sampler2D uObstacles;
+void main(){
+  if(texture(uObstacles,vUv).r>0.5){fragColor=vec4(0);return;}
+  float oL=texture(uObstacles,vUv-vec2(texelSize.x,0)).r;
+  float oR=texture(uObstacles,vUv+vec2(texelSize.x,0)).r;
+  float oB=texture(uObstacles,vUv-vec2(0,texelSize.y)).r;
+  float oT=texture(uObstacles,vUv+vec2(0,texelSize.y)).r;
+  float pC=texture(uPressure,vUv).r;
+  float pL=oL>0.5?pC:texture(uPressure,vUv-vec2(texelSize.x,0)).r;
+  float pR=oR>0.5?pC:texture(uPressure,vUv+vec2(texelSize.x,0)).r;
+  float pB=oB>0.5?pC:texture(uPressure,vUv-vec2(0,texelSize.y)).r;
+  float pT=oT>0.5?pC:texture(uPressure,vUv+vec2(0,texelSize.y)).r;
+  float div=texture(uDivergence,vUv).r;
+  fragColor=vec4((pL+pR+pB+pT-div)*0.25,0,0,1);
+}`));
+
+// Gradient subtract (project)
+const gradSubProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uVelocity;
+uniform sampler2D uPressure;
+uniform sampler2D uObstacles;
+void main(){
+  if(texture(uObstacles,vUv).r>0.5){fragColor=vec4(0);return;}
+  float oL=texture(uObstacles,vUv-vec2(texelSize.x,0)).r;
+  float oR=texture(uObstacles,vUv+vec2(texelSize.x,0)).r;
+  float oB=texture(uObstacles,vUv-vec2(0,texelSize.y)).r;
+  float oT=texture(uObstacles,vUv+vec2(0,texelSize.y)).r;
+  float pC=texture(uPressure,vUv).r;
+  float pL=oL>0.5?pC:texture(uPressure,vUv-vec2(texelSize.x,0)).r;
+  float pR=oR>0.5?pC:texture(uPressure,vUv+vec2(texelSize.x,0)).r;
+  float pB=oB>0.5?pC:texture(uPressure,vUv-vec2(0,texelSize.y)).r;
+  float pT=oT>0.5?pC:texture(uPressure,vUv+vec2(0,texelSize.y)).r;
+  vec2 vel=texture(uVelocity,vUv).xy;
+  vel-=vec2(pR-pL,pT-pB)*0.5;
+  fragColor=vec4(vel,0,1);
+}`));
+
+// Vorticity computation (curl of velocity)
+const curlProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uVelocity;
+void main(){
+  float vL=texture(uVelocity,vUv-vec2(texelSize.x,0)).y;
+  float vR=texture(uVelocity,vUv+vec2(texelSize.x,0)).y;
+  float vB=texture(uVelocity,vUv-vec2(0,texelSize.y)).x;
+  float vT=texture(uVelocity,vUv+vec2(0,texelSize.y)).x;
+  fragColor=vec4((vR-vL)-(vT-vB),0,0,1);
+}`));
+
+// Vorticity confinement force
+const vortConfProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uVelocity;
+uniform sampler2D uCurl;
+uniform sampler2D uObstacles;
+uniform float curl_strength;
+uniform float dt;
+void main(){
+  if(texture(uObstacles,vUv).r>0.5){fragColor=vec4(0);return;}
+  float cL=abs(texture(uCurl,vUv-vec2(texelSize.x,0)).r);
+  float cR=abs(texture(uCurl,vUv+vec2(texelSize.x,0)).r);
+  float cB=abs(texture(uCurl,vUv-vec2(0,texelSize.y)).r);
+  float cT=abs(texture(uCurl,vUv+vec2(0,texelSize.y)).r);
+  float c=texture(uCurl,vUv).r;
+  vec2 force=vec2(abs(cT)-abs(cB),abs(cL)-abs(cR));
+  float len=length(force)+1e-5;
+  force=force/len*curl_strength*c;
+  vec2 vel=texture(uVelocity,vUv).xy+force*dt;
+  fragColor=vec4(vel,0,1);
+}`));
+
+// Buoyancy
+const buoyancyProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uVelocity;
+uniform sampler2D uTemperature;
+uniform sampler2D uObstacles;
+uniform float buoyancy;
+uniform float dt;
+void main(){
+  if(texture(uObstacles,vUv).r>0.5){fragColor=vec4(0);return;}
+  vec2 vel=texture(uVelocity,vUv).xy;
+  float temp=texture(uTemperature,vUv).r;
+  vel.y+=temp*buoyancy*dt;
+  fragColor=vec4(vel,0,1);
+}`));
+
+// Viscous diffusion (Jacobi)
+const diffuseProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uSource;
+uniform sampler2D uObstacles;
+uniform float alpha;
+uniform float rBeta;
+void main(){
+  if(texture(uObstacles,vUv).r>0.5){fragColor=vec4(0);return;}
+  vec4 cC=texture(uSource,vUv);
+  float oL=texture(uObstacles,vUv-vec2(texelSize.x,0)).r;
+  float oR=texture(uObstacles,vUv+vec2(texelSize.x,0)).r;
+  float oB=texture(uObstacles,vUv-vec2(0,texelSize.y)).r;
+  float oT=texture(uObstacles,vUv+vec2(0,texelSize.y)).r;
+  vec4 cL=oL>0.5?cC:texture(uSource,vUv-vec2(texelSize.x,0));
+  vec4 cR=oR>0.5?cC:texture(uSource,vUv+vec2(texelSize.x,0));
+  vec4 cB=oB>0.5?cC:texture(uSource,vUv-vec2(0,texelSize.y));
+  vec4 cT=oT>0.5?cC:texture(uSource,vUv+vec2(0,texelSize.y));
+  fragColor=(cL+cR+cB+cT+alpha*cC)*rBeta;
+}`));
+
+// Obstacle draw
+const obstacleProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uObstacles;
+uniform vec2 point;
+uniform float radius;
+uniform float value;
+void main(){
+  float base=texture(uObstacles,vUv).r;
+  vec2 d=vUv-point;
+  float dist=length(d);
+  float mask=smoothstep(radius,radius-texelSize.x*2.0,dist);
+  fragColor=vec4(mix(base,value,mask),0,0,1);
+}`));
+
+// Display
+const displayProg = createProgram(baseVS, makeFS(`
+uniform sampler2D uDye;
+uniform sampler2D uVelocity;
+uniform sampler2D uPressure;
+uniform sampler2D uVorticity;
+uniform sampler2D uTemperature;
+uniform sampler2D uObstacles;
+uniform int mode;
+void main(){
+  float obs=texture(uObstacles,vUv).r;
+  if(obs>0.5){fragColor=vec4(0.25,0.25,0.3,1);return;}
+  if(mode==0){
+    vec3 c=texture(uDye,vUv).rgb;
+    fragColor=vec4(c,1);
+  } else if(mode==1){
+    vec2 v=texture(uVelocity,vUv).xy;
+    float mag=length(v)*0.01;
+    float angle=atan(v.y,v.x)*0.159154943+0.5;
+    vec3 c=vec3(abs(angle*6.0-3.0)-1.0,2.0-abs(angle*6.0-2.0),2.0-abs(angle*6.0-4.0));
+    fragColor=vec4(clamp(c,0.0,1.0)*mag,1);
+  } else if(mode==2){
+    float p=texture(uPressure,vUv).r*0.5;
+    fragColor=vec4(max(p,0.0),0,max(-p,0.0),1);
+  } else if(mode==3){
+    float v=texture(uVorticity,vUv).r*0.1;
+    fragColor=vec4(max(v,0.0),0,max(-v,0.0),1);
+  } else {
+    float t=texture(uTemperature,vUv).r;
+    fragColor=vec4(t*2.0,t*0.5,max(0.5-t,0.0),1);
+  }
+}`));
+
+// Boundary clear
+const clearProg = createProgram(baseVS, makeFS(`
+uniform vec4 clearColor;
+void main(){fragColor=clearColor;}`));
+
+// --- Uniform helpers ---
+function setUniforms(prog, uniforms){
+  gl.useProgram(prog);
+  let texUnit=0;
+  for(const [name,val] of Object.entries(uniforms)){
+    const loc=gl.getUniformLocation(prog,name);
+    if(loc===null) continue;
+    if(typeof val==='number'){
+      if(Number.isInteger(val)&&name!=='dt'&&name!=='alpha'&&name!=='rBeta'&&name!=='radius'&&name!=='curl_strength'&&name!=='buoyancy'&&name!=='dissipation'&&name!=='value'&&name!=='aspectRatio')
+        gl.uniform1i(loc,val);
+      else gl.uniform1f(loc,val);
+    } else if(val && val.tex!==undefined){
+      gl.activeTexture(gl.TEXTURE0+texUnit);
+      gl.bindTexture(gl.TEXTURE_2D,val.tex);
+      gl.uniform1i(loc,texUnit);
+      texUnit++;
+    } else if(Array.isArray(val)){
+      if(val.length===2) gl.uniform2f(loc,val[0],val[1]);
+      else if(val.length===3) gl.uniform3f(loc,val[0],val[1],val[2]);
+      else if(val.length===4) gl.uniform4f(loc,val[0],val[1],val[2],val[3]);
+    }
+  }
+}
+
+function blit(target){
+  if(target) gl.bindFramebuffer(gl.FRAMEBUFFER,target.fbo);
+  else gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.bindVertexArray(quadVAO);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+const texel = [1.0/N, 1.0/N];
+
+// --- Simulation steps ---
+function advect(velFBO, sourceFBO, destFBO, dt, dissipation){
+  setUniforms(advectProg, {
+    texelSize:texel, uVelocity:velFBO.read, uSource:sourceFBO.read,
+    uObstacles:obstacles, dt:dt, dissipation:dissipation
+  });
+  blit(destFBO.write); destFBO.swap();
+}
+
+function splat(target, x, y, dx, dy, color, radius){
+  setUniforms(splatProg, {
+    texelSize:texel, uTarget:target.read, color:color,
+    point:[x,y], radius:radius, aspectRatio:1.0
+  });
+  blit(target.write); target.swap();
+}
+
+function computeDivergence(){
+  setUniforms(divergenceProg, {
+    texelSize:texel, uVelocity:velocity.read, uObstacles:obstacles
+  });
+  blit(divergenceFBO);
+}
+
+function solvePressure(){
+  // Clear pressure
+  setUniforms(clearProg, {clearColor:[0,0,0,1]});
+  blit(pressure.write); pressure.swap();
+  setUniforms(clearProg, {clearColor:[0,0,0,1]});
+  blit(pressure.write); pressure.swap();
+
+  for(let i=0;i<params.jacobiIter;i++){
+    setUniforms(jacobiProg, {
+      texelSize:texel, uPressure:pressure.read,
+      uDivergence:divergenceFBO, uObstacles:obstacles
+    });
+    blit(pressure.write); pressure.swap();
+  }
+}
+
+function subtractGradient(){
+  setUniforms(gradSubProg, {
+    texelSize:texel, uVelocity:velocity.read,
+    uPressure:pressure.read, uObstacles:obstacles
+  });
+  blit(velocity.write); velocity.swap();
+}
+
+function computeVorticity(){
+  setUniforms(curlProg, {texelSize:texel, uVelocity:velocity.read});
+  blit(vorticityFBO);
+}
+
+function applyVorticity(dt){
+  setUniforms(vortConfProg, {
+    texelSize:texel, uVelocity:velocity.read, uCurl:vorticityFBO,
+    uObstacles:obstacles, curl_strength:params.vorticity, dt:dt
+  });
+  blit(velocity.write); velocity.swap();
+}
+
+function applyBuoyancy(dt){
+  setUniforms(buoyancyProg, {
+    texelSize:texel, uVelocity:velocity.read,
+    uTemperature:temperature.read, uObstacles:obstacles,
+    buoyancy:params.buoyancy, dt:dt
+  });
+  blit(velocity.write); velocity.swap();
+}
+
+function diffuse(target, visc, dt){
+  const alpha = 1.0/(visc*dt);
+  const rBeta = 1.0/(4.0+alpha);
+  for(let i=0;i<20;i++){
+    setUniforms(diffuseProg, {
+      texelSize:texel, uSource:target.read, uObstacles:obstacles,
+      alpha:alpha, rBeta:rBeta
+    });
+    blit(target.write); target.swap();
+  }
+}
+
+function drawObstacle(x,y,radius,val){
+  setUniforms(obstacleProg, {
+    texelSize:texel, uObstacles:obstacles,
+    point:[x,y], radius:radius, value:val
+  });
+  blit(obstacles);
+}
+
+function display(){
+  const modeInt = displayMode==='dye'?0:displayMode==='velocity'?1:displayMode==='pressure'?2:displayMode==='vorticity'?3:4;
+  setUniforms(displayProg, {
+    texelSize:texel, uDye:dye.read, uVelocity:velocity.read,
+    uPressure:pressure.read, uVorticity:vorticityFBO,
+    uTemperature:temperature.read, uObstacles:obstacles, mode:modeInt
+  });
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.bindVertexArray(quadVAO);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function resetSim(){
+  // Clear all FBOs
+  setUniforms(clearProg,{clearColor:[0,0,0,0]});
+  blit(velocity.write);velocity.swap();
+  blit(velocity.write);velocity.swap();
+  blit(pressure.write);pressure.swap();
+  blit(pressure.write);pressure.swap();
+  blit(dye.write);dye.swap();
+  blit(dye.write);dye.swap();
+  blit(temperature.write);temperature.swap();
+  blit(temperature.write);temperature.swap();
+  setUniforms(clearProg,{clearColor:[0,0,0,1]});
+  blit(obstacles);
+}
+function clearObstacles(){
+  setUniforms(clearProg,{clearColor:[0,0,0,1]});
+  blit(obstacles);
+}
+
+// --- Input ---
+function getPos(e){
+  const r=canvas.getBoundingClientRect();
+  return [(e.clientX-r.left)/r.width, 1.0-(e.clientY-r.top)/r.height];
+}
+canvas.addEventListener('mousedown',e=>{
+  mouse.down=true;
+  const [x,y]=getPos(e);
+  mouse.px=mouse.x=x; mouse.py=mouse.y=y;
+});
+canvas.addEventListener('mousemove',e=>{
+  if(!mouse.down) return;
+  mouse.px=mouse.x; mouse.py=mouse.y;
+  [mouse.x,mouse.y]=getPos(e);
+});
+canvas.addEventListener('mouseup',()=>{mouse.down=false;});
+canvas.addEventListener('mouseleave',()=>{mouse.down=false;});
+// Touch
+canvas.addEventListener('touchstart',e=>{e.preventDefault();mouse.down=true;const t=e.touches[0];const [x,y]=getPos(t);mouse.px=mouse.x=x;mouse.py=mouse.y=y;},{passive:false});
+canvas.addEventListener('touchmove',e=>{e.preventDefault();if(!mouse.down)return;mouse.px=mouse.x;mouse.py=mouse.y;const t=e.touches[0];[mouse.x,mouse.y]=getPos(t);},{passive:false});
+canvas.addEventListener('touchend',e=>{e.preventDefault();mouse.down=false;},{passive:false});
+
+function handleInput(){
+  if(!mouse.down) return;
+  const dx=mouse.x-mouse.px, dy=mouse.y-mouse.py;
+  const r = params.brushSize/N;
+
+  if(interactionMode==='dye'){
+    // Inject velocity
+    splat(velocity, mouse.x, mouse.y, 0, 0, [dx*N*10, dy*N*10, 0], r);
+    // Inject dye
+    hue=(hue+0.7)%360;
+    const [cr,cg,cb]=hsl2rgb(hue,1,0.5);
+    splat(dye, mouse.x, mouse.y, 0, 0, [cr*params.dyeIntensity, cg*params.dyeIntensity, cb*params.dyeIntensity], r);
+  } else if(interactionMode==='obstacle'){
+    drawObstacle(mouse.x, mouse.y, r, 1.0);
+  } else if(interactionMode==='erase'){
+    drawObstacle(mouse.x, mouse.y, r*1.5, 0.0);
+  } else if(interactionMode==='temp'){
+    splat(velocity, mouse.x, mouse.y, 0, 0, [dx*N*8, dy*N*8, 0], r);
+    splat(temperature, mouse.x, mouse.y, 0, 0, [params.dyeIntensity, 0, 0], r);
+    splat(dye, mouse.x, mouse.y, 0, 0, [params.dyeIntensity*0.8, params.dyeIntensity*0.2, 0], r);
+  }
+}
+
+// --- Main loop ---
+let lastTime=0, frameCount=0, fpsTimer=0;
+function step(time){
+  requestAnimationFrame(step);
+  const dt = params.dt;
+
+  gl.viewport(0,0,N,N);
+
+  handleInput();
+
+  // 1. Advect velocity
+  advect(velocity, velocity, velocity, dt, 1.0);
+
+  // 2. Viscous diffusion
+  if(params.viscosity>1e-8) diffuse(velocity, params.viscosity, dt);
+
+  // 3. Dye diffusion
+  if(params.diffusion>1e-8) diffuse(dye, params.diffusion, dt);
+
+  // 4. Buoyancy
+  if(params.buoyancy>0.01) applyBuoyancy(dt);
+
+  // 5. Vorticity confinement
+  if(params.vorticity>0.01){
+    computeVorticity();
+    applyVorticity(dt);
+  }
+
+  // 6. Pressure projection
+  computeDivergence();
+  solvePressure();
+  subtractGradient();
+
+  // 7. Advect dye & temperature
+  advect(velocity, dye, dye, dt, 0.998);
+  advect(velocity, temperature, temperature, dt, 0.99);
+
+  // 8. Render
+  display();
+
+  // FPS
+  frameCount++;
+  fpsTimer+=time-lastTime;
+  if(fpsTimer>=1000){
+    document.getElementById('fps').textContent=frameCount+' FPS';
+    frameCount=0; fpsTimer=0;
+  }
+  lastTime=time;
+}
+
+// Initial border obstacles
+(function initBorders(){
+  const px=1.0/N;
+  for(let i=0;i<N;i++){
+    const u=(i+0.5)/N;
+    drawObstacle(u,px*0.5,px,1.0);
+    drawObstacle(u,1.0-px*0.5,px,1.0);
+    drawObstacle(px*0.5,u,px,1.0);
+    drawObstacle(1.0-px*0.5,u,px,1.0);
+  }
+})();
+
+requestAnimationFrame(step);
+
+// Resize canvas display
+function resize(){
+  const wrap=document.getElementById('canvas-wrap');
+  const sz=Math.min(wrap.clientWidth,wrap.clientHeight)-16;
+  canvas.style.width=sz+'px'; canvas.style.height=sz+'px';
+}
+window.addEventListener('resize',resize); resize();
+<\/script>
+</body>
+</html>
