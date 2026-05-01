@@ -16,6 +16,10 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import pytest
 import self_molt as sm
 
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Sample Python code fixtures
 # ---------------------------------------------------------------------------
@@ -141,6 +145,8 @@ def broken(:
 
 SCRIPT_NO_DOCSTRINGS = """
 import os
+
+
 
 def foo(x):
     return x * 2

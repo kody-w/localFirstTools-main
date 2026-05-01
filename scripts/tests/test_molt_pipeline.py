@@ -23,6 +23,12 @@ import importlib
 import molt_pipeline
 importlib.reload(molt_pipeline)
 import rank_games
+
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
 importlib.reload(rank_games)
 
 # ─── Test Data ────────────────────────────────────────────────────────────────

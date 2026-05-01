@@ -4,6 +4,13 @@ import re
 import json
 import subprocess
 import sys
+import pytest
+
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), '..', '..')
 MANIFEST_PATH = os.path.join(REPO_ROOT, 'apps', 'manifest.json')

@@ -20,6 +20,12 @@ import pytest
 # We'll import molt module functions after path setup
 import molt as molt_mod
 
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

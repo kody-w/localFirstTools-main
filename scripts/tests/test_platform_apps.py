@@ -14,6 +14,12 @@ from pathlib import Path
 
 import pytest
 
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 APPS_DIR = ROOT / "apps"
 MANIFEST_PATH = APPS_DIR / "manifest.json"

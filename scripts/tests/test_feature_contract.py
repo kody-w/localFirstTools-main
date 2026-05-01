@@ -16,6 +16,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import pytest
 import feature_contract as fc
 
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
+
 # ---------------------------------------------------------------------------
 # Sample HTML fixtures
 # ---------------------------------------------------------------------------

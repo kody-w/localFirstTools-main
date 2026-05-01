@@ -9,6 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from recombine import (
+
+
     GENE_PATTERNS,
     build_adaptive_synthesis_prompt,
     build_synthesis_prompt,
@@ -19,6 +21,10 @@ from recombine import (
     inject_lineage_tags,
     load_experience,
 )
+
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
 
 
 # ---------------------------------------------------------------------------

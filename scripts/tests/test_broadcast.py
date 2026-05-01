@@ -12,6 +12,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from generate_broadcast import (
+
+
     build_app_index,
     select_episode_apps,
     generate_review_dialogue,
@@ -21,6 +23,10 @@ from generate_broadcast import (
     get_app_stem,
     HOSTS,
 )
+
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
 
 
 # ── Mock Copilot Responses ──

@@ -14,6 +14,12 @@ from unittest import mock
 
 import pytest
 
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
+
 # We need to set up paths before importing molt
 ROOT = Path(__file__).resolve().parent.parent.parent
 

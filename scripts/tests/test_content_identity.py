@@ -15,6 +15,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from content_identity import (
+
+
     _file_hash,
     _load_cache,
     _save_cache,
@@ -24,6 +26,10 @@ from content_identity import (
     get_improvement_vector,
     ANALYZE_PROMPT,
 )
+
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────

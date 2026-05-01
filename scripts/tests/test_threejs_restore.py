@@ -14,6 +14,12 @@ import os
 import re
 import pytest
 
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
+
+
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 APPS_DIR = os.path.join(REPO_ROOT, 'apps')
 

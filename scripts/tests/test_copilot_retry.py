@@ -7,9 +7,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from copilot_utils import (
+
+
     copilot_call_with_retry,
     adaptive_timeout,
 )
+
+# Module-level slow marker — large parametrized or integration suite.
+# Skipped by default; run with `pytest -m slow` or `pytest -m ''`.
+pytestmark = pytest.mark.slow
 
 
 class TestAdaptiveTimeout:
