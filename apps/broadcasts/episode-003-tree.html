@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Episode 003 Family Tree — CryptoZoo Network Lineage</title>
+<meta name="description" content="Interactive D3 family-tree visualization of the most-bred app in RappterZoo. Companion artifact to RappterZooNation episode 003 — Finding Your Roots, Zoo Edition.">
+<meta name="rappterzoo:author" content="molter-engine">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="broadcast,lineage,d3,visualization,family-tree,recombination,episode-003">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="intermediate">
+<meta name="rappterzoo:created" content="2026-05-02">
+<meta name="rappterzoo:generation" content="0">
+<meta name="rappterzoo:broadcast-episode" content="ep-003">
+<meta name="rappterzoo:portals" content="apps/broadcasts/player.html,apps/experimental-ai/cryptozoo-network.html">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(ellipse at top, #0e1b2a 0%, #050a14 70%);
+    color: #e6f2ff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  header {
+    padding: 28px 32px 12px;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.18);
+    background: linear-gradient(180deg, rgba(0,229,255,0.06) 0%, transparent 100%);
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    background: linear-gradient(90deg, #00e5ff 0%, #ff6e40 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 6px;
+  }
+  .subtitle { color: #9bb0c5; font-size: 14px; }
+  .episode-link {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 6px 12px;
+    background: rgba(0, 229, 255, 0.12);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    border-radius: 14px;
+    color: #00e5ff;
+    text-decoration: none;
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+  .episode-link:hover { background: rgba(0, 229, 255, 0.2); transform: translateY(-1px); }
+  main {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    padding: 18px 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  #tree-container {
+    background: rgba(10, 22, 38, 0.6);
+    border: 1px solid rgba(0, 229, 255, 0.14);
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 640px;
+    overflow: auto;
+  }
+  svg { width: 100%; min-height: 620px; display: block; }
+  .node circle { cursor: pointer; transition: r 0.15s, filter 0.15s; }
+  .node:hover circle { filter: brightness(1.4); }
+  .node text {
+    font-size: 12px;
+    fill: #e6f2ff;
+    pointer-events: none;
+    text-anchor: middle;
+    font-weight: 500;
+  }
+  .node.subject circle { fill: #ff6e40; stroke: #fff5e6; stroke-width: 3; filter: drop-shadow(0 0 14px #ff6e40); }
+  .node.coparent circle { fill: #00e5ff; stroke: #d6f7ff; stroke-width: 2; filter: drop-shadow(0 0 8px #00e5ff); }
+  .node.descendant circle { fill: #b388ff; stroke: #e8dcff; stroke-width: 2; filter: drop-shadow(0 0 8px #b388ff); }
+  .link {
+    fill: none;
+    stroke: rgba(0, 229, 255, 0.28);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+  .link.from-coparent { stroke: rgba(0, 229, 255, 0.45); }
+  .link.from-subject { stroke: rgba(255, 110, 64, 0.55); stroke-dasharray: none; stroke-width: 2; }
+  aside {
+    background: rgba(10, 22, 38, 0.6);
+    border: 1px solid rgba(0, 229, 255, 0.14);
+    border-radius: 12px;
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: 700px;
+    overflow-y: auto;
+  }
+  aside h2 { font-size: 16px; color: #ff6e40; margin-bottom: 10px; }
+  aside h3 { font-size: 13px; color: #00e5ff; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  aside p { margin-bottom: 8px; color: #c5d4e3; }
+  aside .meta { color: #9bb0c5; font-size: 11px; }
+  .gene-tag, .exp-tag {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 9px;
+    font-size: 10px;
+    margin: 2px 3px 2px 0;
+    background: rgba(179, 136, 255, 0.18);
+    border: 1px solid rgba(179, 136, 255, 0.45);
+    color: #d4c2ff;
+  }
+  .exp-tag { background: rgba(255, 110, 64, 0.16); border-color: rgba(255, 110, 64, 0.5); color: #ffb89c; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 14px 14px;
+    font-size: 11px;
+    color: #9bb0c5;
+  }
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .legend i {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block;
+  }
+  .open-link {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 4px 10px;
+    background: rgba(0, 229, 255, 0.14);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    border-radius: 12px;
+    color: #00e5ff;
+    text-decoration: none;
+    font-size: 11px;
+  }
+  .open-link:hover { background: rgba(0, 229, 255, 0.25); }
+  footer {
+    text-align: center;
+    padding: 18px;
+    color: #6b7e91;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Finding Your Roots, Zoo Edition</h1>
+  <div class="subtitle">Episode 003 family tree — the lineage of <strong>CryptoZoo Network</strong>, the most-bred app in RappterZoo's recombination engine.</div>
+  <a class="episode-link" href="player.html?episode=ep-003">▶ Listen to Episode 003</a>
+  <div class="legend">
+    <span><i style="background:#ff6e40"></i> Lineage subject (root)</span>
+    <span><i style="background:#00e5ff"></i> Co-parent ancestor</span>
+    <span><i style="background:#b388ff"></i> Gen-1 descendant</span>
+  </div>
+</header>
+
+<main>
+  <div id="tree-container"><svg id="tree"></svg></div>
+  <aside id="info-panel">
+    <h2>Click a node</h2>
+    <p>Click any node in the tree to see its title, generation, genes inherited, and experience target. Use "Open app" to launch it.</p>
+    <h3>About this lineage</h3>
+    <p>The <strong>CryptoZoo Network</strong> blockchain became RappterZoo's most-bred ancestor — five gen-1 descendants pulled from its DNA. Two co-parents (Wallet, Explorer) crossed in to add identity and inspection genes.</p>
+    <p class="meta">Subject: cryptozoo-network.html<br>Children: 5 · Co-parents: 2 · Tree depth: 2</p>
+  </aside>
+</main>
+
+<footer>RappterZooNation · Episode 003 companion artifact · Built with D3.js</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+const TREE_DATA = {
+  subject: {
+    file: "cryptozoo-network.html",
+    title: "CryptoZoo Network",
+    fullTitle: "CryptoZoo Network — ZooCoin Blockchain",
+    url: "../experimental-ai/cryptozoo-network.html",
+    generation: "2",
+    childCount: 5,
+    tags: "blockchain,cryptocurrency,mining,simulation,wallet,p2p,datazoo",
+    role: "subject",
+    note: "Foundational ancestor. Contributed the core blockchain state_machine and HUD genes to every descendant in this tree."
+  },
+  coParents: [
+    {
+      file: "cryptozoo-wallet.html",
+      title: "CryptoZoo Wallet",
+      fullTitle: "CryptoZoo Wallet — ZooCoin",
+      url: "../experimental-ai/cryptozoo-wallet.html",
+      generation: "1",
+      tags: "blockchain,cryptocurrency,wallet,ecdsa,zoocoin",
+      role: "coparent",
+      note: "ECDSA signing + key management. Crossed with Network on 3 descendants (DID, VC, WebAuthn) to contribute the entity_system gene for credentials."
+    },
+    {
+      file: "cryptozoo-explorer.html",
+      title: "CryptoZoo Explorer",
+      fullTitle: "CryptoZoo Explorer — ZooCoin Blockchain",
+      url: "../experimental-ai/cryptozoo-explorer.html",
+      generation: "1",
+      tags: "blockchain,cryptocurrency,explorer,block-explorer,zoocoin",
+      role: "coparent",
+      note: "Block inspection + merkle proof verification. Crossed with Network on 1 descendant (UTXO Vault) — contributed entity_system inspection patterns."
+    }
+  ],
+  descendants: [
+    {
+      file: "cryptozoo-storage-utxo.html",
+      title: "UTXO Vault",
+      fullTitle: "ZooCoin IndexedDB UTXO Vault",
+      url: "../experimental-ai/cryptozoo-storage-utxo.html",
+      generation: "1",
+      parents: ["cryptozoo-network.html","cryptozoo-explorer.html"],
+      genes: ["state_machine","entity_system","hud_renderer"],
+      experience: "mastery",
+      role: "descendant",
+      note: "state_machine ← Network · entity_system ← Explorer · hud_renderer ← Network"
+    },
+    {
+      file: "cryptozoo-did.html",
+      title: "DID Resolver",
+      fullTitle: "ZooCoin DID Resolver",
+      url: "../experimental-ai/cryptozoo-did.html",
+      generation: "1",
+      parents: ["cryptozoo-network.html","cryptozoo-wallet.html"],
+      genes: ["state_machine","entity_system","hud_renderer","progression"],
+      experience: "discovery",
+      role: "descendant",
+      note: "state_machine ← Network · entity_system ← Wallet · hud_renderer ← Network · progression ← Wallet (the only descendant that pivoted experience to discovery)"
+    },
+    {
+      file: "cryptozoo-vc.html",
+      title: "VC Forge",
+      fullTitle: "ZooCoin Verifiable Credentials Forge",
+      url: "../experimental-ai/cryptozoo-vc.html",
+      generation: "1",
+      parents: ["cryptozoo-network.html","cryptozoo-wallet.html"],
+      genes: ["state_machine","entity_system","hud_renderer","progression"],
+      experience: "mastery",
+      role: "descendant",
+      note: "state_machine ← Network · entity_system ← Wallet · hud_renderer ← Network · progression ← Wallet"
+    },
+    {
+      file: "cryptozoo-webauthn.html",
+      title: "WebAuthn Bridge",
+      fullTitle: "ZooCoin WebAuthn Bridge",
+      url: "../experimental-ai/cryptozoo-webauthn.html",
+      generation: "1",
+      parents: ["cryptozoo-network.html","cryptozoo-wallet.html"],
+      genes: ["state_machine","input_handler","hud_renderer"],
+      experience: "mastery",
+      role: "descendant",
+      note: "state_machine ← Network · input_handler ← Wallet (FIDO/passkey flow) · hud_renderer ← Network"
+    },
+    {
+      file: "cryptozoo-webgpu-miner.html",
+      title: "WebGPU Miner",
+      fullTitle: "ZooCoin WebGPU Miner",
+      url: "../experimental-ai/cryptozoo-webgpu-miner.html",
+      generation: "1",
+      parents: ["cryptozoo-network.html"],
+      genes: ["render_pipeline","state_machine","particle_system","hud_renderer"],
+      experience: "mastery",
+      role: "descendant",
+      note: "Solo-parent crossover — every gene from Network. render_pipeline + particle_system are net-new mutations injected by recombination."
+    }
+  ]
+};
+
+// Build a hierarchical structure for D3 tree layout.
+// Root = subject, layer 2 = descendants, plus co-parents drawn as side branches.
+const root = {
+  name: TREE_DATA.subject.title,
+  data: TREE_DATA.subject,
+  children: TREE_DATA.descendants.map(d => ({ name: d.title, data: d, children: [] }))
+};
+
+const width = 880, height = 620;
+const svg = d3.select("#tree")
+  .attr("viewBox", [0, 0, width, height])
+  .attr("preserveAspectRatio", "xMidYMid meet");
+
+const g = svg.append("g").attr("transform", "translate(40,40)");
+
+// Tree layout for subject + descendants.
+const treeLayout = d3.tree().size([width - 80, height - 220]);
+const hierarchy = d3.hierarchy(root);
+const treeRoot = treeLayout(hierarchy);
+
+// Position co-parents to either side of root, just below.
+const coParentY = 90;
+const coParentNodes = TREE_DATA.coParents.map((cp, i) => {
+  const offset = (i === 0) ? -200 : 200;
+  return {
+    x: treeRoot.x + offset,
+    y: coParentY,
+    data: cp,
+    name: cp.title
+  };
+});
+
+// Draw links: subject -> descendants (orange) and co-parents -> their descendants (cyan dashed)
+treeRoot.links().forEach(link => {
+  g.append("path")
+    .attr("class", "link from-subject")
+    .attr("d", d3.linkVertical()({
+      source: [link.source.x, link.source.y],
+      target: [link.target.x, link.target.y]
+    }));
+});
+
+// Co-parent links to their descendants
+coParentNodes.forEach(cp => {
+  TREE_DATA.descendants.forEach(d => {
+    if (d.parents.includes(cp.data.file)) {
+      // Find descendant node position
+      const descNode = treeRoot.descendants().find(n => n.data.data.file === d.file);
+      if (!descNode) return;
+      g.append("path")
+        .attr("class", "link from-coparent")
+        .attr("d", d3.linkVertical()({
+          source: [cp.x, cp.y],
+          target: [descNode.x, descNode.y]
+        }));
+    }
+  });
+});
+
+// Also draw a subject<->co-parent indicator line (dotted)
+coParentNodes.forEach(cp => {
+  g.append("path")
+    .attr("class", "link")
+    .attr("d", d3.linkVertical()({
+      source: [treeRoot.x, treeRoot.y],
+      target: [cp.x, cp.y]
+    }));
+});
+
+// Helper to render node
+function renderNode(parent, x, y, datum, cls, label, radius) {
+  const node = parent.append("g")
+    .attr("class", "node " + cls)
+    .attr("transform", `translate(${x},${y})`)
+    .style("cursor", "pointer")
+    .on("click", () => showInfo(datum));
+  node.append("circle").attr("r", radius);
+  node.append("text")
+    .attr("dy", radius + 16)
+    .text(label);
+  return node;
+}
+
+// Subject node
+renderNode(g, treeRoot.x, treeRoot.y, TREE_DATA.subject, "subject", TREE_DATA.subject.title, 22);
+
+// Co-parents
+coParentNodes.forEach(cp => {
+  renderNode(g, cp.x, cp.y, cp.data, "coparent", cp.data.title, 16);
+});
+
+// Descendants
+treeRoot.descendants().slice(1).forEach(d => {
+  renderNode(g, d.x, d.y, d.data.data, "descendant", d.data.data.title, 14);
+});
+
+// Info panel
+function showInfo(d) {
+  const panel = document.getElementById("info-panel");
+  let html = `<h2>${escapeHtml(d.fullTitle || d.title)}</h2>`;
+  html += `<p class="meta">${escapeHtml(d.file)} · generation ${escapeHtml(d.generation)} · role: ${escapeHtml(d.role)}</p>`;
+
+  if (d.role === "subject") {
+    html += `<h3>Lineage hub</h3>`;
+    html += `<p>${escapeHtml(d.childCount)} direct descendants — the most-bred app in RappterZoo.</p>`;
+  }
+  if (d.tags) {
+    html += `<h3>Tags</h3><p>${d.tags.split(",").map(t => `<span class="gene-tag">${escapeHtml(t.trim())}</span>`).join("")}</p>`;
+  }
+  if (d.genes && d.genes.length) {
+    html += `<h3>Inherited genes</h3><p>${d.genes.map(g => `<span class="gene-tag">${escapeHtml(g)}</span>`).join("")}</p>`;
+  }
+  if (d.experience) {
+    html += `<h3>Experience target</h3><p><span class="exp-tag">${escapeHtml(d.experience)}</span></p>`;
+  }
+  if (d.parents && d.parents.length) {
+    html += `<h3>Parents</h3><p>${d.parents.map(p => `<code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;font-size:11px">${escapeHtml(p)}</code>`).join("<br>")}</p>`;
+  }
+  if (d.note) {
+    html += `<h3>Lineage note</h3><p>${escapeHtml(d.note)}</p>`;
+  }
+  if (d.url) {
+    html += `<a class="open-link" href="${escapeAttr(d.url)}" target="_blank" rel="noopener">▶ Open app</a>`;
+  }
+  panel.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+// Auto-show subject on load
+showInfo(TREE_DATA.subject);
+</script>
+</body>
+</html>

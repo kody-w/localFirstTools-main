@@ -207,11 +207,52 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
 
   let feed = null;
   let currentEpisode = null;
-  let audio = new Audio();
   let isPlaying = false;
-  let analyser = null;
-  let audioCtx = null;
   let animFrame = null;
+
+  // ── TTS Voice Engine ──
+  const synth = window.speechSynthesis || null;
+  let voices = [];
+  let voiceMap = { Rapptr: null, ZooKeeper: null };
+  let utteranceList = [];
+  let currentLineIdx = 0;
+  let currentVolume = 1.0;
+
+  function pickVoices(){
+    if(!synth) return false;
+    voices = synth.getVoices();
+    if(!voices.length) return false;
+    const en = voices.filter(v => /^en/i.test(v.lang));
+    const pool = en.length ? en : voices;
+    const femaleHints = /samantha|karen|tessa|moira|fiona|allison|susan|victoria|kate|ava|female|zira|jenny/i;
+    const maleHints = /daniel|aaron|alex|tom|fred|reed|oliver|jamie|male|david|mark|ryan/i;
+    voiceMap.Rapptr = pool.find(v => femaleHints.test(v.name)) || pool[0];
+    voiceMap.ZooKeeper = pool.find(v => maleHints.test(v.name) && v !== voiceMap.Rapptr) || pool[1] || pool[0];
+    return true;
+  }
+  if(synth){
+    pickVoices();
+    if(synth.onvoiceschanged !== undefined){
+      synth.addEventListener('voiceschanged', pickVoices);
+    }
+  }
+
+  function buildUtterances(ep){
+    const list = [];
+    for(const seg of ep.segments || []){
+      if(seg.type === 'transition') continue;
+      if(seg.dialogue){
+        for(const line of seg.dialogue){
+          list.push({ host: line.host, text: line.text });
+        }
+      } else if(seg.text && seg.host){
+        list.push({ host: seg.host, text: seg.text });
+      } else if(seg.text){
+        list.push({ host: 'Rapptr', text: seg.text });
+      }
+    }
+    return list;
+  }
 
   // ── State ──
   const state = {
@@ -399,39 +440,95 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
     return html;
   }
 
-  // ── Audio ──
+  // ── Audio (Web Speech TTS) ──
   function loadAudio(ep){
     const bar = document.getElementById('playerBar');
     bar.classList.remove('hidden');
     document.getElementById('playerTitle').textContent = ep.title;
 
-    // Resolve audio path
-    let audioSrc = ep.audioFile || '';
-    if(audioSrc.startsWith('apps/broadcasts/')){
-      audioSrc = APP_BASE + audioSrc;
-    }
-
-    audio.src = audioSrc;
-    audio.volume = parseFloat(document.getElementById('volumeSlider').value);
-
-    // Restore position
+    if(synth) synth.cancel();
+    isPlaying = false;
+    utteranceList = buildUtterances(ep);
     const saved = state.position[ep.id];
-    if(saved) audio.currentTime = saved;
+    currentLineIdx = (typeof saved === 'number' && saved < utteranceList.length) ? saved : 0;
+    currentVolume = parseFloat(document.getElementById('volumeSlider').value);
 
-    document.getElementById('totalTime').textContent = ep.duration || '0:00';
+    updateProgress();
     updatePlayButton();
   }
 
   function togglePlay(){
-    if(!audio.src) return;
-    if(isPlaying){
-      audio.pause();
-    } else {
-      audio.play().catch(()=>{});
-      initWaveform();
+    if(!synth){
+      alert('Your browser does not support Web Speech. Episodes are voice-synthesized at playback time.');
+      return;
     }
-    isPlaying = !isPlaying;
+    if(!utteranceList.length) return;
+    if(isPlaying){
+      synth.cancel();
+      isPlaying = false;
+    } else {
+      if(currentLineIdx >= utteranceList.length) currentLineIdx = 0;
+      isPlaying = true;
+      speakNext();
+      startSpeakingPulse();
+    }
     updatePlayButton();
+  }
+
+  function speakNext(){
+    if(!isPlaying) return;
+    if(currentLineIdx >= utteranceList.length){
+      isPlaying = false;
+      if(currentEpisode){
+        state.listened[currentEpisode.id] = true;
+        delete state.position[currentEpisode.id];
+        saveState();
+        renderEpisodeList(document.getElementById('search').value);
+      }
+      updatePlayButton();
+      return;
+    }
+    const item = utteranceList[currentLineIdx];
+    const u = new SpeechSynthesisUtterance(item.text);
+    u.voice = voiceMap[item.host] || voiceMap.Rapptr || null;
+    u.volume = currentVolume;
+    u.rate = item.host === 'Rapptr' ? 1.1 : 0.95;
+    u.pitch = item.host === 'Rapptr' ? 1.15 : 0.85;
+    u.onstart = () => {
+      highlightLine(currentLineIdx);
+      if(currentEpisode){
+        state.position[currentEpisode.id] = currentLineIdx;
+        saveState();
+      }
+      updateProgress();
+    };
+    u.onend = () => {
+      if(!isPlaying) return;
+      currentLineIdx++;
+      speakNext();
+    };
+    u.onerror = () => {
+      currentLineIdx++;
+      if(isPlaying) speakNext();
+    };
+    synth.speak(u);
+  }
+
+  function updateProgress(){
+    if(!utteranceList.length) return;
+    const pct = (currentLineIdx / utteranceList.length) * 100;
+    document.getElementById('progressFill').style.width = pct + '%';
+    const wpm = 165;
+    const wordsSoFar = utteranceList.slice(0, currentLineIdx).reduce((a,x) => a + x.text.split(/\s+/).length, 0);
+    const wordsTotal = utteranceList.reduce((a,x) => a + x.text.split(/\s+/).length, 0);
+    document.getElementById('currentTime').textContent = formatTime(wordsSoFar / wpm * 60);
+    document.getElementById('totalTime').textContent = formatTime(wordsTotal / wpm * 60);
+  }
+
+  function highlightLine(idx){
+    const lines = document.querySelectorAll('.dialogue-line');
+    lines.forEach((l,i) => l.classList.toggle('highlight', i === idx));
+    if(lines[idx]) lines[idx].scrollIntoView({behavior:'smooth',block:'center'});
   }
 
   function updatePlayButton(){
@@ -443,84 +540,33 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
     }
   }
 
-  // ── Waveform ──
-  function initWaveform(){
-    if(analyser) return;
-    try{
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtx.createMediaElementSource(audio);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      source.connect(analyser);
-      analyser.connect(audioCtx.destination);
-      document.getElementById('waveformContainer').classList.add('visible');
-      drawWaveform();
-    }catch(e){}
-  }
-
-  function drawWaveform(){
-    if(!analyser) return;
+  // ── Waveform (speaking-pulse animation, synth-driven) ──
+  function startSpeakingPulse(){
+    document.getElementById('waveformContainer').classList.add('visible');
     const canvas = document.getElementById('waveformCanvas');
     const ctx = canvas.getContext('2d');
-    const data = new Uint8Array(analyser.frequencyBinCount);
-
-    function draw(){
-      animFrame = requestAnimationFrame(draw);
-      analyser.getByteFrequencyData(data);
+    let t = 0;
+    function step(){
+      animFrame = requestAnimationFrame(step);
+      t += 0.08;
       ctx.clearRect(0,0,canvas.width,canvas.height);
-
-      const barW = canvas.width / data.length;
-      for(let i=0;i<data.length;i++){
-        const h = (data[i]/255) * canvas.height;
-        const hue = 180 + (i/data.length)*40;
-        ctx.fillStyle = `hsla(${hue},100%,65%,0.8)`;
+      const bars = 16;
+      const barW = canvas.width / bars;
+      const active = synth && synth.speaking;
+      for(let i=0;i<bars;i++){
+        const amp = active ? 1 : 0.15;
+        const h = (Math.sin(t + i*0.6) * 0.5 + 0.5) * canvas.height * amp;
+        const hue = 180 + (i/bars)*40;
+        ctx.fillStyle = `hsla(${hue},100%,65%,0.85)`;
         ctx.fillRect(i*barW, canvas.height-h, barW-1, h);
       }
-    }
-    draw();
-  }
-
-  // ── Audio events ──
-  audio.addEventListener('timeupdate', () => {
-    if(!currentEpisode) return;
-    const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-    document.getElementById('progressFill').style.width = pct + '%';
-    document.getElementById('currentTime').textContent = formatTime(audio.currentTime);
-    if(audio.duration) document.getElementById('totalTime').textContent = formatTime(audio.duration);
-
-    // Save position
-    state.position[currentEpisode.id] = audio.currentTime;
-    saveState();
-
-    // Highlight current segment
-    highlightSegment(audio.currentTime, audio.duration);
-  });
-
-  audio.addEventListener('ended', () => {
-    isPlaying = false;
-    updatePlayButton();
-    if(currentEpisode){
-      state.listened[currentEpisode.id] = true;
-      delete state.position[currentEpisode.id];
-      saveState();
-      renderEpisodeList(document.getElementById('search').value);
+      if(!isPlaying){
+        cancelAnimationFrame(animFrame);
+        animFrame = null;
+      }
     }
     if(animFrame) cancelAnimationFrame(animFrame);
-  });
-
-  audio.addEventListener('error', () => {
-    // Audio file not available — still show transcript
-    document.getElementById('totalTime').textContent = currentEpisode?.duration || '—';
-  });
-
-  function highlightSegment(time, duration){
-    if(!duration) return;
-    const lines = document.querySelectorAll('.dialogue-line');
-    if(!lines.length) return;
-    const pct = time / duration;
-    const idx = Math.floor(pct * lines.length);
-    lines.forEach((l,i) => l.classList.toggle('highlight', i === idx));
-    if(lines[idx]) lines[idx].scrollIntoView({behavior:'smooth',block:'center'});
+    step();
   }
 
   // ── UI Bindings ──
@@ -528,14 +574,25 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
   document.getElementById('backBtn').addEventListener('click', hideEpisode);
 
   document.getElementById('progressBar').addEventListener('click', (e) => {
-    if(!audio.duration) return;
-    const rect = e.target.getBoundingClientRect();
+    if(!utteranceList.length) return;
+    const rect = e.currentTarget.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
-    audio.currentTime = pct * audio.duration;
+    const wasPlaying = isPlaying;
+    if(synth) synth.cancel();
+    isPlaying = false;
+    currentLineIdx = Math.max(0, Math.min(utteranceList.length - 1, Math.floor(pct * utteranceList.length)));
+    updateProgress();
+    highlightLine(currentLineIdx);
+    if(wasPlaying){
+      isPlaying = true;
+      speakNext();
+      startSpeakingPulse();
+    }
+    updatePlayButton();
   });
 
   document.getElementById('volumeSlider').addEventListener('input', (e) => {
-    audio.volume = parseFloat(e.target.value);
+    currentVolume = parseFloat(e.target.value);
   });
 
   document.getElementById('search').addEventListener('input', (e) => {
