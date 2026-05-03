@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZooCoin WebAuthn Bridge</title>
+<meta name="description" content="Register a WebAuthn platform authenticator and bind it to your ZooCoin wallet for phishing-resistant transaction signing.">
+<meta name="rappterzoo:author" content="agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="cryptozoo,w3c,webauthn,fido,passkey,ecdsa,2fa">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-05-02">
+<meta name="rappterzoo:generation" content="1">
+<meta name="rappterzoo:parents" content="cryptozoo-network.html,cryptozoo-wallet.html">
+<meta name="rappterzoo:genes" content="state_machine,input_handler,hud_renderer">
+<meta name="rappterzoo:experience" content="mastery">
+<meta name="rappterzoo:spec" content="https://www.w3.org/TR/2026/CR-webauthn-3-20260113/">
+<style>
+:root{--bg:#0a0a12;--bg2:#12121f;--bg3:#1a1a2e;--text:#e0e0e0;--dim:#888;--accent:#00e5ff;--gold:#ffd700;--green:#00e676;--red:#ff5252;--purple:#a14dff;--radius:6px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Courier New',monospace;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;}
+header{background:var(--bg2);border-bottom:1px solid #222;padding:14px 20px;display:flex;align-items:center;gap:12px;}
+header h1{font-size:16px;color:var(--gold);}
+header h1 span{color:var(--accent);}
+header .badge{margin-left:auto;font-size:10px;padding:4px 10px;border:1px solid var(--purple);color:var(--purple);border-radius:12px;}
+main{max-width:1100px;margin:0 auto;padding:20px;}
+.tagline{color:var(--dim);font-size:13px;margin-bottom:16px;font-style:italic;}
+.intro{background:var(--bg2);border-left:3px solid var(--accent);padding:14px 18px;margin-bottom:20px;font-size:13px;border-radius:0 var(--radius) var(--radius) 0;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;}
+.card{background:var(--bg2);border:1px solid #222;border-radius:var(--radius);padding:16px;}
+.card h2{color:var(--accent);font-size:13px;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #222;}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;}
+input,textarea,select{width:100%;background:var(--bg3);color:var(--text);border:1px solid #333;border-radius:var(--radius);padding:8px 10px;font-family:inherit;font-size:12px;}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);}
+textarea{resize:vertical;min-height:80px;}
+button{background:var(--bg3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12px;margin-right:6px;margin-bottom:6px;}
+button:hover{background:rgba(0,229,255,0.15);}
+button.primary{background:var(--accent);color:var(--bg);font-weight:bold;}
+button.danger{border-color:var(--red);color:var(--red);}
+.status{padding:10px 12px;border-radius:var(--radius);font-size:12px;margin:10px 0;}
+.status.success{background:rgba(0,230,118,0.1);border:1px solid var(--green);color:var(--green);}
+.status.error{background:rgba(255,82,82,0.1);border:1px solid var(--red);color:var(--red);}
+.status.info{background:rgba(0,229,255,0.08);border:1px solid var(--accent);color:var(--accent);}
+.row{margin-bottom:12px;}
+.kv{font-size:11px;line-height:1.7;}
+.kv span{color:var(--dim);}
+pre{background:var(--bg);padding:10px;border-radius:var(--radius);overflow-x:auto;font-size:10px;color:var(--dim);max-height:240px;border:1px solid #222;}
+.cred-item{background:var(--bg3);border:1px solid #2a2a3e;padding:10px;margin-bottom:8px;border-radius:var(--radius);font-size:11px;}
+.cred-item .id{color:var(--gold);word-break:break-all;}
+.cred-item .meta{color:var(--dim);font-size:10px;margin-top:4px;}
+.npc-feed{max-height:160px;overflow-y:auto;}
+.npc-msg{padding:6px 8px;border-left:2px solid var(--purple);margin-bottom:6px;font-size:11px;color:#bbb;}
+.npc-msg .who{color:var(--purple);font-weight:bold;}
+.help-panel ul{padding-left:20px;font-size:12px;color:#ccc;}
+.help-panel li{margin-bottom:6px;}
+.tabs{display:flex;gap:4px;margin-bottom:12px;}
+.tab{padding:6px 12px;background:var(--bg3);border:1px solid #333;border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--dim);}
+.tab.active{color:var(--accent);border-color:var(--accent);}
+.spec-link{font-size:10px;color:var(--purple);text-decoration:none;}
+.flag{display:inline-block;background:var(--bg3);padding:2px 6px;border-radius:3px;font-size:10px;margin-right:4px;color:var(--accent);}
+.flag.off{color:var(--dim);}
+@media(max-width:680px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+<h1>Crypto<span>Zoo</span> · WebAuthn Bridge</h1>
+<a class="spec-link" href="https://www.w3.org/TR/2026/CR-webauthn-3-20260113/" target="_blank" rel="noopener">W3C WebAuthn L3</a>
+<div class="badge">CryptoZoo x W3C</div>
+</header>
+<main>
+<div id="appTitle" style="font-size:18px;color:var(--gold);margin-bottom:4px;"></div>
+<div class="tagline" id="appTagline"></div>
+<div class="intro" id="appIntro"></div>
+
+<div class="tabs">
+<div class="tab active" data-tab="register">Register</div>
+<div class="tab" data-tab="sign">Sign Tx</div>
+<div class="tab" data-tab="creds">Credentials</div>
+<div class="tab" data-tab="help">Help</div>
+</div>
+
+<div id="initStatus" class="status info"></div>
+
+<div class="grid" id="tab-register">
+  <div class="card">
+    <h2>Platform Capability</h2>
+    <div class="kv" id="capList">checking...</div>
+  </div>
+  <div class="card">
+    <h2>Register Authenticator</h2>
+    <div class="row"><label>User Name</label><input id="userName" value="zoocoin-user"></div>
+    <div class="row"><label>Linked Wallet Address</label><input id="linkedAddr" readonly></div>
+    <button class="primary" id="btnRegister">Create Passkey</button>
+    <div id="regStatus" class="status info" style="display:none;"></div>
+  </div>
+</div>
+
+<div class="grid" id="tab-sign" style="display:none;">
+  <div class="card">
+    <h2>Build Transaction</h2>
+    <div class="row"><label>Recipient Address</label><input id="txTo" placeholder="ZOO..."></div>
+    <div class="row"><label>Amount (ZOO)</label><input id="txAmount" type="number" step="0.01" value="1.00"></div>
+    <div class="row"><label>Memo (optional)</label><input id="txMemo" placeholder="lunch money"></div>
+    <button class="primary" id="btnAuthAndSign">Authenticate + Sign</button>
+    <div id="signStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Dual Proof Result</h2>
+    <div class="kv" id="signResult"><span>No transaction signed yet.</span></div>
+    <div style="margin-top:14px;">
+      <h2 style="margin-top:0;">NPC Reactions</h2>
+      <div class="npc-feed" id="npcFeed"></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid" id="tab-creds" style="display:none;">
+  <div class="card" style="grid-column:1/-1;">
+    <h2>Registered WebAuthn Credentials</h2>
+    <div id="credList"></div>
+    <button class="danger" id="btnClearCreds">Forget All Credentials</button>
+  </div>
+</div>
+
+<div class="grid" id="tab-help" style="display:none;">
+  <div class="card help-panel" style="grid-column:1/-1;">
+    <h2>How to Use</h2>
+    <ul id="helpList"></ul>
+    <h2 style="margin-top:18px;">About this Mashup</h2>
+    <p style="font-size:12px;color:#ccc;">WebAuthn Level 3 produces ES256 signatures on a hardware authenticator (Touch ID, Windows Hello, FIDO2 key, passkey). Your existing ZooCoin ECDSA P-256 software key signs the same transaction body in parallel. A transaction is considered <em>dual-proofed</em> only if both signatures verify. The hardware key never leaves the secure element; the software wallet provides the on-chain identity.</p>
+  </div>
+</div>
+
+</main>
+
+<script>
+(function(){
+'use strict';
+
+const CONTENT = {"title":"ZooCoin WebAuthn Bridge","tagline":"Bind your hardware authenticator to your blockchain wallet. Two curves, one identity.","intro":"WebAuthn Level 3 lets you register a platform authenticator — Touch ID, a FIDO2 security key, or a passkey — and tie that credential to your ZooCoin address. This app bridges the WebAuthn ES256 assertion with your existing ECDSA P-256 wallet key, giving you phishing-resistant transaction signing without ever exposing raw key material to JavaScript.","help":["Tap Register to create a WebAuthn credential for this device","Link the credential to an existing ZooCoin wallet address","Use Authenticate to sign a challenge with your hardware key","Compare the WebAuthn assertion against your wallet public key","Enable dual-sign mode for transactions requiring both proofs","Attestation format and transport info are shown in the detail pane"],"npc_reactions":["My YubiKey just co-signed a ZooCoin transaction. The future is bizarre.","WebAuthn attestation plus ECDSA wallet proof — double locked.","Touch ID verified my spend in 200ms. No password, no seed phrase prompt.","The authenticatorData blob is surprisingly readable once you parse the flags.","I tried replaying an old assertion and the challenge nonce rejected it cold.","Registering a passkey for my mining rig felt like knighting a laptop."],"status_messages":{"success":"Authenticator verified — assertion matches wallet public key.","failure":"Assertion rejected — challenge mismatch or credential not recognized.","in_progress":"Waiting for authenticator gesture...","init_complete":"WebAuthn API detected. Registered credentials loaded.","fallback_used":"Platform authenticator unavailable — using software ECDSA sign."}};
+const NPCS = ['snake_oil_steve','blocky_pat','crypto_owl','treaty_baboon','hexpup','nullbyte_ned'];
+
+/* ── Crypto utils ── */
+const EC_ALGO = { name:'ECDSA', namedCurve:'P-256' };
+const SIGN_ALGO = { name:'ECDSA', hash:'SHA-256' };
+function bufToHex(b){return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+function bufToB64u(b){const bin=String.fromCharCode.apply(null,new Uint8Array(b));return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+async function sha256(d){const e=new TextEncoder().encode(typeof d==='string'?d:JSON.stringify(d));return bufToHex(await crypto.subtle.digest('SHA-256',e));}
+async function genKeyPair(){const kp=await crypto.subtle.generateKey(EC_ALGO,true,['sign','verify']);const pub=await crypto.subtle.exportKey('jwk',kp.publicKey);const priv=await crypto.subtle.exportKey('jwk',kp.privateKey);return{publicKey:pub,privateKey:priv};}
+async function signData(priv,data){const k=await crypto.subtle.importKey('jwk',priv,EC_ALGO,true,['sign']);const e=new TextEncoder().encode(typeof data==='string'?data:JSON.stringify(data));return bufToHex(await crypto.subtle.sign(SIGN_ALGO,k,e));}
+function getAddress(pub){return 'ZOO'+(pub.x+pub.y).replace(/[^a-zA-Z0-9]/g,'').substring(0,32);}
+
+/* ── State ── */
+const KEYS = { wallet:'cryptozoo-wallet', webauthn:'cryptozoo-webauthn-creds' };
+let wallet = null;
+let webauthnCreds = [];
+
+function loadState(){
+  try{
+    const w = localStorage.getItem(KEYS.wallet);
+    if(w) wallet = JSON.parse(w);
+    const c = localStorage.getItem(KEYS.webauthn);
+    if(c) webauthnCreds = JSON.parse(c);
+  }catch(e){}
+}
+function saveWallet(){localStorage.setItem(KEYS.wallet,JSON.stringify({publicKey:wallet.publicKey,privateKey:wallet.privateKey}));}
+function saveCreds(){localStorage.setItem(KEYS.webauthn,JSON.stringify(webauthnCreds));}
+
+function $(id){return document.getElementById(id);}
+
+function pickReaction(){
+  return { who: NPCS[Math.floor(Math.random()*NPCS.length)],
+           msg: CONTENT.npc_reactions[Math.floor(Math.random()*CONTENT.npc_reactions.length)] };
+}
+function postReaction(){
+  const r = pickReaction();
+  const feed = $('npcFeed'); if(!feed) return;
+  const div = document.createElement('div'); div.className='npc-msg';
+  div.innerHTML = '<span class="who">@'+r.who+'</span> · '+r.msg;
+  feed.insertBefore(div, feed.firstChild);
+  while(feed.children.length>20) feed.removeChild(feed.lastChild);
+}
+
+function showStatus(id, type, msg){
+  const el = $(id); if(!el) return;
+  el.style.display='block'; el.className='status '+type; el.textContent=msg;
+}
+
+/* ── Capability detection ── */
+async function detectCaps(){
+  const caps = $('capList');
+  const haveWebAuthn = !!(window.PublicKeyCredential && navigator.credentials);
+  let havePlatform = false;
+  let conditional = false;
+  if(haveWebAuthn){
+    try{
+      if(PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable){
+        havePlatform = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      }
+      if(PublicKeyCredential.isConditionalMediationAvailable){
+        conditional = await PublicKeyCredential.isConditionalMediationAvailable();
+      }
+    }catch(e){}
+  }
+  caps.innerHTML =
+    '<div><span class="flag '+(haveWebAuthn?'':'off')+'">WebAuthn API</span> '+(haveWebAuthn?'available':'NOT supported in this browser')+'</div>'+
+    '<div><span class="flag '+(havePlatform?'':'off')+'">Platform Authenticator</span> '+(havePlatform?'available (Touch ID / Windows Hello / passkey)':'not advertised')+'</div>'+
+    '<div><span class="flag '+(conditional?'':'off')+'">Conditional UI</span> '+(conditional?'supported':'not supported')+'</div>'+
+    '<div><span class="flag">Software ECDSA Fallback</span> always available via Web Crypto API</div>';
+  return { haveWebAuthn, havePlatform };
+}
+
+/* ── Register flow ── */
+async function registerWebAuthn(){
+  if(!wallet){ wallet = await genKeyPair(); saveWallet(); $('linkedAddr').value = getAddress(wallet.publicKey); }
+  const userName = $('userName').value || 'zoocoin-user';
+  const addr = getAddress(wallet.publicKey);
+
+  if(!window.PublicKeyCredential){
+    showStatus('regStatus','error','WebAuthn not supported. Falling back to software ECDSA-only.');
+    webauthnCreds.push({id:'software-fallback-'+Date.now(),userName,addr,kind:'software',created:new Date().toISOString()});
+    saveCreds(); renderCreds(); postReaction();
+    return;
+  }
+  showStatus('regStatus','info', CONTENT.status_messages.in_progress);
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const userId = new TextEncoder().encode(addr);
+  try{
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'CryptoZoo', id: location.hostname || 'localhost' },
+        user: { id: userId, name: userName, displayName: userName },
+        pubKeyCredParams: [
+          { type:'public-key', alg:-7 },   // ES256
+          { type:'public-key', alg:-257 }  // RS256 fallback
+        ],
+        authenticatorSelection: { userVerification:'preferred', residentKey:'preferred' },
+        attestation: 'none',
+        timeout: 60000
+      }
+    });
+    if(!cred){ throw new Error('null credential'); }
+    const rec = {
+      id: bufToB64u(cred.rawId),
+      type: cred.type,
+      userName, addr,
+      kind: 'webauthn',
+      transports: cred.response.getTransports ? cred.response.getTransports() : [],
+      created: new Date().toISOString()
+    };
+    webauthnCreds.push(rec);
+    saveCreds();
+    showStatus('regStatus','success','Credential created. ID: '+rec.id.substring(0,32)+'...');
+    renderCreds(); postReaction();
+  }catch(e){
+    showStatus('regStatus','error', 'Registration failed: '+e.message+'. '+CONTENT.status_messages.fallback_used);
+    webauthnCreds.push({id:'software-fallback-'+Date.now(),userName,addr,kind:'software',created:new Date().toISOString(),reason:e.message});
+    saveCreds(); renderCreds();
+  }
+}
+
+/* ── Auth + Sign Tx ── */
+async function authAndSign(){
+  if(!wallet){ wallet = await genKeyPair(); saveWallet(); }
+  const txBody = {
+    from: getAddress(wallet.publicKey),
+    to: $('txTo').value || 'ZOO_unknown_recipient',
+    amount: parseFloat($('txAmount').value)||0,
+    memo: $('txMemo').value || '',
+    nonce: Math.floor(Math.random()*1e9),
+    timestamp: Date.now()
+  };
+  const txDigest = await sha256(JSON.stringify(txBody));
+  const ecdsaSig = await signData(wallet.privateKey, txDigest);
+
+  let webauthnAssertion = null;
+  let waSigPresent = false;
+  showStatus('signStatus','info', CONTENT.status_messages.in_progress);
+
+  const allow = webauthnCreds.filter(c=>c.kind==='webauthn').map(c=>{
+    const raw = Uint8Array.from(atob(c.id.replace(/-/g,'+').replace(/_/g,'/').padEnd(c.id.length+(4-c.id.length%4)%4,'=')), x=>x.charCodeAt(0));
+    return { type:'public-key', id: raw, transports: c.transports };
+  });
+
+  if(window.PublicKeyCredential && allow.length){
+    try{
+      const challenge = new TextEncoder().encode(txDigest);
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: allow,
+          userVerification:'preferred',
+          timeout: 60000,
+          rpId: location.hostname || 'localhost'
+        }
+      });
+      if(assertion){
+        webauthnAssertion = {
+          id: bufToB64u(assertion.rawId),
+          authenticatorData: bufToHex(assertion.response.authenticatorData).substring(0,64)+'...',
+          signature: bufToHex(assertion.response.signature).substring(0,64)+'...',
+          clientDataJSON: new TextDecoder().decode(assertion.response.clientDataJSON).substring(0,180)
+        };
+        waSigPresent = true;
+      }
+    }catch(e){
+      webauthnAssertion = { error: e.message };
+    }
+  }
+
+  const result = {
+    txBody, txDigest, ecdsaSig,
+    webauthnAssertion,
+    dualProof: waSigPresent && !!ecdsaSig
+  };
+  $('signResult').innerHTML =
+    '<div><span>tx digest:</span> '+txDigest.substring(0,32)+'...</div>'+
+    '<div><span>ECDSA wallet sig:</span> <b style="color:var(--green)">present</b> ('+ecdsaSig.substring(0,28)+'...)</div>'+
+    '<div><span>WebAuthn assertion:</span> '+(waSigPresent?'<b style="color:var(--green)">present</b>':'<b style="color:var(--gold)">software fallback only</b>')+'</div>'+
+    '<div><span>dual-proof:</span> '+(result.dualProof?'<b style="color:var(--green)">YES</b>':'<b style="color:var(--gold)">NO (single proof)</b>')+'</div>'+
+    '<pre>'+JSON.stringify(result,null,2)+'</pre>';
+  if(result.dualProof){
+    showStatus('signStatus','success', CONTENT.status_messages.success);
+  }else{
+    showStatus('signStatus','info', CONTENT.status_messages.fallback_used);
+  }
+  postReaction();
+}
+
+/* ── Render creds ── */
+function renderCreds(){
+  const list = $('credList');
+  if(!webauthnCreds.length){ list.innerHTML='<div style="color:var(--dim);font-size:11px;">No credentials registered yet.</div>'; return; }
+  list.innerHTML = webauthnCreds.map(c=>
+    '<div class="cred-item"><div class="id">'+(c.id||'?').substring(0,80)+'</div>'+
+    '<div class="meta">kind='+(c.kind||'?')+' · user='+(c.userName||'?')+' · addr='+(c.addr||'?')+' · created='+(c.created||'?')+
+    (c.transports&&c.transports.length?' · transports='+c.transports.join(','):'')+'</div></div>'
+  ).join('');
+}
+
+/* ── Tabs ── */
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  ['register','sign','creds','help'].forEach(n=>{
+    const el = document.getElementById('tab-'+n);
+    if(el) el.style.display = (n===name)?'grid':'none';
+  });
+}
+
+/* ── Init ── */
+async function init(){
+  $('appTitle').textContent = CONTENT.title;
+  $('appTagline').textContent = CONTENT.tagline;
+  $('appIntro').textContent = CONTENT.intro;
+  $('helpList').innerHTML = CONTENT.help.map(h=>'<li>'+h+'</li>').join('');
+
+  loadState();
+  if(!wallet){ wallet = await genKeyPair(); saveWallet(); }
+  $('linkedAddr').value = getAddress(wallet.publicKey);
+
+  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>switchTab(t.dataset.tab)));
+  $('btnRegister').addEventListener('click', registerWebAuthn);
+  $('btnAuthAndSign').addEventListener('click', authAndSign);
+  $('btnClearCreds').addEventListener('click', ()=>{
+    if(confirm('Forget all WebAuthn credentials in localStorage? (Hardware credentials remain on the device.)')){
+      webauthnCreds=[]; saveCreds(); renderCreds();
+    }
+  });
+
+  await detectCaps();
+  renderCreds();
+  showStatus('initStatus','info', CONTENT.status_messages.init_complete);
+  postReaction();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

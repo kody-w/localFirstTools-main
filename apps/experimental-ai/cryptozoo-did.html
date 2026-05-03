@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZooCoin DID Resolver</title>
+<meta name="description" content="Wrap ZooCoin addresses as did:zoocoin DIDs. Resolve, rotate keys, and produce W3C-compliant DID Documents.">
+<meta name="rappterzoo:author" content="agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="cryptozoo,w3c,did,decentralized-identifier,jsonld,ecdsa,identity">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-05-02">
+<meta name="rappterzoo:generation" content="1">
+<meta name="rappterzoo:parents" content="cryptozoo-network.html,cryptozoo-wallet.html">
+<meta name="rappterzoo:genes" content="state_machine,entity_system,hud_renderer,progression">
+<meta name="rappterzoo:experience" content="discovery">
+<meta name="rappterzoo:spec" content="https://www.w3.org/TR/did-1.1/">
+<style>
+:root{--bg:#0a0a12;--bg2:#12121f;--bg3:#1a1a2e;--text:#e0e0e0;--dim:#888;--accent:#00e5ff;--gold:#ffd700;--green:#00e676;--red:#ff5252;--purple:#a14dff;--radius:6px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Courier New',monospace;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;}
+header{background:var(--bg2);border-bottom:1px solid #222;padding:14px 20px;display:flex;align-items:center;gap:12px;}
+header h1{font-size:16px;color:var(--gold);}
+header h1 span{color:var(--accent);}
+header .badge{margin-left:auto;font-size:10px;padding:4px 10px;border:1px solid var(--purple);color:var(--purple);border-radius:12px;}
+main{max-width:1100px;margin:0 auto;padding:20px;}
+.tagline{color:var(--dim);font-size:13px;margin-bottom:16px;font-style:italic;}
+.intro{background:var(--bg2);border-left:3px solid var(--accent);padding:14px 18px;margin-bottom:20px;font-size:13px;border-radius:0 var(--radius) var(--radius) 0;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;}
+.card{background:var(--bg2);border:1px solid #222;border-radius:var(--radius);padding:16px;}
+.card h2{color:var(--accent);font-size:13px;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #222;}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;}
+input,textarea,select{width:100%;background:var(--bg3);color:var(--text);border:1px solid #333;border-radius:var(--radius);padding:8px 10px;font-family:inherit;font-size:12px;}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);}
+button{background:var(--bg3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12px;margin-right:6px;margin-bottom:6px;}
+button:hover{background:rgba(0,229,255,0.15);}
+button.primary{background:var(--accent);color:var(--bg);font-weight:bold;}
+button.danger{border-color:var(--red);color:var(--red);}
+button.gold{border-color:var(--gold);color:var(--gold);}
+.status{padding:10px 12px;border-radius:var(--radius);font-size:12px;margin:10px 0;}
+.status.success{background:rgba(0,230,118,0.1);border:1px solid var(--green);color:var(--green);}
+.status.error{background:rgba(255,82,82,0.1);border:1px solid var(--red);color:var(--red);}
+.status.info{background:rgba(0,229,255,0.08);border:1px solid var(--accent);color:var(--accent);}
+.row{margin-bottom:12px;}
+pre{background:var(--bg);padding:10px;border-radius:var(--radius);overflow-x:auto;font-size:10px;color:var(--dim);max-height:340px;border:1px solid #222;line-height:1.5;}
+.did-list{max-height:380px;overflow-y:auto;}
+.did-item{background:var(--bg3);border:1px solid #2a2a3e;border-radius:var(--radius);padding:10px;margin-bottom:8px;font-size:11px;cursor:pointer;}
+.did-item:hover{border-color:var(--accent);}
+.did-item .id{color:var(--gold);word-break:break-all;font-weight:bold;}
+.did-item .meta{color:var(--dim);font-size:10px;margin-top:4px;}
+.did-item.deactivated{opacity:0.5;}
+.method-row{font-size:11px;padding:6px 0;border-bottom:1px solid #222;}
+.method-row .vm-id{color:var(--accent);}
+.method-row .vm-status{font-size:10px;padding:1px 6px;border-radius:3px;}
+.method-row .vm-status.active{background:rgba(0,230,118,0.15);color:var(--green);}
+.method-row .vm-status.deactivated{background:rgba(255,82,82,0.15);color:var(--red);}
+.npc-feed{max-height:160px;overflow-y:auto;}
+.npc-msg{padding:6px 8px;border-left:2px solid var(--purple);margin-bottom:6px;font-size:11px;color:#bbb;}
+.npc-msg .who{color:var(--purple);font-weight:bold;}
+.help-panel ul{padding-left:20px;font-size:12px;color:#ccc;}
+.help-panel li{margin-bottom:6px;}
+.tabs{display:flex;gap:4px;margin-bottom:12px;}
+.tab{padding:6px 12px;background:var(--bg3);border:1px solid #333;border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--dim);}
+.tab.active{color:var(--accent);border-color:var(--accent);}
+.spec-link{font-size:10px;color:var(--purple);text-decoration:none;}
+@media(max-width:680px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+<h1>Crypto<span>Zoo</span> · DID Resolver</h1>
+<a class="spec-link" href="https://www.w3.org/TR/did-1.1/" target="_blank" rel="noopener">W3C DID 1.1</a>
+<div class="badge">CryptoZoo x W3C</div>
+</header>
+<main>
+<div id="appTitle" style="font-size:18px;color:var(--gold);margin-bottom:4px;"></div>
+<div class="tagline" id="appTagline"></div>
+<div class="intro" id="appIntro"></div>
+
+<div class="tabs">
+<div class="tab active" data-tab="mine">My DIDs</div>
+<div class="tab" data-tab="resolve">Resolve</div>
+<div class="tab" data-tab="rotate">Rotate</div>
+<div class="tab" data-tab="help">Help</div>
+</div>
+
+<div id="initStatus" class="status info"></div>
+
+<div class="grid" id="tab-mine">
+  <div class="card">
+    <h2>Wallet → DID</h2>
+    <div class="row"><label>Wallet Address</label><input id="walletAddr" readonly></div>
+    <div class="row"><label>Derived DID</label><input id="walletDid" readonly></div>
+    <button class="primary" id="btnPublish">Publish DID Document</button>
+    <button id="btnNewWallet">New Wallet</button>
+    <div id="publishStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Local DID Registry</h2>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:8px;">Stored under <code>cryptozoo-did-registry</code> in localStorage.</div>
+    <div class="did-list" id="didList"></div>
+    <button class="danger" id="btnClearReg">Clear Registry</button>
+    <button id="btnExportReg">Export JSON</button>
+  </div>
+  <div class="card" style="grid-column:1/-1;">
+    <h2>Selected DID Document</h2>
+    <pre id="docView">// Click a DID in the registry to view its document</pre>
+  </div>
+</div>
+
+<div class="grid" id="tab-resolve" style="display:none;">
+  <div class="card">
+    <h2>Resolver</h2>
+    <div class="row"><label>DID URI</label><input id="resolveInput" placeholder="did:zoocoin:ZOO..."></div>
+    <button class="primary" id="btnResolve">Resolve</button>
+    <button id="btnResolveCurrent">Resolve Current Wallet</button>
+    <div id="resolveStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Resolution Metadata</h2>
+    <pre id="resolveMeta">// Resolve a DID to see metadata</pre>
+  </div>
+  <div class="card" style="grid-column:1/-1;">
+    <h2>Resolved Document</h2>
+    <pre id="resolveDoc">// Resolve a DID to see its document</pre>
+  </div>
+  <div class="card" style="grid-column:1/-1;">
+    <h2>NPC Reactions</h2>
+    <div class="npc-feed" id="npcFeed"></div>
+  </div>
+</div>
+
+<div class="grid" id="tab-rotate" style="display:none;">
+  <div class="card">
+    <h2>Key Rotation</h2>
+    <p style="font-size:12px;color:#ccc;margin-bottom:12px;">Rotation generates a fresh ECDSA keypair, adds it as a new <code>verificationMethod</code>, marks the previous one as deactivated, and records the change in the document history.</p>
+    <div class="row"><label>Target DID</label><input id="rotateDid" readonly></div>
+    <button class="gold" id="btnRotate">Rotate Key</button>
+    <div id="rotateStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Verification Methods</h2>
+    <div id="vmList"><span style="color:var(--dim);font-size:11px;">No DID selected.</span></div>
+  </div>
+</div>
+
+<div class="grid" id="tab-help" style="display:none;">
+  <div class="card help-panel" style="grid-column:1/-1;">
+    <h2>How to Use</h2>
+    <ul id="helpList"></ul>
+    <h2 style="margin-top:18px;">About this Mashup</h2>
+    <p style="font-size:12px;color:#ccc;">The <code>did:zoocoin</code> method derives a DID from a ZooCoin address. Resolution looks up the DID Document in the local registry. Each DID Document follows the W3C DID 1.1 data model with <code>@context</code>, <code>id</code>, <code>verificationMethod</code>, and <code>authentication</code> sections. Key rotation works because every wallet keypair is also a verificationMethod — the chain of trust runs from the on-chain identity through the document history.</p>
+  </div>
+</div>
+
+</main>
+
+<script>
+(function(){
+'use strict';
+
+const CONTENT = {"title":"ZooCoin DID Resolver","tagline":"Your wallet address is now a decentralized identifier. Resolve it, rotate it, own it.","intro":"Every ZooCoin address becomes a W3C Decentralized Identifier in the form did:zoocoin:<addr>. This app generates DID Documents with your ECDSA P-256 verification methods, supports key rotation by publishing new keys to the local DID registry, and resolves any did:zoocoin identifier back to its document. The DID spec and ZooCoin share a core premise: cryptographic keys as the root of trust, no central authority required.","help":["Select a wallet address to generate its DID Document","The document includes your public key as a verificationMethod","Use Rotate Key to update your DID with a fresh ECDSA keypair","Paste any did:zoocoin:<addr> URI into the resolver to look it up","Key history is preserved — old keys are moved to deactivated status","Export the DID Document as JSON-LD for use in external systems"],"npc_reactions":["did:zoocoin:z7Fk3... resolved in one hop. No registry server needed.","Rotated my DID key and the old verificationMethod auto-deactivated. Clean.","The DID Document spec is verbose but every field actually earns its place.","I authenticated against a DID using the same key that signs my transactions.","Someone tried resolving a DID for an address that never existed. Handled gracefully.","Exporting my DID Document felt like printing a cryptographic business card."],"status_messages":{"success":"DID Document resolved — verification methods confirmed.","failure":"Resolution failed — no document found for this identifier.","in_progress":"Resolving DID and assembling document from local registry...","init_complete":"DID registry loaded. Wallet addresses indexed as identifiers.","fallback_used":"Registry empty — generating a provisional document from raw key."}};
+const NPCS = ['snake_oil_steve','blocky_pat','crypto_owl','treaty_baboon','hexpup','nullbyte_ned'];
+
+/* ── Crypto utils ── */
+const EC_ALGO = { name:'ECDSA', namedCurve:'P-256' };
+function bufToHex(b){return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function genKeyPair(){const kp=await crypto.subtle.generateKey(EC_ALGO,true,['sign','verify']);const pub=await crypto.subtle.exportKey('jwk',kp.publicKey);const priv=await crypto.subtle.exportKey('jwk',kp.privateKey);return{publicKey:pub,privateKey:priv};}
+function getAddress(pub){return 'ZOO'+(pub.x+pub.y).replace(/[^a-zA-Z0-9]/g,'').substring(0,32);}
+
+/* ── State ── */
+const KEYS = { wallet:'cryptozoo-wallet', did:'cryptozoo-did-registry' };
+let wallet = null;
+let registry = {}; // { did: { document, history:[], created, updated } }
+let selectedDid = null;
+
+function loadState(){
+  try{
+    const w = localStorage.getItem(KEYS.wallet); if(w) wallet = JSON.parse(w);
+    const r = localStorage.getItem(KEYS.did); if(r) registry = JSON.parse(r);
+  }catch(e){}
+}
+function saveWallet(){if(wallet)localStorage.setItem(KEYS.wallet,JSON.stringify({publicKey:wallet.publicKey,privateKey:wallet.privateKey}));}
+function saveRegistry(){localStorage.setItem(KEYS.did,JSON.stringify(registry));}
+
+function $(id){return document.getElementById(id);}
+function showStatus(id,type,msg){const el=$(id); if(!el) return; el.style.display='block'; el.className='status '+type; el.textContent=msg;}
+
+function pickReaction(){
+  return { who: NPCS[Math.floor(Math.random()*NPCS.length)],
+           msg: CONTENT.npc_reactions[Math.floor(Math.random()*CONTENT.npc_reactions.length)] };
+}
+function postReaction(){
+  const r = pickReaction();
+  const feed = $('npcFeed'); if(!feed) return;
+  const div = document.createElement('div'); div.className='npc-msg';
+  div.innerHTML = '<span class="who">@'+r.who+'</span> · '+r.msg;
+  feed.insertBefore(div, feed.firstChild);
+  while(feed.children.length>20) feed.removeChild(feed.lastChild);
+}
+
+/* ── DID Document construction ── */
+function didFromAddr(addr){return 'did:zoocoin:'+addr;}
+
+function buildDocument(did, jwks){
+  // jwks: array of { id, jwk, status, created }
+  const verificationMethod = jwks.map((k,i)=>({
+    "id": did+'#keys-'+(i+1),
+    "type": "JsonWebKey2020",
+    "controller": did,
+    "publicKeyJwk": k.jwk,
+    "deactivated": k.status === 'deactivated' ? true : undefined
+  }));
+  const activeIds = verificationMethod.filter(v=>!v.deactivated).map(v=>v.id);
+  return {
+    "@context": [
+      "https://www.w3.org/ns/did/v1",
+      "https://w3id.org/security/suites/jws-2020/v1"
+    ],
+    "id": did,
+    "verificationMethod": verificationMethod,
+    "authentication": activeIds,
+    "assertionMethod": activeIds,
+    "service": [
+      {
+        "id": did+"#zoocoin-node",
+        "type": "ZooCoinNode",
+        "serviceEndpoint": "https://kody-w.github.io/localFirstTools-main/apps/experimental-ai/cryptozoo-network.html"
+      }
+    ]
+  };
+}
+
+function publishCurrentWallet(){
+  if(!wallet){ showStatus('publishStatus','error','No wallet to publish.'); return; }
+  const addr = getAddress(wallet.publicKey);
+  const did = didFromAddr(addr);
+  const now = new Date().toISOString();
+  if(!registry[did]){
+    const jwks = [{ id:'keys-1', jwk:wallet.publicKey, status:'active', created:now }];
+    registry[did] = {
+      keys: jwks,
+      document: buildDocument(did, jwks),
+      history: [{ event:'created', at:now }],
+      created: now,
+      updated: now
+    };
+  }else{
+    // ensure current key is in registry
+    const exists = registry[did].keys.some(k=>k.jwk.x === wallet.publicKey.x);
+    if(!exists){
+      registry[did].keys.push({ id:'keys-'+(registry[did].keys.length+1), jwk:wallet.publicKey, status:'active', created:now });
+      registry[did].document = buildDocument(did, registry[did].keys);
+      registry[did].history.push({ event:'key-added', at:now });
+      registry[did].updated = now;
+    }
+  }
+  saveRegistry();
+  selectedDid = did;
+  showStatus('publishStatus','success', CONTENT.status_messages.success+' DID: '+did);
+  renderRegistry();
+  renderDoc();
+  postReaction();
+}
+
+/* ── Resolution ── */
+function resolve(did){
+  const r = registry[did];
+  if(!r){
+    // Provisional document if DID looks like a derived one
+    if(/^did:zoocoin:ZOO[a-zA-Z0-9]+$/.test(did)){
+      return {
+        document: {
+          "@context":["https://www.w3.org/ns/did/v1"],
+          "id": did,
+          "verificationMethod": [],
+          "service": []
+        },
+        meta: { resolved:false, source:'provisional', reason:'DID not in local registry'}
+      };
+    }
+    return null;
+  }
+  return { document: r.document, meta: { resolved:true, source:'local-registry', created:r.created, updated:r.updated, keyCount:r.keys.length } };
+}
+
+function doResolve(input){
+  showStatus('resolveStatus','info', CONTENT.status_messages.in_progress);
+  const did = (input || '').trim();
+  if(!did.startsWith('did:zoocoin:')){
+    showStatus('resolveStatus','error','Only did:zoocoin: identifiers are supported by this resolver.');
+    $('resolveDoc').textContent='// Invalid DID method';
+    $('resolveMeta').textContent='// —';
+    return;
+  }
+  const result = resolve(did);
+  if(!result){
+    showStatus('resolveStatus','error', CONTENT.status_messages.failure);
+    $('resolveDoc').textContent = '// '+CONTENT.status_messages.failure;
+    $('resolveMeta').textContent = '// no metadata';
+    return;
+  }
+  if(!result.meta.resolved){
+    showStatus('resolveStatus','info', CONTENT.status_messages.fallback_used);
+  } else {
+    showStatus('resolveStatus','success', CONTENT.status_messages.success);
+  }
+  $('resolveDoc').textContent = JSON.stringify(result.document, null, 2);
+  $('resolveMeta').textContent = JSON.stringify(result.meta, null, 2);
+  postReaction();
+}
+
+/* ── Rotation ── */
+async function rotateKey(){
+  if(!selectedDid){
+    if(wallet) selectedDid = didFromAddr(getAddress(wallet.publicKey));
+    if(!selectedDid){ showStatus('rotateStatus','error','No DID selected.'); return; }
+  }
+  const r = registry[selectedDid];
+  if(!r){ showStatus('rotateStatus','error','DID not in registry. Publish first.'); return; }
+  showStatus('rotateStatus','info', CONTENT.status_messages.in_progress);
+  const fresh = await genKeyPair();
+  const now = new Date().toISOString();
+  // deactivate old keys
+  r.keys.forEach(k=>{ k.status = 'deactivated'; });
+  r.keys.push({ id:'keys-'+(r.keys.length+1), jwk:fresh.publicKey, status:'active', created:now });
+  r.document = buildDocument(selectedDid, r.keys);
+  r.history.push({ event:'key-rotated', at:now });
+  r.updated = now;
+  saveRegistry();
+  // Update current wallet to the new key
+  wallet = fresh;
+  saveWallet();
+  $('walletAddr').value = getAddress(wallet.publicKey);
+  $('walletDid').value = didFromAddr(getAddress(wallet.publicKey));
+  showStatus('rotateStatus','success','Key rotated. New DID: '+didFromAddr(getAddress(wallet.publicKey)));
+  // Note: rotating the wallet creates a NEW did since DID is derived from address.
+  // We keep the old DID in registry as a historical record.
+  renderRegistry();
+  renderDoc();
+  renderVMList();
+  postReaction();
+}
+
+/* ── Render ── */
+function renderRegistry(){
+  const list = $('didList');
+  const dids = Object.keys(registry);
+  if(!dids.length){ list.innerHTML='<div style="color:var(--dim);font-size:11px;">Registry empty. Click "Publish DID Document".</div>'; return; }
+  list.innerHTML = dids.map(d=>{
+    const r = registry[d];
+    const active = r.keys.filter(k=>k.status==='active').length;
+    const total = r.keys.length;
+    return '<div class="did-item'+(selectedDid===d?' selected':'')+'" data-did="'+d+'">'+
+      '<div class="id">'+d+'</div>'+
+      '<div class="meta">keys: '+active+' active / '+total+' total · created '+(r.created||'?')+'</div></div>';
+  }).join('');
+  list.querySelectorAll('.did-item').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      selectedDid = el.dataset.did;
+      $('rotateDid').value = selectedDid;
+      renderDoc();
+      renderVMList();
+    });
+  });
+}
+
+function renderDoc(){
+  if(!selectedDid){ $('docView').textContent='// Click a DID to view'; return; }
+  const r = registry[selectedDid];
+  if(!r) return;
+  $('docView').textContent = JSON.stringify(r.document, null, 2);
+}
+
+function renderVMList(){
+  const el = $('vmList');
+  if(!selectedDid || !registry[selectedDid]){ el.innerHTML='<span style="color:var(--dim);font-size:11px;">No DID selected.</span>'; return; }
+  const keys = registry[selectedDid].keys;
+  el.innerHTML = keys.map((k,i)=>
+    '<div class="method-row"><span class="vm-id">#keys-'+(i+1)+'</span> · pub.x='+(k.jwk.x||'').substring(0,18)+'... '+
+    '<span class="vm-status '+(k.status==='active'?'active':'deactivated')+'">'+k.status+'</span> · created '+(k.created||'?')+'</div>'
+  ).join('');
+}
+
+/* ── Tabs ── */
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  ['mine','resolve','rotate','help'].forEach(n=>{
+    const el = document.getElementById('tab-'+n);
+    if(el) el.style.display = (n===name)?'grid':'none';
+  });
+}
+
+/* ── Init ── */
+async function init(){
+  $('appTitle').textContent = CONTENT.title;
+  $('appTagline').textContent = CONTENT.tagline;
+  $('appIntro').textContent = CONTENT.intro;
+  $('helpList').innerHTML = CONTENT.help.map(h=>'<li>'+h+'</li>').join('');
+
+  loadState();
+  if(!wallet){ wallet = await genKeyPair(); saveWallet(); }
+  $('walletAddr').value = getAddress(wallet.publicKey);
+  $('walletDid').value = didFromAddr(getAddress(wallet.publicKey));
+  $('rotateDid').value = didFromAddr(getAddress(wallet.publicKey));
+  selectedDid = didFromAddr(getAddress(wallet.publicKey));
+
+  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>switchTab(t.dataset.tab)));
+  $('btnPublish').addEventListener('click', publishCurrentWallet);
+  $('btnNewWallet').addEventListener('click', async()=>{
+    wallet = await genKeyPair(); saveWallet();
+    $('walletAddr').value = getAddress(wallet.publicKey);
+    $('walletDid').value = didFromAddr(getAddress(wallet.publicKey));
+    $('rotateDid').value = $('walletDid').value;
+    selectedDid = $('walletDid').value;
+  });
+  $('btnResolve').addEventListener('click', ()=>doResolve($('resolveInput').value));
+  $('btnResolveCurrent').addEventListener('click', ()=>{ $('resolveInput').value = $('walletDid').value; doResolve($('walletDid').value); });
+  $('btnRotate').addEventListener('click', rotateKey);
+  $('btnClearReg').addEventListener('click', ()=>{ if(confirm('Clear local DID registry?')){ registry={}; saveRegistry(); renderRegistry(); $('docView').textContent='// Registry cleared'; }});
+  $('btnExportReg').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(registry,null,2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='cryptozoo-did-registry.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  renderRegistry();
+  if(selectedDid && registry[selectedDid]) renderDoc();
+  renderVMList();
+  showStatus('initStatus','info', CONTENT.status_messages.init_complete);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

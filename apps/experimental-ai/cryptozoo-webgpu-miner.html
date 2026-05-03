@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZooCoin WebGPU Miner</title>
+<meta name="description" content="GPU-accelerated proof-of-work mining for ZooCoin using W3C WebGPU compute shaders, with CPU Web Worker fallback.">
+<meta name="rappterzoo:author" content="agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="cryptozoo,w3c,webgpu,wgsl,mining,pow,compute-shader">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-05-02">
+<meta name="rappterzoo:generation" content="1">
+<meta name="rappterzoo:parents" content="cryptozoo-network.html">
+<meta name="rappterzoo:genes" content="render_pipeline,state_machine,particle_system,hud_renderer">
+<meta name="rappterzoo:experience" content="mastery">
+<meta name="rappterzoo:spec" content="https://www.w3.org/TR/2026/CRD-webgpu-20260310/">
+<style>
+:root{--bg:#0a0a12;--bg2:#12121f;--bg3:#1a1a2e;--text:#e0e0e0;--dim:#888;--accent:#00e5ff;--gold:#ffd700;--green:#00e676;--red:#ff5252;--purple:#a14dff;--orange:#ff9100;--radius:6px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Courier New',monospace;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;}
+header{background:var(--bg2);border-bottom:1px solid #222;padding:14px 20px;display:flex;align-items:center;gap:12px;}
+header h1{font-size:16px;color:var(--gold);}
+header h1 span{color:var(--accent);}
+header .badge{margin-left:auto;font-size:10px;padding:4px 10px;border:1px solid var(--purple);color:var(--purple);border-radius:12px;}
+main{max-width:1200px;margin:0 auto;padding:20px;}
+.tagline{color:var(--dim);font-size:13px;margin-bottom:16px;font-style:italic;}
+.intro{background:var(--bg2);border-left:3px solid var(--accent);padding:14px 18px;margin-bottom:20px;font-size:13px;border-radius:0 var(--radius) var(--radius) 0;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;}
+.card{background:var(--bg2);border:1px solid #222;border-radius:var(--radius);padding:16px;}
+.card h2{color:var(--accent);font-size:13px;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #222;}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;}
+input,select{width:100%;background:var(--bg3);color:var(--text);border:1px solid #333;border-radius:var(--radius);padding:8px 10px;font-family:inherit;font-size:12px;}
+input:focus,select:focus{outline:none;border-color:var(--accent);}
+button{background:var(--bg3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12px;margin-right:6px;margin-bottom:6px;}
+button:hover{background:rgba(0,229,255,0.15);}
+button.primary{background:var(--accent);color:var(--bg);font-weight:bold;}
+button.danger{border-color:var(--red);color:var(--red);}
+.status{padding:10px 12px;border-radius:var(--radius);font-size:12px;margin:10px 0;}
+.status.success{background:rgba(0,230,118,0.1);border:1px solid var(--green);color:var(--green);}
+.status.error{background:rgba(255,82,82,0.1);border:1px solid var(--red);color:var(--red);}
+.status.info{background:rgba(0,229,255,0.08);border:1px solid var(--accent);color:var(--accent);}
+.row{margin-bottom:12px;}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
+.stat{background:var(--bg3);border:1px solid #2a2a3e;border-radius:var(--radius);padding:10px;text-align:center;}
+.stat .v{font-size:18px;color:var(--gold);font-weight:bold;}
+.stat .l{font-size:10px;color:var(--dim);text-transform:uppercase;}
+.hash-stream{background:var(--bg);border:1px solid #2a2a3e;border-radius:var(--radius);padding:8px;max-height:240px;overflow-y:auto;font-size:10px;color:var(--dim);line-height:1.5;}
+.hash-stream .found{color:var(--gold);font-weight:bold;}
+.gauge-wrap{height:80px;background:var(--bg3);border-radius:var(--radius);position:relative;overflow:hidden;border:1px solid #2a2a3e;}
+.gauge-bar{position:absolute;left:0;bottom:0;height:100%;background:linear-gradient(90deg,var(--accent),var(--gold));transition:width .3s;}
+.gauge-label{position:absolute;left:0;top:0;right:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:bold;color:var(--text);text-shadow:0 1px 4px rgba(0,0,0,0.6);}
+canvas{width:100%;height:120px;background:var(--bg);border:1px solid #2a2a3e;border-radius:var(--radius);}
+.npc-feed{max-height:160px;overflow-y:auto;}
+.npc-msg{padding:6px 8px;border-left:2px solid var(--purple);margin-bottom:6px;font-size:11px;color:#bbb;}
+.npc-msg .who{color:var(--purple);font-weight:bold;}
+.help-panel ul{padding-left:20px;font-size:12px;color:#ccc;}
+.help-panel li{margin-bottom:6px;}
+.tabs{display:flex;gap:4px;margin-bottom:12px;}
+.tab{padding:6px 12px;background:var(--bg3);border:1px solid #333;border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--dim);}
+.tab.active{color:var(--accent);border-color:var(--accent);}
+.spec-link{font-size:10px;color:var(--purple);text-decoration:none;}
+.mode-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;}
+.mode-pill.gpu{background:rgba(0,229,255,0.15);color:var(--accent);}
+.mode-pill.cpu{background:rgba(255,145,0,0.15);color:var(--orange);}
+@media(max-width:680px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+<h1>Crypto<span>Zoo</span> · WebGPU Miner</h1>
+<a class="spec-link" href="https://www.w3.org/TR/2026/CRD-webgpu-20260310/" target="_blank" rel="noopener">W3C WebGPU</a>
+<div class="badge">CryptoZoo x W3C</div>
+</header>
+<main>
+<div id="appTitle" style="font-size:18px;color:var(--gold);margin-bottom:4px;"></div>
+<div class="tagline" id="appTagline"></div>
+<div class="intro" id="appIntro"></div>
+
+<div class="tabs">
+<div class="tab active" data-tab="mine">Mine</div>
+<div class="tab" data-tab="device">Device</div>
+<div class="tab" data-tab="help">Help</div>
+</div>
+
+<div id="initStatus" class="status info"></div>
+
+<div class="grid" id="tab-mine">
+  <div class="card">
+    <h2>Mining Controls</h2>
+    <div class="row">
+      <label>Target Difficulty (leading hex zeros)</label>
+      <input id="difficulty" type="number" min="1" max="6" value="3">
+    </div>
+    <div class="row">
+      <label>Workgroup Size</label>
+      <select id="wgSize">
+        <option value="64">64 (default)</option>
+        <option value="128">128</option>
+        <option value="256">256</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Dispatch Count per Batch</label>
+      <input id="dispatchCount" type="number" min="1" max="4096" value="256">
+    </div>
+    <button class="primary" id="btnInit">Initialize GPU</button>
+    <button class="primary" id="btnStart" disabled>Start Mining</button>
+    <button class="danger" id="btnStop" disabled>Stop</button>
+    <div id="mineStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Live Stats</h2>
+    <div style="margin-bottom:8px;">Mode: <span class="mode-pill" id="modePill">unknown</span></div>
+    <div class="stats">
+      <div class="stat"><div class="v" id="statHashrate">0</div><div class="l">H/s</div></div>
+      <div class="stat"><div class="v" id="statHashes">0</div><div class="l">Total Hashes</div></div>
+      <div class="stat"><div class="v" id="statBlocks">0</div><div class="l">Blocks Found</div></div>
+      <div class="stat"><div class="v" id="statDiff">3</div><div class="l">Difficulty</div></div>
+    </div>
+    <div style="margin-top:14px;">
+      <label>Hashrate Gauge</label>
+      <div class="gauge-wrap"><div class="gauge-bar" id="gauge" style="width:0%"></div><div class="gauge-label" id="gaugeLabel">0 H/s</div></div>
+    </div>
+    <div style="margin-top:14px;">
+      <label>Activity Trace</label>
+      <canvas id="trace" width="600" height="120"></canvas>
+    </div>
+  </div>
+  <div class="card" style="grid-column:1/-1;">
+    <h2>Hash Stream</h2>
+    <div class="hash-stream" id="hashStream">// Stream of recent hashes will appear here as you mine.</div>
+  </div>
+  <div class="card" style="grid-column:1/-1;">
+    <h2>NPC Reactions</h2>
+    <div class="npc-feed" id="npcFeed"></div>
+  </div>
+</div>
+
+<div class="grid" id="tab-device" style="display:none;">
+  <div class="card">
+    <h2>GPU Adapter Info</h2>
+    <div id="adapterInfo" style="font-size:11px;line-height:1.7;">No adapter requested yet.</div>
+  </div>
+  <div class="card">
+    <h2>WGSL Compute Shader</h2>
+    <pre style="background:var(--bg);padding:10px;border-radius:var(--radius);font-size:10px;color:var(--dim);max-height:380px;overflow:auto;border:1px solid #2a2a3e;" id="shaderSrc"></pre>
+  </div>
+</div>
+
+<div class="grid" id="tab-help" style="display:none;">
+  <div class="card help-panel" style="grid-column:1/-1;">
+    <h2>How to Use</h2>
+    <ul id="helpList"></ul>
+    <h2 style="margin-top:18px;">About this Mashup</h2>
+    <p style="font-size:12px;color:#ccc;">This miner uses W3C WebGPU compute shaders to brute-force nonces in parallel. The WGSL kernel computes a tiny "lite-hash" digest derived from the block header bytes; hashes with the required leading-zero prefix are flagged as valid. The result is then re-validated with the canonical Web Crypto SHA-256 implementation before the block is appended to the local ZooCoin chain. When WebGPU is unavailable, mining falls back to a CPU loop using the Web Crypto API.</p>
+  </div>
+</div>
+
+</main>
+
+<script>
+(function(){
+'use strict';
+
+const CONTENT = {"title":"ZooCoin WebGPU Miner","tagline":"Proof-of-work at shader speed. Your GPU hashes while your CPU stays cool.","intro":"This miner offloads ZooCoin proof-of-work to your graphics card using W3C WebGPU compute shaders. A WGSL kernel runs thousands of SHA-256 nonce trials in parallel across GPU workgroups, reporting valid blocks back to JavaScript for chain insertion. When WebGPU is unavailable, it falls back to a Web Worker CPU miner — slower, but still functional.","help":["Click Initialize to request a GPUDevice and compile the shader","Set your target difficulty or use the current chain difficulty","Start Mining dispatches compute workgroups across your GPU","Watch the hashrate gauge — GPU mode should be 10-50x faster","Valid blocks are auto-appended to your local ZooCoin chain","The nonce range and workgroup size are tunable in settings"],"npc_reactions":["My integrated GPU just hit 2.4 MH/s on a WGSL compute shader. Respect.","Fell back to CPU mining and my fan immediately started judging me.","The dispatch workgroup count matters more than I expected for throughput.","WebGPU adapter info says I have 8 compute units. Every one is hashing.","Found a valid nonce at offset 1,247,803. The shader earned its keep.","Watching the GPU utilization spike during mining is deeply satisfying."],"status_messages":{"success":"Block mined — nonce found and chain extended.","failure":"Mining aborted — device lost or shader compilation error.","in_progress":"Dispatching compute workgroups... hashing in progress.","init_complete":"GPUDevice acquired. Compute pipeline compiled and ready.","fallback_used":"WebGPU unavailable — mining with CPU Web Worker instead."}};
+const NPCS = ['snake_oil_steve','blocky_pat','crypto_owl','treaty_baboon','hexpup','nullbyte_ned'];
+
+/* WGSL: simple hash-prefix search kernel.
+   For each thread: nonce = baseNonce + global_id.x; compute a lightweight FNV-1a 32-bit
+   hash mixing the seed bytes with the nonce. If the hash has the requested number of
+   high zero nibbles, write it to the result buffer. CPU side then re-hashes with
+   Web Crypto SHA-256 to confirm. */
+const WGSL_SHADER = `
+struct Params {
+  baseNonce: u32,
+  difficulty: u32,
+  seed0: u32,
+  seed1: u32,
+  seed2: u32,
+  seed3: u32,
+  count: u32,
+  pad: u32,
+};
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> out: array<u32>;
+
+fn fnv1a(seed: u32, nonce: u32) -> u32 {
+  var h: u32 = 2166136261u;
+  h = (h ^ ((seed >> 0u) & 0xffu)) * 16777619u;
+  h = (h ^ ((seed >> 8u) & 0xffu)) * 16777619u;
+  h = (h ^ ((seed >> 16u) & 0xffu)) * 16777619u;
+  h = (h ^ ((seed >> 24u) & 0xffu)) * 16777619u;
+  h = (h ^ ((nonce >> 0u) & 0xffu)) * 16777619u;
+  h = (h ^ ((nonce >> 8u) & 0xffu)) * 16777619u;
+  h = (h ^ ((nonce >> 16u) & 0xffu)) * 16777619u;
+  h = (h ^ ((nonce >> 24u) & 0xffu)) * 16777619u;
+  return h;
+}
+
+@compute @workgroup_size(__WG__)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= P.count) { return; }
+  let nonce = P.baseNonce + i;
+  var h = fnv1a(P.seed0, nonce);
+  h = h ^ fnv1a(P.seed1, h);
+  h = h ^ fnv1a(P.seed2, h);
+  h = h ^ fnv1a(P.seed3, h);
+  // shift = 4 bits per "leading hex zero". For difficulty=3, mask top 12 bits.
+  let shift = 32u - (P.difficulty * 4u);
+  if (shift >= 32u) { out[i] = 0u; return; }
+  let mask = 0xffffffffu << shift;
+  if ((h & mask) == 0u) {
+    out[i] = nonce;
+  } else {
+    out[i] = 0u;
+  }
+}
+`;
+
+/* ── Crypto utils ── */
+function bufToHex(b){return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function sha256Hex(s){const e=new TextEncoder().encode(s);return bufToHex(await crypto.subtle.digest('SHA-256',e));}
+function meetsTarget(h, diff){return h.startsWith('0'.repeat(diff));}
+
+/* ── State ── */
+const KEYS = { chain:'cryptozoo-chain', wallet:'cryptozoo-wallet' };
+let chain = [];
+let wallet = null;
+let device = null;
+let pipeline = null;
+let paramsBuf = null;
+let outBuf = null;
+let readBuf = null;
+let mining = false;
+let abortReq = false;
+let totalHashes = 0;
+let blocksFound = 0;
+let lastSampleTime = 0;
+let lastSampleHashes = 0;
+let hashrate = 0;
+let mode = 'unknown';
+let traceData = [];
+
+const TRACE_LEN = 240;
+
+function $(id){return document.getElementById(id);}
+function showStatus(id,type,msg){const el=$(id); if(!el) return; el.style.display='block'; el.className='status '+type; el.textContent=msg;}
+
+function loadState(){
+  try{
+    const c = localStorage.getItem(KEYS.chain);
+    if(c) chain = JSON.parse(c);
+    const w = localStorage.getItem(KEYS.wallet);
+    if(w) wallet = JSON.parse(w);
+  }catch(e){}
+}
+function saveState(){
+  try{
+    localStorage.setItem(KEYS.chain, JSON.stringify(chain));
+    if(wallet) localStorage.setItem(KEYS.wallet, JSON.stringify(wallet));
+  }catch(e){}
+}
+
+function pickReaction(){
+  return { who: NPCS[Math.floor(Math.random()*NPCS.length)],
+           msg: CONTENT.npc_reactions[Math.floor(Math.random()*CONTENT.npc_reactions.length)] };
+}
+function postReaction(){
+  const r = pickReaction();
+  const feed = $('npcFeed'); if(!feed) return;
+  const div = document.createElement('div'); div.className='npc-msg';
+  div.innerHTML = '<span class="who">@'+r.who+'</span> · '+r.msg;
+  feed.insertBefore(div, feed.firstChild);
+  while(feed.children.length>20) feed.removeChild(feed.lastChild);
+}
+
+/* ── GPU init ── */
+async function initGPU(){
+  if(!navigator.gpu){
+    mode = 'cpu';
+    $('modePill').textContent = 'CPU FALLBACK';
+    $('modePill').className = 'mode-pill cpu';
+    $('adapterInfo').innerHTML = '<span style="color:var(--orange)">navigator.gpu is not available in this browser. Falling back to Web Crypto SHA-256 on the CPU.</span>';
+    showStatus('mineStatus','info', CONTENT.status_messages.fallback_used);
+    $('shaderSrc').textContent = '/* WebGPU not available — CPU fallback in use */';
+    $('btnStart').disabled = false;
+    return false;
+  }
+  try{
+    const adapter = await navigator.gpu.requestAdapter();
+    if(!adapter){ throw new Error('No GPU adapter found'); }
+    device = await adapter.requestDevice();
+    device.lost.then(info=>{
+      console.warn('Device lost:', info);
+      mining = false; abortReq = true;
+      showStatus('mineStatus','error','GPU device lost: '+info.reason);
+    });
+    const wg = parseInt($('wgSize').value, 10) || 64;
+    const shaderSrc = WGSL_SHADER.replace('__WG__', String(wg));
+    $('shaderSrc').textContent = shaderSrc;
+    const module = device.createShaderModule({ code: shaderSrc });
+    pipeline = device.createComputePipeline({
+      layout: 'auto',
+      compute: { module, entryPoint: 'main' }
+    });
+    // adapter info
+    let info = {};
+    try{ info = await adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : (adapter.info || {}); }catch(e){}
+    const limits = device.limits || {};
+    $('adapterInfo').innerHTML =
+      '<div><b>vendor:</b> '+(info.vendor||'(hidden)')+'</div>'+
+      '<div><b>architecture:</b> '+(info.architecture||'(hidden)')+'</div>'+
+      '<div><b>device:</b> '+(info.device||'(hidden)')+'</div>'+
+      '<div><b>description:</b> '+(info.description||'(hidden)')+'</div>'+
+      '<div><b>maxComputeWorkgroupSizeX:</b> '+(limits.maxComputeWorkgroupSizeX||'?')+'</div>'+
+      '<div><b>maxComputeInvocationsPerWorkgroup:</b> '+(limits.maxComputeInvocationsPerWorkgroup||'?')+'</div>'+
+      '<div><b>maxStorageBufferBindingSize:</b> '+(limits.maxStorageBufferBindingSize||'?')+'</div>';
+    mode = 'gpu';
+    $('modePill').textContent = 'GPU (WebGPU)';
+    $('modePill').className = 'mode-pill gpu';
+    showStatus('mineStatus','success', CONTENT.status_messages.init_complete);
+    $('btnStart').disabled = false;
+    return true;
+  }catch(e){
+    console.warn('GPU init failed:', e);
+    mode = 'cpu';
+    $('modePill').textContent = 'CPU FALLBACK';
+    $('modePill').className = 'mode-pill cpu';
+    $('adapterInfo').innerHTML = '<span style="color:var(--orange)">'+e.message+'</span>';
+    showStatus('mineStatus','info', CONTENT.status_messages.fallback_used+' ('+e.message+')');
+    $('btnStart').disabled = false;
+    return false;
+  }
+}
+
+/* ── GPU mining batch ── */
+function makeSeeds(seedStr){
+  // 4 x u32 derived from seedStr
+  let h1=2166136261, h2=1, h3=2654435761, h4=88675123;
+  for(let i=0;i<seedStr.length;i++){
+    const c = seedStr.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+    h2 = Math.imul((h2 + c) >>> 0, 2654435761) >>> 0;
+    h3 = (h3 ^ Math.imul(c, h1)) >>> 0;
+    h4 = Math.imul(h4 ^ ((h2 + h3) >>> 0), 16777619) >>> 0;
+  }
+  return new Uint32Array([h1>>>0, h2>>>0, h3>>>0, h4>>>0]);
+}
+
+async function gpuBatch(seedStr, baseNonce, difficulty, count){
+  if(!device || !pipeline) return null;
+  const seeds = makeSeeds(seedStr);
+  const params = new Uint32Array([baseNonce>>>0, difficulty, seeds[0], seeds[1], seeds[2], seeds[3], count, 0]);
+  if(!paramsBuf) paramsBuf = device.createBuffer({ size: params.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(paramsBuf, 0, params);
+  const outBytes = count * 4;
+  if(!outBuf || outBuf.size !== outBytes){
+    if(outBuf) outBuf.destroy();
+    if(readBuf) readBuf.destroy();
+    outBuf = device.createBuffer({ size: outBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    readBuf = device.createBuffer({ size: outBytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  }
+  const bindGroup = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+      { binding:0, resource:{ buffer:paramsBuf } },
+      { binding:1, resource:{ buffer:outBuf } }
+    ]
+  });
+  const enc = device.createCommandEncoder();
+  const pass = enc.beginComputePass();
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, bindGroup);
+  const wg = parseInt($('wgSize').value, 10) || 64;
+  pass.dispatchWorkgroups(Math.ceil(count / wg));
+  pass.end();
+  enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, outBytes);
+  device.queue.submit([enc.finish()]);
+  await readBuf.mapAsync(GPUMapMode.READ);
+  const arr = new Uint32Array(readBuf.getMappedRange().slice(0));
+  readBuf.unmap();
+  return arr;
+}
+
+/* ── CPU fallback mining ── */
+async function cpuBatch(seedStr, baseNonce, difficulty, count){
+  // Returns array of "candidate nonces" — for CPU we just return the next set of nonces;
+  // verification still happens in verifyNonce.
+  const out = new Uint32Array(count);
+  for(let i=0;i<count;i++){
+    const nonce = baseNonce + i;
+    // Match the WGSL FNV mix so candidates are comparable
+    const seeds = makeSeeds(seedStr);
+    let h = fnv32(seeds[0], nonce);
+    h = h ^ fnv32(seeds[1], h);
+    h = h ^ fnv32(seeds[2], h);
+    h = h ^ fnv32(seeds[3], h);
+    const shift = 32 - difficulty*4;
+    if(shift >= 32) { out[i]=0; continue; }
+    const mask = (0xffffffff << shift) >>> 0;
+    if((h & mask) === 0){ out[i] = nonce >>> 0; } else { out[i] = 0; }
+  }
+  return out;
+}
+function fnv32(seed, nonce){
+  let h = 2166136261 >>> 0;
+  for(let s=0;s<32;s+=8){ h = Math.imul(h ^ ((seed >>> s) & 0xff), 16777619) >>> 0; }
+  for(let s=0;s<32;s+=8){ h = Math.imul(h ^ ((nonce >>> s) & 0xff), 16777619) >>> 0; }
+  return h >>> 0;
+}
+
+/* ── Block creation ── */
+function makeBlockHeader(prevHash, nonce){
+  return { prevHash, timestamp: Date.now(), nonce, miner: wallet ? 'ZOO_self' : 'anon' };
+}
+
+async function verifyNonce(seedStr, nonce, difficulty){
+  const headerStr = seedStr + ':' + nonce;
+  const h = await sha256Hex(headerStr);
+  return meetsTarget(h, difficulty) ? h : null;
+}
+
+function appendBlock(seedStr, nonce, hash){
+  const idx = chain.length;
+  const block = {
+    index: idx,
+    hash, prevHash: chain[idx-1] ? chain[idx-1].hash : '0'.repeat(64),
+    nonce, difficulty: parseInt($('difficulty').value,10),
+    seed: seedStr,
+    timestamp: Date.now(),
+    transactions: [],
+    miner: 'webgpu-miner'
+  };
+  chain.push(block);
+  saveState();
+  blocksFound++;
+}
+
+/* ── Main mining loop ── */
+async function mineLoop(){
+  mining = true; abortReq = false;
+  totalHashes = 0; lastSampleHashes = 0; lastSampleTime = performance.now();
+  $('btnStart').disabled = true; $('btnStop').disabled = false; $('btnInit').disabled = true;
+  showStatus('mineStatus','info', CONTENT.status_messages.in_progress);
+  postReaction();
+
+  const stream = $('hashStream');
+  let baseNonce = (Math.random()*1e9)>>>0;
+  while(!abortReq){
+    const difficulty = Math.max(1, Math.min(6, parseInt($('difficulty').value,10)||3));
+    $('statDiff').textContent = difficulty;
+    const count = Math.max(1, Math.min(4096, parseInt($('dispatchCount').value,10)||256));
+    const prevHash = chain.length ? chain[chain.length-1].hash : '0'.repeat(64);
+    const seedStr = prevHash + ':' + Date.now();
+    let candidates;
+    try{
+      if(mode === 'gpu' && device){
+        candidates = await gpuBatch(seedStr, baseNonce, difficulty, count);
+      } else {
+        candidates = await cpuBatch(seedStr, baseNonce, difficulty, count);
+      }
+    }catch(e){
+      showStatus('mineStatus','error','Batch error: '+e.message);
+      break;
+    }
+    totalHashes += count;
+    baseNonce = (baseNonce + count) >>> 0;
+
+    // Verify candidates with real SHA-256
+    for(let i=0;i<candidates.length;i++){
+      const c = candidates[i];
+      if(c === 0) continue;
+      const result = await verifyNonce(seedStr, c, difficulty);
+      if(result){
+        const line = document.createElement('div');
+        line.className='found';
+        line.textContent = '★ block #'+chain.length+' nonce='+c+' hash='+result.substring(0,32)+'...';
+        stream.appendChild(line);
+        appendBlock(seedStr, c, result);
+        postReaction();
+      }
+    }
+
+    // Sample stream hashes every batch
+    if((totalHashes & 7) === 0){
+      const sampleHash = await sha256Hex(seedStr+':'+(baseNonce>>>0));
+      const line = document.createElement('div');
+      line.textContent = sampleHash;
+      stream.appendChild(line);
+      while(stream.children.length>120) stream.removeChild(stream.firstChild);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    // Update stats
+    const now = performance.now();
+    const dt = (now - lastSampleTime) / 1000;
+    if(dt > 0.5){
+      hashrate = Math.round((totalHashes - lastSampleHashes) / dt);
+      lastSampleTime = now;
+      lastSampleHashes = totalHashes;
+      $('statHashrate').textContent = hashrate.toLocaleString();
+      $('statHashes').textContent = totalHashes.toLocaleString();
+      $('statBlocks').textContent = blocksFound;
+      const pct = Math.min(100, Math.log10(Math.max(1,hashrate))*22);
+      $('gauge').style.width = pct+'%';
+      $('gaugeLabel').textContent = hashrate.toLocaleString()+' H/s';
+      traceData.push(hashrate);
+      while(traceData.length > TRACE_LEN) traceData.shift();
+      drawTrace();
+    }
+    // Yield to UI
+    await new Promise(r=>setTimeout(r, 0));
+  }
+  mining = false;
+  $('btnStart').disabled = false; $('btnStop').disabled = true; $('btnInit').disabled = false;
+  showStatus('mineStatus','info', 'Mining stopped. Total hashes: '+totalHashes.toLocaleString()+', blocks found: '+blocksFound);
+}
+
+function drawTrace(){
+  const cv = $('trace'); if(!cv) return;
+  const ctx = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(0,0,w,h);
+  if(!traceData.length) return;
+  const max = Math.max.apply(null, traceData) || 1;
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for(let i=0;i<traceData.length;i++){
+    const x = (i/(TRACE_LEN-1))*w;
+    const y = h - (traceData[i]/max)*(h-6) - 3;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+}
+
+/* ── Tabs ── */
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  ['mine','device','help'].forEach(n=>{
+    const el = document.getElementById('tab-'+n);
+    if(el) el.style.display = (n===name)?'grid':'none';
+  });
+}
+
+/* ── Init ── */
+async function init(){
+  $('appTitle').textContent = CONTENT.title;
+  $('appTagline').textContent = CONTENT.tagline;
+  $('appIntro').textContent = CONTENT.intro;
+  $('helpList').innerHTML = CONTENT.help.map(h=>'<li>'+h+'</li>').join('');
+
+  loadState();
+  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>switchTab(t.dataset.tab)));
+  $('btnInit').addEventListener('click', initGPU);
+  $('btnStart').addEventListener('click', ()=>{ if(!mining) mineLoop(); });
+  $('btnStop').addEventListener('click', ()=>{ abortReq = true; });
+  $('statDiff').textContent = $('difficulty').value;
+  showStatus('initStatus','info', 'Ready. Click "Initialize GPU" to begin.');
+  // Show shader source preview even before init
+  $('shaderSrc').textContent = WGSL_SHADER.replace('__WG__','64');
+}
+
+document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

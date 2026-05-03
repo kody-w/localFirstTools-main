@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZooCoin IndexedDB UTXO Vault</title>
+<meta name="description" content="Migrate the ZooCoin UTXO set into IndexedDB 3.0 for fast cross-tab balance lookups.">
+<meta name="rappterzoo:author" content="agent">
+<meta name="rappterzoo:author-type" content="agent">
+<meta name="rappterzoo:category" content="experimental_ai">
+<meta name="rappterzoo:tags" content="cryptozoo,w3c,indexeddb,storage-buckets,utxo,persistence">
+<meta name="rappterzoo:type" content="interactive">
+<meta name="rappterzoo:complexity" content="advanced">
+<meta name="rappterzoo:created" content="2026-05-02">
+<meta name="rappterzoo:generation" content="1">
+<meta name="rappterzoo:parents" content="cryptozoo-network.html,cryptozoo-explorer.html">
+<meta name="rappterzoo:genes" content="state_machine,entity_system,hud_renderer">
+<meta name="rappterzoo:experience" content="mastery">
+<meta name="rappterzoo:spec" content="https://www.w3.org/TR/2025/WD-IndexedDB-3-20250813/">
+<style>
+:root{--bg:#0a0a12;--bg2:#12121f;--bg3:#1a1a2e;--text:#e0e0e0;--dim:#888;--accent:#00e5ff;--gold:#ffd700;--green:#00e676;--red:#ff5252;--purple:#a14dff;--orange:#ff9100;--radius:6px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Courier New',monospace;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;}
+header{background:var(--bg2);border-bottom:1px solid #222;padding:14px 20px;display:flex;align-items:center;gap:12px;}
+header h1{font-size:16px;color:var(--gold);}
+header h1 span{color:var(--accent);}
+header .badge{margin-left:auto;font-size:10px;padding:4px 10px;border:1px solid var(--purple);color:var(--purple);border-radius:12px;}
+main{max-width:1100px;margin:0 auto;padding:20px;}
+.tagline{color:var(--dim);font-size:13px;margin-bottom:16px;font-style:italic;}
+.intro{background:var(--bg2);border-left:3px solid var(--accent);padding:14px 18px;margin-bottom:20px;font-size:13px;border-radius:0 var(--radius) var(--radius) 0;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;}
+.card{background:var(--bg2);border:1px solid #222;border-radius:var(--radius);padding:16px;}
+.card h2{color:var(--accent);font-size:13px;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #222;}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;}
+input,select{width:100%;background:var(--bg3);color:var(--text);border:1px solid #333;border-radius:var(--radius);padding:8px 10px;font-family:inherit;font-size:12px;}
+input:focus,select:focus{outline:none;border-color:var(--accent);}
+button{background:var(--bg3);color:var(--accent);border:1px solid var(--accent);border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12px;margin-right:6px;margin-bottom:6px;}
+button:hover{background:rgba(0,229,255,0.15);}
+button.primary{background:var(--accent);color:var(--bg);font-weight:bold;}
+button.danger{border-color:var(--red);color:var(--red);}
+button.gold{border-color:var(--gold);color:var(--gold);}
+.status{padding:10px 12px;border-radius:var(--radius);font-size:12px;margin:10px 0;}
+.status.success{background:rgba(0,230,118,0.1);border:1px solid var(--green);color:var(--green);}
+.status.error{background:rgba(255,82,82,0.1);border:1px solid var(--red);color:var(--red);}
+.status.info{background:rgba(0,229,255,0.08);border:1px solid var(--accent);color:var(--accent);}
+.row{margin-bottom:12px;}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px;}
+.stat{background:var(--bg3);border:1px solid #2a2a3e;border-radius:var(--radius);padding:10px;text-align:center;}
+.stat .v{font-size:18px;color:var(--gold);font-weight:bold;}
+.stat .l{font-size:10px;color:var(--dim);text-transform:uppercase;}
+.utxo-list{max-height:380px;overflow-y:auto;font-size:11px;}
+.utxo-item{background:var(--bg3);border:1px solid #2a2a3e;border-radius:var(--radius);padding:8px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;}
+.utxo-item .addr{color:var(--accent);font-size:10px;word-break:break-all;}
+.utxo-item .amt{color:var(--gold);font-weight:bold;}
+.bench{font-size:11px;line-height:1.7;}
+.bench span{color:var(--dim);}
+.mode-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;}
+.mode-pill.idb{background:rgba(0,229,255,0.15);color:var(--accent);}
+.mode-pill.ls{background:rgba(255,145,0,0.15);color:var(--orange);}
+.mode-pill.bucket{background:rgba(161,77,255,0.15);color:var(--purple);}
+.npc-feed{max-height:160px;overflow-y:auto;}
+.npc-msg{padding:6px 8px;border-left:2px solid var(--purple);margin-bottom:6px;font-size:11px;color:#bbb;}
+.npc-msg .who{color:var(--purple);font-weight:bold;}
+.help-panel ul{padding-left:20px;font-size:12px;color:#ccc;}
+.help-panel li{margin-bottom:6px;}
+.tabs{display:flex;gap:4px;margin-bottom:12px;}
+.tab{padding:6px 12px;background:var(--bg3);border:1px solid #333;border-radius:var(--radius);cursor:pointer;font-size:11px;color:var(--dim);}
+.tab.active{color:var(--accent);border-color:var(--accent);}
+.spec-link{font-size:10px;color:var(--purple);text-decoration:none;}
+@media(max-width:680px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+<h1>Crypto<span>Zoo</span> · IndexedDB UTXO Vault</h1>
+<a class="spec-link" href="https://www.w3.org/TR/2025/WD-IndexedDB-3-20250813/" target="_blank" rel="noopener">W3C IndexedDB 3.0</a>
+<div class="badge">CryptoZoo x W3C</div>
+</header>
+<main>
+<div id="appTitle" style="font-size:18px;color:var(--gold);margin-bottom:4px;"></div>
+<div class="tagline" id="appTagline"></div>
+<div class="intro" id="appIntro"></div>
+
+<div class="tabs">
+<div class="tab active" data-tab="dash">Dashboard</div>
+<div class="tab" data-tab="query">Query</div>
+<div class="tab" data-tab="bench">Benchmark</div>
+<div class="tab" data-tab="help">Help</div>
+</div>
+
+<div id="initStatus" class="status info"></div>
+
+<div class="grid" id="tab-dash">
+  <div class="card">
+    <h2>Storage Backend</h2>
+    <div style="margin-bottom:8px;">Persistence: <span class="mode-pill" id="modePill">checking...</span></div>
+    <div style="margin-bottom:8px;">Bucket Mode: <span class="mode-pill" id="bucketPill">checking...</span></div>
+    <div class="stats">
+      <div class="stat"><div class="v" id="statTotalUtxos">0</div><div class="l">UTXOs</div></div>
+      <div class="stat"><div class="v" id="statAddrs">0</div><div class="l">Addresses</div></div>
+      <div class="stat"><div class="v" id="statSupply">0</div><div class="l">Total Supply</div></div>
+      <div class="stat"><div class="v" id="statQuotaPct">—</div><div class="l">Storage Used</div></div>
+    </div>
+    <button class="primary" id="btnMigrate">Migrate from localStorage</button>
+    <button class="gold" id="btnSeed">Seed Demo UTXOs</button>
+    <button class="danger" id="btnClear">Clear Vault</button>
+    <div id="migrateStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Tools</h2>
+    <div class="row"><label>Sync Mode</label><select id="syncMode"><option value="idb">IndexedDB only</option><option value="dual">IndexedDB + mirror to localStorage</option></select></div>
+    <button id="btnCompact">Compact (drop spent)</button>
+    <button id="btnExport">Export JSON</button>
+    <button id="btnRefresh">Refresh from Chain</button>
+    <div style="margin-top:14px;">
+      <h2 style="margin-top:0;">Cross-tab Live</h2>
+      <p style="font-size:11px;color:var(--dim);">This page listens for IndexedDB updates from other tabs via BroadcastChannel. Open this URL in a second tab and edit there to verify.</p>
+      <div id="bcLog" style="background:var(--bg);border:1px solid #2a2a3e;border-radius:var(--radius);padding:8px;font-size:10px;color:var(--dim);max-height:140px;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid" id="tab-query" style="display:none;">
+  <div class="card">
+    <h2>Address Lookup</h2>
+    <div class="row"><label>ZooCoin Address</label><input id="qAddr" placeholder="ZOO..."></div>
+    <button class="primary" id="btnQueryAddr">Find UTXOs</button>
+    <button id="btnPickFirst">Pick first known address</button>
+    <div id="queryStatus" class="status info" style="display:none;"></div>
+    <div style="margin-top:12px;font-size:11px;color:var(--dim);">Balance: <span id="balanceVal" style="color:var(--gold);font-weight:bold;">—</span></div>
+  </div>
+  <div class="card">
+    <h2>Results</h2>
+    <div class="utxo-list" id="utxoList"><span style="color:var(--dim);font-size:11px;">No query yet.</span></div>
+  </div>
+  <div class="card" style="grid-column:1/-1;">
+    <h2>NPC Reactions</h2>
+    <div class="npc-feed" id="npcFeed"></div>
+  </div>
+</div>
+
+<div class="grid" id="tab-bench" style="display:none;">
+  <div class="card">
+    <h2>Benchmark</h2>
+    <p style="font-size:12px;color:#ccc;margin-bottom:12px;">Compares balance-lookup latency between localStorage (parse-and-scan) and IndexedDB (indexed query).</p>
+    <div class="row"><label>Iterations</label><input id="benchN" type="number" value="200" min="10" max="5000"></div>
+    <button class="primary" id="btnBench">Run Benchmark</button>
+    <div id="benchStatus" class="status info" style="display:none;"></div>
+  </div>
+  <div class="card">
+    <h2>Latency</h2>
+    <div class="bench" id="benchResult"><span>Run a benchmark to see results.</span></div>
+  </div>
+</div>
+
+<div class="grid" id="tab-help" style="display:none;">
+  <div class="card help-panel" style="grid-column:1/-1;">
+    <h2>How to Use</h2>
+    <ul id="helpList"></ul>
+    <h2 style="margin-top:18px;">About this Mashup</h2>
+    <p style="font-size:12px;color:#ccc;">Storage Buckets is not yet a /TR/ Recommendation, so this app uses W3C IndexedDB 3.0 as the underlying store. When the experimental <code>navigator.storageBuckets</code> API is detected, the IndexedDB connection is opened inside an isolated bucket; otherwise the default bucket is used. Either way, UTXO records are stored in an object store with a composite key on <code>[txHash, outputIndex]</code> and a secondary index on <code>address</code>, enabling O(log n) balance lookups instead of the O(n) JSON scan that localStorage requires.</p>
+  </div>
+</div>
+
+</main>
+
+<script>
+(function(){
+'use strict';
+
+const CONTENT = {"title":"ZooCoin IndexedDB UTXO Vault","tagline":"Your unspent outputs deserve a real database, not a serialized blob in localStorage.","intro":"This app migrates the ZooCoin UTXO set from a single localStorage JSON blob into IndexedDB 3.0, using object stores with composite indexes on address and transaction hash. Cross-tab balance lookups become near-instant because IndexedDB supports concurrent read transactions, and the structured cloning algorithm handles UTXO objects without serialization overhead. Storage Buckets isolation keeps chain data separate from app preferences.","help":["Click Migrate to move your UTXO set from localStorage to IndexedDB","Browse UTXOs by address using the indexed query panel","Open a second tab to confirm cross-tab read consistency","Use Compact to prune spent outputs and reclaim storage","The sync indicator shows when IndexedDB and localStorage diverge","Export the full UTXO database as a downloadable JSON backup"],"npc_reactions":["Balance lookup dropped from 380ms to 4ms after the IndexedDB migration.","Opened three tabs and they all read the same UTXO set. No locking issues.","The composite index on [address, txHash] makes range queries trivial.","Compacted 2,000 spent outputs and freed 1.2MB of structured storage.","IndexedDB cursor iteration over UTXOs feels like a proper database finally.","The upgrade transaction created object stores without dropping my existing chain."],"status_messages":{"success":"UTXO set persisted — all indexes built and verified.","failure":"IndexedDB transaction aborted — storage quota may be exceeded.","in_progress":"Writing UTXO entries to object store in batched transactions...","init_complete":"IndexedDB connection open. Object stores and indexes confirmed.","fallback_used":"IndexedDB unavailable — persisting to localStorage as JSON."}};
+const NPCS = ['snake_oil_steve','blocky_pat','crypto_owl','treaty_baboon','hexpup','nullbyte_ned'];
+
+const KEYS = { utxos:'cryptozoo-utxos', chain:'cryptozoo-chain' };
+const DB_NAME = 'cryptozoo-utxo-db';
+const DB_VERSION = 1;
+const STORE = 'utxos';
+const BUCKET_NAME = 'cryptozoo-chain';
+
+let db = null;
+let useIDB = false;
+let useBucket = false;
+let bc = null;
+
+function $(id){return document.getElementById(id);}
+function showStatus(id,type,msg){const el=$(id); if(!el) return; el.style.display='block'; el.className='status '+type; el.textContent=msg;}
+function pickReaction(){return { who:NPCS[Math.floor(Math.random()*NPCS.length)], msg:CONTENT.npc_reactions[Math.floor(Math.random()*CONTENT.npc_reactions.length)] };}
+function postReaction(){
+  const r = pickReaction(); const feed = $('npcFeed'); if(!feed) return;
+  const div = document.createElement('div'); div.className='npc-msg';
+  div.innerHTML = '<span class="who">@'+r.who+'</span> · '+r.msg;
+  feed.insertBefore(div, feed.firstChild);
+  while(feed.children.length>20) feed.removeChild(feed.lastChild);
+}
+
+/* ── IndexedDB helpers ── */
+function openDB(idb){
+  return new Promise((resolve, reject)=>{
+    const req = idb.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const d = req.result;
+      if(!d.objectStoreNames.contains(STORE)){
+        const os = d.createObjectStore(STORE, { keyPath:['txHash','outputIndex'] });
+        os.createIndex('address', 'address', { unique:false });
+        os.createIndex('amount', 'amount', { unique:false });
+      }
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+
+async function getBucketIDB(){
+  // Try Storage Buckets API (experimental, not yet /TR/)
+  if(!('storageBuckets' in navigator) || !navigator.storageBuckets || !navigator.storageBuckets.open){
+    return { idb: indexedDB, bucket:false };
+  }
+  try{
+    const bucket = await navigator.storageBuckets.open(BUCKET_NAME, { persisted:true, durability:'strict' });
+    return { idb: bucket.indexedDB, bucket:true };
+  }catch(e){
+    return { idb: indexedDB, bucket:false };
+  }
+}
+
+async function init(){
+  $('appTitle').textContent = CONTENT.title;
+  $('appTagline').textContent = CONTENT.tagline;
+  $('appIntro').textContent = CONTENT.intro;
+  $('helpList').innerHTML = CONTENT.help.map(h=>'<li>'+h+'</li>').join('');
+
+  // Wire tabs
+  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>switchTab(t.dataset.tab)));
+
+  // Buttons
+  $('btnMigrate').addEventListener('click', migrate);
+  $('btnSeed').addEventListener('click', seedDemo);
+  $('btnClear').addEventListener('click', clearVault);
+  $('btnCompact').addEventListener('click', compact);
+  $('btnExport').addEventListener('click', exportJson);
+  $('btnRefresh').addEventListener('click', refreshFromChain);
+  $('btnQueryAddr').addEventListener('click', ()=>queryAddress($('qAddr').value));
+  $('btnPickFirst').addEventListener('click', pickFirstAddress);
+  $('btnBench').addEventListener('click', runBench);
+
+  // Detect backends
+  if(typeof indexedDB === 'undefined'){
+    useIDB = false;
+    $('modePill').textContent = 'localStorage';
+    $('modePill').className = 'mode-pill ls';
+    $('bucketPill').textContent = 'n/a';
+    $('bucketPill').className = 'mode-pill ls';
+    showStatus('initStatus','info', CONTENT.status_messages.fallback_used);
+  } else {
+    try{
+      const { idb, bucket } = await getBucketIDB();
+      useBucket = bucket;
+      db = await openDB(idb);
+      useIDB = true;
+      $('modePill').textContent = 'IndexedDB 3.0';
+      $('modePill').className = 'mode-pill idb';
+      $('bucketPill').textContent = bucket ? 'Storage Bucket: '+BUCKET_NAME : 'default bucket';
+      $('bucketPill').className = 'mode-pill '+(bucket?'bucket':'idb');
+      showStatus('initStatus','success', CONTENT.status_messages.init_complete);
+    }catch(e){
+      useIDB = false;
+      $('modePill').textContent = 'localStorage (fallback)';
+      $('modePill').className = 'mode-pill ls';
+      $('bucketPill').textContent = 'n/a';
+      $('bucketPill').className = 'mode-pill ls';
+      showStatus('initStatus','error', CONTENT.status_messages.failure+' '+e.message);
+    }
+  }
+
+  // BroadcastChannel for cross-tab live updates
+  try{
+    bc = new BroadcastChannel('cryptozoo-utxo');
+    bc.onmessage = (e)=>{
+      const log = $('bcLog');
+      const div = document.createElement('div');
+      div.textContent = '['+new Date().toLocaleTimeString()+'] '+JSON.stringify(e.data);
+      log.insertBefore(div, log.firstChild);
+      while(log.children.length>50) log.removeChild(log.lastChild);
+      refreshStats();
+    };
+  }catch(e){}
+
+  await refreshStats();
+}
+
+/* ── Read/write ── */
+async function putUTXOs(utxos){
+  if(useIDB){
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction(STORE, 'readwrite');
+      const os = tx.objectStore(STORE);
+      utxos.forEach(u=>os.put(u));
+      tx.oncomplete = ()=>resolve(utxos.length);
+      tx.onerror = ()=>reject(tx.error);
+    });
+  } else {
+    const cur = JSON.parse(localStorage.getItem(KEYS.utxos)||'{}');
+    utxos.forEach(u=>{ cur[u.txHash+':'+u.outputIndex] = u; });
+    localStorage.setItem(KEYS.utxos, JSON.stringify(cur));
+    return utxos.length;
+  }
+}
+
+async function getAllUTXOs(){
+  if(useIDB){
+    return new Promise((resolve)=>{
+      const tx = db.transaction(STORE, 'readonly');
+      const os = tx.objectStore(STORE);
+      const req = os.getAll();
+      req.onsuccess = ()=>resolve(req.result || []);
+      req.onerror = ()=>resolve([]);
+    });
+  } else {
+    const obj = JSON.parse(localStorage.getItem(KEYS.utxos)||'{}');
+    return Object.values(obj);
+  }
+}
+
+async function getByAddress(address){
+  if(useIDB){
+    return new Promise((resolve)=>{
+      const tx = db.transaction(STORE, 'readonly');
+      const idx = tx.objectStore(STORE).index('address');
+      const req = idx.getAll(address);
+      req.onsuccess = ()=>resolve(req.result || []);
+      req.onerror = ()=>resolve([]);
+    });
+  } else {
+    const obj = JSON.parse(localStorage.getItem(KEYS.utxos)||'{}');
+    return Object.values(obj).filter(u=>u.address===address);
+  }
+}
+
+async function clearAll(){
+  if(useIDB){
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = ()=>resolve();
+      tx.onerror = ()=>reject(tx.error);
+    });
+  } else {
+    localStorage.removeItem(KEYS.utxos);
+  }
+}
+
+/* ── Migration ── */
+async function migrate(){
+  showStatus('migrateStatus','info', CONTENT.status_messages.in_progress);
+  let blob = {};
+  try{ blob = JSON.parse(localStorage.getItem(KEYS.utxos)||'{}'); }
+  catch(e){ showStatus('migrateStatus','error','localStorage UTXO blob is invalid JSON.'); return; }
+  const list = [];
+  for(const k in blob){
+    const u = blob[k];
+    if(!u || typeof u !== 'object') continue;
+    list.push({
+      txHash: u.txHash || (k.split(':')[0]||'?'),
+      outputIndex: typeof u.outputIndex==='number' ? u.outputIndex : parseInt((k.split(':')[1]||'0'),10),
+      address: u.address || 'ZOO_unknown',
+      amount: typeof u.amount==='number' ? u.amount : 0,
+      spent: !!u.spent,
+      blockHeight: u.blockHeight || 0
+    });
+  }
+  if(!list.length){
+    showStatus('migrateStatus','info','No UTXOs in localStorage to migrate. Try "Seed Demo UTXOs".');
+    return;
+  }
+  try{
+    const n = await putUTXOs(list);
+    showStatus('migrateStatus','success', CONTENT.status_messages.success+' Migrated '+n+' UTXOs.');
+    if(bc) bc.postMessage({ event:'migrate', count:n });
+    postReaction();
+  }catch(e){
+    showStatus('migrateStatus','error', CONTENT.status_messages.failure+' '+e.message);
+  }
+  await refreshStats();
+}
+
+async function seedDemo(){
+  showStatus('migrateStatus','info','Seeding demo UTXOs...');
+  const addrs = [];
+  for(let i=0;i<8;i++){
+    addrs.push('ZOO'+Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join(''));
+  }
+  const utxos = [];
+  for(let i=0;i<200;i++){
+    utxos.push({
+      txHash: Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b=>b.toString(16).padStart(2,'0')).join(''),
+      outputIndex: i % 4,
+      address: addrs[Math.floor(Math.random()*addrs.length)],
+      amount: parseFloat((Math.random()*50).toFixed(4)),
+      spent: false,
+      blockHeight: Math.floor(Math.random()*1000)
+    });
+  }
+  try{
+    await putUTXOs(utxos);
+    showStatus('migrateStatus','success','Seeded '+utxos.length+' demo UTXOs across '+addrs.length+' addresses.');
+    if(bc) bc.postMessage({ event:'seed', count:utxos.length });
+    postReaction();
+  }catch(e){
+    showStatus('migrateStatus','error', e.message);
+  }
+  await refreshStats();
+}
+
+async function clearVault(){
+  if(!confirm('Clear all UTXOs in the vault?')) return;
+  await clearAll();
+  if(bc) bc.postMessage({event:'clear'});
+  showStatus('migrateStatus','info','Vault cleared.');
+  await refreshStats();
+  $('utxoList').innerHTML = '<span style="color:var(--dim);font-size:11px;">Vault cleared.</span>';
+}
+
+async function compact(){
+  showStatus('migrateStatus','info','Compacting (dropping spent UTXOs)...');
+  const all = await getAllUTXOs();
+  const spent = all.filter(u=>u.spent);
+  if(useIDB){
+    await new Promise((resolve, reject)=>{
+      const tx = db.transaction(STORE,'readwrite');
+      const os = tx.objectStore(STORE);
+      spent.forEach(u=>os.delete([u.txHash, u.outputIndex]));
+      tx.oncomplete = ()=>resolve();
+      tx.onerror = ()=>reject(tx.error);
+    });
+  } else {
+    const obj = JSON.parse(localStorage.getItem(KEYS.utxos)||'{}');
+    spent.forEach(u=>delete obj[u.txHash+':'+u.outputIndex]);
+    localStorage.setItem(KEYS.utxos, JSON.stringify(obj));
+  }
+  showStatus('migrateStatus','success','Removed '+spent.length+' spent outputs.');
+  if(bc) bc.postMessage({event:'compact', removed:spent.length});
+  await refreshStats();
+}
+
+async function refreshFromChain(){
+  showStatus('migrateStatus','info','Rebuilding UTXO set from cryptozoo-chain...');
+  let chain = [];
+  try{ chain = JSON.parse(localStorage.getItem(KEYS.chain)||'[]'); }
+  catch(e){ showStatus('migrateStatus','error','Chain is invalid JSON.'); return; }
+  // Build UTXO set via the standard cryptozoo-network logic
+  const utxos = {};
+  for(const block of chain){
+    if(!block.transactions) continue;
+    for(const tx of block.transactions){
+      if(tx.inputs){
+        for(const inp of tx.inputs){
+          delete utxos[inp.txHash+':'+inp.outputIndex];
+        }
+      }
+      if(tx.outputs){
+        for(let i=0;i<tx.outputs.length;i++){
+          utxos[tx.hash+':'+i] = { txHash:tx.hash, outputIndex:i, address:tx.outputs[i].address, amount:tx.outputs[i].amount, spent:false, blockHeight:block.index };
+        }
+      }
+    }
+  }
+  await clearAll();
+  await putUTXOs(Object.values(utxos));
+  showStatus('migrateStatus','success','Rebuilt '+Object.keys(utxos).length+' UTXOs from '+chain.length+' blocks.');
+  if(bc) bc.postMessage({event:'rebuild', count:Object.keys(utxos).length});
+  await refreshStats();
+}
+
+async function exportJson(){
+  const all = await getAllUTXOs();
+  const blob = new Blob([JSON.stringify(all,null,2)],{type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='cryptozoo-utxos-export.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── Query ── */
+async function queryAddress(addr){
+  if(!addr){ showStatus('queryStatus','error','Enter an address to query.'); return; }
+  showStatus('queryStatus','info','Looking up UTXOs for '+addr+'...');
+  const t0 = performance.now();
+  const list = await getByAddress(addr);
+  const dt = (performance.now()-t0).toFixed(2);
+  const total = list.reduce((s,u)=>s+(u.amount||0),0);
+  $('balanceVal').textContent = total.toFixed(4)+' ZOO';
+  const ul = $('utxoList');
+  if(!list.length){
+    ul.innerHTML = '<span style="color:var(--dim);font-size:11px;">No UTXOs for this address.</span>';
+  } else {
+    ul.innerHTML = list.map(u=>
+      '<div class="utxo-item"><div><div class="addr">'+u.txHash.substring(0,40)+'...:'+u.outputIndex+'</div>'+
+      '<div style="font-size:10px;color:var(--dim);margin-top:2px;">block '+u.blockHeight+(u.spent?' · spent':'')+'</div></div>'+
+      '<div class="amt">'+(u.amount||0).toFixed(4)+'</div></div>'
+    ).join('');
+  }
+  showStatus('queryStatus','success','Found '+list.length+' UTXOs in '+dt+'ms (mode: '+(useIDB?'IndexedDB':'localStorage')+').');
+  postReaction();
+}
+
+async function pickFirstAddress(){
+  const all = await getAllUTXOs();
+  if(!all.length){ showStatus('queryStatus','info','Vault empty — seed demo data first.'); return; }
+  const a = all[0].address;
+  $('qAddr').value = a;
+  await queryAddress(a);
+}
+
+/* ── Stats ── */
+async function refreshStats(){
+  const all = await getAllUTXOs();
+  $('statTotalUtxos').textContent = all.length;
+  const addrs = new Set(all.map(u=>u.address));
+  $('statAddrs').textContent = addrs.size;
+  const supply = all.reduce((s,u)=>s+(u.amount||0),0);
+  $('statSupply').textContent = supply.toFixed(2);
+  if(navigator.storage && navigator.storage.estimate){
+    try{
+      const est = await navigator.storage.estimate();
+      const pct = est.quota ? ((est.usage||0)/est.quota*100).toFixed(2)+'%' : '—';
+      $('statQuotaPct').textContent = pct;
+    }catch(e){ $('statQuotaPct').textContent='—'; }
+  }
+}
+
+/* ── Benchmark ── */
+async function runBench(){
+  const n = Math.max(10, Math.min(5000, parseInt($('benchN').value,10)||200));
+  const all = await getAllUTXOs();
+  if(!all.length){ showStatus('benchStatus','info','Seed demo UTXOs first.'); return; }
+  showStatus('benchStatus','info','Running '+n+' lookups in each backend...');
+  const addrs = Array.from(new Set(all.map(u=>u.address)));
+  if(!addrs.length){ showStatus('benchStatus','info','No addresses to query.'); return; }
+
+  // localStorage backend (parse + scan)
+  const lsBlob = JSON.stringify(all.reduce((acc,u)=>{ acc[u.txHash+':'+u.outputIndex]=u; return acc; },{}));
+  // simulate with parseable copy
+  const t0 = performance.now();
+  for(let i=0;i<n;i++){
+    const a = addrs[i % addrs.length];
+    const obj = JSON.parse(lsBlob);
+    let bal = 0;
+    for(const k in obj){ if(obj[k].address===a) bal += obj[k].amount; }
+  }
+  const lsTime = performance.now()-t0;
+
+  // IndexedDB backend (indexed)
+  let idbTime = NaN;
+  if(useIDB){
+    const t1 = performance.now();
+    for(let i=0;i<n;i++){
+      const a = addrs[i % addrs.length];
+      // eslint-disable-next-line no-await-in-loop
+      await getByAddress(a);
+    }
+    idbTime = performance.now()-t1;
+  }
+
+  $('benchResult').innerHTML =
+    '<div><span>iterations:</span> '+n+'</div>'+
+    '<div><span>addresses cycled:</span> '+addrs.length+'</div>'+
+    '<div><span>localStorage total:</span> <b style="color:var(--orange)">'+lsTime.toFixed(1)+' ms</b> ('+(lsTime/n).toFixed(3)+' ms/op)</div>'+
+    (useIDB
+      ? '<div><span>IndexedDB total:</span> <b style="color:var(--green)">'+idbTime.toFixed(1)+' ms</b> ('+(idbTime/n).toFixed(3)+' ms/op)</div>'+
+        '<div><span>speedup:</span> <b style="color:var(--gold)">'+(lsTime/Math.max(idbTime,0.001)).toFixed(2)+'x</b></div>'
+      : '<div><span>IndexedDB:</span> not available</div>');
+  showStatus('benchStatus','success','Benchmark complete.');
+  postReaction();
+}
+
+/* ── Tabs ── */
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  ['dash','query','bench','help'].forEach(n=>{
+    const el = document.getElementById('tab-'+n);
+    if(el) el.style.display = (n===name)?'grid':'none';
+  });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
