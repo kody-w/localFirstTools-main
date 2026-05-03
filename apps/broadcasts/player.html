@@ -440,17 +440,56 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
     return html;
   }
 
-  // ── Audio (Web Speech TTS) ──
+  // ── Audio (real MP3 when present, else Web Speech TTS) ──
+  let realAudio = null;
+  let useRealAudio = false;
+
   function loadAudio(ep){
     const bar = document.getElementById('playerBar');
     bar.classList.remove('hidden');
     document.getElementById('playerTitle').textContent = ep.title;
 
     if(synth) synth.cancel();
+    if(realAudio){ realAudio.pause(); realAudio = null; }
     isPlaying = false;
-    utteranceList = buildUtterances(ep);
-    const saved = state.position[ep.id];
-    currentLineIdx = (typeof saved === 'number' && saved < utteranceList.length) ? saved : 0;
+
+    // Prefer pre-rendered MP3 (ElevenLabs); fall back to TTS for old WAVs or missing audio.
+    const af = ep.audioFile || '';
+    useRealAudio = af.endsWith('.mp3');
+    if(useRealAudio){
+      realAudio = new Audio(af.startsWith('apps/') ? APP_BASE + af : af);
+      realAudio.volume = parseFloat(document.getElementById('volumeSlider').value);
+      const saved = state.position[ep.id];
+      if(typeof saved === 'number' && saved < 100000) realAudio.currentTime = saved;
+      realAudio.addEventListener('timeupdate', () => {
+        if(!currentEpisode) return;
+        document.getElementById('progressFill').style.width =
+          (realAudio.duration ? (realAudio.currentTime / realAudio.duration * 100) : 0) + '%';
+        document.getElementById('currentTime').textContent = formatTime(realAudio.currentTime);
+        if(realAudio.duration) document.getElementById('totalTime').textContent = formatTime(realAudio.duration);
+        state.position[currentEpisode.id] = realAudio.currentTime; saveState();
+        // Highlight by linear time interpolation against dialogue lines.
+        const lines = document.querySelectorAll('.dialogue-line');
+        if(lines.length && realAudio.duration){
+          const idx = Math.min(lines.length-1, Math.floor((realAudio.currentTime/realAudio.duration) * lines.length));
+          lines.forEach((l,i)=>l.classList.toggle('highlight', i===idx));
+          if(lines[idx]) lines[idx].scrollIntoView({behavior:'smooth',block:'center'});
+        }
+      });
+      realAudio.addEventListener('ended', () => {
+        isPlaying = false; updatePlayButton();
+        if(currentEpisode){
+          state.listened[currentEpisode.id] = true;
+          delete state.position[currentEpisode.id];
+          saveState();
+          renderEpisodeList(document.getElementById('search').value);
+        }
+      });
+    } else {
+      utteranceList = buildUtterances(ep);
+      const saved = state.position[ep.id];
+      currentLineIdx = (typeof saved === 'number' && saved < utteranceList.length) ? saved : 0;
+    }
     currentVolume = parseFloat(document.getElementById('volumeSlider').value);
 
     updateProgress();
@@ -458,6 +497,12 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
   }
 
   function togglePlay(){
+    if(useRealAudio && realAudio){
+      if(isPlaying){ realAudio.pause(); isPlaying = false; }
+      else { realAudio.play().catch(()=>{}); isPlaying = true; startSpeakingPulse(); }
+      updatePlayButton();
+      return;
+    }
     if(!synth){
       alert('Your browser does not support Web Speech. Episodes are voice-synthesized at playback time.');
       return;
@@ -574,9 +619,13 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
   document.getElementById('backBtn').addEventListener('click', hideEpisode);
 
   document.getElementById('progressBar').addEventListener('click', (e) => {
-    if(!utteranceList.length) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
+    if(useRealAudio && realAudio && realAudio.duration){
+      realAudio.currentTime = pct * realAudio.duration;
+      return;
+    }
+    if(!utteranceList.length) return;
     const wasPlaying = isPlaying;
     if(synth) synth.cancel();
     isPlaying = false;
@@ -593,6 +642,7 @@ canvas.waveform{width:120px;height:40px;border-radius:4px}
 
   document.getElementById('volumeSlider').addEventListener('input', (e) => {
     currentVolume = parseFloat(e.target.value);
+    if(realAudio) realAudio.volume = currentVolume;
   });
 
   document.getElementById('search').addEventListener('input', (e) => {
