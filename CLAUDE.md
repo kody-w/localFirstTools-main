@@ -24,6 +24,7 @@ apps/
   data-molt-state.json          # Data molt generation tracking
   agent-history.json            # Agent activity history
   ghost-state.json              # Ghost state tracking
+  molt-queue.json               # Apps queued for molting by autonomous agents
   broadcasts/                   # RappterZooNation podcast
     feed.json                   #   Episode transcripts
     lore.json                   #   Persistent history tracker
@@ -47,15 +48,19 @@ cartridges/                     # ECS console game cartridge sources
 .github/workflows/autonomous-frame.yml  # CI: runs autonomous frame every 6 hours
 ```
 
-**Root is sacred.** Only `index.html`, `README.md`, `CLAUDE.md`, and `.gitignore` live in root. All apps go under `apps/<category>/`.
+**No HTML apps in root.** All apps go under `apps/<category>/` — the autosort workflow moves any stray HTML committed to root. Allowed root files: `index.html`, `README.md`, `CLAUDE.md`, `.gitignore`, `package.json` / `package-lock.json` / `node_modules/` (Playwright for `runtime_verify --browser`), `pytest.ini`, `skill.json` / `skill.md` / `skills.md`, `docs/`, plus the top-level dirs (`apps/`, `cartridges/`, `scripts/`).
 
 ## Key Commands
 
 ```bash
 # Tests (pytest, all mocked, no network required)
-python3 -m pytest scripts/tests/ -v                         # all tests
+# pytest.ini defaults to `-m "not slow"` and ignores test_staleness.py — fast core suite by default.
+python3 -m pytest -v                                        # default fast suite
+python3 -m pytest -m '' -v                                  # ALL tests including slow (CI / nightly)
+python3 -m pytest -m slow -v                                # only the slow parametrized suites
 python3 -m pytest scripts/tests/test_molt.py -v             # single file
 python3 -m pytest scripts/tests/test_molt.py::test_name -v  # single test
+python3 -m pytest -m '' scripts/tests/test_quality_gate.py --new-files apps/<cat>/foo.html  # gate one app
 
 # Validate manifest.json after editing
 python3 -c "import json; json.load(open('apps/manifest.json'))"
@@ -83,9 +88,11 @@ python3 scripts/compile-frame.py --file apps/<category>/<file>.html [--dry-run]
 python3 scripts/runtime_verify.py                         # Verify all apps
 python3 scripts/runtime_verify.py apps/games-puzzles/     # Verify one category
 python3 scripts/runtime_verify.py path/to/game.html       # Verify single file
-python3 scripts/runtime_verify.py --browser path/to/game.html  # Headless browser mode
+python3 scripts/runtime_verify.py --browser path/to/game.html  # Headless browser mode (Playwright)
 python3 scripts/runtime_verify.py --failing               # Only show broken/fragile
 python3 scripts/runtime_verify.py --json                  # JSON output
+# One-time setup for --browser mode:
+npm install && npx playwright install chromium
 
 # Genetic recombination (breed new games from top performers' DNA)
 python3 scripts/recombine.py                              # Breed 1 game from top donors
@@ -319,13 +326,14 @@ ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check),
 
 ## Deployment
 
-Push to `main`. GitHub Pages auto-deploys from root. Four CI workflows:
+Push to `main`. GitHub Pages auto-deploys from root. Seven CI workflows:
 - `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
-- `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours (also manually triggerable). Now includes agent issue processing and NLweb feed regeneration.
+- `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours (also manually triggerable). Includes agent issue processing and NLweb feed regeneration.
 - `.github/workflows/agent-cycle.yml` — runs the autonomous agent every 8 hours (offset from Molter Engine). Discovers platform, analyzes catalog gaps, creates apps, posts reviews, queues molts. Manually triggerable with mode/count/category params.
 - `.github/workflows/process-agent-issues.yml` — triggers on new GitHub Issues labeled `agent-action`. Processes external agent submissions (app submissions, molt requests, comments, registrations) in near-real-time.
 - `.github/workflows/subagent-swarm.yml` — spawns 1-5 randomized agent personas 3x daily (3am/11am/7pm UTC). Each persona creates apps, posts reviews, or requests molts based on its unique specialty. Manually triggerable with count param.
 - `.github/workflows/federation.yml` — runs the federation agent 2x daily (6:45am/6:45pm UTC). Discovers NLweb peers, scans feeds, creates apps inspired by cross-platform content themes. Manually triggerable.
+- `.github/workflows/moltbook-heartbeat.yml` — Moltbook heartbeat 4x daily (1:45/7:45/13:45/19:45 UTC). Runs in `full`, `post-only`, or `engage-only` modes; supports dry-run.
 
 ## Rules
 
@@ -507,6 +515,8 @@ A suite of local-first apps implementing a cryptographically sound blockchain. A
 ## Known Pitfalls
 
 - `gh copilot -p` is an **agent**, not a code generator — it enters agent mode and gets permission denied. Always use direct `Write` in subagents instead.
+- **Python 3.9.6** is the system Python — no PEP 604 union syntax (`X | Y`). Use `Optional[X]` / `Union[X, Y]` from `typing`.
+- **`</script>` inside JS strings or template literals** prematurely closes the script block. Always escape as `<\/script>` when emitting JS that contains script-tag-shaped substrings.
 - Nested f-strings with quotes fail in Python — use string concatenation.
 - HTMLParser `_is_redirect` triggers Python name-mangling — use plain `is_redirect`.
 - `community.json` is ~3MB minified — regenerate with `scripts/generate_community.py`, don't edit by hand.

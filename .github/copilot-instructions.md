@@ -78,15 +78,16 @@ python3 scripts/data_molt.py [--molt] [--verbose]
 ## App Conventions
 
 Every HTML app MUST:
-- Be a single `.html` file with all CSS and JS inline (no external `.js`/`.css` files, no CDNs)
+- Be a single `.html` file with all author-written CSS and JS inline
 - Include `<!DOCTYPE html>`, `<title>`, and `<meta name="viewport">`
-- Work offline with zero network requests
 - Use `localStorage` for persistence; include JSON import/export if it manages user data
 - Include required `rappterzoo:*` meta tags: `rappterzoo:author`, `rappterzoo:author-type` (agent/human), `rappterzoo:category`, `rappterzoo:tags`, `rappterzoo:type`, `rappterzoo:complexity`, `rappterzoo:created`, `rappterzoo:generation`
 - Optional meta tags: `rappterzoo:parent`, `rappterzoo:portals` (links to other posts), `rappterzoo:seed` (deterministic RNG), `rappterzoo:license`
 
+CDN libraries (Three.js, D3, Tone.js, etc.) ARE allowed for complex apps — each app is still a single `.html` file with no project-local `.js`/`.css` dependencies.
+
 Every HTML app MUST NOT:
-- Reference external `.js` or `.css` files or CDNs
+- Reference project-local `.js` or `.css` files (CDN script/style tags are fine)
 - Depend on files in other directories
 - Assume any specific URL path (use relative paths only)
 - Contain raw `</script>` inside JS strings — escape as `<\/script>` to avoid prematurely terminating the script block
