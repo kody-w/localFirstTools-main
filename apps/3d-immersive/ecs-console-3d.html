@@ -649,42 +649,31 @@
     <!-- THREE.JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- ╔══════════════════════════════════════════════════════════════════╗
-         ║  leviGOLD ∞ — UNIVERSAL ENHANCEMENT LAYER                        ║
-         ║  Performance + cinematic polish + UX upgrades, applied as a      ║
-         ║  drop-in layer that any app inherits without code changes.       ║
+         ║  leviGOLD ∞ — UNIVERSAL ENHANCEMENT LAYER (v2)                   ║
+         ║  Performance + cinematic polish + UX upgrades.                   ║
          ║                                                                  ║
-         ║  • THREE.WebGLRenderer monkey-patch: ACES tone mapping,          ║
-         ║    sRGB output, capped pixel ratio, high-performance GPU pref.   ║
-         ║  • Device-tier detection (mobile/medium/high) drives quality.    ║
-         ║  • FPS-based dynamic resolution scaling.                         ║
-         ║  • Auto-pause on tab hide.                                       ║
-         ║  • Save throttling for big localStorage writes.                  ║
-         ║  • Smooth page-load fade-in (no flash of unstyled content).      ║
-         ║  • Cinematic CSS: animated film grain + radial vignette.         ║
-         ║  • Audio gesture auto-overlay if AudioContext starts suspended.  ║
-         ║  • Discreet GOLD HUD bottom-left (FPS, tier, dpr, click toggle). ║
-         ║  • Idempotent: window.LEVIGOLD guard prevents double-apply.      ║
+         ║  v2: Auto-detects cinematic vs utility apps via                  ║
+         ║  rappterzoo:experience meta tag. Vignette + film grain only      ║
+         ║  apply to mood-piece apps where they enhance the experience.     ║
+         ║  Utility apps (sims, calculators, tools) get only the perf       ║
+         ║  + UX upgrades — no visual interference. Less is more.           ║
          ╚══════════════════════════════════════════════════════════════════╝ -->
     <style id="levigold-enhancement-css">
-    /* fade body in to avoid flash on load */
     body { opacity: 0; animation: levigold-fadein 0.6s ease forwards; }
     @keyframes levigold-fadein { to { opacity: 1; } }
-    /* GPU-compositing canvases + paint isolation on heavy DOM */
     canvas { will-change: transform; transform: translateZ(0); }
     .modal-overlay, .panel, .stats-box, .menu, .hud, .dialog { contain: layout style; }
-    /* Touch-friendly */
     @media (hover: none) and (pointer: coarse){
       * { -webkit-tap-highlight-color: transparent; }
       body { -webkit-overflow-scrolling: touch; touch-action: manipulation; }
     }
-    /* Cinematic vignette — pure CSS, zero JS overhead */
-    body::after {
+    /* Cinematic overlays — only applied when body has class .levigold-cinematic */
+    body.levigold-cinematic::after {
       content:''; position:fixed; inset:0; pointer-events:none; z-index:9997;
       background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
       mix-blend-mode: multiply;
     }
-    /* Animated film grain */
-    body::before {
+    body.levigold-cinematic::before {
       content:''; position:fixed; inset:-50%; pointer-events:none; z-index:9996;
       background-image:
         repeating-radial-gradient(circle at 17% 31%, rgba(255,255,255,0.02) 0 1px, transparent 1px 4px),
@@ -698,6 +687,7 @@
       67% { transform: translate(0, -2%); }  83% { transform: translate(2%, 1%); }
       100% { transform: translate(0, 0); }
     }
+    /* FPS HUD — hidden by default, summoned with F8 */
     #levigold-fps-hud {
       position: fixed; bottom: 6px; left: 6px; z-index: 99998;
       font: 10px ui-monospace, Consolas, monospace; color: #ffd700;
@@ -705,7 +695,10 @@
       border: 1px solid rgba(255, 215, 0, 0.4); border-radius: 4px;
       letter-spacing: .5px; pointer-events: auto; cursor: pointer;
       opacity: 0; transition: opacity .3s; backdrop-filter: blur(4px);
+      display: none;
     }
+    #levigold-fps-hud.visible { display: block; opacity: 0.7; }
+    /* Audio gate stays the same */
     #levigold-audio-gate {
       position: fixed; inset: 0; z-index: 99999; display: none;
       background: radial-gradient(ellipse at center, rgba(20,15,30,0.92), rgba(0,0,0,0.95));
@@ -741,6 +734,29 @@
         targetFPS: 55, lowFPS: 40, highFPS: 58
       };
 
+      // ── Cinematic detection: opt-in via experience meta tag ──────────
+      function detectCinematic() {
+        const expMeta = document.querySelector('meta[name="rappterzoo:experience"]');
+        if (!expMeta) return false;
+        const exp = (expMeta.getAttribute('content') || '').toLowerCase();
+        // Cinematic experiences benefit from vignette+grain.
+        // Utility apps (mastery, flow on tools) don't.
+        // Heuristic: only enable if the experience is mood-driven AND
+        // the app type is 'visual' (not 'interactive'/'game'/'interface').
+        const typeMeta = document.querySelector('meta[name="rappterzoo:type"]');
+        const type = (typeMeta && typeMeta.getAttribute('content') || '').toLowerCase();
+        const cinematicTypes = ['visual'];
+        const cinematicExperiences = ['melancholy','wonder','hypnosis','dread','flow','tension','discovery','mastery'];
+        return cinematicTypes.includes(type) && cinematicExperiences.includes(exp);
+      }
+      const isCinematic = detectCinematic();
+      window.LEVIGOLD.cinematic = isCinematic;
+      const onApply = () => {
+        if (isCinematic) document.body.classList.add('levigold-cinematic');
+      };
+      if (document.body) onApply();
+      else document.addEventListener('DOMContentLoaded', onApply, {once:true});
+
       // ── THREE renderer monkey-patch ───────────────────────────────────
       function patchTHREE(){
         if (typeof THREE === 'undefined' || !THREE.WebGLRenderer || THREE.__leviGOLD) return false;
@@ -764,31 +780,26 @@
         return true;
       }
       if (!patchTHREE()) {
-        // THREE may load later (importmap modules) — keep trying briefly
         let tries = 0;
         const iv = setInterval(() => { if (patchTHREE() || ++tries > 50) clearInterval(iv); }, 100);
       }
 
-      // ── Auto-pause on tab hidden ──────────────────────────────────────
       document.addEventListener('visibilitychange', () => {
         window.LEVIGOLD.paused = document.hidden;
         if (!document.hidden) window.LEVIGOLD.fpsHistory.length = 0;
       });
 
-      // ── FPS + auto-tuner + HUD ─────────────────────────────────────────
+      // ── FPS auto-tuner (HUD hidden until F8) ──────────────────────────
       let frames = 0, t0 = performance.now(), fps = 60;
       let hud = null;
       function ensureHud(){
         if (hud) return;
         hud = document.createElement('div');
         hud.id = 'levigold-fps-hud';
-        hud.title = 'leviGOLD perf — click to toggle visibility';
+        hud.title = 'leviGOLD perf — F8 to toggle, click to dismiss';
         hud.textContent = '✦ GOLD';
-        let v = false;
-        hud.onclick = () => { v = !v; hud.style.opacity = v ? '1' : '0.25'; };
+        hud.onclick = () => { hud.classList.remove('visible'); };
         document.body.appendChild(hud);
-        hud.style.opacity = '1';
-        setTimeout(() => { hud.style.opacity = '0.25'; }, 4000);
       }
       function tick(){
         frames++;
@@ -798,14 +809,13 @@
           frames = 0; t0 = now;
           window.LEVIGOLD.fpsHistory.push(fps);
           if (window.LEVIGOLD.fpsHistory.length > 20) window.LEVIGOLD.fpsHistory.shift();
-          if (hud) hud.textContent = '✦ GOLD ' + fps + 'fps · ' + tier + ' · ' + window.LEVIGOLD.pixelCap.toFixed(2);
+          if (hud && hud.classList.contains('visible')) hud.textContent = '✦ GOLD ' + fps + 'fps · ' + tier + ' · ' + window.LEVIGOLD.pixelCap.toFixed(2);
           if (now - window.LEVIGOLD.lastTune > 5000 && window.LEVIGOLD.fpsHistory.length >= 6){
             const avg = window.LEVIGOLD.fpsHistory.slice(-6).reduce((a,b)=>a+b,0) / 6;
             if (avg < window.LEVIGOLD.lowFPS && window.LEVIGOLD.pixelCap > 0.6){
               window.LEVIGOLD.pixelCap = Math.max(0.6, window.LEVIGOLD.pixelCap - 0.25);
               window.LEVIGOLD.renderers.forEach(r => { try { r.setPixelRatio(Math.min(window.devicePixelRatio||1, window.LEVIGOLD.pixelCap)); } catch(e){} });
               window.LEVIGOLD.lastTune = now;
-              if (hud) hud.textContent += ' ↓';
             } else if (avg > window.LEVIGOLD.highFPS && window.LEVIGOLD.pixelCap < PIXEL_CAP){
               window.LEVIGOLD.pixelCap = Math.min(PIXEL_CAP, window.LEVIGOLD.pixelCap + 0.25);
               window.LEVIGOLD.renderers.forEach(r => { try { r.setPixelRatio(Math.min(window.devicePixelRatio||1, window.LEVIGOLD.pixelCap)); } catch(e){} });
@@ -818,6 +828,11 @@
       const onReady = () => { ensureHud(); requestAnimationFrame(tick); };
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onReady, {once:true});
       else onReady();
+
+      // F8 toggles HUD visibility
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'F8') { e.preventDefault(); if (hud) hud.classList.toggle('visible'); }
+      });
 
       // ── Save throttling ────────────────────────────────────────────────
       const _set = Storage.prototype.setItem;
@@ -835,7 +850,6 @@
       }.bind(localStorage);
 
       // ── Audio gesture auto-overlay ─────────────────────────────────────
-      // If the page creates an AudioContext that's suspended, show overlay until user clicks.
       const _AC = window.AudioContext || window.webkitAudioContext;
       if (_AC) {
         const _orig = _AC;
@@ -876,9 +890,10 @@
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onDom, {once:true});
       else onDom();
 
-      console.log('[leviGOLD ∞] enhancement layer active —', tier, 'cap', PIXEL_CAP);
+      console.log('[leviGOLD ∞ v2] active —', tier, 'cap', PIXEL_CAP, '· cinematic:', isCinematic);
     })();
     </script>
+
 <script>
     // ============================================
     // THREE.JS 3D ENGINE
