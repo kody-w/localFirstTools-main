@@ -17440,6 +17440,175 @@
     <button class="cinematic-toggle-btn" onclick="toggleCinematicMode()" title="Toggle Cinematic Mode (C)">🎬</button>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- ╔══════════════════════════════════════════════════════════════════╗
+         ║  leviGOLD ∞ — PERFORMANCE & GRAPHICS LAYER                       ║
+         ║  Injected AFTER Three.js loads but BEFORE any renderer is created.║
+         ║  Monkey-patches WebGLRenderer to upgrade every renderer in the   ║
+         ║  app (there are 4+) to a unified, optimized config.              ║
+         ╚══════════════════════════════════════════════════════════════════╝ -->
+    <script>
+    (function leviGOLDPerformanceLayer(){
+      if (typeof THREE === 'undefined' || !THREE.WebGLRenderer) return;
+      const _Renderer = THREE.WebGLRenderer;
+
+      // Detect device class to pick reasonable defaults
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const cores = navigator.hardwareConcurrency || 4;
+      const mem = navigator.deviceMemory || 4;
+      const tier = (isMobile || cores < 4 || mem < 4) ? 'mobile' :
+                   (cores >= 8 && mem >= 8) ? 'high' : 'medium';
+      const PIXEL_CAP = tier === 'mobile' ? 1.25 : tier === 'medium' ? 1.5 : 1.75;
+
+      window.LEVIGOLD = {
+        tier, isMobile, cores, mem, pixelCap: PIXEL_CAP,
+        renderers: new Set(), fpsHistory: [], lastTune: 0,
+        targetFPS: 55, lowFPS: 40, highFPS: 58
+      };
+
+      // Monkey-patch constructor — every renderer in the app gets these defaults
+      THREE.WebGLRenderer = function PatchedRenderer(params){
+        params = params || {};
+        // Force high-performance GPU on multi-GPU systems
+        if (!('powerPreference' in params)) params.powerPreference = 'high-performance';
+        // Antialias only on capable hardware
+        if (!('antialias' in params)) params.antialias = (tier !== 'mobile');
+        const r = new _Renderer(params);
+
+        // ACES filmic tone mapping — cinematic black levels
+        r.toneMapping = THREE.ACESFilmicToneMapping;
+        r.toneMappingExposure = 1.0;
+        // Correct sRGB output (r128 uses outputEncoding)
+        if ('outputEncoding' in r) r.outputEncoding = THREE.sRGBEncoding;
+        else if ('outputColorSpace' in r) r.outputColorSpace = THREE.SRGBColorSpace;
+        // Always cap pixel ratio (avoids 4× rendering on Retina that tanks FPS)
+        const dpr = Math.min(window.devicePixelRatio || 1, PIXEL_CAP);
+        r.setPixelRatio(dpr);
+        // Track for global tuning
+        window.LEVIGOLD.renderers.add(r);
+        return r;
+      };
+      // Preserve prototype + statics so instanceof checks pass
+      THREE.WebGLRenderer.prototype = _Renderer.prototype;
+      Object.setPrototypeOf(THREE.WebGLRenderer, _Renderer);
+
+      // ── Auto-pause when tab hidden ────────────────────────────────────
+      document.addEventListener('visibilitychange', () => {
+        const hidden = document.hidden;
+        window.LEVIGOLD.paused = hidden;
+        // Reset FPS history when resuming so we don't auto-tune on phantom drops
+        if (!hidden) window.LEVIGOLD.fpsHistory.length = 0;
+      });
+
+      // ── FPS HUD + auto-tuner ──────────────────────────────────────────
+      const hud = document.createElement('div');
+      hud.id = 'levigold-fps-hud';
+      hud.style.cssText = 'position:fixed;bottom:6px;left:6px;z-index:99998;'
+        + 'font:10px ui-monospace,Consolas,monospace;color:#ffd700;'
+        + 'background:rgba(0,0,0,0.55);padding:3px 7px;border:1px solid rgba(255,215,0,0.4);'
+        + 'border-radius:4px;letter-spacing:.5px;pointer-events:auto;cursor:pointer;'
+        + 'opacity:0;transition:opacity .3s;backdrop-filter:blur(4px);';
+      hud.title = 'leviGOLD perf — click to toggle';
+      hud.textContent = '✦ GOLD';
+      let hudVisible = false;
+      hud.onclick = () => { hudVisible = !hudVisible; hud.style.opacity = hudVisible?'1':'0.25'; };
+      document.addEventListener('DOMContentLoaded', () => {
+        document.body.appendChild(hud);
+        // Show briefly on load to advertise its existence
+        hud.style.opacity = '1';
+        setTimeout(() => { if(!hudVisible) hud.style.opacity = '0.25'; }, 4000);
+      }, { once: true });
+
+      // Sample FPS continuously
+      let frames = 0, t0 = performance.now(), fps = 60;
+      function tick(){
+        frames++;
+        const now = performance.now();
+        if (now - t0 >= 500){
+          fps = Math.round(frames * 1000 / (now - t0));
+          frames = 0; t0 = now;
+          window.LEVIGOLD.fpsHistory.push(fps);
+          if (window.LEVIGOLD.fpsHistory.length > 20) window.LEVIGOLD.fpsHistory.shift();
+          hud.textContent = '✦ GOLD ' + fps + 'fps · ' + tier + ' · dpr ' + window.LEVIGOLD.pixelCap.toFixed(2);
+          // Auto-tuner: if sustained low FPS, halve pixel ratio
+          if (now - window.LEVIGOLD.lastTune > 5000 && window.LEVIGOLD.fpsHistory.length >= 6){
+            const recent = window.LEVIGOLD.fpsHistory.slice(-6);
+            const avgRecent = recent.reduce((a,b)=>a+b,0) / recent.length;
+            if (avgRecent < window.LEVIGOLD.lowFPS && window.LEVIGOLD.pixelCap > 0.6){
+              window.LEVIGOLD.pixelCap = Math.max(0.6, window.LEVIGOLD.pixelCap - 0.25);
+              window.LEVIGOLD.renderers.forEach(r => {
+                try { r.setPixelRatio(Math.min(window.devicePixelRatio||1, window.LEVIGOLD.pixelCap)); } catch(e){}
+              });
+              window.LEVIGOLD.lastTune = now;
+              hud.textContent += ' · TUNED↓';
+            } else if (avgRecent > window.LEVIGOLD.highFPS && window.LEVIGOLD.pixelCap < PIXEL_CAP){
+              window.LEVIGOLD.pixelCap = Math.min(PIXEL_CAP, window.LEVIGOLD.pixelCap + 0.25);
+              window.LEVIGOLD.renderers.forEach(r => {
+                try { r.setPixelRatio(Math.min(window.devicePixelRatio||1, window.LEVIGOLD.pixelCap)); } catch(e){}
+              });
+              window.LEVIGOLD.lastTune = now;
+            }
+          }
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      // ── Save throttling: wrap localStorage.setItem for save keys ──────
+      const _set = Storage.prototype.setItem;
+      const pendingSaves = new Map();
+      Storage.prototype.setItem = function(key, val){
+        // Throttle large saves (galaxy state, world state) — coalesce within 800ms
+        if (typeof val === 'string' && val.length > 50000 && /save|world|galaxy|state/i.test(key)){
+          if (pendingSaves.has(key)) clearTimeout(pendingSaves.get(key));
+          pendingSaves.set(key, setTimeout(() => {
+            try { _set.call(this, key, val); } catch(e){}
+            pendingSaves.delete(key);
+          }, 800));
+          return;
+        }
+        return _set.call(this, key, val);
+      }.bind(localStorage);
+
+      console.log('[leviGOLD] performance layer active — tier:', tier,
+        'cores:', cores, 'mem:', mem + 'GB', 'pixel-cap:', PIXEL_CAP);
+    })();
+    </script>
+    <style>
+    /* ── leviGOLD CSS perf layer ── */
+    /* Force GPU compositing on heavy layers; isolate paint */
+    canvas { will-change: transform; transform: translateZ(0); }
+    /* Skip rendering work on offscreen content where the browser can opt in */
+    .modal-overlay, .panel, .stats-box { contain: layout style; }
+    /* Avoid touch scroll jank on mobile */
+    @media (hover: none) and (pointer: coarse){
+      * { -webkit-tap-highlight-color: transparent; }
+      body { -webkit-overflow-scrolling: touch; touch-action: manipulation; }
+    }
+    /* Optional cinematic vignette overlay (purely CSS — zero perf cost) */
+    body::after {
+      content:''; position:fixed; inset:0; pointer-events:none; z-index:9997;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
+      mix-blend-mode: multiply;
+    }
+    /* Subtle grain via CSS gradient noise (no extra HTTP) */
+    body::before {
+      content:''; position:fixed; inset:-50%; pointer-events:none; z-index:9996;
+      background-image:
+        repeating-radial-gradient(circle at 17% 31%, rgba(255,255,255,0.02) 0 1px, transparent 1px 4px),
+        repeating-radial-gradient(circle at 83% 67%, rgba(255,255,255,0.015) 0 1px, transparent 1px 5px);
+      opacity:.5; mix-blend-mode:overlay;
+      animation: levigold-grain 1.4s steps(6) infinite;
+    }
+    @keyframes levigold-grain {
+      0%   { transform: translate(0,    0); }
+      17%  { transform: translate(-1%, 1%); }
+      33%  { transform: translate(1%, -1%); }
+      50%  { transform: translate(-2%, 0); }
+      67%  { transform: translate(0, -2%); }
+      83%  { transform: translate(2%, 1%); }
+      100% { transform: translate(0,    0); }
+    }
+    </style>
     <!-- v5.18: PeerJS for P2P spectator streaming -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script>
