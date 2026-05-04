@@ -475,6 +475,94 @@
 
     <!-- Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- ╔══════════════════════════════════════════════════════════════════╗
+         ║  leviGOLD ∞ — UNIVERSAL PERFORMANCE LAYER                        ║
+         ║  Monkey-patches THREE.WebGLRenderer for ACES tone mapping,       ║
+         ║  capped pixel ratio, FPS auto-tuner, save throttling.            ║
+         ║  Apply LATE: must run after THREE loads, before any renderer is  ║
+         ║  constructed.                                                    ║
+         ╚══════════════════════════════════════════════════════════════════╝ -->
+    <script>
+    (function leviGOLDPerformanceLayer(){
+      if (typeof THREE === 'undefined' || !THREE.WebGLRenderer) return;
+      if (THREE.__leviGOLD) return; THREE.__leviGOLD = true;
+      const _Renderer = THREE.WebGLRenderer;
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const cores = navigator.hardwareConcurrency || 4;
+      const mem = navigator.deviceMemory || 4;
+      const tier = (isMobile || cores < 4 || mem < 4) ? 'mobile' :
+                   (cores >= 8 && mem >= 8) ? 'high' : 'medium';
+      const PIXEL_CAP = tier === 'mobile' ? 1.25 : tier === 'medium' ? 1.5 : 1.75;
+      window.LEVIGOLD = window.LEVIGOLD || { tier, isMobile, cores, mem, pixelCap: PIXEL_CAP,
+        renderers: new Set(), fpsHistory: [], lastTune: 0,
+        targetFPS: 55, lowFPS: 40, highFPS: 58 };
+      THREE.WebGLRenderer = function PatchedRenderer(params){
+        params = params || {};
+        if (!('powerPreference' in params)) params.powerPreference = 'high-performance';
+        if (!('antialias' in params)) params.antialias = (tier !== 'mobile');
+        const r = new _Renderer(params);
+        if (THREE.ACESFilmicToneMapping !== undefined) r.toneMapping = THREE.ACESFilmicToneMapping;
+        r.toneMappingExposure = 1.0;
+        if ('outputEncoding' in r && THREE.sRGBEncoding !== undefined) r.outputEncoding = THREE.sRGBEncoding;
+        else if ('outputColorSpace' in r && THREE.SRGBColorSpace !== undefined) r.outputColorSpace = THREE.SRGBColorSpace;
+        const dpr = Math.min(window.devicePixelRatio || 1, PIXEL_CAP);
+        r.setPixelRatio(dpr);
+        window.LEVIGOLD.renderers.add(r);
+        return r;
+      };
+      THREE.WebGLRenderer.prototype = _Renderer.prototype;
+      Object.setPrototypeOf(THREE.WebGLRenderer, _Renderer);
+      document.addEventListener('visibilitychange', () => {
+        window.LEVIGOLD.paused = document.hidden;
+        if (!document.hidden) window.LEVIGOLD.fpsHistory.length = 0;
+      });
+      let frames = 0, t0 = performance.now();
+      function tick(){
+        frames++;
+        const now = performance.now();
+        if (now - t0 >= 500){
+          const fps = Math.round(frames * 1000 / (now - t0));
+          frames = 0; t0 = now;
+          window.LEVIGOLD.fpsHistory.push(fps);
+          if (window.LEVIGOLD.fpsHistory.length > 20) window.LEVIGOLD.fpsHistory.shift();
+          if (now - window.LEVIGOLD.lastTune > 5000 && window.LEVIGOLD.fpsHistory.length >= 6){
+            const recent = window.LEVIGOLD.fpsHistory.slice(-6);
+            const avg = recent.reduce((a,b)=>a+b,0) / recent.length;
+            if (avg < window.LEVIGOLD.lowFPS && window.LEVIGOLD.pixelCap > 0.6){
+              window.LEVIGOLD.pixelCap = Math.max(0.6, window.LEVIGOLD.pixelCap - 0.25);
+              window.LEVIGOLD.renderers.forEach(r => {
+                try { r.setPixelRatio(Math.min(window.devicePixelRatio||1, window.LEVIGOLD.pixelCap)); } catch(e){}
+              });
+              window.LEVIGOLD.lastTune = now;
+            } else if (avg > window.LEVIGOLD.highFPS && window.LEVIGOLD.pixelCap < PIXEL_CAP){
+              window.LEVIGOLD.pixelCap = Math.min(PIXEL_CAP, window.LEVIGOLD.pixelCap + 0.25);
+              window.LEVIGOLD.renderers.forEach(r => {
+                try { r.setPixelRatio(Math.min(window.devicePixelRatio||1, window.LEVIGOLD.pixelCap)); } catch(e){}
+              });
+              window.LEVIGOLD.lastTune = now;
+            }
+          }
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+      const _set = Storage.prototype.setItem;
+      const pendingSaves = new Map();
+      Storage.prototype.setItem = function(key, val){
+        if (typeof val === 'string' && val.length > 50000 && /save|world|galaxy|state/i.test(key)){
+          if (pendingSaves.has(key)) clearTimeout(pendingSaves.get(key));
+          pendingSaves.set(key, setTimeout(() => {
+            try { _set.call(this, key, val); } catch(e){}
+            pendingSaves.delete(key);
+          }, 800));
+          return;
+        }
+        return _set.call(this, key, val);
+      }.bind(localStorage);
+      console.log('[leviGOLD] perf layer active — tier:', tier, 'cap:', PIXEL_CAP);
+    })();
+    </script>
+
 
     <script>
         // ========== AUDIO SYSTEM (Web Audio API) ==========
