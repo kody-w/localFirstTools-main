@@ -578,6 +578,7 @@ let dragging = false, dragStartX, dragStartY, dragCamX, dragCamY;
 let hoveredNode = null, selectedNode = null;
 let sizeMode = 'score';
 let filterIdentity = false;
+let hasIdentityData = false;
 let simRunning = true, simAlpha = 1;
 let trailParticles = [];
 let frameCount = 0;
@@ -609,7 +610,9 @@ async function loadAll() {
             status.textContent = 'Loading rankings...';
             rankings = await loadJSON('../rankings.json');
             status.textContent = 'Loading content identities...';
-            identities = await loadJSON('../content-identities.json');
+            // Content identities are optional enrichment — the engine may not
+            // have generated them yet. Degrade gracefully if the file is absent.
+            identities = await loadJSON('../content-identities.json').catch(() => ({}));
             status.textContent = 'Loading molter state...';
             molterState = await loadJSON('../molter-state.json');
             try {
@@ -726,6 +729,7 @@ function buildGraph() {
     }
 
     updateNodeRadii();
+    hasIdentityData = nodes.some(n => n.identity);
 }
 
 function updateNodeRadii() {
@@ -775,7 +779,7 @@ function toWorld(sx, sy) { return [(sx - W / 2) / camZoom + camX, (sy - H / 2) /
 
 function isVisible(n) {
     if (catFilters.size > 0 && !catFilters.has(n.category)) return false;
-    if (filterIdentity && !n.identity) return false;
+    if (filterIdentity && hasIdentityData && !n.identity) return false;
     if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!n.title.toLowerCase().includes(q) && !n.file.toLowerCase().includes(q) &&
@@ -855,7 +859,7 @@ function draw() {
         // Body
         ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
         ctx.fillStyle = isHov || isSel ? '#fff' : color;
-        ctx.globalAlpha = n.identity ? 1 : 0.45;
+        ctx.globalAlpha = (!hasIdentityData || n.identity) ? 1 : 0.45;
         ctx.fill(); ctx.globalAlpha = 1;
         if (isSel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
 
@@ -1243,7 +1247,15 @@ function setupUI() {
 
     $('btn-score').onclick = function() { sizeMode = 'score'; updateNodeRadii(); setActive(this); };
     $('btn-gen').onclick = function() { sizeMode = 'gen'; updateNodeRadii(); setActive(this); };
-    $('btn-ident').onclick = function() { filterIdentity = !filterIdentity; this.classList.toggle('active', filterIdentity); };
+    const identBtn = $('btn-ident');
+    if (hasIdentityData) {
+        identBtn.onclick = function() { filterIdentity = !filterIdentity; this.classList.toggle('active', filterIdentity); };
+    } else {
+        identBtn.disabled = true;
+        identBtn.style.opacity = '0.35';
+        identBtn.style.cursor = 'default';
+        identBtn.title = 'No content-identity data available';
+    }
     $('btn-eco').onclick = function() {
         $('eco-timeline').classList.toggle('open');
         this.classList.toggle('active');
@@ -1269,7 +1281,7 @@ function buildLegend() {
     let html = '';
     for (const [key, data] of Object.entries(cats)) {
         const color = CAT_COLORS[key] || '#666';
-        const name = (data.name || key).replace(/_/g, ' ');
+        const name = (data.title || data.name || key).replace(/_/g, ' ');
         html += '<div class="legend-item" data-cat="' + key + '">' +
             '<div class="legend-dot" style="background:' + color + '"></div>' +
             '<span>' + name + ' (' + (counts[key] || 0) + ')</span></div>';
