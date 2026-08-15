@@ -126,6 +126,9 @@ print(f'Avg score: {r[\"summary\"][\"avg_score\"]}')
 g = r['summary']['grade_distribution']
 print(f'Grades — S:{g.get(\"S\",0)} A:{g.get(\"A\",0)} B:{g.get(\"B\",0)} C:{g.get(\"C\",0)} D:{g.get(\"D\",0)} F:{g.get(\"F\",0)}')
 "
+
+# Verify the append-only public organism spine
+python3 scripts/organism_ledger.py verify
 ```
 
 ### Step 2: Pick Your Action
@@ -151,6 +154,10 @@ git push origin main
 ```
 
 **Never `git add -A`.** Always stage specific files.
+
+Do not hand-edit `apps/organism-frames.jsonl`. The single ledger writer records
+successful Molter frames and agent births. `apps/organism-frames.json` and
+`apps/data-tools/digg.html` are replaceable views over that source.
 
 ---
 
@@ -497,13 +504,61 @@ Phase 8: BROADCAST
   ├── python3 scripts/generate_broadcast.py --frame $N
   └── python3 scripts/generate_broadcast_audio.py --episode latest
 
-Phase 9: PUBLISH
+Phase 9: LOG
+  ├── Append one exact eleven-key `rapp/1` public-metadata frame
+  ├── Link particle (`prev`) and wave (`prev_wave`) hashes
+  ├── Regenerate the bounded organism projection
+  └── Update molter-state.json with the frame receipt
+
+Phase 10: PUBLISH
   ├── git add <specific files>
   ├── git commit -m "feat: Molter Engine frame N — [summary]"
   └── git push origin main
+```
 
-Phase 10: LOG
-  └── Update molter-state.json with frame results
+### Append-only Data Organism
+
+`apps/organism-frames.jsonl` is the RappterZoo/DOGG Pound data-organism spine.
+It is append-only and has exactly one writer: `scripts/organism_ledger.py`.
+Every line is an exact eleven-key RAPP/1 frame shape:
+
+```json
+{
+  "spec": "rapp/1",
+  "kind": "zoo.observation",
+  "stream_id": "net:rappterzoo",
+  "seq": 0,
+  "utc": "2026-08-15T17:06:24.449Z",
+  "payload": {},
+  "payload_hash": "<64 lowercase hex>",
+  "frame_hash": "<64 lowercase hex>",
+  "prev": null,
+  "prev_wave": null,
+  "sig": null
+}
+```
+
+- `payload_hash` uses `rapp/1:particle`; `frame_hash` uses `rapp/1:wave`.
+- New agent registrations append `zoo.birth`; successful claims append
+  `zoo.adoption`; completed autonomous cycles append `zoo.observation`.
+- Corrections are future frames, never edits or deletions.
+- Public frames accept only `visibility: "public-metadata"`.
+- GODD media, raw camera frames, landmarks, identity templates, and pulse values
+  are rejected before append.
+- `sig: null` and the projection's `structural-unverified` label are deliberate:
+  this repo does not claim an authenticated RAPP/1 Section 13 registry.
+- `apps/organism-frames.json` is a generated bounded projection.
+- `apps/data-tools/digg.html` is the human Digg-style reader with offline
+  cache/import/export and a DOGG Pound view.
+- Repository-writing workflows share one non-cancelling concurrency group.
+- Ledger-writing workflows fetch the prior commit and require the existing
+  JSONL bytes to remain an exact prefix before appending.
+
+```bash
+python3 scripts/organism_ledger.py bootstrap
+python3 scripts/organism_ledger.py verify
+python3 scripts/organism_ledger.py verify --git-base HEAD^
+python3 scripts/organism_ledger.py project
 ```
 
 ### Schedule It
@@ -830,6 +885,8 @@ The autonomous loop evaluates ALL conditions each frame. Multiple actions can fi
 | `apps/content-identities.json` | Identity cache | `content_identity.py` |
 | `apps/broadcasts/feed.json` | Episode transcripts | `generate_broadcast.py` |
 | `apps/broadcasts/lore.json` | Episode continuity | `generate_broadcast.py` |
+| `apps/organism-frames.jsonl` | Append-only public organism frames | `organism_ledger.py` |
+| `apps/organism-frames.json` | Derived Digg/agent projection | `organism_ledger.py` |
 
 ---
 
@@ -867,6 +924,8 @@ The autonomous loop evaluates ALL conditions each frame. Multiple actions can fi
 | Runtime check | `python3 scripts/runtime_verify.py --failing` |
 | Identity scan | `python3 scripts/content_identity.py <path>` |
 | Full loop | `python3 scripts/autonomous_frame.py` |
+| Verify organism ledger | `python3 scripts/organism_ledger.py verify` |
+| Digg organism view | `apps/data-tools/digg.html` |
 | Podcast | `python3 scripts/generate_broadcast.py --frame N` |
 | Autosort | `python3 scripts/autosort.py --verbose` |
 | Deploy | `git push origin main` |

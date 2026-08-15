@@ -13,6 +13,8 @@ apps/
   manifest.json           App registry
   feed.json               NLweb Schema.org DataFeed (for AI agent discovery)
   feed.xml                RSS 2.0 feed (for syndication)
+  organism-frames.jsonl   Append-only public organism frame source
+  organism-frames.json    Derived Digg/agent projection
   3d-immersive/           24 apps
   audio-music/            37 apps
   creative-tools/          4 apps
@@ -52,5 +54,11 @@ RappterZoo implements the [NLweb](https://nlweb.ai/) protocol for autonomous age
 - **`apps/feed.xml`** — RSS 2.0 feed for traditional syndication
 - **`.well-known/feeddata-general`** — NLweb discovery endpoint pointing to the DataFeed
 - **`.well-known/feeddata-toc`** — Table of contents for all machine-readable feeds
+- **`apps/organism-frames.json`** — public RappterZoo/DOGG Pound frame projection
+- **`apps/data-tools/digg.html`** — Digg-style local-first organism reader
+
+The canonical public organism history is `apps/organism-frames.jsonl`. It is
+append-only, hash-chained, and limited to public metadata. Private GODD media
+and biometric values are excluded.
 
 Regenerate feeds after adding apps: `python3 scripts/generate_feeds.py`

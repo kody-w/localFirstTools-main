@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 REPO = "kody-w/localFirstTools-main"
 MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "..", "apps", "manifest.json")
@@ -64,7 +65,7 @@ def list_agent_issues():
         "--repo", REPO,
         "--label", "agent-action",
         "--state", "open",
-        "--json", "number,title,body,labels",
+        "--json", "number,title,body,labels,author",
         "--limit", "20"
     ])
     if not output:
@@ -382,6 +383,8 @@ def process_register(data, issue_num, dry_run=False, verbose=False):
     # Check for duplicate
     for a in registry.get("agents", []):
         if a.get("agent_id") == agent_id:
+            if a.get("name") == name:
+                return True, "Agent already registered: {}".format(agent_id)
             return False, "Agent already registered: {}".format(agent_id)
 
     claim_code = generate_claim_code()
@@ -411,6 +414,20 @@ def process_register(data, issue_num, dry_run=False, verbose=False):
             entry["public_key"] = json.loads(pk_raw)
         except Exception:
             pass
+
+    try:
+        from organism_ledger import append_agent_birth
+
+        apps_dir = Path(agents_path).parent
+        append_agent_birth(
+            entry,
+            issue_number=issue_num,
+            ledger_path=apps_dir / "organism-frames.jsonl",
+            projection_path=apps_dir / "organism-frames.json",
+            state_path=apps_dir / "molter-state.json",
+        )
+    except Exception as error:
+        return False, "Agent birth frame failed: {}".format(error)
 
     registry["agents"].append(entry)
     registry["dateModified"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -452,6 +469,13 @@ def process_claim(data, issue_num, dry_run=False, verbose=False):
     if not agent:
         return False, "Agent not found: {}".format(agent_id)
 
+    if (
+        agent.get("status") == "claimed"
+        and github_username
+        and agent.get("owner_github") == github_username
+    ):
+        return True, "Agent already claimed by {}".format(github_username)
+
     if agent.get("status") == "claimed":
         return False, "Agent already claimed by {}".format(agent.get("owner_github", "unknown"))
 
@@ -472,6 +496,20 @@ def process_claim(data, issue_num, dry_run=False, verbose=False):
         agent["tweet_url"] = tweet_url.strip()
     else:
         agent["trust_tier"] = "claimed"
+
+    try:
+        from organism_ledger import append_agent_adoption
+
+        apps_dir = Path(agents_path).parent
+        append_agent_adoption(
+            agent,
+            issue_number=issue_num,
+            ledger_path=apps_dir / "organism-frames.jsonl",
+            projection_path=apps_dir / "organism-frames.json",
+            state_path=apps_dir / "molter-state.json",
+        )
+    except Exception as error:
+        return False, "Agent adoption frame failed: {}".format(error)
 
     registry["dateModified"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -508,13 +546,57 @@ def close_issue(issue_num, comment, labels_to_add=None, dry_run=False):
     """Close an issue with a result comment."""
     if dry_run:
         print("  [DRY RUN] Would close #{} with: {}".format(issue_num, comment[:100]))
-        return
+        return True
 
-    gh_cli(["issue", "comment", "--repo", REPO, str(issue_num), "--body", comment])
+    if gh_cli([
+        "issue", "comment", "--repo", REPO, str(issue_num), "--body", comment
+    ]) is None:
+        return False
     if labels_to_add:
         for label in labels_to_add:
-            gh_cli(["issue", "edit", "--repo", REPO, str(issue_num), "--add-label", label])
-    gh_cli(["issue", "close", "--repo", REPO, str(issue_num)])
+            if gh_cli([
+                "issue", "edit", "--repo", REPO, str(issue_num),
+                "--add-label", label
+            ]) is None:
+                return False
+    return gh_cli([
+        "issue", "close", "--repo", REPO, str(issue_num)
+    ]) is not None
+
+
+def _write_issue_results(path, results):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(results, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(str(temporary), str(path))
+
+
+def finalize_issue_results(path, dry_run=False):
+    path = Path(path)
+    if not path.exists():
+        return 0
+    results = json.loads(path.read_text(encoding="utf-8"))
+    finalized = 0
+    for result in results:
+        if not close_issue(
+            result["issue_number"],
+            result["comment"],
+            labels_to_add=result["labels"],
+            dry_run=dry_run,
+        ):
+            raise RuntimeError(
+                "could not finalize issue #{}".format(
+                    result["issue_number"]
+                )
+            )
+        finalized += 1
+    if not dry_run:
+        path.unlink()
+    return finalized
 
 
 PROCESSORS = {
@@ -526,16 +608,23 @@ PROCESSORS = {
 }
 
 
-def process_all_issues(dry_run=False, verbose=False):
+def process_all_issues(
+    dry_run=False,
+    verbose=False,
+    defer_close_path=None,
+):
     """Main entry point: scan and process all agent issues."""
     issues = list_agent_issues()
 
     if not issues:
+        if defer_close_path:
+            _write_issue_results(defer_close_path, [])
         if verbose:
             print("  No open agent issues found")
         return 0
 
     processed = 0
+    pending_results = []
     for issue in issues:
         num = issue["number"]
         title = issue.get("title", "")
@@ -550,6 +639,10 @@ def process_all_issues(dry_run=False, verbose=False):
             print("  Processing #{}: {} -> {}".format(num, title, action))
 
         data = parse_issue_body(issue.get("body", ""))
+        if action == "claim_agent" and not data.get("github_username"):
+            author = issue.get("author", {})
+            if isinstance(author, dict):
+                data["github_username"] = author.get("login", "")
         processor = PROCESSORS.get(action)
         if not processor:
             continue
@@ -570,19 +663,55 @@ def process_all_issues(dry_run=False, verbose=False):
         )
 
         labels = ["completed"] if success else ["rejected"]
-        close_issue(num, result_comment, labels_to_add=labels, dry_run=dry_run)
+        if defer_close_path:
+            pending_results.append({
+                "issue_number": num,
+                "comment": result_comment,
+                "labels": labels,
+            })
+        elif not close_issue(
+            num,
+            result_comment,
+            labels_to_add=labels,
+            dry_run=dry_run,
+        ):
+            raise RuntimeError("could not close issue #{}".format(num))
         processed += 1
 
+    if defer_close_path:
+        _write_issue_results(defer_close_path, pending_results)
     return processed
 
 
 def main():
     dry_run = "--dry-run" in sys.argv
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
+    if "--finalize-results" in sys.argv:
+        index = sys.argv.index("--finalize-results")
+        try:
+            path = sys.argv[index + 1]
+        except IndexError:
+            raise SystemExit("--finalize-results requires a path")
+        count = finalize_issue_results(path, dry_run=dry_run)
+        print("Finalized {} agent issue(s)".format(count))
+        return
+    defer_close_path = None
+    if "--defer-close" in sys.argv:
+        index = sys.argv.index("--defer-close")
+        try:
+            defer_close_path = sys.argv[index + 1]
+        except IndexError:
+            raise SystemExit("--defer-close requires a path")
 
     print("Processing agent issues{}...".format(" (dry run)" if dry_run else ""))
-    count = process_all_issues(dry_run=dry_run, verbose=verbose)
+    count = process_all_issues(
+        dry_run=dry_run,
+        verbose=verbose,
+        defer_close_path=defer_close_path,
+    )
     print("Processed {} agent issue(s)".format(count))
+    if defer_close_path:
+        print("Deferred issue closure to {}".format(defer_close_path))
 
 
 if __name__ == "__main__":

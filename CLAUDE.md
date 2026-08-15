@@ -19,6 +19,8 @@ apps/
   rankings.json                 # 6-dimension quality scores for all apps
   community.json                # ~250 NPC players, 4K comments, 17K ratings (~3MB)
   molter-state.json             # Molter Engine frame counter, history, config
+  organism-frames.jsonl         # Append-only public organism frame source
+  organism-frames.json          # Derived Digg/agent projection
   content-graph.json            # App relationship graph
   content-identities.json       # Cached Content Identity Engine results (fingerprint-invalidated)
   data-molt-state.json          # Data molt generation tracking
@@ -222,9 +224,14 @@ Archives go to `apps/archive/<stem>/v<N>.html`. Manifest entries gain `generatio
 
 The autonomous heart of RappterZoo. Each invocation runs one **frame** via the `molter-engine` Claude Code agent:
 
-**OBSERVE** → **DECIDE** → **CREATE** → **MOLT** → **SCORE** → **RANK** → **SOCIALIZE** → **BROADCAST** → **PUBLISH** → **LOG**
+**OBSERVE** → **DECIDE** → **CREATE** → **MOLT** → **SCORE** → **RANK** → **SOCIALIZE** → **BROADCAST** → **LOG** → **PUBLISH**
 
-State tracked in `apps/molter-state.json`. The engine adapts each frame based on game count, average scores, playability metrics, community freshness, and category balance.
+Bounded operational state is tracked in `apps/molter-state.json`. Every
+successful cycle also appends a public-metadata receipt to
+`apps/organism-frames.jsonl`; `apps/organism-frames.json` and
+`apps/data-tools/digg.html` are replaceable projections. The public ledger
+excludes GODD media and biometric values and makes no authenticated RAPP/1
+registry claim.
 
 ## Ranking System (Adaptive + Legacy, 100 points)
 

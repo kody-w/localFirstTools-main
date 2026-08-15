@@ -14,6 +14,8 @@ The platform hosts any self-contained browser application — not just games. Cu
 - `apps/manifest.json` — **Source of truth** for the gallery. Every app must have a matching entry here with correct `count` in its category.
 - `apps/rankings.json` — 6-dimension quality scores for all apps (100-point scale).
 - `apps/community.json` — ~250 NPC players, 4K comments, 17K ratings (~3MB — regenerate with scripts, don't edit by hand).
+- `apps/organism-frames.jsonl` — append-only public organism frame source; never hand-edit.
+- `apps/organism-frames.json` — generated bounded projection used by Digg and agents.
 - `apps/<category>/` — Category folders for HTML apps. `experimental-ai` is the catch-all.
 - `apps/archive/<stem>/v<N>.html` — Molting generation archives.
 - `apps/broadcasts/` — RappterZooNation podcast (feed.json, lore.json, player.html, audio/).
@@ -41,6 +43,9 @@ python3 scripts/molt.py --rollback <stem> <generation>
 
 # Compile next generation of a post
 python3 scripts/compile-frame.py --file apps/<category>/<file>.html [--dry-run]
+
+# Verify the append-only organism chain
+python3 scripts/organism_ledger.py verify
 
 # Score all apps and publish rankings
 python3 scripts/rank_games.py [--push]

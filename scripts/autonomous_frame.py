@@ -16,9 +16,12 @@ import json
 import subprocess
 import sys
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+from organism_ledger import append_molter_frame
 
 ROOT = Path(__file__).resolve().parent.parent
 APPS_DIR = ROOT / "apps"
@@ -405,6 +408,10 @@ def publish(frame, actions_log):
         files_to_stage.append("apps/feed.xml")
     if (APPS_DIR / "activity-log.json").exists():
         files_to_stage.append("apps/activity-log.json")
+    if (APPS_DIR / "organism-frames.jsonl").exists():
+        files_to_stage.append("apps/organism-frames.jsonl")
+    if (APPS_DIR / "organism-frames.json").exists():
+        files_to_stage.append("apps/organism-frames.json")
 
     # Stage molted HTML files
     for f in actions_log.get("molted", []):
@@ -463,28 +470,45 @@ def publish(frame, actions_log):
 # ── Phase 10: LOG ──
 
 def log_frame(frame, obs, actions_log):
-    """Update molter-state.json with frame results."""
+    """Append the organism receipt, then update bounded operational state."""
     print("\n[LOG] Writing frame state...")
 
     state = load_json(STATE_FILE) or {"frame": 0, "history": [], "config": {}}
+    timestamp = datetime.now(timezone.utc).isoformat()
+    organism_frame = append_molter_frame(
+        frame,
+        obs,
+        actions_log,
+        utc=timestamp,
+    )
     state["frame"] = frame
     state["history"].append({
         "frame": frame,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": timestamp,
         "actions": actions_log,
         "metrics": {
             "total_apps": obs["total_apps_manifest"],
             "avg_score": obs["avg_score"],
             "below_40": obs["below_40"],
             "unmolted": obs["unmolted"],
-        }
+        },
+        "organism_frame": {
+            "seq": organism_frame["seq"],
+            "payload_hash": organism_frame["payload_hash"],
+            "frame_hash": organism_frame["frame_hash"],
+        },
     })
     state["history"] = state["history"][-50:]  # Keep last 50 frames
 
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
-    print(f"  ✓ Frame {frame} logged")
+    print(
+        "  ✓ Frame {} logged as organism seq {}".format(
+            frame,
+            organism_frame["seq"],
+        )
+    )
 
 
 # ── Main ──
@@ -511,12 +535,19 @@ def main():
                    "data_molted": False, "scored": False,
                    "socialized": False, "broadcast": False,
                    "agent_issues": 0}
+    pending_issue_results = (
+        Path(tempfile.gettempdir())
+        / "rappterzoo-agent-results-{}.json".format(os.getpid())
+    )
 
     # Phase 2.5: PROCESS AGENT ISSUES
     try:
         from process_agent_issues import process_all_issues
         print("\n[AGENT ISSUES] Processing agent submissions...")
-        actions_log["agent_issues"] = process_all_issues(verbose=VERBOSE)
+        actions_log["agent_issues"] = process_all_issues(
+            verbose=VERBOSE,
+            defer_close_path=pending_issue_results,
+        )
     except Exception as e:
         print(f"  Agent issue processing skipped: {e}")
 
@@ -562,7 +593,23 @@ def main():
     log_frame(frame, obs, actions_log)
 
     # Phase 9: PUBLISH
-    publish(frame, actions_log)
+    published = publish(frame, actions_log)
+    if pending_issue_results.exists():
+        if not published or SKIP_PUSH:
+            pending_issue_results.unlink()
+            if not published:
+                raise RuntimeError(
+                    "frame publish failed; agent issues remain open"
+                )
+            print("  ⏭ Agent issues remain open because --skip-push was used")
+        else:
+            from process_agent_issues import finalize_issue_results
+
+            finalized = finalize_issue_results(pending_issue_results)
+            if finalized:
+                print("  ✓ Finalized {} agent issue(s) after push".format(
+                    finalized
+                ))
 
     # Summary
     elapsed = (datetime.now() - start).total_seconds()

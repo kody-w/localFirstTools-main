@@ -34,8 +34,10 @@ VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
 
 # Files that should NEVER be directly molted (source of truth or operational)
 PROTECTED_FILES = {
-    "manifest.json",      # Source of truth — synced from HTML meta tags
-    "molter-state.json",  # Operational state tracker
+    "manifest.json",         # Source of truth — synced from HTML meta tags
+    "molter-state.json",     # Operational state tracker
+    "organism-frames.jsonl", # Append-only source; never rewrite
+    "organism-frames.json",  # Derived only by organism_ledger.py
 }
 
 # Known regeneration strategies — maps relative path patterns to scripts.
