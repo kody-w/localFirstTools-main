@@ -106,6 +106,20 @@ class TestClaimCodeGeneration:
         assert "claim_url" in agent
         assert agent["status"] == "pending_claim"
         assert agent["trust_tier"] == "unclaimed"
+        frames = [
+            json.loads(line)
+            for line in (tmp_path / "organism-frames.jsonl")
+            .read_text()
+            .splitlines()
+        ]
+        birth = next(
+            frame
+            for frame in frames
+            if frame["payload"].get("event_id")
+            == "agent-registration:new-agent"
+        )
+        assert birth["kind"] == "zoo.birth"
+        assert "claim_code" not in birth["payload"]
 
     def test_registration_returns_claim_url(self, tmp_path):
         """Registration message should include claim URL."""
@@ -127,6 +141,111 @@ class TestClaimCodeGeneration:
         assert success
         assert "claim" in message.lower()
         assert "url-agent" in message
+
+
+class TestIssueAuthorClaimIdentity:
+    def test_claim_uses_github_issue_author(self, tmp_path):
+        agent = make_agent_entry(
+            agent_id="author-owned",
+            status="pending_claim",
+            claim_code="reef-X4B2",
+            trust_tier="unclaimed",
+        )
+        agents_file = tmp_path / "agents.json"
+        agents_file.write_text(json.dumps(make_agents_registry([agent])))
+        issue = {
+            "number": 77,
+            "title": "[Agent Claim] author-owned",
+            "body": (
+                "### Agent ID\n"
+                "author-owned\n\n"
+                "### Claim Code\n"
+                "reef-X4B2\n"
+            ),
+            "labels": [{"name": "agent-claim"}],
+            "author": {"login": "issue-owner"},
+        }
+        results_path = tmp_path / "issue-results.json"
+        receipts_path = tmp_path / "agent-action-receipts.json"
+        with (
+            patch.object(pai, "AGENTS_PATH", str(agents_file)),
+            patch.object(
+                pai,
+                "ACTION_RECEIPTS_PATH",
+                str(receipts_path),
+            ),
+            patch.object(pai, "list_agent_issues", return_value=[issue]),
+            patch.object(pai, "close_issue") as close_issue,
+        ):
+            assert pai.process_all_issues(
+                defer_close_path=results_path,
+            ) == 1
+            close_issue.assert_not_called()
+        saved = json.loads(agents_file.read_text())
+        assert saved["agents"][0]["owner_github"] == "issue-owner"
+        pending = json.loads(results_path.read_text())
+        assert pending[0]["issue_number"] == 77
+        with patch.object(pai, "close_issue", return_value=True) as close_issue:
+            assert pai.finalize_issue_results(results_path) == 1
+            close_issue.assert_called_once()
+        assert not results_path.exists()
+
+
+class TestDurableActionReceipts:
+    def test_open_issue_retry_does_not_reapply_committed_action(
+        self,
+        tmp_path,
+    ):
+        issue = {
+            "number": 88,
+            "title": "[Agent Comment] digg.html",
+            "body": (
+                "### App Filename\n"
+                "digg.html\n\n"
+                "### Comment Text\n"
+                "Specific review\n\n"
+                "### Agent ID\n"
+                "receipt-agent\n"
+            ),
+            "labels": [{"name": "agent-comment"}],
+            "author": {"login": "receipt-owner"},
+        }
+        calls = []
+
+        def processor(data, issue_num, **_kwargs):
+            calls.append((data, issue_num))
+            return True, "Comment applied"
+
+        receipts_path = tmp_path / "agent-action-receipts.json"
+        results_path = tmp_path / "issue-results.json"
+        with (
+            patch.object(
+                pai,
+                "ACTION_RECEIPTS_PATH",
+                str(receipts_path),
+            ),
+            patch.object(
+                pai,
+                "list_agent_issues",
+                return_value=[issue],
+            ),
+            patch.dict(
+                pai.PROCESSORS,
+                {"post_comment": processor},
+            ),
+        ):
+            assert pai.process_all_issues(
+                defer_close_path=results_path,
+            ) == 1
+            assert pai.process_all_issues(
+                defer_close_path=results_path,
+            ) == 1
+
+        assert len(calls) == 1
+        receipt = json.loads(receipts_path.read_text())
+        assert receipt["receipts"][0]["issue_number"] == 88
+        pending = json.loads(results_path.read_text())
+        assert "already applied" in pending[0]["comment"]
 
 
 # ─── Claim Processing ────────────────────────────────────────
@@ -222,6 +341,28 @@ class TestClaimProcessing:
             success, message = pai.process_claim(data, 1)
 
         assert not success
+        assert "already claimed" in message.lower()
+
+    def test_claim_replay_by_same_owner_is_idempotent(self, tmp_path):
+        agent = make_agent_entry(
+            agent_id="mine",
+            status="claimed",
+            claim_code="reef-X4B2",
+            owner_github="same-owner",
+            trust_tier="claimed",
+        )
+        agents_file = tmp_path / "agents.json"
+        agents_file.write_text(json.dumps(make_agents_registry([agent])))
+        with patch.object(pai, "AGENTS_PATH", str(agents_file)):
+            success, message = pai.process_claim(
+                {
+                    "agent_id": "mine",
+                    "claim_code": "reef-X4B2",
+                    "github_username": "same-owner",
+                },
+                1,
+            )
+        assert success
         assert "already claimed" in message.lower()
 
     def test_claim_with_tweet_gets_verified_tier(self, tmp_path):
@@ -433,6 +574,19 @@ class TestRegistrationClaimRoundTrip:
         assert agent["status"] == "claimed"
         assert agent["trust_tier"] == "claimed"
         assert agent["owner_github"] == "round-trip-human"
+        frames = [
+            json.loads(line)
+            for line in (tmp_path / "organism-frames.jsonl")
+            .read_text()
+            .splitlines()
+        ]
+        agent_kinds = [
+            frame["kind"]
+            for frame in frames
+            if frame["payload"].get("organism")
+            == "agent.round-trip-agent"
+        ]
+        assert agent_kinds == ["zoo.birth", "zoo.adoption"]
 
     def test_round_trip_with_tweet(self, tmp_path):
         """Register → claim with tweet URL → verified tier."""

@@ -1,0 +1,3031 @@
+#!/usr/bin/env python3
+"""User-initiated local-first client for RappterZoo syndicated deltas."""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import unicodedata
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
+
+
+DEFAULT_INDEX_URL = (
+    "https://kody-w.github.io/localFirstTools-main/"
+    "apps/syndication/index.json"
+)
+DEFAULT_STREAM_ID = (
+    "https://kody-w.github.io/localFirstTools-main/apps/syndication/"
+)
+DEFAULT_STATE_DIR = Path.home() / ".rappterzoo-sync"
+INDEX_SCHEMA = "rappterzoo-syndication-index/1"
+DELTA_SCHEMA = "rappterzoo-syndication-delta/1"
+PROFILE_V2 = "rappterzoo-syndication-profile/2"
+PROFILE_V3 = "rappterzoo-syndication-profile/3"
+PROFILE_V4 = "rappterzoo-syndication-profile/4"
+PROFILE_V5 = "rappterzoo-syndication-profile/5"
+PROFILE_V6 = "rappterzoo-syndication-profile/6"
+PROFILE_V7 = "rappterzoo-syndication-profile/7"
+PROFILE_V8 = "rappterzoo-syndication-profile/8"
+PROFILE = "rappterzoo-syndication-profile/9"
+FRAME_SCHEMA = "rappterzoo-organism-frame/1"
+MAX_INDEX_BYTES = 8 * 1024 * 1024
+MAX_DELTA_BYTES = 16 * 1024 * 1024
+MAX_APP_BYTES = 32 * 1024 * 1024
+MAX_PUBLIC_DATA_BYTES = 4 * 1024 * 1024
+MAX_SAFE_INTEGER = (1 << 53) - 1
+MAX_CANONICAL_BYTES = 1024 * 1024
+HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+KIND_RE = re.compile(
+    r"^[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$"
+)
+UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+FRAME_KEYS = {
+    "spec",
+    "kind",
+    "stream_id",
+    "seq",
+    "utc",
+    "payload",
+    "payload_hash",
+    "frame_hash",
+    "prev",
+    "prev_wave",
+    "sig",
+}
+PARTICLE_SPACE = "rapp/1:particle"
+WAVE_SPACE = "rapp/1:wave"
+FORBIDDEN_PUBLIC_KEY_TOKENS = {
+    "accesstoken",
+    "apikey",
+    "authtoken",
+    "authorization",
+    "bearer",
+    "biometric",
+    "claimcode",
+    "clientsecret",
+    "cookie",
+    "credential",
+    "credentials",
+    "facelandmarks",
+    "endpoint",
+    "endpointurl",
+    "godd",
+    "identitytemplate",
+    "landmarks",
+    "media",
+    "password",
+    "participantkey",
+    "participantsecret",
+    "privateinput",
+    "participantinput",
+    "private",
+    "privatekey",
+    "pulse",
+    "pulsebpm",
+    "pulsebpmestimate",
+    "rawmedia",
+    "refreshtoken",
+    "secret",
+    "sessiontoken",
+    "token",
+    "uploadurl",
+    "workerendpoint",
+    "callbackurl",
+    "inputpayload",
+}
+TRANSPARENCY_MODEL = {
+    "analogy": "bitcoin-inspired-append-only-block-sequencing",
+    "consensus": "none",
+    "custody": (
+        "one subscriber creates one independent replica; independently "
+        "controlled replicas decentralize custody and verification"
+    ),
+    "git_backing": (
+        "immutable delta files and mutable projections are distributed "
+        "through the publisher's Git repository"
+    ),
+    "mining": False,
+    "publisher_authority": "centralized",
+    "quorum": "not-configured",
+    "quorum_condition": (
+        "owner-authorized witness or quorum protocol is required before "
+        "any decentralized consensus claim"
+    ),
+    "token": False,
+}
+BLOCK_MODEL = "bitcoin-inspired-static-delta-block-sequencing"
+NEXT_CHALLENGE_DOMAIN = "rappterzoo:next-frame-challenge/1"
+SOAK_ROLLOUT = {
+    "activation": "explicit-future-owner-gate-required",
+    "activation_criteria": [
+        "fork-free-lineage",
+        "replay-and-tamper-resistance",
+        "subscriber-and-witness-evidence",
+        "bounded-cost",
+    ],
+    "compute_incentive": False,
+    "allowed_frame_control_modes": ["observer", "assigned"],
+    "default_frame_control_mode": "observer",
+    "future_frame_control_mode": "proof-of-fold",
+    "live_race": False,
+    "phase": "initial-public-soak",
+    "synthetic_proofs": "tests-only",
+    "token": False,
+}
+FRAME_CONTROL_SCHEMA = {
+    "modes": {
+        "assigned": (
+            "bounded assembler-issued lease; no proof race"
+        ),
+        "observer": "replicate and witness only",
+        "proof-of-fold": "future activation gate only",
+    },
+    "public_soak_allowed": ["observer", "assigned"],
+    "public_soak_default": "observer",
+    "schema": "rappterzoo-frame-control/1",
+}
+CHALLENGE_STATE_MACHINE = {
+    "current_state": "observer",
+    "frame_control_mode": "observer",
+    "schema": "rappterzoo-fold-challenge-state/1",
+    "states": [
+        "observer",
+        "gate-eligible",
+        "future-active",
+    ],
+    "transitions": [{
+        "from": "observer",
+        "requires": SOAK_ROLLOUT["activation_criteria"],
+        "to": "gate-eligible",
+    }, {
+        "from": "gate-eligible",
+        "requires": ["explicit-owner-activation"],
+        "to": "future-active",
+    }],
+}
+
+
+class SyncError(ValueError):
+    """Raised when remote data cannot be safely applied."""
+
+
+def _json_object(pairs: Sequence[Tuple[str, Any]]) -> Dict[str, Any]:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise SyncError("duplicate JSON object key: {}".format(key))
+        result[key] = value
+    return result
+
+
+def load_json_bytes(data: bytes, label: str) -> Any:
+    try:
+        return json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_json_object,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                SyncError(
+                    "{} contains non-finite JSON number {}".format(label, value)
+                )
+            ),
+        )
+    except SyncError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SyncError("invalid JSON in {}".format(label)) from error
+
+
+def stable_json_bytes(value: Any) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8") + b"\n"
+    except (TypeError, ValueError) as error:
+        raise SyncError("value is not deterministic JSON") from error
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def segment_metadata(changes: Dict[str, Any]) -> Dict[str, Any]:
+    app_segment = {
+        "app_tombstones": changes["app_tombstones"],
+        "app_upserts": changes["app_upserts"],
+    }
+    frames = changes["frame_appends"]
+    result = {
+        "apps": {
+            "sha256": sha256_bytes(stable_json_bytes(app_segment)),
+            "tombstones": len(changes["app_tombstones"]),
+            "upserts": len(changes["app_upserts"]),
+        },
+        "frames": {
+            "count": len(frames),
+            "first_frame_seq": frames[0]["seq"] if frames else None,
+            "last_frame_seq": frames[-1]["seq"] if frames else None,
+            "sha256": sha256_bytes(stable_json_bytes(frames)),
+        },
+        "hash_profile": "sha256-deterministic-json-newline/1",
+    }
+    if "data_upserts" in changes or "data_tombstones" in changes:
+        data_segment = {
+            "data_tombstones": changes.get("data_tombstones", []),
+            "data_upserts": changes.get("data_upserts", []),
+        }
+        result["data"] = {
+            "sha256": sha256_bytes(stable_json_bytes(data_segment)),
+            "tombstones": len(data_segment["data_tombstones"]),
+            "upserts": len(data_segment["data_upserts"]),
+        }
+    return result
+
+
+def proof_of_fold_metadata(
+    changes: Dict[str, Any],
+    synthetic_test_mode: bool = False,
+) -> Dict[str, Any]:
+    data = changes.get("data_upserts", [])
+    challenges = {
+        item["metadata"].get("challenge_id"): item
+        for item in data
+        if item.get("kind") == "fold-challenge"
+        and type(item.get("metadata")) is dict
+        and type(item["metadata"].get("challenge_id")) is str
+    }
+    cycles = []
+    receipt_kinds = {
+        "fold-action-receipt": "action_receipts",
+        "fold-control-award-receipt": "control_award_receipts",
+        "fold-proof-receipt": "proof_receipts",
+        "fold-shard-dimension-object": "dimension_objects",
+        "fold-shard-result-object": "result_objects",
+    }
+    for challenge_id in sorted(challenges):
+        challenge = challenges[challenge_id]
+        cycle = {
+            "action_receipts": [],
+            "challenge": {
+                "content_id": challenge["content_id"],
+                "path": challenge["path"],
+                "shard_id": challenge["metadata"]["shard_id"],
+            },
+            "challenge_id": challenge_id,
+            "control_award_receipts": [],
+            "dimension_objects": [],
+            "proof_receipts": [],
+            "result_objects": [],
+        }
+        for item in data:
+            bucket = receipt_kinds.get(item.get("kind"))
+            metadata = item.get("metadata", {})
+            if bucket and metadata.get("challenge_id") == challenge_id:
+                cycle[bucket].append({
+                    "content_id": item["content_id"],
+                    "path": item["path"],
+                })
+        for bucket in receipt_kinds.values():
+            cycle[bucket] = sorted(
+                cycle[bucket],
+                key=lambda item: (item["content_id"], item["path"]),
+            )
+        cycles.append(cycle)
+    return {
+        "acceptance": "centralized-publisher-assembler",
+        "cycles": cycles,
+        "frame_control_mode": (
+            "proof-of-fold"
+            if cycles and synthetic_test_mode
+            else "observer"
+        ),
+        "status": (
+            "synthetic-test-only"
+            if cycles and synthetic_test_mode
+            else "disabled-observer"
+        ),
+        "synthetic_test_only": bool(cycles and synthetic_test_mode),
+    }
+
+
+def next_challenge_seed(head_sha256: str) -> str:
+    return hashlib.sha256(
+        NEXT_CHALLENGE_DOMAIN.encode("ascii")
+        + b"\n"
+        + head_sha256.encode("ascii")
+    ).hexdigest()
+
+
+def frame_control_metadata(
+    changes: Dict[str, Any],
+    proof_of_fold: Dict[str, Any],
+) -> Dict[str, Any]:
+    modes = {
+        item.get("metadata", {}).get("frame_control_mode")
+        for item in changes.get("data_upserts", [])
+    }
+    modes.update(
+        (
+            frame.get("payload", {}).get("frame_control_mode")
+            or (
+                frame.get("payload", {}).get("frame_control", {})
+                if type(
+                    frame.get("payload", {}).get("frame_control")
+                ) is dict
+                else {}
+            ).get("mode")
+        )
+        for frame in changes.get("frame_appends", [])
+    )
+    if proof_of_fold.get("synthetic_test_only"):
+        mode = "proof-of-fold"
+    elif "assigned" in modes:
+        mode = "assigned"
+    else:
+        mode = "observer"
+    return {
+        "lease_required": mode == "assigned",
+        "mode": mode,
+        "proof_race": False,
+    }
+
+
+def _normalize_frame_json(value: Any, depth: int = 1) -> Any:
+    if depth > 64:
+        raise SyncError("frame JSON nesting exceeds 64 levels")
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is int:
+        if not -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER:
+            raise SyncError("frame integer exceeds the I-JSON safe range")
+        return value
+    if type(value) is float:
+        raise SyncError("frame binary64 values are forbidden")
+    if type(value) is str:
+        if unicodedata.normalize("NFC", value) != value:
+            raise SyncError("frame strings must be NFC-normalized")
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise SyncError("frame contains a lone UTF-16 surrogate")
+        return value
+    if isinstance(value, (list, tuple)):
+        return [
+            _normalize_frame_json(item, depth + 1)
+            for item in value
+        ]
+    if type(value) is dict:
+        result = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise SyncError("frame object keys must be strings")
+            try:
+                key.encode("ascii")
+            except UnicodeEncodeError as error:
+                raise SyncError("frame object keys must be ASCII") from error
+            if unicodedata.normalize("NFC", key) != key:
+                raise SyncError("frame object keys must be NFC-normalized")
+            result[key] = _normalize_frame_json(item, depth + 1)
+        return result
+    raise SyncError(
+        "unsupported frame JSON value {}".format(type(value).__name__)
+    )
+
+
+def canonical_frame_bytes(value: Any) -> bytes:
+    normalized = _normalize_frame_json(value)
+    encoded = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded) > MAX_CANONICAL_BYTES:
+        raise SyncError("canonical frame value exceeds one MiB")
+    return encoded
+
+
+def frame_hash_value(space: str, value: Any) -> str:
+    return hashlib.sha256(
+        space.encode("ascii") + b"\n" + canonical_frame_bytes(value)
+    ).hexdigest()
+
+
+def _privacy_key_token(key: str) -> str:
+    return "".join(
+        character.lower()
+        for character in key
+        if character.isalnum()
+    )
+
+
+def _find_forbidden_key(value: Any) -> Optional[str]:
+    if type(value) is dict:
+        for key, item in value.items():
+            token = _privacy_key_token(key)
+            safe_policy_declaration = (
+                token == "token"
+                and (
+                    item is False
+                    or (
+                        type(item) is str
+                        and item.strip().lower() == "none"
+                    )
+                )
+            )
+            if (
+                token in FORBIDDEN_PUBLIC_KEY_TOKENS
+                and not safe_policy_declaration
+            ):
+                return key
+            nested = _find_forbidden_key(item)
+            if nested:
+                return nested
+    elif isinstance(value, list):
+        for item in value:
+            nested = _find_forbidden_key(item)
+            if nested:
+                return nested
+    return None
+
+
+def _validate_shard_main_append(payload: Dict[str, Any]) -> None:
+    event = payload.get("event")
+    shard_related = (
+        any(
+            key in payload
+            for key in (
+                "assignment_id",
+                "lease_id",
+                "shard_id",
+            )
+        )
+        or (
+            type(event) is str
+            and (
+                "shard" in event.lower()
+                or "fold" in event.lower()
+            )
+        )
+    )
+    if not shard_related:
+        return
+    assembly = payload.get("assembly")
+    assembly = assembly if type(assembly) is dict else {}
+    frame_control = payload.get("frame_control")
+    frame_control = (
+        frame_control
+        if type(frame_control) is dict
+        else {}
+    )
+    mode = payload.get(
+        "frame_control_mode",
+        frame_control.get("mode"),
+    )
+    status = payload.get(
+        "assembler_status",
+        assembly.get("status"),
+    )
+    main_append = payload.get(
+        "main_append",
+        assembly.get("main_append"),
+    )
+    if (
+        mode != "assigned"
+        or type(payload.get("lease_id")) is not str
+        or not payload["lease_id"]
+        or status != "accepted"
+        or main_append is not True
+    ):
+        raise SyncError(
+            "shard frame requires assigned lease and assembler acceptance"
+        )
+
+
+def validate_frames(
+    frames: Iterable[Dict[str, Any]],
+    previous: Optional[Dict[str, Any]],
+    seen_event_ids: Set[str],
+) -> Optional[Dict[str, Any]]:
+    prior = previous
+    for frame in frames:
+        if type(frame) is not dict or set(frame) != FRAME_KEYS:
+            raise SyncError("frame does not have exactly eleven keys")
+        if (
+            frame["spec"] != "rapp/1"
+            or frame["stream_id"] != "net:rappterzoo"
+            or type(frame["kind"]) is not str
+            or not KIND_RE.fullmatch(frame["kind"])
+            or type(frame["seq"]) is not int
+            or not 0 <= frame["seq"] <= MAX_SAFE_INTEGER
+            or type(frame["utc"]) is not str
+            or not UTC_RE.fullmatch(frame["utc"])
+            or type(frame["payload"]) is not dict
+            or frame["sig"] is not None
+            or type(frame["payload_hash"]) is not str
+            or not HASH_RE.fullmatch(frame["payload_hash"])
+            or type(frame["frame_hash"]) is not str
+            or not HASH_RE.fullmatch(frame["frame_hash"])
+        ):
+            raise SyncError("invalid RAPP/1 frame structure")
+        payload = _normalize_frame_json(frame["payload"])
+        event_id = payload.get("event_id")
+        if (
+            payload.get("schema") != FRAME_SCHEMA
+            or payload.get("visibility") != "public-metadata"
+            or type(event_id) is not str
+            or not event_id
+            or type(payload.get("event")) is not str
+            or not payload.get("event")
+            or type(payload.get("organism")) is not str
+            or not payload.get("organism")
+        ):
+            raise SyncError("invalid public frame payload")
+        forbidden = _find_forbidden_key(payload)
+        if forbidden:
+            raise SyncError(
+                "public frame contains forbidden key {}".format(forbidden)
+            )
+        _validate_shard_main_append(payload)
+        if event_id in seen_event_ids:
+            raise SyncError("frame event replay {}".format(event_id))
+        seen_event_ids.add(event_id)
+        if frame["payload_hash"] != frame_hash_value(
+            PARTICLE_SPACE,
+            payload,
+        ):
+            raise SyncError("frame payload hash mismatch")
+        wave = {
+            key: value
+            for key, value in frame.items()
+            if key not in {"frame_hash", "sig"}
+        }
+        if frame["frame_hash"] != frame_hash_value(WAVE_SPACE, wave):
+            raise SyncError("frame wave hash mismatch")
+        if prior is None:
+            if frame["seq"] != 0:
+                raise SyncError("frame sequence does not start at zero")
+            if frame["prev"] is not None or frame["prev_wave"] is not None:
+                raise SyncError("genesis links must be null")
+        else:
+            if frame["seq"] != prior["seq"] + 1:
+                raise SyncError("frame sequence gap")
+            if frame["utc"] < prior["utc"]:
+                raise SyncError("frame timestamps are not monotonic")
+            if frame["prev"] != prior["payload_hash"]:
+                raise SyncError("frame particle link mismatch")
+            if frame["prev_wave"] != prior["frame_hash"]:
+                raise SyncError("frame wave link mismatch")
+        prior = frame
+    return prior
+
+
+def _safe_relative_path(path: str) -> str:
+    if type(path) is not str:
+        raise SyncError("app path must be a string")
+    candidate = Path(path)
+    if (
+        not path
+        or candidate.is_absolute()
+        or ".." in candidate.parts
+        or "\\" in path
+    ):
+        raise SyncError("unsafe app path {}".format(path))
+    return candidate.as_posix()
+
+
+def validate_descriptor(
+    descriptor: Any,
+    require_pin: bool = True,
+) -> Dict[str, Any]:
+    if type(descriptor) is not dict:
+        raise SyncError("app descriptor must be an object")
+    path = _safe_relative_path(descriptor.get("path"))
+    digest = descriptor.get("sha256")
+    size = descriptor.get("size")
+    url = descriptor.get("url")
+    metadata = descriptor.get("metadata")
+    content_id = descriptor.get("content_id")
+    verification = descriptor.get("verification")
+    if (
+        type(digest) is not str
+        or not HASH_RE.fullmatch(digest)
+        or type(size) is not int
+        or not 0 <= size <= MAX_APP_BYTES
+        or type(url) is not str
+        or not url
+        or type(metadata) is not dict
+    ):
+        raise SyncError("invalid app descriptor")
+    if require_pin and (
+        content_id != "sha256:{}".format(digest)
+        or verification != {
+            "algorithm": "sha256",
+            "required": True,
+        }
+    ):
+        raise SyncError("app descriptor is mutable or unpinned")
+    if not require_pin and content_id is not None and (
+        content_id != "sha256:{}".format(digest)
+        or verification != {
+            "algorithm": "sha256",
+            "required": True,
+        }
+    ):
+        raise SyncError("legacy app descriptor has an invalid pin")
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.scheme not in {"http", "https"}:
+        raise SyncError("unsupported app URL scheme")
+    result = dict(descriptor)
+    result["path"] = path
+    return result
+
+
+def validate_tombstone(
+    value: Any,
+    delta_sequence: int,
+    require_pin: bool,
+) -> Dict[str, Any]:
+    if type(value) is not dict:
+        raise SyncError("app tombstone must be an object")
+    path = _safe_relative_path(value.get("path"))
+    if value.get("sequence") != delta_sequence:
+        raise SyncError("tombstone sequence mismatch")
+    descriptor = validate_descriptor(
+        value.get("descriptor"),
+        require_pin=require_pin,
+    )
+    if descriptor["path"] != path:
+        raise SyncError("tombstone descriptor path mismatch")
+    result = dict(value)
+    result["path"] = path
+    result["descriptor"] = descriptor
+    return result
+
+
+def _data_key_is_sensitive(key: str, value: Any) -> bool:
+    token = _privacy_key_token(key)
+    if token == "token" and (
+        value is False
+        or (
+            type(value) is str
+            and value.strip().lower() == "none"
+        )
+    ):
+        return False
+    return (
+        token in FORBIDDEN_PUBLIC_KEY_TOKENS
+        or token.startswith("private")
+        or token.startswith("biometric")
+        or token.startswith("rawmedia")
+        or token.startswith("identitytemplate")
+        or any(
+            fragment in token
+            for fragment in (
+                "authorization",
+                "credential",
+                "endpoint",
+                "password",
+                "secret",
+                "token",
+            )
+        )
+    )
+
+
+def validate_public_data_value(
+    value: Any,
+    comment_context: bool = False,
+) -> None:
+    if isinstance(value, list):
+        for item in value:
+            validate_public_data_value(item, comment_context)
+        return
+    if type(value) is not dict:
+        return
+    for key in value:
+        if _data_key_is_sensitive(key, value[key]):
+            raise SyncError(
+                "public data object contains sensitive key {}".format(key)
+            )
+    visibility = value.get("visibility")
+    if visibility is not None and visibility not in {
+        "public",
+        "public-metadata",
+    }:
+        raise SyncError("public data object has non-public visibility")
+    kind_values = [
+        value.get("kind"),
+        value.get("type"),
+        value.get("schema"),
+    ]
+    local_comment_context = comment_context or any(
+        type(item) is str and "comment" in item.lower()
+        for item in kind_values
+    ) or "comment_id" in value
+    body_keys = [
+        key
+        for key in value
+        if (
+            _privacy_key_token(key) in {
+                "body",
+                "commentbody",
+                "content",
+                "message",
+                "text",
+            }
+            or (
+                "comment" in _privacy_key_token(key)
+                and (
+                    "body" in _privacy_key_token(key)
+                    or "bodies" in _privacy_key_token(key)
+                )
+            )
+        )
+    ]
+    if local_comment_context and body_keys and (
+        value.get("selected") is not True
+        or value.get("visibility") not in {
+            "public",
+            "public-metadata",
+        }
+    ):
+        raise SyncError(
+            "unselected or non-public comment body is forbidden"
+        )
+    for key, item in value.items():
+        validate_public_data_value(
+            item,
+            local_comment_context
+            or "comment" in _privacy_key_token(key),
+        )
+
+
+def _contains_rejected_candidate(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_contains_rejected_candidate(item) for item in value)
+    if type(value) is not dict:
+        return False
+    for key in ("assembler_status", "decision", "status"):
+        status = value.get(key)
+        if type(status) is str and status.lower() in {
+            "declined",
+            "rejected",
+        }:
+            return True
+    return any(
+        _contains_rejected_candidate(item)
+        for item in value.values()
+    )
+
+
+def validate_public_data_bytes(data: bytes, media_type: str) -> Any:
+    if len(data) > MAX_PUBLIC_DATA_BYTES:
+        raise SyncError("public data object exceeds four MiB")
+    if media_type == "application/json":
+        value = load_json_bytes(data, "public attention data")
+        if _contains_rejected_candidate(value):
+            raise SyncError("rejected shard candidate is not consumable")
+        validate_public_data_value(value)
+        return value
+    if media_type != "application/x-ndjson":
+        raise SyncError("unsupported public data media type")
+    if data and not data.endswith(b"\n"):
+        raise SyncError("public JSONL object lacks a final newline")
+    values = []
+    for line_number, line in enumerate(data.splitlines(), 1):
+        if not line:
+            raise SyncError(
+                "blank public JSONL line {}".format(line_number)
+            )
+        item = load_json_bytes(
+            line,
+            "public attention data line {}".format(line_number),
+        )
+        if _contains_rejected_candidate(item):
+            raise SyncError("rejected shard candidate is not consumable")
+        validate_public_data_value(item)
+        values.append(item)
+    return values
+
+
+def validate_shard_object_bytes(
+    value: Any,
+    descriptor: Dict[str, Any],
+) -> None:
+    items = value if isinstance(value, list) else [value]
+    candidates = [
+        item
+        for item in items
+        if type(item) is dict and "shard_id" in item
+    ]
+    if not candidates:
+        raise SyncError("shard object bytes lack shard provenance")
+    first = candidates[0]
+    metadata = descriptor["metadata"]
+    if first.get("shard_id") != metadata.get("shard_id"):
+        raise SyncError("shard object provenance does not match descriptor")
+    frame_control = first.get("frame_control")
+    frame_control = (
+        frame_control
+        if type(frame_control) is dict
+        else {}
+    )
+    raw_mode = first.get(
+        "frame_control_mode",
+        frame_control.get("mode"),
+    )
+    if raw_mode != metadata.get("frame_control_mode"):
+        raise SyncError("shard object frame control mode mismatch")
+    if descriptor["kind"] == "fold-shard-lease":
+        raw_bounds = first.get(
+            "lease_bounds",
+            first.get("bounds"),
+        )
+        if raw_bounds != metadata.get("lease_bounds"):
+            raise SyncError("shard lease bounds do not match descriptor")
+    if descriptor["kind"] in {
+        "fold-shard-dimension-object",
+        "fold-shard-result-object",
+    } and first.get("lease_id") != metadata.get("lease_id"):
+        raise SyncError("shard result lease provenance mismatch")
+    if descriptor["kind"] in {
+        "fold-action-receipt",
+        "fold-challenge",
+        "fold-control-award-receipt",
+        "fold-proof-receipt",
+        "fold-shard-dimension-object",
+        "fold-shard-result-object",
+    }:
+        assembly = first.get("assembly")
+        assembly = assembly if type(assembly) is dict else {}
+        if (
+            first.get("assembler_status", assembly.get("status"))
+            != "accepted"
+            or first.get("main_append", assembly.get("main_append"))
+            is not True
+        ):
+            raise SyncError("shard object is not an accepted main append")
+
+
+def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
+    if type(descriptor) is not dict:
+        raise SyncError("data descriptor must be an object")
+    path = _safe_relative_path(descriptor.get("path"))
+    digest = descriptor.get("sha256")
+    size = descriptor.get("size")
+    media_type = descriptor.get("media_type")
+    kind = descriptor.get("kind")
+    metadata = descriptor.get("metadata")
+    public_root = any(
+        path.startswith("apps/{}/".format(directory))
+        for directory in (
+            "attention",
+            "fold",
+            "fold-at-home",
+            "shards",
+        )
+    )
+    if (
+        not public_root
+        or kind not in {
+            "attention-group-object",
+            "attention-dimension-object",
+            "fold-action-receipt",
+            "fold-challenge",
+            "fold-control-award-receipt",
+            "fold-proof-receipt",
+            "fold-shard-assignment",
+            "fold-shard-dimension-object",
+            "fold-shard-lease",
+            "fold-shard-result-object",
+        }
+        or type(digest) is not str
+        or not HASH_RE.fullmatch(digest)
+        or descriptor.get("content_id")
+        != "sha256:{}".format(digest)
+        or type(size) is not int
+        or not 0 <= size <= MAX_PUBLIC_DATA_BYTES
+        or media_type not in {
+            "application/json",
+            "application/x-ndjson",
+        }
+        or type(descriptor.get("url")) is not str
+        or type(metadata) is not dict
+        or descriptor.get("verification") != {
+            "algorithm": "sha256",
+            "required": True,
+        }
+    ):
+        raise SyncError("invalid or unpinned public data descriptor")
+    if kind in {
+        "attention-dimension-object",
+        "fold-shard-dimension-object",
+    }:
+        branches = metadata.get("branches_present")
+        drift = metadata.get("drift")
+        if (
+            type(metadata.get("base_record_id")) is not str
+            or not metadata["base_record_id"]
+            or type(branches) is not list
+            or not branches
+            or branches != [
+                branch
+                for branch in ("hot", "cold")
+                if branch in branches
+            ]
+            or metadata.get("merge_order") != ["hot", "cold"]
+            or type(drift) not in {dict, list}
+            or metadata.get("drift_sha256")
+            != sha256_bytes(stable_json_bytes(drift))
+        ):
+            raise SyncError("dimension descriptor lacks deterministic drift metadata")
+    if kind.startswith("fold-"):
+        synthetic_cycle_kinds = {
+            "fold-action-receipt",
+            "fold-challenge",
+            "fold-control-award-receipt",
+            "fold-proof-receipt",
+        }
+        expected_mode = (
+            "proof-of-fold"
+            if kind in synthetic_cycle_kinds
+            else "assigned"
+        )
+        if (
+            metadata.get("isolated_shard_provenance") is not True
+            or type(metadata.get("shard_id")) is not str
+            or not metadata["shard_id"]
+        ):
+            raise SyncError("shard descriptor lacks isolated provenance")
+        if (
+            metadata.get("frame_control_mode") != expected_mode
+            or metadata.get("frame_control") != {
+                "mode": expected_mode,
+                "proof_race": False,
+            }
+        ):
+            raise SyncError("shard descriptor has invalid frame control mode")
+        provenance = metadata.get("provenance")
+        if provenance is not None and (
+            type(provenance) is not dict
+            or metadata.get("provenance_sha256")
+            != sha256_bytes(stable_json_bytes(provenance))
+        ):
+            raise SyncError("shard provenance hash mismatch")
+        if kind == "fold-shard-assignment" and (
+            type(metadata.get("assignment_id")) is not str
+            or not metadata["assignment_id"]
+        ):
+            raise SyncError("shard assignment lacks assignment id")
+        if kind == "fold-shard-lease" and (
+            type(metadata.get("lease_id")) is not str
+            or not metadata["lease_id"]
+            or type(metadata.get("lease_bounds")) is not dict
+            or not metadata["lease_bounds"]
+        ):
+            raise SyncError("shard lease lacks bounded lease metadata")
+        required_ids = {
+            "fold-action-receipt": "action_receipt_id",
+            "fold-challenge": "challenge_id",
+            "fold-control-award-receipt": "award_id",
+            "fold-proof-receipt": "proof_id",
+        }
+        required_id = required_ids.get(kind)
+        if required_id and (
+            type(metadata.get(required_id)) is not str
+            or not metadata[required_id]
+        ):
+            raise SyncError(
+                "{} lacks {}".format(kind, required_id)
+            )
+        if kind in {
+            "fold-action-receipt",
+            "fold-challenge",
+            "fold-control-award-receipt",
+            "fold-proof-receipt",
+            "fold-shard-dimension-object",
+            "fold-shard-result-object",
+        } and (
+            metadata.get("assembler_status") != "accepted"
+            or metadata.get("main_append") is not True
+        ):
+            raise SyncError("shard result is not assembler accepted")
+        if kind in {
+            "fold-shard-dimension-object",
+            "fold-shard-result-object",
+        } and (
+            type(metadata.get("lease_id")) is not str
+            or not metadata["lease_id"]
+        ):
+            raise SyncError("assigned shard result lacks lease provenance")
+    result = dict(descriptor)
+    result["path"] = path
+    return result
+
+
+def validate_data_tombstone(
+    value: Any,
+    delta_sequence: int,
+) -> Dict[str, Any]:
+    if type(value) is not dict:
+        raise SyncError("data tombstone must be an object")
+    path = _safe_relative_path(value.get("path"))
+    if value.get("sequence") != delta_sequence:
+        raise SyncError("data tombstone sequence mismatch")
+    descriptor = validate_data_descriptor(value.get("descriptor"))
+    if descriptor["path"] != path:
+        raise SyncError("data tombstone descriptor path mismatch")
+    result = dict(value)
+    result["path"] = path
+    result["descriptor"] = descriptor
+    return result
+
+
+def fetch_url(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    max_bytes: int = MAX_DELTA_BYTES,
+) -> Tuple[int, Dict[str, str], bytes]:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise SyncError("only HTTP(S) sync sources are supported")
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json, application/atom+xml;q=0.5",
+            "User-Agent": "RappterZooSync/1",
+            **(headers or {}),
+        },
+        method="GET",
+    )
+    try:
+        response = urlopen(request, timeout=20)
+    except HTTPError as error:
+        if error.code == 304:
+            return 304, {
+                key.lower(): value
+                for key, value in error.headers.items()
+            }, b""
+        raise SyncError("HTTP {} for {}".format(error.code, url)) from error
+    except URLError as error:
+        raise SyncError("network error for {}: {}".format(url, error.reason))
+    with response:
+        status = response.getcode()
+        response_headers = {
+            key.lower(): value
+            for key, value in response.headers.items()
+        }
+        declared = response_headers.get("content-length")
+        if declared:
+            try:
+                declared_size = int(declared)
+            except ValueError:
+                raise SyncError("invalid Content-Length")
+            if declared_size > max_bytes:
+                raise SyncError("response exceeds byte limit")
+        chunks = []
+        received = 0
+        while True:
+            chunk = response.read(min(65536, max_bytes + 1 - received))
+            if not chunk:
+                break
+            received += len(chunk)
+            if received > max_bytes:
+                raise SyncError("response exceeds byte limit")
+            chunks.append(chunk)
+        return status, response_headers, b"".join(chunks)
+
+
+def connect_state(state_dir: Path) -> sqlite3.Connection:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(state_dir / "state.sqlite3"))
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS deltas (
+          sequence INTEGER PRIMARY KEY,
+          sha256 TEXT NOT NULL UNIQUE,
+          previous_sha256 TEXT,
+          source_url TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS apps (
+          path TEXT PRIMARY KEY,
+          url TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          metadata_json TEXT NOT NULL,
+          deleted INTEGER NOT NULL DEFAULT 0,
+          delta_sequence INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS tombstones (
+          path TEXT NOT NULL,
+          delta_sequence INTEGER NOT NULL,
+          tombstone_json TEXT NOT NULL,
+          PRIMARY KEY (path, delta_sequence)
+        );
+        CREATE TABLE IF NOT EXISTS data_objects (
+          path TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          url TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          media_type TEXT NOT NULL,
+          metadata_json TEXT NOT NULL,
+          deleted INTEGER NOT NULL DEFAULT 0,
+          delta_sequence INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS data_tombstones (
+          path TEXT NOT NULL,
+          delta_sequence INTEGER NOT NULL,
+          tombstone_json TEXT NOT NULL,
+          PRIMARY KEY (path, delta_sequence)
+        );
+        CREATE TABLE IF NOT EXISTS shard_provenance (
+          content_id TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          shard_id TEXT NOT NULL,
+          assignment_id TEXT,
+          lease_id TEXT,
+          provenance_json TEXT NOT NULL,
+          delta_sequence INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS frames (
+          seq INTEGER PRIMARY KEY,
+          frame_hash TEXT NOT NULL UNIQUE,
+          event_id TEXT NOT NULL UNIQUE,
+          frame_json TEXT NOT NULL,
+          delta_sequence INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS objects (
+          sha256 TEXT PRIMARY KEY,
+          size INTEGER NOT NULL,
+          relative_path TEXT NOT NULL,
+          verified_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS acknowledgements (
+          delta_sha256 TEXT PRIMARY KEY,
+          sequence INTEGER NOT NULL UNIQUE,
+          acknowledged_at TEXT NOT NULL,
+          note TEXT NOT NULL,
+          FOREIGN KEY (sequence) REFERENCES deltas(sequence)
+        );
+        CREATE TABLE IF NOT EXISTS witnesses (
+          receipt_sha256 TEXT PRIMARY KEY,
+          witness_id TEXT NOT NULL,
+          head_sequence INTEGER NOT NULL,
+          head_sha256 TEXT NOT NULL,
+          chain_fingerprint TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          statement_json TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS blocks (
+          sequence INTEGER PRIMARY KEY,
+          head_sha256 TEXT NOT NULL UNIQUE,
+          previous_sha256 TEXT,
+          frame_control_mode TEXT NOT NULL,
+          next_frame_challenge_seed TEXT NOT NULL,
+          proof_of_fold_json TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS local_apps (
+          path TEXT PRIMARY KEY,
+          sha256 TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          metadata_json TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          added_at TEXT NOT NULL
+        );
+        """
+    )
+    data_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(data_objects)")
+    }
+    if "kind" not in data_columns:
+        connection.execute(
+            """
+            ALTER TABLE data_objects
+            ADD COLUMN kind TEXT NOT NULL
+            DEFAULT 'attention-group-object'
+            """
+        )
+    block_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(blocks)")
+    }
+    if "frame_control_mode" not in block_columns:
+        connection.execute(
+            """
+            ALTER TABLE blocks
+            ADD COLUMN frame_control_mode TEXT NOT NULL
+            DEFAULT 'observer'
+            """
+        )
+    connection.commit()
+    return connection
+
+
+def _get_meta(connection: sqlite3.Connection, key: str) -> Optional[str]:
+    row = connection.execute(
+        "SELECT value FROM meta WHERE key = ?",
+        (key,),
+    ).fetchone()
+    return row["value"] if row else None
+
+
+def _set_meta(
+    connection: sqlite3.Connection,
+    key: str,
+    value: str,
+) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+        (key, value),
+    )
+
+
+def validate_index(
+    index: Any,
+    allow_synthetic_proofs: bool = False,
+) -> List[Dict[str, Any]]:
+    if (
+        type(index) is not dict
+        or index.get("schema") != INDEX_SCHEMA
+        or index.get("profile") != PROFILE
+        or index.get("transparency") != TRANSPARENCY_MODEL
+        or index.get("rollout") != SOAK_ROLLOUT
+        or index.get("challenge_state_machine")
+        != CHALLENGE_STATE_MACHINE
+        or index.get("frame_control_schema")
+        != FRAME_CONTROL_SCHEMA
+        or type(index.get("stream_id")) is not str
+        or not index.get("stream_id")
+        or type(index.get("deltas")) is not list
+    ):
+        raise SyncError("remote index has the wrong schema")
+    cursor = index.get("cursor")
+    rate_budget = index.get("rate_budget")
+    pinning = index.get("pinning")
+    if (
+        type(cursor) is not dict
+        or cursor.get("kind") != "immutable-since-seq"
+        or cursor.get("initial_since_seq") != -1
+        or cursor.get("reset_policy") != "reject"
+        or type(rate_budget) is not dict
+        or rate_budget.get("constant_polling") is not False
+        or rate_budget.get("conditional_get")
+        != "required-after-first-sync"
+        or rate_budget.get("recommended_min_sync_interval_seconds")
+        != 1800
+        or type(pinning) is not dict
+        or pinning.get("app_content") != "sha256-required"
+        or pinning.get("mutable_skill_references") != "reject-unpinned"
+    ):
+        raise SyncError("remote index lacks safe cursor or rate metadata")
+    entries = index["deltas"]
+    if index.get("delta_count") != len(entries):
+        raise SyncError("remote index delta count mismatch")
+    previous = None
+    seen_hashes = set()
+    validated = []
+    for expected_sequence, entry in enumerate(entries):
+        if type(entry) is not dict:
+            raise SyncError("remote index delta entry is malformed")
+        digest = entry.get("sha256")
+        path = entry.get("path")
+        segment_hashes = entry.get("segment_hashes")
+        entry_profile = entry.get("profile")
+        block = entry.get("block")
+        if (
+            entry.get("sequence") != expected_sequence
+            or type(digest) is not str
+            or not HASH_RE.fullmatch(digest)
+            or digest in seen_hashes
+            or entry.get("previous_delta") != previous
+            or path != "deltas/{}.json".format(digest)
+            or entry.get("since_seq") != expected_sequence - 1
+            or entry.get("through_seq") != expected_sequence
+            or type(segment_hashes) is not dict
+            or type(segment_hashes.get("apps")) is not str
+            or not HASH_RE.fullmatch(segment_hashes["apps"])
+            or type(segment_hashes.get("frames")) is not str
+            or not HASH_RE.fullmatch(segment_hashes["frames"])
+            or entry_profile not in {
+                "legacy",
+                PROFILE_V2,
+                PROFILE_V3,
+                PROFILE_V4,
+                PROFILE_V5,
+                PROFILE_V6,
+                PROFILE_V7,
+                PROFILE_V8,
+                PROFILE,
+            }
+            or (
+                entry_profile in {
+                    PROFILE_V3,
+                    PROFILE_V4,
+                    PROFILE_V5,
+                    PROFILE_V6,
+                    PROFILE_V7,
+                    PROFILE_V8,
+                    PROFILE,
+                }
+                and (
+                    type(segment_hashes.get("data")) is not str
+                    or not HASH_RE.fullmatch(segment_hashes["data"])
+                )
+            )
+            or type(block) is not dict
+            or block.get("model") != BLOCK_MODEL
+            or block.get("consensus") != "none"
+            or block.get("token") is not False
+            or block.get("mining") is not False
+            or block.get("resulting_head") != {
+                "sequence": expected_sequence,
+                "sha256": digest,
+            }
+            or block.get("next_frame_challenge_seed")
+            != next_challenge_seed(digest)
+            or type(block.get("proof_of_fold")) is not dict
+            or block.get("rollout") != SOAK_ROLLOUT
+        ):
+            raise SyncError("remote index has a replay, gap, or bad link")
+        proof = block["proof_of_fold"]
+        frame_control = block.get("frame_control")
+        if (
+            proof.get("frame_control_mode")
+            not in {"observer", "proof-of-fold"}
+            or type(frame_control) is not dict
+            or frame_control.get("proof_race") is not False
+            or frame_control.get("mode")
+            not in {"observer", "assigned", "proof-of-fold"}
+            or (
+                frame_control.get("mode") == "proof-of-fold"
+                and not allow_synthetic_proofs
+            )
+            or (
+                proof.get("cycles")
+                and not allow_synthetic_proofs
+            )
+            or (
+                proof.get("synthetic_test_only") is True
+                and not allow_synthetic_proofs
+            )
+        ):
+            raise SyncError(
+                "live proof-of-fold control is disabled during public soak"
+            )
+        seen_hashes.add(digest)
+        validated.append(entry)
+        previous = digest
+    head = index.get("head")
+    if entries:
+        if (
+            type(head) is not dict
+            or head.get("sequence") != entries[-1]["sequence"]
+            or head.get("sha256") != entries[-1]["sha256"]
+        ):
+            raise SyncError("remote index head mismatch")
+    elif head is not None:
+        raise SyncError("empty remote index must have a null head")
+    if cursor.get("head_seq") != (
+        entries[-1]["sequence"] if entries else -1
+    ):
+        raise SyncError("remote immutable cursor head mismatch")
+    return validated
+
+
+def validate_delta(
+    data: bytes,
+    entry: Dict[str, Any],
+    expected_stream_id: Optional[str] = None,
+    allow_synthetic_proofs: bool = False,
+) -> Dict[str, Any]:
+    expected_stream_id = expected_stream_id or DEFAULT_STREAM_ID
+    if sha256_bytes(data) != entry["sha256"]:
+        raise SyncError("delta content hash mismatch")
+    delta = load_json_bytes(data, "delta {}".format(entry["sequence"]))
+    if stable_json_bytes(delta) != data:
+        raise SyncError("delta is not canonical deterministic JSON")
+    if (
+        type(delta) is not dict
+        or delta.get("schema") != DELTA_SCHEMA
+        or delta.get("stream_id") != expected_stream_id
+        or delta.get("sequence") != entry["sequence"]
+        or delta.get("previous_delta") != entry["previous_delta"]
+        or type(delta.get("changes")) is not dict
+    ):
+        raise SyncError("delta metadata mismatch")
+    changes = delta["changes"]
+    profile = delta.get("profile")
+    legacy = "segments" not in delta
+    legacy_keys = {
+        "app_tombstones",
+        "app_upserts",
+        "frame_appends",
+    }
+    profile3_keys = legacy_keys | {
+        "data_tombstones",
+        "data_upserts",
+    }
+    expected_keys = (
+        profile3_keys
+        if profile in {
+            PROFILE_V3,
+            PROFILE_V4,
+            PROFILE_V5,
+            PROFILE_V6,
+            PROFILE_V7,
+            PROFILE_V8,
+            PROFILE,
+        }
+        else legacy_keys
+    )
+    if set(changes) != expected_keys:
+        raise SyncError("delta changes have the wrong shape")
+    if not all(type(changes[key]) is list for key in changes):
+        raise SyncError("delta changes must be arrays")
+    computed_segments = segment_metadata(changes)
+    expected_hashes = entry["segment_hashes"]
+    if (
+        computed_segments["apps"]["sha256"] != expected_hashes["apps"]
+        or computed_segments["frames"]["sha256"]
+        != expected_hashes["frames"]
+        or (
+            profile in {
+                PROFILE_V3,
+                PROFILE_V4,
+                PROFILE_V5,
+                PROFILE_V6,
+                PROFILE_V7,
+                PROFILE_V8,
+                PROFILE,
+            }
+            and computed_segments["data"]["sha256"]
+            != expected_hashes.get("data")
+        )
+    ):
+        raise SyncError("delta segment hash mismatch")
+    if legacy:
+        if (
+            delta["sequence"] != 0
+            or profile is not None
+            or entry.get("profile") != "legacy"
+        ):
+            raise SyncError("only genesis may use the legacy delta profile")
+    elif (
+        profile not in {
+            PROFILE_V2,
+            PROFILE_V3,
+            PROFILE_V4,
+            PROFILE_V5,
+            PROFILE_V6,
+            PROFILE_V7,
+            PROFILE_V8,
+            PROFILE,
+        }
+        or entry.get("profile") != profile
+        or delta.get("since_seq") != delta["sequence"] - 1
+        or delta.get("through_seq") != delta["sequence"]
+        or delta.get("segments") != computed_segments
+    ):
+        raise SyncError("delta immutable since_seq checkpoint mismatch")
+    if (
+        profile == PROFILE
+        and delta.get("transparency") != TRANSPARENCY_MODEL
+    ):
+        raise SyncError("delta makes an invalid authority or consensus claim")
+    if profile == PROFILE and (
+        delta.get("rollout") != SOAK_ROLLOUT
+        or delta.get("challenge_state_machine")
+        != CHALLENGE_STATE_MACHINE
+        or delta.get("frame_control_schema")
+        != FRAME_CONTROL_SCHEMA
+    ):
+        raise SyncError("delta violates the initial soak activation gate")
+    upserts = [
+        validate_descriptor(descriptor, require_pin=not legacy)
+        for descriptor in changes["app_upserts"]
+    ]
+    tombstones = [
+        validate_tombstone(
+            value,
+            delta["sequence"],
+            require_pin=not legacy,
+        )
+        for value in changes["app_tombstones"]
+    ]
+    paths = [item["path"] for item in upserts]
+    if len(paths) != len(set(paths)):
+        raise SyncError("delta repeats an app upsert")
+    tombstone_paths = [item["path"] for item in tombstones]
+    if len(tombstone_paths) != len(set(tombstone_paths)):
+        raise SyncError("delta repeats a tombstone")
+    if set(paths) & set(tombstone_paths):
+        raise SyncError("delta both upserts and tombstones one path")
+    data_upserts = [
+        validate_data_descriptor(descriptor)
+        for descriptor in changes.get("data_upserts", [])
+    ]
+    data_tombstones = [
+        validate_data_tombstone(value, delta["sequence"])
+        for value in changes.get("data_tombstones", [])
+    ]
+    data_paths = [item["path"] for item in data_upserts]
+    data_tombstone_paths = [item["path"] for item in data_tombstones]
+    if len(data_paths) != len(set(data_paths)):
+        raise SyncError("delta repeats a data upsert")
+    if len(data_tombstone_paths) != len(set(data_tombstone_paths)):
+        raise SyncError("delta repeats a data tombstone")
+    if set(data_paths) & set(data_tombstone_paths):
+        raise SyncError("delta both upserts and tombstones one data path")
+    changes["app_upserts"] = upserts
+    changes["app_tombstones"] = tombstones
+    if profile in {
+        PROFILE_V3,
+        PROFILE_V4,
+        PROFILE_V5,
+        PROFILE_V6,
+        PROFILE_V7,
+        PROFILE_V8,
+        PROFILE,
+    }:
+        changes["data_upserts"] = data_upserts
+        changes["data_tombstones"] = data_tombstones
+    default_proof = {
+        "acceptance": "centralized-publisher-assembler",
+        "cycles": [],
+        "frame_control_mode": "observer",
+        "status": "disabled-observer",
+        "synthetic_test_only": False,
+    }
+    cycle_kinds = {
+        "fold-action-receipt",
+        "fold-challenge",
+        "fold-control-award-receipt",
+        "fold-proof-receipt",
+    }
+    has_cycle_objects = any(
+        item.get("kind") in cycle_kinds
+        for item in changes.get("data_upserts", [])
+    )
+    if has_cycle_objects and not allow_synthetic_proofs:
+        raise SyncError(
+            "live proof-of-fold control is disabled during public soak"
+        )
+    expected_proof = (
+        delta.get("proof_of_fold", default_proof)
+        if profile == PROFILE
+        else default_proof
+    )
+    if (
+        profile == PROFILE
+        and expected_proof != proof_of_fold_metadata(
+            changes,
+            synthetic_test_mode=bool(
+                expected_proof.get("synthetic_test_only")
+            ),
+        )
+    ):
+        raise SyncError("proof-of-fold receipts do not match accepted objects")
+    if expected_proof.get("cycles") and not allow_synthetic_proofs:
+        raise SyncError(
+            "live proof-of-fold control is disabled during public soak"
+        )
+    if entry["block"]["proof_of_fold"] != expected_proof:
+        raise SyncError("block proof-of-fold metadata mismatch")
+    expected_frame_control = frame_control_metadata(
+        changes,
+        expected_proof,
+    )
+    if profile == PROFILE and (
+        delta.get("frame_control") != expected_frame_control
+    ):
+        raise SyncError("delta frame-control mode mismatch")
+    if entry["block"].get("frame_control") != expected_frame_control:
+        raise SyncError("block frame-control mode mismatch")
+    return delta
+
+
+def _load_frame_checkpoint(
+    connection: sqlite3.Connection,
+) -> Tuple[Optional[Dict[str, Any]], Set[str]]:
+    row = connection.execute(
+        "SELECT frame_json FROM frames ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    previous = json.loads(row["frame_json"]) if row else None
+    event_ids = {
+        item["event_id"]
+        for item in connection.execute("SELECT event_id FROM frames")
+    }
+    return previous, event_ids
+
+
+def _object_relative_path(digest: str) -> str:
+    return "objects/{}/{}".format(digest[:2], digest)
+
+
+def _object_path(state_dir: Path, digest: str) -> Path:
+    return state_dir / _object_relative_path(digest)
+
+
+def _store_object(
+    state_dir: Path,
+    digest: str,
+    data: bytes,
+) -> Tuple[Path, bool]:
+    if sha256_bytes(data) != digest:
+        raise SyncError("object hash mismatch")
+    path = _object_path(state_dir, digest)
+    if path.exists():
+        existing = path.read_bytes()
+        if sha256_bytes(existing) == digest:
+            return path, False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.with_name(path.name + ".new")
+    staging.write_bytes(data)
+    os.replace(str(staging), str(path))
+    return path, True
+
+
+def _fetch_app_object(
+    descriptor: Dict[str, Any],
+    index_url: str,
+    state_dir: Path,
+) -> Tuple[str, int, str, bool]:
+    app_url = urljoin(index_url, descriptor["url"])
+    status, _headers, data = fetch_url(
+        app_url,
+        max_bytes=min(MAX_APP_BYTES, descriptor["size"] + 1),
+    )
+    if status != 200:
+        raise SyncError("unexpected app response status {}".format(status))
+    if len(data) != descriptor["size"]:
+        raise SyncError("object size mismatch for {}".format(descriptor["path"]))
+    if sha256_bytes(data) != descriptor["sha256"]:
+        raise SyncError("object hash mismatch for {}".format(descriptor["path"]))
+    if descriptor.get("kind") in {
+        "attention-group-object",
+        "attention-dimension-object",
+        "fold-action-receipt",
+        "fold-challenge",
+        "fold-control-award-receipt",
+        "fold-proof-receipt",
+        "fold-shard-assignment",
+        "fold-shard-dimension-object",
+        "fold-shard-lease",
+        "fold-shard-result-object",
+    }:
+        parsed = validate_public_data_bytes(
+            data,
+            descriptor["media_type"],
+        )
+        if descriptor["kind"].startswith("fold-"):
+            validate_shard_object_bytes(parsed, descriptor)
+    path, created = _store_object(
+        state_dir,
+        descriptor["sha256"],
+        data,
+    )
+    return (
+        descriptor["sha256"],
+        descriptor["size"],
+        path.relative_to(state_dir).as_posix(),
+        created,
+    )
+
+
+def _effective_descriptors(
+    connection: sqlite3.Connection,
+    deltas: Sequence[Tuple[Dict[str, Any], str, Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    effective = {
+        row["path"]: {
+            "metadata": {},
+            "path": row["path"],
+            "sha256": row["sha256"],
+            "size": row["size"],
+            "url": row["url"],
+        }
+        for row in connection.execute(
+            """
+            SELECT path, url, sha256, size
+            FROM apps WHERE deleted = 0
+            """
+        )
+    }
+    for _entry, _delta_url, delta in deltas:
+        for descriptor in delta["changes"]["app_upserts"]:
+            effective[descriptor["path"]] = descriptor
+        for tombstone in delta["changes"]["app_tombstones"]:
+            effective.pop(tombstone["path"], None)
+    return [
+        effective[path]
+        for path in sorted(effective)
+    ]
+
+
+def _effective_data_descriptors(
+    connection: sqlite3.Connection,
+    deltas: Sequence[Tuple[Dict[str, Any], str, Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    effective = {
+        row["path"]: {
+            "content_id": "sha256:{}".format(row["sha256"]),
+            "kind": row["kind"],
+            "media_type": row["media_type"],
+            "metadata": {},
+            "path": row["path"],
+            "sha256": row["sha256"],
+            "size": row["size"],
+            "url": row["url"],
+            "verification": {
+                "algorithm": "sha256",
+                "required": True,
+            },
+        }
+        for row in connection.execute(
+            """
+            SELECT path, kind, url, sha256, size, media_type
+            FROM data_objects WHERE deleted = 0
+            """
+        )
+    }
+    for _entry, _delta_url, delta in deltas:
+        for descriptor in delta["changes"].get("data_upserts", []):
+            effective[descriptor["path"]] = descriptor
+        for tombstone in delta["changes"].get("data_tombstones", []):
+            effective.pop(tombstone["path"], None)
+    return [
+        effective[path]
+        for path in sorted(effective)
+    ]
+
+
+def _fetch_descriptor_objects(
+    connection: sqlite3.Connection,
+    descriptors: Sequence[Dict[str, Any]],
+    index_url: str,
+    state_dir: Path,
+) -> Tuple[Dict[str, Tuple[str, int, str, bool]], List[Path]]:
+    records = {}
+    created_paths = []
+    for descriptor in descriptors:
+        digest = descriptor["sha256"]
+        if digest in records:
+            continue
+        path = _object_path(state_dir, digest)
+        if path.exists() and sha256_bytes(path.read_bytes()) == digest:
+            records[digest] = (
+                digest,
+                descriptor["size"],
+                path.relative_to(state_dir).as_posix(),
+                False,
+            )
+            continue
+        record = _fetch_app_object(
+            descriptor,
+            index_url,
+            state_dir,
+        )
+        records[digest] = record
+        if record[3]:
+            created_paths.append(state_dir / record[2])
+    return records, created_paths
+
+
+def _validate_local_checkpoint(
+    connection: sqlite3.Connection,
+    entries: List[Dict[str, Any]],
+) -> Tuple[int, Optional[str]]:
+    raw_sequence = _get_meta(connection, "head_sequence")
+    local_sequence = int(raw_sequence) if raw_sequence is not None else -1
+    local_hash = _get_meta(connection, "head_sha256")
+    if local_sequence >= len(entries):
+        if local_sequence == -1 and not entries:
+            return local_sequence, local_hash
+        raise SyncError("remote history rolled back behind local checkpoint")
+    if local_sequence >= 0:
+        if entries[local_sequence]["sha256"] != local_hash:
+            raise SyncError("remote history forked from local checkpoint")
+        row = connection.execute(
+            "SELECT sha256 FROM deltas WHERE sequence = ?",
+            (local_sequence,),
+        ).fetchone()
+        if not row or row["sha256"] != local_hash:
+            raise SyncError("local checkpoint database is inconsistent")
+    elif connection.execute("SELECT COUNT(*) AS count FROM deltas").fetchone()[
+        "count"
+    ]:
+        raise SyncError("local delta table has no checkpoint")
+    return local_sequence, local_hash
+
+
+def _validate_witness_ancestry(
+    connection: sqlite3.Connection,
+    entries: Sequence[Dict[str, Any]],
+) -> None:
+    for witness in connection.execute(
+        """
+        SELECT receipt_sha256, head_sequence, head_sha256
+        FROM witnesses ORDER BY created_at, receipt_sha256
+        """
+    ):
+        sequence = witness["head_sequence"]
+        if (
+            sequence < 0
+            or sequence >= len(entries)
+            or entries[sequence]["sha256"] != witness["head_sha256"]
+        ):
+            raise SyncError(
+                "fork/drift evidence: witnessed head {} is not a remote "
+                "ancestor/prefix".format(witness["receipt_sha256"])
+            )
+
+
+def sync_repository(
+    state_dir: Path,
+    index_url: str = DEFAULT_INDEX_URL,
+    fetch_apps: bool = False,
+    allow_synthetic_proofs: bool = False,
+) -> Dict[str, Any]:
+    state_dir = state_dir.resolve()
+    connection = connect_state(state_dir)
+    created_objects = []
+    try:
+        conditional = {}
+        etag = _get_meta(connection, "etag")
+        last_modified = _get_meta(connection, "last_modified")
+        prior_source = _get_meta(connection, "source_url")
+        if prior_source == index_url:
+            if etag:
+                conditional["If-None-Match"] = etag
+            if last_modified:
+                conditional["If-Modified-Since"] = last_modified
+        status, headers, index_bytes = fetch_url(
+            index_url,
+            headers=conditional,
+            max_bytes=MAX_INDEX_BYTES,
+        )
+        if status == 304:
+            object_records = {}
+            if fetch_apps:
+                descriptors = (
+                    _effective_descriptors(connection, [])
+                    + _effective_data_descriptors(connection, [])
+                )
+                object_records, created_objects = _fetch_descriptor_objects(
+                    connection,
+                    descriptors,
+                    index_url,
+                    state_dir,
+                )
+                now = datetime.now(timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S.000Z"
+                )
+                try:
+                    with connection:
+                        for (
+                            digest,
+                            size,
+                            relative_path,
+                            _created,
+                        ) in object_records.values():
+                            connection.execute(
+                                """
+                                INSERT OR REPLACE INTO objects(
+                                  sha256, size, relative_path, verified_at
+                                ) VALUES (?, ?, ?, ?)
+                                """,
+                                (digest, size, relative_path, now),
+                            )
+                except Exception:
+                    for path in created_objects:
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
+                    raise
+            return {
+                "applied_deltas": 0,
+                "fetched_apps": len(object_records),
+                "fetched_objects": len(object_records),
+                "head": _get_meta(connection, "head_sha256"),
+                "not_modified": True,
+            }
+        if status != 200:
+            raise SyncError("unexpected index response status {}".format(status))
+        index = load_json_bytes(index_bytes, "syndication index")
+        entries = validate_index(
+            index,
+            allow_synthetic_proofs=allow_synthetic_proofs,
+        )
+        stored_stream = _get_meta(connection, "stream_id")
+        if (
+            stored_stream
+            and stored_stream != index["stream_id"]
+            and _get_meta(connection, "head_sequence") is not None
+        ):
+            raise SyncError(
+                "remote stream changed; refusing silent cursor reset"
+            )
+        _validate_witness_ancestry(connection, entries)
+        local_sequence, _local_hash = _validate_local_checkpoint(
+            connection,
+            entries,
+        )
+        missing_entries = entries[local_sequence + 1:]
+
+        deltas = []
+        for entry in missing_entries:
+            delta_url = urljoin(index_url, entry["path"])
+            delta_status, _delta_headers, delta_bytes = fetch_url(
+                delta_url,
+                max_bytes=MAX_DELTA_BYTES,
+            )
+            if delta_status != 200:
+                raise SyncError(
+                    "unexpected delta response status {}".format(delta_status)
+                )
+            deltas.append(
+                (
+                    entry,
+                    delta_url,
+                    validate_delta(
+                        delta_bytes,
+                        entry,
+                        index["stream_id"],
+                        allow_synthetic_proofs=allow_synthetic_proofs,
+                    ),
+                )
+            )
+
+        previous_frame, seen_event_ids = _load_frame_checkpoint(connection)
+        for _entry, _delta_url, delta in deltas:
+            previous_frame = validate_frames(
+                delta["changes"]["frame_appends"],
+                previous_frame,
+                seen_event_ids,
+            )
+
+        object_records = {}
+        if fetch_apps:
+            descriptors = (
+                _effective_descriptors(connection, deltas)
+                + _effective_data_descriptors(connection, deltas)
+            )
+            object_records, created_objects = _fetch_descriptor_objects(
+                connection,
+                descriptors,
+                index_url,
+                state_dir,
+            )
+
+        now = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
+        try:
+            with connection:
+                for entry, delta_url, delta in deltas:
+                    sequence = delta["sequence"]
+                    for descriptor in delta["changes"]["app_upserts"]:
+                        connection.execute(
+                            """
+                            INSERT OR REPLACE INTO apps(
+                              path, url, sha256, size, metadata_json,
+                              deleted, delta_sequence
+                            ) VALUES (?, ?, ?, ?, ?, 0, ?)
+                            """,
+                            (
+                                descriptor["path"],
+                                descriptor["url"],
+                                descriptor["sha256"],
+                                descriptor["size"],
+                                json.dumps(
+                                    descriptor["metadata"],
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                                sequence,
+                            ),
+                        )
+                    for tombstone in delta["changes"]["app_tombstones"]:
+                        descriptor = tombstone["descriptor"]
+                        connection.execute(
+                            """
+                            INSERT OR REPLACE INTO apps(
+                              path, url, sha256, size, metadata_json,
+                              deleted, delta_sequence
+                            ) VALUES (?, ?, ?, ?, ?, 1, ?)
+                            """,
+                            (
+                                descriptor["path"],
+                                descriptor["url"],
+                                descriptor["sha256"],
+                                descriptor["size"],
+                                json.dumps(
+                                    descriptor["metadata"],
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                                sequence,
+                            ),
+                        )
+                        connection.execute(
+                            """
+                            INSERT INTO tombstones(
+                              path, delta_sequence, tombstone_json
+                            ) VALUES (?, ?, ?)
+                            """,
+                            (
+                                tombstone["path"],
+                                sequence,
+                                json.dumps(
+                                    tombstone,
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                            ),
+                        )
+                    for descriptor in delta["changes"].get(
+                        "data_upserts",
+                        [],
+                    ):
+                        connection.execute(
+                            """
+                            INSERT OR REPLACE INTO data_objects(
+                              path, kind, url, sha256, size, media_type,
+                              metadata_json, deleted, delta_sequence
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+                            """,
+                            (
+                                descriptor["path"],
+                                descriptor["kind"],
+                                descriptor["url"],
+                                descriptor["sha256"],
+                                descriptor["size"],
+                                descriptor["media_type"],
+                                json.dumps(
+                                    descriptor["metadata"],
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                                sequence,
+                            ),
+                        )
+                        if descriptor["kind"].startswith("fold-"):
+                            metadata = descriptor["metadata"]
+                            connection.execute(
+                                """
+                                INSERT OR IGNORE INTO shard_provenance(
+                                  content_id, path, kind, shard_id,
+                                  assignment_id, lease_id,
+                                  provenance_json, delta_sequence
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    descriptor["content_id"],
+                                    descriptor["path"],
+                                    descriptor["kind"],
+                                    metadata["shard_id"],
+                                    metadata.get("assignment_id"),
+                                    metadata.get("lease_id"),
+                                    json.dumps(
+                                        metadata.get("provenance", {}),
+                                        ensure_ascii=False,
+                                        separators=(",", ":"),
+                                        sort_keys=True,
+                                    ),
+                                    sequence,
+                                ),
+                            )
+                    for tombstone in delta["changes"].get(
+                        "data_tombstones",
+                        [],
+                    ):
+                        descriptor = tombstone["descriptor"]
+                        connection.execute(
+                            """
+                            INSERT OR REPLACE INTO data_objects(
+                              path, kind, url, sha256, size, media_type,
+                              metadata_json, deleted, delta_sequence
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+                            """,
+                            (
+                                descriptor["path"],
+                                descriptor["kind"],
+                                descriptor["url"],
+                                descriptor["sha256"],
+                                descriptor["size"],
+                                descriptor["media_type"],
+                                json.dumps(
+                                    descriptor["metadata"],
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                                sequence,
+                            ),
+                        )
+                        connection.execute(
+                            """
+                            INSERT INTO data_tombstones(
+                              path, delta_sequence, tombstone_json
+                            ) VALUES (?, ?, ?)
+                            """,
+                            (
+                                tombstone["path"],
+                                sequence,
+                                json.dumps(
+                                    tombstone,
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                            ),
+                        )
+                    for frame in delta["changes"]["frame_appends"]:
+                        connection.execute(
+                            """
+                            INSERT INTO frames(
+                              seq, frame_hash, event_id, frame_json,
+                              delta_sequence
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                frame["seq"],
+                                frame["frame_hash"],
+                                frame["payload"]["event_id"],
+                                canonical_frame_bytes(frame).decode("utf-8"),
+                                sequence,
+                            ),
+                        )
+                    connection.execute(
+                        """
+                        INSERT INTO deltas(
+                          sequence, sha256, previous_sha256,
+                          source_url, applied_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            sequence,
+                            entry["sha256"],
+                            entry["previous_delta"],
+                            delta_url,
+                            now,
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO acknowledgements(
+                          delta_sha256, sequence, acknowledged_at, note
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            entry["sha256"],
+                            sequence,
+                            now,
+                            "verified-and-applied",
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO blocks(
+                          sequence, head_sha256, previous_sha256,
+                          frame_control_mode,
+                          next_frame_challenge_seed,
+                          proof_of_fold_json, applied_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            sequence,
+                            entry["sha256"],
+                            entry["previous_delta"],
+                            entry["block"]["frame_control"]["mode"],
+                            entry["block"]["next_frame_challenge_seed"],
+                            json.dumps(
+                                entry["block"]["proof_of_fold"],
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            ),
+                            now,
+                        ),
+                    )
+                for digest, size, relative_path, _created in object_records.values():
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO objects(
+                          sha256, size, relative_path, verified_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (digest, size, relative_path, now),
+                    )
+                if entries:
+                    _set_meta(
+                        connection,
+                        "head_sequence",
+                        str(entries[-1]["sequence"]),
+                    )
+                    _set_meta(
+                        connection,
+                        "head_sha256",
+                        entries[-1]["sha256"],
+                    )
+                    _set_meta(
+                        connection,
+                        "next_frame_challenge_seed",
+                        entries[-1]["block"][
+                            "next_frame_challenge_seed"
+                        ],
+                    )
+                _set_meta(connection, "source_url", index_url)
+                _set_meta(connection, "stream_id", index["stream_id"])
+                _set_meta(connection, "profile", PROFILE)
+                _set_meta(
+                    connection,
+                    "transparency",
+                    json.dumps(
+                        TRANSPARENCY_MODEL,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+                _set_meta(
+                    connection,
+                    "rollout",
+                    json.dumps(
+                        SOAK_ROLLOUT,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+                _set_meta(
+                    connection,
+                    "challenge_state_machine",
+                    json.dumps(
+                        CHALLENGE_STATE_MACHINE,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+                _set_meta(
+                    connection,
+                    "frame_control_schema",
+                    json.dumps(
+                        FRAME_CONTROL_SCHEMA,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+                if entries:
+                    _set_meta(
+                        connection,
+                        "frame_control_mode",
+                        entries[-1]["block"]["frame_control"]["mode"],
+                    )
+                _set_meta(
+                    connection,
+                    "rate_budget",
+                    json.dumps(
+                        index["rate_budget"],
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+                if headers.get("etag"):
+                    _set_meta(connection, "etag", headers["etag"])
+                if headers.get("last-modified"):
+                    _set_meta(
+                        connection,
+                        "last_modified",
+                        headers["last-modified"],
+                    )
+                _set_meta(connection, "last_sync", now)
+        except Exception:
+            for path in created_objects:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            raise
+
+        return {
+            "applied_deltas": len(deltas),
+            "fetched_apps": len(object_records),
+            "fetched_objects": len(object_records),
+            "head": entries[-1]["sha256"] if entries else None,
+            "not_modified": False,
+        }
+    finally:
+        connection.close()
+
+
+def status(state_dir: Path) -> Dict[str, Any]:
+    connection = connect_state(state_dir.resolve())
+    try:
+        counts = {}
+        for label, query in (
+            ("active_apps", "SELECT COUNT(*) AS count FROM apps WHERE deleted = 0"),
+            ("removed_apps", "SELECT COUNT(*) AS count FROM apps WHERE deleted = 1"),
+            (
+                "attention_data_objects",
+                "SELECT COUNT(*) AS count FROM data_objects WHERE deleted = 0",
+            ),
+            (
+                "removed_data_objects",
+                "SELECT COUNT(*) AS count FROM data_objects WHERE deleted = 1",
+            ),
+            ("local_apps", "SELECT COUNT(*) AS count FROM local_apps"),
+            ("frames", "SELECT COUNT(*) AS count FROM frames"),
+            ("deltas", "SELECT COUNT(*) AS count FROM deltas"),
+            ("objects", "SELECT COUNT(*) AS count FROM objects"),
+            ("blocks", "SELECT COUNT(*) AS count FROM blocks"),
+            (
+                "acknowledgements",
+                "SELECT COUNT(*) AS count FROM acknowledgements",
+            ),
+            (
+                "shard_provenance",
+                "SELECT COUNT(*) AS count FROM shard_provenance",
+            ),
+            (
+                "witnesses",
+                "SELECT COUNT(*) AS count FROM witnesses",
+            ),
+        ):
+            counts[label] = connection.execute(query).fetchone()["count"]
+        return {
+            **counts,
+            "head_sequence": _get_meta(connection, "head_sequence"),
+            "head_sha256": _get_meta(connection, "head_sha256"),
+            "last_sync": _get_meta(connection, "last_sync"),
+            "source_url": _get_meta(connection, "source_url"),
+            "next_frame_challenge_seed": _get_meta(
+                connection,
+                "next_frame_challenge_seed",
+            ),
+            "rate_budget": json.loads(
+                _get_meta(connection, "rate_budget") or "{}"
+            ),
+            "transparency": json.loads(
+                _get_meta(connection, "transparency") or "{}"
+            ),
+            "rollout": json.loads(
+                _get_meta(connection, "rollout") or "{}"
+            ),
+            "challenge_state_machine": json.loads(
+                _get_meta(connection, "challenge_state_machine") or "{}"
+            ),
+            "frame_control_schema": json.loads(
+                _get_meta(connection, "frame_control_schema") or "{}"
+            ),
+            "frame_control_mode": _get_meta(
+                connection,
+                "frame_control_mode",
+            ),
+        }
+    finally:
+        connection.close()
+
+
+def list_apps(
+    state_dir: Path,
+    include_removed: bool = False,
+) -> List[Dict[str, Any]]:
+    connection = connect_state(state_dir.resolve())
+    try:
+        global_rows = connection.execute(
+            """
+            SELECT path, url, sha256, size, metadata_json, deleted
+            FROM apps
+            WHERE deleted = 0 OR ?
+            ORDER BY path
+            """,
+            (1 if include_removed else 0,),
+        ).fetchall()
+        local_rows = connection.execute(
+            """
+            SELECT path, sha256, size, metadata_json
+            FROM local_apps ORDER BY path
+            """
+        ).fetchall()
+        local_paths = {row["path"] for row in local_rows}
+        result = [
+            {
+                "deleted": bool(row["deleted"]),
+                "metadata": json.loads(row["metadata_json"]),
+                "origin": "global",
+                "path": row["path"],
+                "sha256": row["sha256"],
+                "size": row["size"],
+                "url": row["url"],
+            }
+            for row in global_rows
+            if row["path"] not in local_paths
+        ]
+        result.extend({
+            "deleted": False,
+            "metadata": json.loads(row["metadata_json"]),
+            "origin": "local-overlay",
+            "path": row["path"],
+            "sha256": row["sha256"],
+            "size": row["size"],
+            "url": None,
+        } for row in local_rows)
+        return sorted(result, key=lambda item: item["path"])
+    finally:
+        connection.close()
+
+
+def list_data_objects(
+    state_dir: Path,
+    include_removed: bool = False,
+) -> List[Dict[str, Any]]:
+    connection = connect_state(state_dir.resolve())
+    try:
+        rows = connection.execute(
+            """
+            SELECT path, kind, url, sha256, size, media_type,
+                   metadata_json, deleted
+            FROM data_objects
+            WHERE deleted = 0 OR ?
+            ORDER BY path
+            """,
+            (1 if include_removed else 0,),
+        ).fetchall()
+        local_paths = {
+            row["path"]
+            for row in connection.execute("SELECT path FROM local_apps")
+        }
+        result = [{
+            "deleted": bool(row["deleted"]),
+            "kind": row["kind"],
+            "media_type": row["media_type"],
+            "metadata": json.loads(row["metadata_json"]),
+            "overlayed": row["path"] in local_paths,
+            "path": row["path"],
+            "sha256": row["sha256"],
+            "size": row["size"],
+            "url": row["url"],
+        } for row in rows]
+        def sort_key(item):
+            metadata = item["metadata"]
+            branches = metadata.get("branches_present") or [""]
+            branch_rank = {
+                "hot": 0,
+                "cold": 1,
+            }.get(branches[0], 2)
+            if item["kind"].startswith("fold-"):
+                kind_rank = {
+                    "fold-shard-assignment": 0,
+                    "fold-shard-lease": 1,
+                    "fold-challenge": 2,
+                    "fold-proof-receipt": 3,
+                    "fold-control-award-receipt": 4,
+                    "fold-action-receipt": 5,
+                    "fold-shard-result-object": 6,
+                    "fold-shard-dimension-object": 7,
+                }.get(item["kind"], 8)
+                return (
+                    0,
+                    str(metadata.get("shard_id", "")),
+                    kind_rank,
+                    branch_rank,
+                    item["path"],
+                )
+            if item["kind"] == "attention-dimension-object":
+                return (
+                    1,
+                    str(metadata.get("base_record_id", "")),
+                    branch_rank,
+                    item["path"],
+                )
+            return (2, item["path"])
+
+        return sorted(result, key=sort_key)
+    finally:
+        connection.close()
+
+
+def add_local_app(
+    state_dir: Path,
+    source: Path,
+    overlay_path: Optional[str] = None,
+    title: Optional[str] = None,
+) -> Dict[str, Any]:
+    state_dir = state_dir.resolve()
+    source = source.resolve()
+    if not source.is_file():
+        raise SyncError("local app file does not exist")
+    path = _safe_relative_path(overlay_path or source.name)
+    data = source.read_bytes()
+    if len(data) > MAX_APP_BYTES:
+        raise SyncError("local app exceeds the object size limit")
+    digest = sha256_bytes(data)
+    object_path, _created = _store_object(state_dir, digest, data)
+    now = datetime.now(timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z"
+    )
+    metadata = {
+        "title": title or source.stem,
+        "source_name": source.name,
+    }
+    connection = connect_state(state_dir)
+    try:
+        with connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO objects(
+                  sha256, size, relative_path, verified_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    digest,
+                    len(data),
+                    object_path.relative_to(state_dir).as_posix(),
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO local_apps(
+                  path, sha256, size, metadata_json,
+                  relative_path, added_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    path,
+                    digest,
+                    len(data),
+                    json.dumps(
+                        metadata,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                    object_path.relative_to(state_dir).as_posix(),
+                    now,
+                ),
+            )
+    finally:
+        connection.close()
+    return {
+        "origin": "local-overlay",
+        "path": path,
+        "sha256": digest,
+        "size": len(data),
+    }
+
+
+def acknowledge(
+    state_dir: Path,
+    sequence: Optional[int] = None,
+    note: str = "locally-reviewed",
+) -> Dict[str, Any]:
+    state_dir = state_dir.resolve()
+    connection = connect_state(state_dir)
+    try:
+        if sequence is None:
+            raw = _get_meta(connection, "head_sequence")
+            if raw is None:
+                raise SyncError("no replay checkpoint to acknowledge")
+            sequence = int(raw)
+        row = connection.execute(
+            "SELECT sha256 FROM deltas WHERE sequence = ?",
+            (sequence,),
+        ).fetchone()
+        if not row:
+            raise SyncError(
+                "delta sequence {} is not locally applied".format(sequence)
+            )
+        clean_note = str(note).strip()[:240] or "locally-reviewed"
+        now = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
+        with connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO acknowledgements(
+                  delta_sha256, sequence, acknowledged_at, note
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (row["sha256"], sequence, now, clean_note),
+            )
+        return {
+            "acknowledged_at": now,
+            "delta_sha256": row["sha256"],
+            "note": clean_note,
+            "sequence": sequence,
+        }
+    finally:
+        connection.close()
+
+
+def emit_witness_receipt(
+    state_dir: Path,
+    output: Path,
+    witness_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    state_dir = state_dir.resolve()
+    connection = connect_state(state_dir)
+    try:
+        rows = connection.execute(
+            """
+            SELECT sequence, sha256, previous_sha256
+            FROM deltas ORDER BY sequence
+            """
+        ).fetchall()
+        if not rows:
+            raise SyncError("no accepted delta head to witness")
+        chain = []
+        previous = None
+        for expected, row in enumerate(rows):
+            if (
+                row["sequence"] != expected
+                or row["previous_sha256"] != previous
+            ):
+                raise SyncError("local replica chain is internally inconsistent")
+            chain.append({
+                "previous_delta": row["previous_sha256"],
+                "sequence": row["sequence"],
+                "sha256": row["sha256"],
+            })
+            previous = row["sha256"]
+        local_witness_id = witness_id or _get_meta(
+            connection,
+            "witness_id",
+        )
+        if not local_witness_id:
+            local_witness_id = "local-witness:{}".format(uuid.uuid4())
+        now = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
+        chain_fingerprint = sha256_bytes(stable_json_bytes(chain))
+        statement = {
+            "authority": TRANSPARENCY_MODEL,
+            "challenge_state": CHALLENGE_STATE_MACHINE,
+            "frame_control": {
+                "mode": _get_meta(connection, "frame_control_mode"),
+                "schema": FRAME_CONTROL_SCHEMA,
+            },
+            "chain_fingerprint": chain_fingerprint,
+            "created_at": now,
+            "delta_count": len(chain),
+            "head": {
+                "sequence": chain[-1]["sequence"],
+                "sha256": chain[-1]["sha256"],
+            },
+            "next_frame_challenge_seed": _get_meta(
+                connection,
+                "next_frame_challenge_seed",
+            ),
+            "schema": "rappterzoo-subscriber-witness-statement/1",
+            "source_url": _get_meta(connection, "source_url"),
+            "stream_id": _get_meta(connection, "stream_id"),
+            "witness_id": local_witness_id,
+            "rollout": SOAK_ROLLOUT,
+        }
+        statement_sha256 = sha256_bytes(stable_json_bytes(statement))
+        receipt = {
+            "receipt_type": "local-unsigned-content-witness",
+            "schema": "rappterzoo-subscriber-witness-receipt/1",
+            "statement": statement,
+            "statement_sha256": statement_sha256,
+        }
+        with connection:
+            _set_meta(connection, "witness_id", local_witness_id)
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO witnesses(
+                  receipt_sha256, witness_id, head_sequence,
+                  head_sha256, chain_fingerprint, created_at,
+                  statement_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    statement_sha256,
+                    local_witness_id,
+                    chain[-1]["sequence"],
+                    chain[-1]["sha256"],
+                    chain_fingerprint,
+                    now,
+                    json.dumps(
+                        statement,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                ),
+            )
+        data = stable_json_bytes(receipt)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        staging = output.with_name(output.name + ".new")
+        staging.write_bytes(data)
+        os.replace(str(staging), str(output))
+        return {
+            "head_sequence": chain[-1]["sequence"],
+            "head_sha256": chain[-1]["sha256"],
+            "path": str(output),
+            "statement_sha256": statement_sha256,
+            "witness_id": local_witness_id,
+        }
+    finally:
+        connection.close()
+
+
+def export_state(state_dir: Path, output: Path) -> Dict[str, Any]:
+    state_dir = state_dir.resolve()
+    connection = connect_state(state_dir)
+    try:
+        exported = {
+            "apps": [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM apps ORDER BY path"
+                )
+            ],
+            "blocks": [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM blocks ORDER BY sequence"
+                )
+            ],
+            "acknowledgements": [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM acknowledgements
+                    ORDER BY sequence
+                    """
+                )
+            ],
+            "deltas": [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM deltas ORDER BY sequence"
+                )
+            ],
+            "data_objects": [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM data_objects ORDER BY path"
+                )
+            ],
+            "data_tombstones": [
+                json.loads(row["tombstone_json"])
+                for row in connection.execute(
+                    """
+                    SELECT tombstone_json FROM data_tombstones
+                    ORDER BY delta_sequence, path
+                    """
+                )
+            ],
+            "frames": [
+                json.loads(row["frame_json"])
+                for row in connection.execute(
+                    "SELECT frame_json FROM frames ORDER BY seq"
+                )
+            ],
+            "shard_provenance": [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM shard_provenance
+                    ORDER BY shard_id, kind, path
+                    """
+                )
+            ],
+            "local_apps": [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM local_apps ORDER BY path"
+                )
+            ],
+            "meta": {
+                row["key"]: row["value"]
+                for row in connection.execute(
+                    "SELECT key, value FROM meta ORDER BY key"
+                )
+            },
+            "schema": "rappterzoo-local-sync-export/1",
+            "tombstones": [
+                json.loads(row["tombstone_json"])
+                for row in connection.execute(
+                    """
+                    SELECT tombstone_json FROM tombstones
+                    ORDER BY delta_sequence, path
+                    """
+                )
+            ],
+            "witnesses": [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM witnesses
+                    ORDER BY created_at, receipt_sha256
+                    """
+                )
+            ],
+        }
+    finally:
+        connection.close()
+    data = stable_json_bytes(exported)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = output.with_name(output.name + ".new")
+    staging.write_bytes(data)
+    os.replace(str(staging), str(output))
+    return {"bytes": len(data), "path": str(output)}
+
+
+def materialize(state_dir: Path, output_dir: Path) -> Dict[str, Any]:
+    state_dir = state_dir.resolve()
+    output_dir = output_dir.resolve()
+    connection = connect_state(state_dir)
+    try:
+        global_rows = connection.execute(
+            """
+            SELECT path, sha256 FROM apps
+            WHERE deleted = 0 ORDER BY path
+            """
+        ).fetchall()
+        local_rows = connection.execute(
+            """
+            SELECT path, sha256 FROM local_apps ORDER BY path
+            """
+        ).fetchall()
+        data_rows = connection.execute(
+            """
+            SELECT path, sha256 FROM data_objects
+            WHERE deleted = 0 ORDER BY path
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    effective = {
+        row["path"]: row["sha256"]
+        for row in global_rows
+    }
+    effective.update({
+        row["path"]: row["sha256"]
+        for row in data_rows
+    })
+    effective.update({
+        row["path"]: row["sha256"]
+        for row in local_rows
+    })
+    written = 0
+    for relative, digest in sorted(effective.items()):
+        safe = _safe_relative_path(relative)
+        source = _object_path(state_dir, digest)
+        if not source.is_file() or sha256_bytes(source.read_bytes()) != digest:
+            raise SyncError(
+                "missing verified object for {}; run sync --fetch-apps".format(
+                    relative
+                )
+            )
+        target = output_dir / safe
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = target.with_name(target.name + ".new")
+        shutil.copyfile(str(source), str(staging))
+        os.replace(str(staging), str(target))
+        written += 1
+    return {"materialized": written, "path": str(output_dir)}
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="User-initiated local RappterZoo delta sync",
+    )
+    parser.add_argument(
+        "--state-dir",
+        default=str(DEFAULT_STATE_DIR),
+        help="local SQLite and object-cache directory",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    sync_parser = subparsers.add_parser("sync")
+    sync_parser.add_argument("source", nargs="?", default=DEFAULT_INDEX_URL)
+    sync_parser.add_argument("--fetch-apps", action="store_true")
+
+    subparsers.add_parser("status")
+    apps_parser = subparsers.add_parser("apps")
+    apps_parser.add_argument("--include-removed", action="store_true")
+    data_parser = subparsers.add_parser("data")
+    data_parser.add_argument("--include-removed", action="store_true")
+
+    local_parser = subparsers.add_parser("add-local-app")
+    local_parser.add_argument("file")
+    local_parser.add_argument("--path")
+    local_parser.add_argument("--title")
+
+    ack_parser = subparsers.add_parser("ack")
+    ack_parser.add_argument("sequence", nargs="?", type=int)
+    ack_parser.add_argument("--note", default="locally-reviewed")
+
+    witness_parser = subparsers.add_parser("witness")
+    witness_parser.add_argument("output")
+    witness_parser.add_argument("--witness-id")
+
+    export_parser = subparsers.add_parser("export")
+    export_parser.add_argument("output")
+
+    materialize_parser = subparsers.add_parser("materialize")
+    materialize_parser.add_argument("output")
+
+    args = parser.parse_args(argv)
+    state_dir = Path(args.state_dir)
+    try:
+        if args.command == "sync":
+            result = sync_repository(
+                state_dir,
+                args.source,
+                args.fetch_apps,
+            )
+        elif args.command == "status":
+            result = status(state_dir)
+        elif args.command == "apps":
+            result = {
+                "apps": list_apps(
+                    state_dir,
+                    args.include_removed,
+                )
+            }
+        elif args.command == "data":
+            result = {
+                "data_objects": list_data_objects(
+                    state_dir,
+                    args.include_removed,
+                )
+            }
+        elif args.command == "add-local-app":
+            result = add_local_app(
+                state_dir,
+                Path(args.file),
+                args.path,
+                args.title,
+            )
+        elif args.command == "ack":
+            result = acknowledge(
+                state_dir,
+                args.sequence,
+                args.note,
+            )
+        elif args.command == "witness":
+            result = emit_witness_receipt(
+                state_dir,
+                Path(args.output),
+                args.witness_id,
+            )
+        elif args.command == "export":
+            result = export_state(
+                state_dir,
+                Path(args.output),
+            )
+        elif args.command == "materialize":
+            result = materialize(
+                state_dir,
+                Path(args.output),
+            )
+        else:
+            raise SyncError("unknown command")
+    except (OSError, sqlite3.Error, SyncError) as error:
+        print(
+            json.dumps(
+                {"ok": False, "error": str(error)},
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+    print(json.dumps({"ok": True, **result}, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

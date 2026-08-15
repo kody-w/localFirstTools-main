@@ -17,13 +17,14 @@ on:
         type: boolean
 
 permissions:
+  actions: read
   contents: write
   issues: write
 
 jobs:
   swarm:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +33,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Acquire repository writer lock
+        run: python3 scripts/repository_lock.py acquire --timeout 2700
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh main after lock
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
 
       - name: Configure git
         run: |
@@ -67,6 +78,12 @@ jobs:
             print(', '.join(names[:5]))
           except: print('subagents')
           ")
-            git commit -m "🐝 Swarm: $AGENTS [skip ci]"
+            git commit -m "🐝 Swarm: $AGENTS"
             git push
           fi
+
+      - name: Release repository writer lock
+        if: always()
+        run: python3 scripts/repository_lock.py release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

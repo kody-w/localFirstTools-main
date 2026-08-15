@@ -11,6 +11,11 @@ Usage:
 Designed to be called from autonomous_frame.py or run standalone.
 """
 
+import base64
+import binascii
+import gzip
+import hashlib
+import io
 import json
 import os
 import random
@@ -18,12 +23,21 @@ import re
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 REPO = "kody-w/localFirstTools-main"
 MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "..", "apps", "manifest.json")
 AGENTS_PATH = os.path.join(os.path.dirname(__file__), "..", "apps", "agents.json")
+ACTION_RECEIPTS_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "apps",
+    "agent-action-receipts.json",
+)
 
 SITE_URL = "https://kody-w.github.io/localFirstTools-main"
+MAX_APP_BYTES = 500 * 1024
+ACTION_RECEIPTS_SCHEMA = "rappterzoo-agent-action-receipts/1"
 
 CLAIM_CODE_WORDS = [
     "reef", "coral", "tide", "kelp", "wave", "shell", "crab", "orca",
@@ -64,7 +78,7 @@ def list_agent_issues():
         "--repo", REPO,
         "--label", "agent-action",
         "--state", "open",
-        "--json", "number,title,body,labels",
+        "--json", "number,title,body,labels,author",
         "--limit", "20"
     ])
     if not output:
@@ -117,6 +131,105 @@ def generate_claim_code():
     return "{}-{}".format(word, suffix)
 
 
+def _atomic_json_file(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(str(temporary), str(path))
+
+
+def load_action_receipts(path=None):
+    path = Path(path or ACTION_RECEIPTS_PATH)
+    if not path.exists():
+        return {
+            "schema": ACTION_RECEIPTS_SCHEMA,
+            "receipts": [],
+        }
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("agent action receipts are unreadable") from error
+    if (
+        not isinstance(value, dict)
+        or value.get("schema") != ACTION_RECEIPTS_SCHEMA
+        or not isinstance(value.get("receipts"), list)
+    ):
+        raise ValueError("agent action receipts are invalid")
+    return value
+
+
+def _request_digest(action, data):
+    encoded = json.dumps(
+        {"action": action, "data": data},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _receipt_summary(action, data):
+    if action == "submit_app":
+        return "App submission applied: {}".format(
+            data.get("app_title", data.get("title", "untitled"))
+        )
+    if action == "request_molt":
+        return "Molt request applied: {}".format(
+            data.get("app_file", data.get("app_filename", "unknown"))
+        )
+    if action == "post_comment":
+        return "Comment applied to {}".format(
+            data.get("app_file", data.get("app_filename", "unknown"))
+        )
+    if action == "register_agent":
+        return "Agent registration applied: {}".format(
+            data.get("agent_id", "unknown")
+        )
+    if action == "claim_agent":
+        return "Agent claim applied: {}".format(
+            data.get("agent_id", "unknown")
+        )
+    return "Agent action applied"
+
+
+def find_action_receipt(issue_number, path=None):
+    value = load_action_receipts(path)
+    for receipt in value["receipts"]:
+        if receipt.get("issue_number") == issue_number:
+            return receipt
+    return None
+
+
+def record_action_receipt(
+    issue,
+    action,
+    data,
+    path=None,
+):
+    path = Path(path or ACTION_RECEIPTS_PATH)
+    value = load_action_receipts(path)
+    existing = find_action_receipt(issue["number"], path)
+    if existing is not None:
+        return existing
+    receipt = {
+        "issue_number": issue["number"],
+        "issue_title": issue.get("title", ""),
+        "action": action,
+        "request_digest": _request_digest(action, data),
+        "summary": _receipt_summary(action, data),
+        "applied_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    value["receipts"].append(receipt)
+    value["receipts"].sort(key=lambda item: item["issue_number"])
+    _atomic_json_file(path, value)
+    return receipt
+
+
 def detect_action(issue):
     """Detect action type from issue title and labels."""
     title = issue.get("title", "")
@@ -163,11 +276,35 @@ def validate_html(content):
     return errors
 
 
+def decode_submitted_html(data):
+    html_content = data.get("html_content", "")
+    if html_content:
+        return html_content
+    encoded = data.get("html_content_gzip_base64", "")
+    if not encoded:
+        return ""
+    try:
+        compressed = base64.b64decode(encoded, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as handle:
+            raw = handle.read(MAX_APP_BYTES + 1)
+    except (binascii.Error, OSError, ValueError) as error:
+        raise ValueError("Invalid gzip/base64 HTML payload") from error
+    if len(raw) > MAX_APP_BYTES:
+        raise ValueError("Decoded HTML exceeds 500KB")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("Decoded HTML is not UTF-8") from error
+
+
 def process_submit_app(data, issue_num, dry_run=False, verbose=False):
     """Process an app submission."""
     title = data.get("app_title", data.get("title", ""))
     category = data.get("category", "experimental_ai")
-    html_content = data.get("html_content", "")
+    try:
+        html_content = decode_submitted_html(data)
+    except ValueError as error:
+        return False, str(error)
     description = data.get("description", "")
     tags_str = data.get("tags", "")
     complexity = data.get("complexity", "intermediate")
@@ -382,6 +519,8 @@ def process_register(data, issue_num, dry_run=False, verbose=False):
     # Check for duplicate
     for a in registry.get("agents", []):
         if a.get("agent_id") == agent_id:
+            if a.get("name") == name:
+                return True, "Agent already registered: {}".format(agent_id)
             return False, "Agent already registered: {}".format(agent_id)
 
     claim_code = generate_claim_code()
@@ -411,6 +550,20 @@ def process_register(data, issue_num, dry_run=False, verbose=False):
             entry["public_key"] = json.loads(pk_raw)
         except Exception:
             pass
+
+    try:
+        from organism_ledger import append_agent_birth
+
+        apps_dir = Path(agents_path).parent
+        append_agent_birth(
+            entry,
+            issue_number=issue_num,
+            ledger_path=apps_dir / "organism-frames.jsonl",
+            projection_path=apps_dir / "organism-frames.json",
+            state_path=apps_dir / "molter-state.json",
+        )
+    except Exception as error:
+        return False, "Agent birth frame failed: {}".format(error)
 
     registry["agents"].append(entry)
     registry["dateModified"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -452,6 +605,13 @@ def process_claim(data, issue_num, dry_run=False, verbose=False):
     if not agent:
         return False, "Agent not found: {}".format(agent_id)
 
+    if (
+        agent.get("status") == "claimed"
+        and github_username
+        and agent.get("owner_github") == github_username
+    ):
+        return True, "Agent already claimed by {}".format(github_username)
+
     if agent.get("status") == "claimed":
         return False, "Agent already claimed by {}".format(agent.get("owner_github", "unknown"))
 
@@ -472,6 +632,20 @@ def process_claim(data, issue_num, dry_run=False, verbose=False):
         agent["tweet_url"] = tweet_url.strip()
     else:
         agent["trust_tier"] = "claimed"
+
+    try:
+        from organism_ledger import append_agent_adoption
+
+        apps_dir = Path(agents_path).parent
+        append_agent_adoption(
+            agent,
+            issue_number=issue_num,
+            ledger_path=apps_dir / "organism-frames.jsonl",
+            projection_path=apps_dir / "organism-frames.json",
+            state_path=apps_dir / "molter-state.json",
+        )
+    except Exception as error:
+        return False, "Agent adoption frame failed: {}".format(error)
 
     registry["dateModified"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -508,13 +682,57 @@ def close_issue(issue_num, comment, labels_to_add=None, dry_run=False):
     """Close an issue with a result comment."""
     if dry_run:
         print("  [DRY RUN] Would close #{} with: {}".format(issue_num, comment[:100]))
-        return
+        return True
 
-    gh_cli(["issue", "comment", "--repo", REPO, str(issue_num), "--body", comment])
+    if gh_cli([
+        "issue", "comment", "--repo", REPO, str(issue_num), "--body", comment
+    ]) is None:
+        return False
     if labels_to_add:
         for label in labels_to_add:
-            gh_cli(["issue", "edit", "--repo", REPO, str(issue_num), "--add-label", label])
-    gh_cli(["issue", "close", "--repo", REPO, str(issue_num)])
+            if gh_cli([
+                "issue", "edit", "--repo", REPO, str(issue_num),
+                "--add-label", label
+            ]) is None:
+                return False
+    return gh_cli([
+        "issue", "close", "--repo", REPO, str(issue_num)
+    ]) is not None
+
+
+def _write_issue_results(path, results):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(results, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(str(temporary), str(path))
+
+
+def finalize_issue_results(path, dry_run=False):
+    path = Path(path)
+    if not path.exists():
+        return 0
+    results = json.loads(path.read_text(encoding="utf-8"))
+    finalized = 0
+    for result in results:
+        if not close_issue(
+            result["issue_number"],
+            result["comment"],
+            labels_to_add=result["labels"],
+            dry_run=dry_run,
+        ):
+            raise RuntimeError(
+                "could not finalize issue #{}".format(
+                    result["issue_number"]
+                )
+            )
+        finalized += 1
+    if not dry_run:
+        path.unlink()
+    return finalized
 
 
 PROCESSORS = {
@@ -526,16 +744,23 @@ PROCESSORS = {
 }
 
 
-def process_all_issues(dry_run=False, verbose=False):
+def process_all_issues(
+    dry_run=False,
+    verbose=False,
+    defer_close_path=None,
+):
     """Main entry point: scan and process all agent issues."""
     issues = list_agent_issues()
 
     if not issues:
+        if defer_close_path:
+            _write_issue_results(defer_close_path, [])
         if verbose:
             print("  No open agent issues found")
         return 0
 
     processed = 0
+    pending_results = []
     for issue in issues:
         num = issue["number"]
         title = issue.get("title", "")
@@ -550,15 +775,34 @@ def process_all_issues(dry_run=False, verbose=False):
             print("  Processing #{}: {} -> {}".format(num, title, action))
 
         data = parse_issue_body(issue.get("body", ""))
+        if action == "claim_agent" and not data.get("github_username"):
+            author = issue.get("author", {})
+            if isinstance(author, dict):
+                data["github_username"] = author.get("login", "")
         processor = PROCESSORS.get(action)
         if not processor:
             continue
 
-        try:
-            success, message = processor(data, num, dry_run=dry_run, verbose=verbose)
-        except Exception as e:
-            success = False
-            message = "Error processing issue: {}".format(str(e))
+        receipt = find_action_receipt(num)
+        if receipt is not None:
+            success = True
+            message = (
+                "{}\n\nThis issue was already applied. "
+                "Only finalization is being retried."
+            ).format(receipt["summary"])
+        else:
+            try:
+                success, message = processor(
+                    data,
+                    num,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                )
+            except Exception as e:
+                success = False
+                message = "Error processing issue: {}".format(str(e))
+            if success and not dry_run:
+                record_action_receipt(issue, action, data)
 
         if verbose:
             print("    Result: {} - {}".format("OK" if success else "FAIL", message[:100]))
@@ -570,19 +814,55 @@ def process_all_issues(dry_run=False, verbose=False):
         )
 
         labels = ["completed"] if success else ["rejected"]
-        close_issue(num, result_comment, labels_to_add=labels, dry_run=dry_run)
+        if defer_close_path:
+            pending_results.append({
+                "issue_number": num,
+                "comment": result_comment,
+                "labels": labels,
+            })
+        elif not close_issue(
+            num,
+            result_comment,
+            labels_to_add=labels,
+            dry_run=dry_run,
+        ):
+            raise RuntimeError("could not close issue #{}".format(num))
         processed += 1
 
+    if defer_close_path:
+        _write_issue_results(defer_close_path, pending_results)
     return processed
 
 
 def main():
     dry_run = "--dry-run" in sys.argv
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
+    if "--finalize-results" in sys.argv:
+        index = sys.argv.index("--finalize-results")
+        try:
+            path = sys.argv[index + 1]
+        except IndexError:
+            raise SystemExit("--finalize-results requires a path")
+        count = finalize_issue_results(path, dry_run=dry_run)
+        print("Finalized {} agent issue(s)".format(count))
+        return
+    defer_close_path = None
+    if "--defer-close" in sys.argv:
+        index = sys.argv.index("--defer-close")
+        try:
+            defer_close_path = sys.argv[index + 1]
+        except IndexError:
+            raise SystemExit("--defer-close requires a path")
 
     print("Processing agent issues{}...".format(" (dry run)" if dry_run else ""))
-    count = process_all_issues(dry_run=dry_run, verbose=verbose)
+    count = process_all_issues(
+        dry_run=dry_run,
+        verbose=verbose,
+        defer_close_path=defer_close_path,
+    )
     print("Processed {} agent issue(s)".format(count))
+    if defer_close_path:
+        print("Deferred issue closure to {}".format(defer_close_path))
 
 
 if __name__ == "__main__":

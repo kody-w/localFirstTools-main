@@ -12,7 +12,8 @@ Usage:
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import format_datetime
 from xml.sax.saxutils import escape as xml_escape
 
 SITE_URL = "https://kody-w.github.io/localFirstTools-main"
@@ -47,6 +48,15 @@ def load_rankings(path):
     if isinstance(data, dict):
         return data.get("rankings", [])
     return data if isinstance(data, list) else []
+
+
+def rss_date(value):
+    """Return an RFC 822 date required by RSS 2.0."""
+    try:
+        parsed = datetime.strptime(str(value)[:10], "%Y-%m-%d")
+    except (TypeError, ValueError):
+        parsed = datetime(2024, 1, 1)
+    return format_datetime(parsed.replace(tzinfo=timezone.utc), usegmt=True)
 
 
 def build_feed_json(manifest, rankings):
@@ -119,7 +129,9 @@ def build_feed_json(manifest, rankings):
             "name": "RappterZoo",
             "url": "https://github.com/kody-w/localFirstTools-main",
         },
-        "dateModified": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "dateModified": datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
         "license": "https://opensource.org/licenses/MIT",
         "dataFeedElement": items,
     }
@@ -167,7 +179,7 @@ def build_feed_xml(manifest, rankings):
                     url=xml_escape(app_url),
                     desc=xml_escape(desc),
                     score=xml_escape(score_note),
-                    date=xml_escape(created),
+                    date=xml_escape(rss_date(created)),
                     categories=categories_xml,
                 )
             )
@@ -187,7 +199,7 @@ def build_feed_xml(manifest, rankings):
   </channel>
 </rss>""".format(
         site=SITE_URL,
-        now=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        now=format_datetime(datetime.now(timezone.utc), usegmt=True),
         items="\n".join(items_xml),
     )
     return rss

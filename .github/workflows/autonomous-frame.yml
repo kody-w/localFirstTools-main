@@ -5,16 +5,18 @@ on:
   workflow_dispatch: {}       # Manual trigger via GitHub UI
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
   frame:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 2
 
       - uses: actions/setup-python@v5
         with:
@@ -24,12 +26,31 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Acquire repository writer lock
+        run: python3 scripts/repository_lock.py acquire --timeout 2700
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh main after lock
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+
       - name: Configure git
         run: |
           git config user.name "molter-engine"
           git config user.email "molter-engine@rappterzoo.dev"
 
+      - name: Verify append-only organism ledger
+        run: python3 scripts/organism_ledger.py verify --git-base HEAD^
+
       - name: Run autonomous frame
         run: python3 scripts/autonomous_frame.py --verbose --skip-create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release repository writer lock
+        if: always()
+        run: python3 scripts/repository_lock.py release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

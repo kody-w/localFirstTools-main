@@ -45,6 +45,7 @@ MANIFEST_PATH = APPS_DIR / "manifest.json"
 RANKINGS_PATH = APPS_DIR / "rankings.json"
 AGENTS_PATH = APPS_DIR / "agents.json"
 FEED_PATH = APPS_DIR / "feed.json"
+ORGANISM_FEED_PATH = APPS_DIR / "organism-frames.json"
 
 SITE_URL = "https://kody-w.github.io/localFirstTools-main"
 REPO = "kody-w/localFirstTools-main"
@@ -224,6 +225,21 @@ def discover():
         print("  ✓ NLweb DataFeed: {} items".format(len(feed.get("dataFeedElement", []))))
     else:
         print("  ✗ NLweb feed not found")
+
+    # Append-only organism projection
+    if ORGANISM_FEED_PATH.exists():
+        organism_feed = json.loads(ORGANISM_FEED_PATH.read_text())
+        integrity = organism_feed.get("integrity", {})
+        print(
+            "  ✓ Organism Frames: {} frames, {} organisms, integrity {}".format(
+                organism_feed.get("total_frame_count", 0),
+                len(organism_feed.get("organisms", [])),
+                "valid" if integrity.get("valid") else "drift",
+            )
+        )
+        feeds["organism_frames"] = organism_feed
+    else:
+        print("  ✗ Organism frame feed not found")
 
     # MCP manifest
     mcp_path = ROOT / ".well-known" / "mcp.json"
