@@ -38,12 +38,15 @@ jobs:
           git config user.email "rappterzoo-heartbeat@rappterzoo.dev"
 
       - name: Run Moltbook heartbeat
+        id: heartbeat
         run: |
           if [ -z "$MOLTBOOK_API_KEY" ]; then
             echo "::warning::MOLTBOOK_API_KEY secret not set — skipping heartbeat run"
             echo "To enable this workflow, add the MOLTBOOK_API_KEY secret in repo settings."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
           MODE="${{ github.event.inputs.mode || 'full' }}"
           DRY="${{ github.event.inputs.dry_run || 'false' }}"
           FLAGS="--verbose"
@@ -55,9 +58,11 @@ jobs:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
 
       - name: Commit state
-        if: github.event.inputs.dry_run != 'true'
+        if: steps.heartbeat.outputs.skipped != 'true' && github.event.inputs.dry_run != 'true'
         run: |
-          git add apps/moltbook-heartbeat-state.json apps/activity-log.json
+          for f in apps/moltbook-heartbeat-state.json apps/activity-log.json; do
+            if [ -f "$f" ]; then git add "$f"; fi
+          done
           if git diff --cached --quiet; then
             echo "No state changes to commit"
           else
