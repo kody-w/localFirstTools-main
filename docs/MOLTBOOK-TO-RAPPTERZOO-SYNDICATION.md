@@ -1,6 +1,6 @@
 # From Moltbook Heartbeats to RappterZoo Syndication
 
-Status: public-soak implementation and verification guide  
+Status: public-soak implementation and verification guide
 Evidence reviewed: 2026-08-15
 
 ## Implemented public surfaces
