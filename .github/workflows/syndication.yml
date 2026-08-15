@@ -1,0 +1,82 @@
+name: Build Syndication
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "!apps/syndication/**"
+      - "scripts/build_syndication.py"
+      - "scripts/rappterzoo_sync.py"
+      - "scripts/tests/test_syndication.py"
+      - "scripts/tests/test_observatory_security.py"
+      - ".github/workflows/syndication.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  build-syndication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Acquire repository writer lock
+        run: python3 scripts/repository_lock.py acquire --timeout 2700
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh main after lock
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+
+      - name: Install Python test runner
+        run: python3 -m pip install --disable-pip-version-check pytest==8.3.5
+
+      - name: Run syndication tests
+        run: python3 -m pytest -v scripts/tests/test_syndication.py
+
+      - name: Build static syndication artifacts
+        run: python3 scripts/build_syndication.py
+
+      - name: Run syndication security tests
+        run: >-
+          python3 -m pytest -v
+          scripts/tests/test_observatory_security.py
+          -k syndication
+
+      - name: Stage generated syndication artifacts
+        run: |
+          git add -A -- apps/syndication/
+          unexpected="$(git diff --cached --name-only | grep -v '^apps/syndication/' || true)"
+          test -z "$unexpected"
+
+      - name: Commit and push changed artifacts
+        shell: bash
+        run: |
+          if git diff --cached --quiet -- apps/syndication/; then
+            echo "Syndication artifacts are current."
+            exit 0
+          fi
+          git config user.name "rappterzoo-syndication"
+          git config user.email "rappterzoo-syndication@users.noreply.github.com"
+          git commit -m "chore: refresh syndication artifacts"
+          git push origin HEAD:main
+
+      - name: Release repository writer lock
+        if: always()
+        run: python3 scripts/repository_lock.py release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

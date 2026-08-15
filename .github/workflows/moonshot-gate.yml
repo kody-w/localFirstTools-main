@@ -1,0 +1,118 @@
+name: Moonshot Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: moonshot-gate-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  moonshot-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Python test runner
+        run: python3 -m pip install --disable-pip-version-check pytest==8.3.5
+
+      - name: Install locked browser dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run MCP server security tests
+        run: >-
+          python3 -m pytest -v
+          scripts/tests/test_observatory_security.py
+          -k mcp
+
+      - name: Run MCP server tests when available
+        shell: bash
+        run: |
+          if test -f scripts/tests/test_rappterzoo_mcp.py; then
+            python3 -m pytest -v scripts/tests/test_rappterzoo_mcp.py
+          fi
+
+      - name: Smoke test real stdio MCP server
+        shell: bash
+        run: |
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' |
+            env -u RAPPTERZOO_MCP_WRITES \
+              python3 scripts/rappterzoo_mcp.py |
+            python3 -c '
+          import json
+          import sys
+          rows = [json.loads(line) for line in sys.stdin if line.strip()]
+          assert rows[0]["result"]["serverInfo"]["name"] == "rappterzoo"
+          assert rows[1]["result"]["tools"]
+          '
+
+      - name: Run syndication tests when available
+        shell: bash
+        run: |
+          if test -f scripts/tests/test_syndication.py; then
+            python3 -m pytest -v scripts/tests/test_syndication.py
+          fi
+          python3 -m pytest -v \
+            scripts/tests/test_observatory_security.py \
+            -k syndication
+
+      - name: Run attention tests when available
+        shell: bash
+        run: |
+          if test -f scripts/tests/test_attention_portal.py; then
+            python3 -m pytest -v scripts/tests/test_attention_portal.py
+          fi
+
+      - name: Run core tests
+        run: python3 -m pytest -v
+
+      - name: Run targeted app quality gate
+        run: >-
+          python3 -m pytest -m '' -v
+          scripts/tests/test_quality_gate.py
+          --new-files
+          apps/data-tools/digg.html,apps/3d-immersive/organism-observatory.html
+
+      - name: Verify append-only organism ledger
+        shell: bash
+        run: |
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            python3 scripts/organism_ledger.py verify --git-base HEAD^
+          else
+            python3 scripts/organism_ledger.py verify
+          fi
+
+      - name: Run moonshot policy gate
+        run: python3 scripts/moonshot_gate.py
+
+      - name: Run Digg browser checks
+        run: python3 scripts/runtime_verify.py --browser apps/data-tools/digg.html
+
+      - name: Run Observatory browser checks
+        run: >-
+          python3 scripts/runtime_verify.py --browser
+          apps/3d-immersive/organism-observatory.html

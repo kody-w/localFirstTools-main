@@ -38,6 +38,7 @@ PROTECTED_FILES = {
     "molter-state.json",     # Operational state tracker
     "organism-frames.jsonl", # Append-only source; never rewrite
     "organism-frames.json",  # Derived only by organism_ledger.py
+    "agent-action-receipts.json", # Durable issue idempotency receipts
 }
 
 # Known regeneration strategies — maps relative path patterns to scripts.

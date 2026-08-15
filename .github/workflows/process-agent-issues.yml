@@ -5,17 +5,14 @@ on:
   workflow_dispatch: {}
 
 permissions:
+  actions: read
   contents: write
   issues: write
-
-concurrency:
-  group: rappterzoo-repository-writer
-  cancel-in-progress: false
 
 jobs:
   process:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     # Only run when an issue has the agent-action label
     if: contains(github.event.issue.labels.*.name, 'agent-action') || github.event_name == 'workflow_dispatch'
     steps:
@@ -27,6 +24,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Acquire repository writer lock
+        run: python3 scripts/repository_lock.py acquire --timeout 2700
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh main after lock
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
 
       - name: Configure git
         run: |
@@ -53,7 +60,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "🤖 Processed agent issues: $(date -u +%Y-%m-%d) [skip ci]"
+            git commit -m "🤖 Processed agent issues: $(date -u +%Y-%m-%d)"
             git push
           fi
 
@@ -61,5 +68,11 @@ jobs:
         run: |
           python3 scripts/process_agent_issues.py \
             --finalize-results "${RUNNER_TEMP}/rappterzoo-agent-results.json"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release repository writer lock
+        if: always()
+        run: python3 scripts/repository_lock.py release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -209,7 +209,7 @@ pre {
       <button class="btn" id="refresh-btn">Refresh</button>
       <button class="btn" id="import-btn">Import</button>
       <button class="btn primary" id="export-btn">Export JSONL</button>
-      <input id="file-input" type="file" accept=".json,.jsonl,application/json,application/x-ndjson" hidden>
+      <input id="file-input" type="file" aria-label="Import organism projection or JSONL frame log" accept=".json,.jsonl,application/json,application/x-ndjson" hidden>
     </div>
   </header>
 
@@ -222,7 +222,7 @@ pre {
   </section>
 
   <section class="chain-map" aria-label="Animated append-only hash chain">
-    <canvas id="chain-canvas" tabindex="0"></canvas>
+    <canvas id="chain-canvas" tabindex="0" role="button" aria-label="Animated append-only organism hash chain, playing. Press Space or click to pause." aria-pressed="false"></canvas>
     <span class="chain-map-label" id="chain-label">Particle → wave → next frame</span>
     <span class="chain-map-help">click or press Space to pause</span>
   </section>
@@ -259,6 +259,7 @@ pre {
   var SOURCE = '../organism-frames.json';
   var CACHE_KEY = 'rappterzoo-digg-projection-v1';
   var VOTES_KEY = 'rappterzoo-digg-local-votes-v1';
+  var storageMemory = {};
   var FRAME_KEYS = ['frame_hash','kind','payload','payload_hash','prev','prev_wave','seq','sig','spec','stream_id','utc'];
   var state = {
     projection: null,
@@ -285,6 +286,24 @@ pre {
   }
 
   function byId(id) { return document.getElementById(id); }
+  function storageGet(key) {
+    try {
+      var value = localStorage.getItem(key);
+      if (value !== null) return value;
+    } catch (error) {}
+    return Object.prototype.hasOwnProperty.call(storageMemory, key)
+      ? storageMemory[key]
+      : null;
+  }
+  function storageSet(key, value) {
+    storageMemory[key] = String(value);
+    try {
+      localStorage.setItem(key, String(value));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
   function esc(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -292,7 +311,7 @@ pre {
       .replace(/'/g, '&#39;');
   }
   function loadVotes() {
-    try { return JSON.parse(localStorage.getItem(VOTES_KEY) || '{}'); }
+    try { return JSON.parse(storageGet(VOTES_KEY) || '{}'); }
     catch (error) { return {}; }
   }
   function resizeChainCanvas() {
@@ -369,13 +388,23 @@ pre {
   }
   function toggleChainPause() {
     state.mode = state.mode === 'running' ? 'paused' : 'running';
+    chainCanvas.setAttribute(
+      'aria-pressed',
+      state.mode === 'paused' ? 'true' : 'false'
+    );
+    chainCanvas.setAttribute(
+      'aria-label',
+      state.mode === 'paused'
+        ? 'Animated append-only organism hash chain, paused. Press Space or click to resume.'
+        : 'Animated append-only organism hash chain, playing. Press Space or click to pause.'
+    );
     byId('chain-label').textContent = state.mode === 'paused'
       ? 'Chain paused · click or press Space to resume'
       : 'Particle → wave → next frame';
     if (state.mode === 'paused') drawChainMap(0);
   }
   function saveVotes() {
-    localStorage.setItem(VOTES_KEY, JSON.stringify(state.votes));
+    storageSet(VOTES_KEY, JSON.stringify(state.votes));
   }
   function canonical(value) {
     if (value === null || typeof value === 'boolean') return JSON.stringify(value);
@@ -589,7 +618,7 @@ pre {
     if (!projection || !Array.isArray(projection.frames)) throw new Error('Projection has no frames array');
     state.projection = projection;
     state.frames = projection.frames;
-    localStorage.setItem(CACHE_KEY, JSON.stringify(projection));
+    storageSet(CACHE_KEY, JSON.stringify(projection));
     var result = await verifySegment(state.frames);
     updateHUD(projection, result, sourceLabel);
     drawChainMap(0);
@@ -602,7 +631,7 @@ pre {
       if (!response.ok) throw new Error('HTTP ' + response.status);
       await applyProjection(await response.json(), SOURCE);
     } catch (error) {
-      var cached = localStorage.getItem(CACHE_KEY);
+      var cached = storageGet(CACHE_KEY);
       if (cached) {
         await applyProjection(JSON.parse(cached), 'localStorage fallback');
       } else {

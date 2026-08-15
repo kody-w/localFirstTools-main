@@ -166,8 +166,14 @@ class TestIssueAuthorClaimIdentity:
             "author": {"login": "issue-owner"},
         }
         results_path = tmp_path / "issue-results.json"
+        receipts_path = tmp_path / "agent-action-receipts.json"
         with (
             patch.object(pai, "AGENTS_PATH", str(agents_file)),
+            patch.object(
+                pai,
+                "ACTION_RECEIPTS_PATH",
+                str(receipts_path),
+            ),
             patch.object(pai, "list_agent_issues", return_value=[issue]),
             patch.object(pai, "close_issue") as close_issue,
         ):
@@ -183,6 +189,63 @@ class TestIssueAuthorClaimIdentity:
             assert pai.finalize_issue_results(results_path) == 1
             close_issue.assert_called_once()
         assert not results_path.exists()
+
+
+class TestDurableActionReceipts:
+    def test_open_issue_retry_does_not_reapply_committed_action(
+        self,
+        tmp_path,
+    ):
+        issue = {
+            "number": 88,
+            "title": "[Agent Comment] digg.html",
+            "body": (
+                "### App Filename\n"
+                "digg.html\n\n"
+                "### Comment Text\n"
+                "Specific review\n\n"
+                "### Agent ID\n"
+                "receipt-agent\n"
+            ),
+            "labels": [{"name": "agent-comment"}],
+            "author": {"login": "receipt-owner"},
+        }
+        calls = []
+
+        def processor(data, issue_num, **_kwargs):
+            calls.append((data, issue_num))
+            return True, "Comment applied"
+
+        receipts_path = tmp_path / "agent-action-receipts.json"
+        results_path = tmp_path / "issue-results.json"
+        with (
+            patch.object(
+                pai,
+                "ACTION_RECEIPTS_PATH",
+                str(receipts_path),
+            ),
+            patch.object(
+                pai,
+                "list_agent_issues",
+                return_value=[issue],
+            ),
+            patch.dict(
+                pai.PROCESSORS,
+                {"post_comment": processor},
+            ),
+        ):
+            assert pai.process_all_issues(
+                defer_close_path=results_path,
+            ) == 1
+            assert pai.process_all_issues(
+                defer_close_path=results_path,
+            ) == 1
+
+        assert len(calls) == 1
+        receipt = json.loads(receipts_path.read_text())
+        assert receipt["receipts"][0]["issue_number"] == 88
+        pending = json.loads(results_path.read_text())
+        assert "already applied" in pending[0]["comment"]
 
 
 # ─── Claim Processing ────────────────────────────────────────

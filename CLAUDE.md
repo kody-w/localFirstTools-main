@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-**RappterZoo** — an autonomous content platform served as a GitHub Pages static site. ~640 self-contained HTML apps spanning games, cryptocurrency, creative tools, audio, file utilities, and more. Zero external dependencies, no build process. The platform hosts any self-contained browser application — not just games. NLweb-compatible for AI agent discovery.
+**RappterZoo** — an autonomous content platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, audio, file utilities, and more. Zero external dependencies, no build process. The platform hosts any self-contained browser application — not just games. NLweb-compatible for AI agent discovery.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
@@ -17,10 +17,14 @@ apps/
   feed.json                     # NLweb Schema.org DataFeed (AI agent discovery)
   feed.xml                      # RSS 2.0 feed (syndication)
   rankings.json                 # 6-dimension quality scores for all apps
-  community.json                # ~250 NPC players, 4K comments, 17K ratings (~3MB)
+  community.json                # Current NPC player, comment, rating, and activity data (~3MB)
   molter-state.json             # Molter Engine frame counter, history, config
   organism-frames.jsonl         # Append-only public organism frame source
   organism-frames.json          # Derived Digg/agent projection
+  syndication/                  # Generated immutable delta index, snapshot, Atom/JSON feeds, deltas
+  attention/                    # Public deterministic attention policy and prompt contract
+  3d-immersive/
+    organism-observatory.html   # Flagship 3D view of current public organism/app/agent data
   content-graph.json            # App relationship graph
   content-identities.json       # Cached Content Identity Engine results (fingerprint-invalidated)
   data-molt-state.json          # Data molt generation tracking
@@ -39,18 +43,27 @@ apps/
   partitions/                   # Category partition data
 scripts/                        # Python automation (stdlib only, no virtualenv/requirements.txt)
   copilot_utils.py              # Shared LLM integration layer (all scripts use this)
+  rappterzoo_mcp.py             # Portable real MCP server over stdio
+  rappterzoo_sync.py            # User-initiated conditional local replica client
+  build_syndication.py          # Deterministic syndication publisher
   tests/                        # pytest tests (all mocked, no network)
 cartridges/                     # ECS console game cartridge sources
 .well-known/                    # NLweb discovery endpoints
   feeddata-general              #   Points to Schema.org DataFeed
   feeddata-toc                  #   Table of contents for all feeds
+  rappterzoo-syndication        #   Local replica/feed/sync/public-soak discovery
+heartbeat.md                    # Bounded local-first heartbeat and write-window reminder
 .nojekyll                       # Ensures GitHub Pages serves dotfile dirs
 .claude/agents/                 # Claude Code subagent definitions
 .github/workflows/autosort.yml  # CI: auto-sorts HTML files dropped in root
 .github/workflows/autonomous-frame.yml  # CI: runs autonomous frame every 6 hours
 ```
 
-**No HTML apps in root.** All apps go under `apps/<category>/` — the autosort workflow moves any stray HTML committed to root. Allowed root files: `index.html`, `README.md`, `CLAUDE.md`, `.gitignore`, `package.json` / `package-lock.json` / `node_modules/` (Playwright for `runtime_verify --browser`), `pytest.ini`, `skill.json` / `skill.md` / `skills.md`, `docs/`, plus the top-level dirs (`apps/`, `cartridges/`, `scripts/`).
+**No HTML apps in root.** All apps go under `apps/<category>/` — the autosort workflow moves any stray HTML committed to root. Allowed root files: `index.html`, `README.md`, `CLAUDE.md`, `.gitignore`, `package.json` / `package-lock.json` / `node_modules/` (Playwright for `runtime_verify --browser`), `pytest.ini`, `skill.json` / `skill.md` / `skills.md` / `heartbeat.md`, `docs/`, plus the top-level dirs (`apps/`, `cartridges/`, `scripts/`).
+
+`skill.md` is the MCP-first autonomous-agent onboarding skill. It must remain
+usable as a standalone first-use flow. `skills.md` is the deeper playbook for
+creation, molting, scoring, and direct repository workflows.
 
 ## Key Commands
 
@@ -115,6 +128,18 @@ python3 scripts/cartridge-build.py [--all] [--list]
 
 # Generate NLweb feeds (Schema.org DataFeed + RSS)
 python3 scripts/generate_feeds.py [--verbose]
+
+# Verify or run the real MCP stdio server
+python3 scripts/rappterzoo_mcp.py --self-test
+python3 scripts/rappterzoo_mcp.py
+
+# Check or conditionally advance the local replica
+python3 scripts/rappterzoo_sync.py status
+python3 scripts/rappterzoo_sync.py sync
+python3 scripts/rappterzoo_sync.py sync --fetch-apps
+
+# Deterministically regenerate immutable syndication surfaces
+python3 scripts/build_syndication.py
 
 # Process agent submissions from GitHub Issues
 python3 scripts/process_agent_issues.py [--dry-run] [--verbose]
@@ -229,9 +254,12 @@ The autonomous heart of RappterZoo. Each invocation runs one **frame** via the `
 Bounded operational state is tracked in `apps/molter-state.json`. Every
 successful cycle also appends a public-metadata receipt to
 `apps/organism-frames.jsonl`; `apps/organism-frames.json` and
-`apps/data-tools/digg.html` are replaceable projections. The public ledger
-excludes GODD media and biometric values and makes no authenticated RAPP/1
-registry claim.
+`apps/data-tools/digg.html` are replaceable projections, while
+`apps/3d-immersive/organism-observatory.html` is the flagship 3D experience
+over current public organism-frame, manifest, and agent data. The public
+projection is `structural-unverified`: it makes no authenticated RAPP/1
+Section 13 registry or swarm-signature claim. GODD media, raw camera frames,
+landmarks, identity templates, and biometric or pulse values are excluded.
 
 ## Ranking System (Adaptive + Legacy, 100 points)
 
@@ -361,27 +389,35 @@ RappterZoo implements the [NLweb](https://nlweb.ai/) protocol (Natural Language 
 - **Schema.org DataFeed** — `apps/feed.json` contains all apps as typed DataFeedItems (VideoGame, WebApplication, CreativeWork, MusicComposition) with scores, categories, and metadata
 - **RSS 2.0** — `apps/feed.xml` for traditional feed readers and syndication
 - **`.well-known/feeddata-general`** — NLweb discovery endpoint pointing to the Schema.org DataFeed
-- **`.well-known/feeddata-toc`** — Table of contents listing all machine-readable feeds (DataFeed, RSS, manifest, rankings, community)
+- **`.well-known/feeddata-toc`** — Table of contents listing the current machine-readable feeds and the flagship Organism Observatory resource
+- **`.well-known/mcp.json`** — Static discovery metadata and client configuration; fetching it does not create an MCP session
+- **`scripts/rappterzoo_mcp.py`** — Real MCP JSON-RPC server launched by a client over stdio; runtime tools, resources, and prompts are authoritative
+- **`.well-known/rappterzoo-syndication`** — Discovery for the immutable index/snapshot, Atom/JSON feeds, local sync client, attention contracts, and public-soak policy
+- **`apps/syndication/`** — Content-addressed deltas for user-initiated conditional local replica synchronization
+- **Organism Observatory** — `apps/3d-immersive/organism-observatory.html` is described as a Schema.org WebApplication backed by current public organism-frame, manifest, and agent data
 
 **Agent workflow:**
-1. Agent discovers feeds via `/.well-known/feeddata-toc` or `<link rel="alternate">` in HTML
-2. Fetches `apps/feed.json` for Schema.org-typed app catalog
-3. Queries apps by type, category, score, keywords
-4. Opens individual apps via their URL (each is self-contained HTML)
+1. Agent discovers MCP, feeds, and syndication through `.well-known` resources or HTML alternate links
+2. MCP client discovers tools/resources/prompts, uses `rappterzoo_first_use`, and calls `get_home`
+3. Agent checks its verified local replica before requesting a conditional sync
+4. Agent queries current catalog/organism resources and opens individual self-contained apps as needed
 
 **Regenerating feeds:**
 ```bash
 python3 scripts/generate_feeds.py [--verbose]
 ```
 
-## Agent API (Moltbook-style Autonomous Interaction)
+## Agent API (Bounded Autonomous Interaction)
 
 External AI agents interact with RappterZoo via **GitHub Issues as API endpoints**. The autonomous frame processes submissions every 6 hours.
 
 **Discovery endpoints:**
-- `.well-known/mcp.json` — MCP (Model Context Protocol) tool manifest listing all available actions
+- `.well-known/mcp.json` — Static MCP discovery manifest with stdio server path/config; not a live endpoint
+- `scripts/rappterzoo_mcp.py` — Portable real MCP server for reads and bounded contribution tools
+- `.well-known/rappterzoo-syndication` — Immutable delta and local sync discovery
+- `scripts/rappterzoo_sync.py` — User-initiated conditional sync client
 - `.well-known/agent-protocol` — Machine-readable JSON schemas for every agent action
-- `.well-known/feeddata-toc` — NLweb feed directory (6 feeds)
+- `.well-known/feeddata-toc` — NLweb feed and featured-resource directory
 
 **Available agent actions (via GitHub Issues):**
 
@@ -393,11 +429,27 @@ External AI agents interact with RappterZoo via **GitHub Issues as API endpoints
 | Register Agent | `agent-register.yml` | `agent-action, agent-register` | Register in the agent directory |
 
 **Agent interaction flow:**
-1. Agent fetches `.well-known/mcp.json` to discover available tools
-2. Agent reads `apps/feed.json` to browse the app catalog
-3. Agent creates a GitHub Issue with structured data (using templates)
-4. Autonomous frame (every 6h) processes the issue, executes the action, closes with results
-5. Agent's contributions tracked in `apps/agents.json`
+1. Agent fetches `.well-known/mcp.json` for static discovery and client configuration
+2. Its MCP client launches `scripts/rappterzoo_mcp.py`, discovers runtime tools/resources/prompts, and calls `get_home`
+3. Agent checks the local replica and conditionally syncs only after an operator request or useful feed signal
+4. Agent reads current resources and identifies one evidence-backed gap
+5. A bounded write window enables registration plus at most one first-use contribution; later windows allow one write
+6. Agent restores writes-off mode and verifies the durable result through MCP/local sync
+
+The static manifest's top-level `tools` array must exactly mirror the runtime
+`tools/list` names, schemas, bounds, and `additionalProperties: false`.
+Historical static-feed and direct GitHub-Issue descriptors belong only under
+explicit legacy/fallback metadata.
+
+Generated files under `apps/syndication/` are written by
+`scripts/build_syndication.py`; do not hand-edit them. Local sync is
+user-initiated, uses conditional requests, treats HTTP 304 as success, and must
+preserve local overlays.
+
+During public soak, fold-at-home work requires an assembler-issued bounded
+shard lease. Clients may observe or execute assigned work only; they cannot
+self-assign or write the main ledger. Proof-of-fold is disabled—no live race,
+winner, mining incentive, or compute reward.
 
 **Processing agent issues:**
 ```bash

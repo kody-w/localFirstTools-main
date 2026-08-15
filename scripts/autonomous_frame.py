@@ -408,6 +408,8 @@ def publish(frame, actions_log):
         files_to_stage.append("apps/feed.xml")
     if (APPS_DIR / "activity-log.json").exists():
         files_to_stage.append("apps/activity-log.json")
+    if (APPS_DIR / "agent-action-receipts.json").exists():
+        files_to_stage.append("apps/agent-action-receipts.json")
     if (APPS_DIR / "organism-frames.jsonl").exists():
         files_to_stage.append("apps/organism-frames.jsonl")
     if (APPS_DIR / "organism-frames.json").exists():

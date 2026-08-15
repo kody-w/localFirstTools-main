@@ -2,7 +2,7 @@
 
 ## What This Repo Is
 
-**RappterZoo** — a local-first application platform served as a GitHub Pages static site. ~635 self-contained HTML apps spanning games, cryptocurrency, creative tools, file utilities, and more. Zero external dependencies, no build process.
+**RappterZoo** — a local-first application platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, file utilities, and more. Zero external dependencies, no build process.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
@@ -13,16 +13,24 @@ The platform hosts any self-contained browser application — not just games. Cu
 - `index.html` — Gallery frontend (Reddit-style feed). Fetches `apps/manifest.json` on load, renders searchable/filterable cards linking to `apps/<category>/<file>.html`.
 - `apps/manifest.json` — **Source of truth** for the gallery. Every app must have a matching entry here with correct `count` in its category.
 - `apps/rankings.json` — 6-dimension quality scores for all apps (100-point scale).
-- `apps/community.json` — ~250 NPC players, 4K comments, 17K ratings (~3MB — regenerate with scripts, don't edit by hand).
+- `apps/community.json` — current NPC player, comment, rating, and activity data (~3MB — regenerate with scripts, don't edit by hand).
 - `apps/organism-frames.jsonl` — append-only public organism frame source; never hand-edit.
 - `apps/organism-frames.json` — generated bounded projection used by Digg and agents.
+- `apps/syndication/` — generated immutable delta index, snapshot, Atom/JSON feeds, and content-addressed deltas; never hand-edit.
+- `apps/attention/` — public deterministic attention policy and prompt contract.
+- `apps/3d-immersive/organism-observatory.html` — flagship 3D view whose displays derive from current public organism-frame, manifest, and agent data.
 - `apps/<category>/` — Category folders for HTML apps. `experimental-ai` is the catch-all.
 - `apps/archive/<stem>/v<N>.html` — Molting generation archives.
 - `apps/broadcasts/` — RappterZooNation podcast (feed.json, lore.json, player.html, audio/).
 - `scripts/` — Python automation (stdlib only, no virtualenv/requirements.txt). Tests use pytest.
 - `scripts/copilot_utils.py` — Shared LLM integration layer. All scripts use `claude-opus-4.6` via `gh copilot --model claude-opus-4.6`.
+- `scripts/rappterzoo_mcp.py` — real portable MCP JSON-RPC server over stdio; `.well-known/mcp.json` is static discovery metadata only.
+- `scripts/rappterzoo_sync.py` — user-initiated conditional local replica client; preserves verified checkpoints and local overlays.
+- `scripts/build_syndication.py` — deterministic writer for `apps/syndication/`.
+- `skill.md` — MCP-first autonomous-agent first-use flow; `skills.md` is the deep creation, molting, and repository playbook.
+- Keep `.well-known/mcp.json` top-level `tools` exactly equal to runtime `tools/list`, including bounds and `additionalProperties: false`; retain older static/Issue descriptors only as labeled legacy fallback metadata.
 - `cartridges/` — ECS console game cartridge sources, compiled by `scripts/cartridge-build.py`.
-- **Root is sacred:** only `index.html`, `README.md`, `CLAUDE.md`, and `.gitignore` live in root. HTML apps dropped in root get auto-sorted by CI.
+- **Root is sacred:** root metadata/runbooks include `index.html`, `README.md`, `CLAUDE.md`, `.gitignore`, `skill.json`, `skill.md`, `skills.md`, and `heartbeat.md`. HTML apps dropped in root get auto-sorted by CI.
 
 ## Key Commands
 
@@ -46,6 +54,20 @@ python3 scripts/compile-frame.py --file apps/<category>/<file>.html [--dry-run]
 
 # Verify the append-only organism chain
 python3 scripts/organism_ledger.py verify
+
+# Regenerate NLweb and RSS feeds after manifest changes
+python3 scripts/generate_feeds.py --verbose
+
+# Verify or run the real MCP stdio server
+python3 scripts/rappterzoo_mcp.py --self-test
+python3 scripts/rappterzoo_mcp.py
+
+# Check or conditionally advance a local replica
+python3 scripts/rappterzoo_sync.py status
+python3 scripts/rappterzoo_sync.py sync
+
+# Regenerate immutable syndication surfaces
+python3 scripts/build_syndication.py
 
 # Score all apps and publish rankings
 python3 scripts/rank_games.py [--push]
@@ -179,6 +201,9 @@ Cross-browser sync via manual chain export/import (longest valid chain wins).
 - **Never add external dependencies.** Every app is self-contained.
 - **Always update manifest.json** when adding or removing apps. Validate after editing.
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file and vice versa.
+- **Preserve the public-data boundary.** Digg and the Organism Observatory are views over `structural-unverified` public metadata, not an authenticated RAPP/1 Section 13 registry. Exclude GODD media, raw camera frames, landmarks, identity templates, and biometric or pulse values.
+- **Keep sync user-initiated and local-first.** Check the local replica before networking; use conditional HTTP, accept 304 as a no-op, and never overwrite local overlays.
+- **Keep frame control in public-soak mode.** Shard work requires an assembler-issued bounded lease; self-assignment and direct main-ledger writes are forbidden. Proof-of-fold is disabled.
 - **No build process.** Everything is hand-editable static files.
 - **No static content.** All community comments, broadcast dialogue, NPC names, and generated text must come from Copilot CLI (Claude Opus 4.6) calls — never from hardcoded template pools. Every run produces 100% fresh, unique content.
 

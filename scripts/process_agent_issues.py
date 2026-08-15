@@ -11,6 +11,11 @@ Usage:
 Designed to be called from autonomous_frame.py or run standalone.
 """
 
+import base64
+import binascii
+import gzip
+import hashlib
+import io
 import json
 import os
 import random
@@ -23,8 +28,16 @@ from pathlib import Path
 REPO = "kody-w/localFirstTools-main"
 MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "..", "apps", "manifest.json")
 AGENTS_PATH = os.path.join(os.path.dirname(__file__), "..", "apps", "agents.json")
+ACTION_RECEIPTS_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "apps",
+    "agent-action-receipts.json",
+)
 
 SITE_URL = "https://kody-w.github.io/localFirstTools-main"
+MAX_APP_BYTES = 500 * 1024
+ACTION_RECEIPTS_SCHEMA = "rappterzoo-agent-action-receipts/1"
 
 CLAIM_CODE_WORDS = [
     "reef", "coral", "tide", "kelp", "wave", "shell", "crab", "orca",
@@ -118,6 +131,105 @@ def generate_claim_code():
     return "{}-{}".format(word, suffix)
 
 
+def _atomic_json_file(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(str(temporary), str(path))
+
+
+def load_action_receipts(path=None):
+    path = Path(path or ACTION_RECEIPTS_PATH)
+    if not path.exists():
+        return {
+            "schema": ACTION_RECEIPTS_SCHEMA,
+            "receipts": [],
+        }
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("agent action receipts are unreadable") from error
+    if (
+        not isinstance(value, dict)
+        or value.get("schema") != ACTION_RECEIPTS_SCHEMA
+        or not isinstance(value.get("receipts"), list)
+    ):
+        raise ValueError("agent action receipts are invalid")
+    return value
+
+
+def _request_digest(action, data):
+    encoded = json.dumps(
+        {"action": action, "data": data},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _receipt_summary(action, data):
+    if action == "submit_app":
+        return "App submission applied: {}".format(
+            data.get("app_title", data.get("title", "untitled"))
+        )
+    if action == "request_molt":
+        return "Molt request applied: {}".format(
+            data.get("app_file", data.get("app_filename", "unknown"))
+        )
+    if action == "post_comment":
+        return "Comment applied to {}".format(
+            data.get("app_file", data.get("app_filename", "unknown"))
+        )
+    if action == "register_agent":
+        return "Agent registration applied: {}".format(
+            data.get("agent_id", "unknown")
+        )
+    if action == "claim_agent":
+        return "Agent claim applied: {}".format(
+            data.get("agent_id", "unknown")
+        )
+    return "Agent action applied"
+
+
+def find_action_receipt(issue_number, path=None):
+    value = load_action_receipts(path)
+    for receipt in value["receipts"]:
+        if receipt.get("issue_number") == issue_number:
+            return receipt
+    return None
+
+
+def record_action_receipt(
+    issue,
+    action,
+    data,
+    path=None,
+):
+    path = Path(path or ACTION_RECEIPTS_PATH)
+    value = load_action_receipts(path)
+    existing = find_action_receipt(issue["number"], path)
+    if existing is not None:
+        return existing
+    receipt = {
+        "issue_number": issue["number"],
+        "issue_title": issue.get("title", ""),
+        "action": action,
+        "request_digest": _request_digest(action, data),
+        "summary": _receipt_summary(action, data),
+        "applied_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    value["receipts"].append(receipt)
+    value["receipts"].sort(key=lambda item: item["issue_number"])
+    _atomic_json_file(path, value)
+    return receipt
+
+
 def detect_action(issue):
     """Detect action type from issue title and labels."""
     title = issue.get("title", "")
@@ -164,11 +276,35 @@ def validate_html(content):
     return errors
 
 
+def decode_submitted_html(data):
+    html_content = data.get("html_content", "")
+    if html_content:
+        return html_content
+    encoded = data.get("html_content_gzip_base64", "")
+    if not encoded:
+        return ""
+    try:
+        compressed = base64.b64decode(encoded, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as handle:
+            raw = handle.read(MAX_APP_BYTES + 1)
+    except (binascii.Error, OSError, ValueError) as error:
+        raise ValueError("Invalid gzip/base64 HTML payload") from error
+    if len(raw) > MAX_APP_BYTES:
+        raise ValueError("Decoded HTML exceeds 500KB")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("Decoded HTML is not UTF-8") from error
+
+
 def process_submit_app(data, issue_num, dry_run=False, verbose=False):
     """Process an app submission."""
     title = data.get("app_title", data.get("title", ""))
     category = data.get("category", "experimental_ai")
-    html_content = data.get("html_content", "")
+    try:
+        html_content = decode_submitted_html(data)
+    except ValueError as error:
+        return False, str(error)
     description = data.get("description", "")
     tags_str = data.get("tags", "")
     complexity = data.get("complexity", "intermediate")
@@ -647,11 +783,26 @@ def process_all_issues(
         if not processor:
             continue
 
-        try:
-            success, message = processor(data, num, dry_run=dry_run, verbose=verbose)
-        except Exception as e:
-            success = False
-            message = "Error processing issue: {}".format(str(e))
+        receipt = find_action_receipt(num)
+        if receipt is not None:
+            success = True
+            message = (
+                "{}\n\nThis issue was already applied. "
+                "Only finalization is being retried."
+            ).format(receipt["summary"])
+        else:
+            try:
+                success, message = processor(
+                    data,
+                    num,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                )
+            except Exception as e:
+                success = False
+                message = "Error processing issue: {}".format(str(e))
+            if success and not dry_run:
+                record_action_receipt(issue, action, data)
 
         if verbose:
             print("    Result: {} - {}".format("OK" if success else "FAIL", message[:100]))
