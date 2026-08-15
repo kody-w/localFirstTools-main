@@ -1020,6 +1020,7 @@ def test_gallery_digg_playwright_absence_fails_closed(monkeypatch):
         assert all(not item.passed for item in results)
 
 
+@pytest.mark.slow
 def test_real_observatory_passes_the_complete_gate():
     results = gate.run_gate(REPO_ROOT)
     assert all(item.passed for item in results), {
