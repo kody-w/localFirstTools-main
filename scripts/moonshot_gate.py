@@ -3388,8 +3388,11 @@ def _ui_runtime_results(payload: Dict[str, Any]) -> List[CheckResult]:
     for name, key in mapping:
         value = payload.get(key, {})
         passed = isinstance(value, dict) and value.get("pass") is True
+        detail_value = dict(value) if isinstance(value, dict) else {}
+        if not passed and payload.get("fatal"):
+            detail_value["fatal"] = payload["fatal"]
         detail = json.dumps(
-            value if value else {"fatal": payload.get("fatal")},
+            detail_value if detail_value else {"fatal": payload.get("fatal")},
             sort_keys=True,
             separators=(",", ":"),
         )
