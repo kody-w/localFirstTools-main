@@ -205,6 +205,30 @@ jobs:
               --body "$body"
           fi
 
+      - name: Dispatch required release pull request checks
+        shell: bash
+        run: |
+          number="$(
+            gh pr list \
+              --base main \
+              --head "$RELEASE_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+          test -n "$number"
+          base_sha="$(git rev-parse origin/main)"
+          head_sha="$(git rev-parse HEAD)"
+          gh workflow run moonshot-gate.yml --ref "$RELEASE_BRANCH"
+          gh workflow run agent-fair-release-attestation.yml \
+            --ref "$RELEASE_BRANCH" \
+            -f pr_number="$number" \
+            -f base_sha="$base_sha" \
+            -f head_sha="$head_sha" \
+            -f head_ref="$RELEASE_BRANCH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Release repository writer lock
         if: always()
         run: python3 scripts/repository_lock.py release

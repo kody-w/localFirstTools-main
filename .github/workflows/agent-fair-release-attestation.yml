@@ -2,6 +2,24 @@ name: Agent Fair Release Attestation
 
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to verify
+        required: true
+        type: string
+      base_sha:
+        description: Trusted pull request base SHA
+        required: true
+        type: string
+      head_sha:
+        description: Exact release pull request head SHA
+        required: true
+        type: string
+      head_ref:
+        description: Exact release pull request head branch
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -9,7 +27,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: agent-fair-release-attestation-${{ github.event.pull_request.number }}
+  group: agent-fair-release-attestation-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -17,13 +35,25 @@ jobs:
     name: agent-fair-release-attestation
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref || inputs.head_ref }}
 
     steps:
+      - name: Bind explicit dispatch to the checked commit
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          test "$HEAD_SHA" = "$GITHUB_SHA"
+          test "$HEAD_REF" = "$GITHUB_REF_NAME"
+
       - name: Check out exact pull request head
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.HEAD_SHA }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,8 +62,6 @@ jobs:
 
       - name: Detect trusted base verifier
         id: trusted
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash
         run: |
           if git cat-file -e "${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py"; then
@@ -48,9 +76,9 @@ jobs:
         run: |
           trusted="${RUNNER_TEMP}/agent-fair-release-verifier"
           mkdir -p "$trusted"
-          git show "${{ github.event.pull_request.base.sha }}:scripts/verify_agent_fair_release_attestation.py" > "$trusted/verify_agent_fair_release_attestation.py"
-          git show "${{ github.event.pull_request.base.sha }}:scripts/agent_world_fair.py" > "$trusted/agent_world_fair.py"
-          git show "${{ github.event.pull_request.base.sha }}:scripts/organism_ledger.py" > "$trusted/organism_ledger.py"
+          git show "${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py" > "$trusted/verify_agent_fair_release_attestation.py"
+          git show "${BASE_SHA}:scripts/agent_world_fair.py" > "$trusted/agent_world_fair.py"
+          git show "${BASE_SHA}:scripts/organism_ledger.py" > "$trusted/organism_ledger.py"
 
       - name: Verify with trusted base verifier
         if: steps.trusted.outputs.available == 'true'
@@ -62,18 +90,14 @@ jobs:
           verify-pr
           --root "${GITHUB_WORKSPACE}"
           --repository "${{ github.repository }}"
-          --pr-number "${{ github.event.pull_request.number }}"
-          --base-sha "${{ github.event.pull_request.base.sha }}"
-          --head-sha "${{ github.event.pull_request.head.sha }}"
-          --head-ref "${{ github.event.pull_request.head.ref }}"
+          --pr-number "${PR_NUMBER}"
+          --base-sha "${BASE_SHA}"
+          --head-sha "${HEAD_SHA}"
+          --head-ref "${HEAD_REF}"
           --wait-seconds 300
 
       - name: Bootstrap verifier installation without release authority
         if: steps.trusted.outputs.available == 'false'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           python3 - <<'PY'
