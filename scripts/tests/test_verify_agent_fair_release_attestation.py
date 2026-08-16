@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -60,6 +61,56 @@ EXPECTED_BOOTSTRAP_PATHS = {
     "skill.json",
     "skill.md",
 }
+
+
+def test_cross_origin_redirect_strips_authorization():
+    request = urllib.request.Request(
+        "https://api.github.com/repos/example/project/actions/artifacts/1/zip",
+        headers={"Authorization": "Bearer secret"},
+    )
+    redirected = verifier._SafeRedirectHandler().redirect_request(
+        request,
+        None,
+        302,
+        "Found",
+        {},
+        "https://artifact.example.test/release.zip",
+    )
+    assert redirected is not None
+    assert redirected.get_header("Authorization") is None
+
+
+def test_same_origin_redirect_retains_authorization():
+    request = urllib.request.Request(
+        "https://api.github.com/repos/example/project/actions/artifacts/1/zip",
+        headers={"Authorization": "Bearer secret"},
+    )
+    redirected = verifier._SafeRedirectHandler().redirect_request(
+        request,
+        None,
+        302,
+        "Found",
+        {},
+        "https://api.github.com/repositories/1/actions/artifacts/1/zip",
+    )
+    assert redirected is not None
+    assert redirected.get_header("Authorization") == "Bearer secret"
+
+
+def test_non_https_redirect_is_rejected():
+    request = urllib.request.Request(
+        "https://api.github.com/repos/example/project/actions/artifacts/1/zip",
+        headers={"Authorization": "Bearer secret"},
+    )
+    with pytest.raises(verifier.AttestationError, match="not HTTPS"):
+        verifier._SafeRedirectHandler().redirect_request(
+            request,
+            None,
+            302,
+            "Found",
+            {},
+            "http://artifact.example.test/release.zip",
+        )
 
 
 @pytest.fixture
@@ -409,28 +460,27 @@ def test_non_release_pull_request_passes_without_github_api(scratch_dir):
     assert result["valid"] is True
 
 
-def test_release_branch_cannot_mutate_protected_paths_without_frame(
-    scratch_dir,
-):
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "apps/agent-fair/release-candidate.json",
+        "unrelated.txt",
+    ],
+)
+def test_release_branch_requires_fair_frame(scratch_dir, relative):
     case = _release_repo(scratch_dir)
     root = case["root"]
     _run(root, "git", "checkout", "-q", case["base_sha"])
     _run(root, "git", "checkout", "-q", "-b", "release/agent-fair-999")
-    candidate_path = (
-        root / "apps" / "agent-fair" / "release-candidate.json"
-    )
-    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
-    candidate["candidate_digest"] = "0" * 64
-    candidate_path.write_text(
-        json.dumps(candidate, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    _run(root, "git", "add", candidate_path.relative_to(root).as_posix())
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not a release frame\n", encoding="utf-8")
+    _run(root, "git", "add", relative)
     _run(root, "git", "commit", "-q", "-m", "forged protected change")
     head_sha = _run(root, "git", "rev-parse", "HEAD")
     with pytest.raises(
         verifier.AttestationError,
-        match="protected paths without a fair frame",
+        match="does not contain a fair release frame",
     ):
         verifier.verify_pull_request_release(
             root,

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -115,6 +116,33 @@ BOOTSTRAP_FORBIDDEN_PREFIXES = (
 
 class AttestationError(ValueError):
     pass
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        redirected = super().redirect_request(
+            request,
+            fp,
+            code,
+            message,
+            headers,
+            new_url,
+        )
+        if redirected is None:
+            return None
+        source = urllib.parse.urlsplit(request.full_url)
+        target = urllib.parse.urlsplit(new_url)
+        if target.scheme.lower() != "https":
+            raise AttestationError("GitHub API redirect is not HTTPS")
+
+        def origin(value):
+            scheme = value.scheme.lower()
+            port = value.port or (443 if scheme == "https" else 80)
+            return (scheme, (value.hostname or "").lower(), port)
+
+        if origin(source) != origin(target):
+            redirected.remove_header("Authorization")
+        return redirected
 
 
 def _require(condition: bool, message: str) -> None:
@@ -526,7 +554,8 @@ class GitHubApi:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            opener = urllib.request.build_opener(_SafeRedirectHandler())
+            with opener.open(request, timeout=20) as response:
                 status = getattr(response, "status", None)
                 if status is None:
                     status = response.getcode()
@@ -686,10 +715,9 @@ def verify_pull_request_release(
         if (
             type(head_ref) is str
             and head_ref.startswith(RELEASE_BRANCH_PREFIX)
-            and protected_changes
         ):
             raise AttestationError(
-                "release branch changed protected paths without a fair frame"
+                "release branch does not contain a fair release frame"
             )
         return {
             "changed_paths": changed_paths,

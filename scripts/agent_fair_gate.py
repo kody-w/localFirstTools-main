@@ -1224,6 +1224,25 @@ def _release_workflow_evidence(root: Path, candidate_digest: str) -> str:
         and re.search(r"^\s*moonshot-gate\s*:", moonshot, re.MULTILINE),
         "moonshot gate is not a required pull-request workflow candidate",
     )
+    moonshot_release_markers = (
+        "workflow_dispatch:",
+        "AGENT_FAIR_RELEASE_PR:",
+        "startsWith(github.ref_name, 'release/agent-fair-')",
+        "if: env.AGENT_FAIR_RELEASE_PR != 'true'",
+        "if: env.AGENT_FAIR_RELEASE_PR == 'true'",
+        "Run released fair core tests",
+        "agent_fair_gate.py --phase released",
+    )
+    missing_moonshot = [
+        marker for marker in moonshot_release_markers
+        if marker not in moonshot
+    ]
+    _require(
+        not missing_moonshot,
+        "moonshot release pull request markers missing: {}".format(
+            ", ".join(missing_moonshot)
+        ),
+    )
     _require(
         not re.search(
             r"^\s{0,4}(?:push|pull_request|schedule)\s*:",
@@ -1469,6 +1488,10 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "def verify_release_attestation(",
         "def verify_ci_release_attestation(",
         "def verify_pull_request_release(",
+        "class _SafeRedirectHandler(",
+        'target.scheme.lower() != "https"',
+        'redirected.remove_header("Authorization")',
+        "urllib.request.build_opener(_SafeRedirectHandler())",
         'RELEASE_BRANCH_PREFIX = "release/agent-fair-"',
         'ARTIFACT_PREFIX = "agent-fair-release-attestation-"',
         "PROTECTED_RELEASE_PATHS = {",
@@ -1485,8 +1508,7 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "bootstrap pull request changes paths outside the one-time allowlist",
         '"status": "bootstrap-not-release"',
         "head_ref.startswith(RELEASE_BRANCH_PREFIX)",
-        "and protected_changes",
-        "release branch changed protected paths without a fair frame",
+        "release branch does not contain a fair release frame",
         "if _release_lines(base_raw) == _release_lines(head_raw):",
         "len(head_frames) == len(base_frames) + 1",
         "head_frames[:len(base_frames)] == base_frames",

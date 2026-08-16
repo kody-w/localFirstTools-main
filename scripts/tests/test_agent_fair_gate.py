@@ -824,13 +824,36 @@ def test_permissive_release_branch_nonrelease_path_turns_red():
     with fixture_root(paths) as root:
         path = root / paths[1]
         text = path.read_text(encoding="utf-8")
-        assert "and protected_changes" in text
+        marker = "release branch does not contain a fair release frame"
+        assert marker in text
         path.write_text(
             text.replace(
-                "and protected_changes",
-                "and False",
+                marker,
+                "release branch may omit its fair release frame",
                 1,
             ),
+            encoding="utf-8",
+        )
+        result = gate._run_check(
+            "release.all-pr-attestation",
+            lambda: gate._check_pr_attestation_workflow(root),
+        )
+        assert result.passed is False
+        assert "verifier markers missing" in result.detail
+
+
+def test_cross_origin_artifact_auth_forwarding_turns_red():
+    paths = [
+        ".github/workflows/agent-fair-release-attestation.yml",
+        "scripts/verify_agent_fair_release_attestation.py",
+    ]
+    with fixture_root(paths) as root:
+        path = root / paths[1]
+        text = path.read_text(encoding="utf-8")
+        marker = 'redirected.remove_header("Authorization")'
+        assert marker in text
+        path.write_text(
+            text.replace(marker, "pass", 1),
             encoding="utf-8",
         )
         result = gate._run_check(
@@ -858,6 +881,11 @@ def test_permissive_release_branch_nonrelease_path_turns_red():
             ".github/workflows/moonshot-gate.yml",
             "moonshot-gate:",
             "renamed-gate:",
+        ),
+        (
+            ".github/workflows/moonshot-gate.yml",
+            "agent_fair_gate.py --phase released",
+            "agent_fair_gate.py --phase prepared",
         ),
     ],
 )
