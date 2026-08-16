@@ -159,6 +159,30 @@ def _copy_release_tree(target):
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    ledger_path = target / "apps" / "organism-frames.jsonl"
+    frames = organism_ledger.read_frames(ledger_path)
+    release_index = next(
+        (
+            index
+            for index, frame in enumerate(frames)
+            if str(
+                frame.get("payload", {}).get("event_id", "")
+            ).startswith("agent-worlds-fair-release:")
+        ),
+        None,
+    )
+    if release_index is not None:
+        frames = frames[:release_index]
+        ledger_path.write_bytes(
+            b"".join(
+                organism_ledger.canonical_bytes(frame) + b"\n"
+                for frame in frames
+            )
+        )
+        organism_ledger.write_projection(
+            frames,
+            path=target / "apps" / "organism-frames.json",
+        )
 
 
 def test_real_anchor_and_exact_event_flow():
