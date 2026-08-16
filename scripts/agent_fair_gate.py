@@ -1170,6 +1170,7 @@ def _release_workflow_evidence(root: Path, candidate_digest: str) -> str:
         "agent_world_fair.py release",
         "agent_world_fair.py verify",
         "agent_world_fair.py apply-release",
+        "actions: write",
         "id-token: write",
         "pull-requests: write",
         "contents: write",
