@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 import sys
 import threading
 from contextlib import contextmanager
@@ -565,6 +566,10 @@ def test_attention_frames_and_public_group_objects_sync_generically(tmp_path):
 
     with serving(root) as server:
         build_served(root, server)
+        metadata_result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
         result = sync_client.sync_repository(
             state_dir,
             server.index_url,
@@ -596,6 +601,8 @@ def test_attention_frames_and_public_group_objects_sync_generically(tmp_path):
     assert delta["changes"]["frame_appends"] == frames
     assert len(snapshot["data_objects"]) == 3
     assert len(delta["changes"]["data_upserts"]) == 3
+    assert metadata_result["fetched_objects"] == 0
+    assert result["not_modified"] is True
     assert result["fetched_objects"] == 5
     assert current["attention_data_objects"] == 3
     assert current["frames"] == 5
@@ -625,6 +632,165 @@ def test_attention_frames_and_public_group_objects_sync_generically(tmp_path):
     assert (
         materialized / "apps" / "attention" / "a-cold.json"
     ).read_bytes() == cold_path.read_bytes()
+
+
+def test_looking_glass_scene_round_trips_as_public_data(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    scene = {
+        "dimensions": [
+            {"id": dimension}
+            for dimension in (
+                "payload",
+                "lineage",
+                "attention",
+                "mutation",
+                "app",
+                "neighborhood",
+                "syndication",
+            )
+        ],
+        "experience_id": "looking-glass-inside-one-hash",
+        "integrity": {
+            "algorithm": "sha256",
+            "scene_digest": "a" * 64,
+        },
+        "schema": "rappterzoo-looking-glass-scene/1",
+        "target_frame": {
+            "frame_hash": "b" * 64,
+        },
+        "visibility": "public-metadata",
+    }
+    scene_path = root / "apps" / "looking-glass" / "hash-scene.json"
+    scene_path.parent.mkdir(parents=True)
+    scene_path.write_bytes(builder.stable_json_bytes(scene))
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+
+    objects = sync_client.list_data_objects(state_dir)
+    descriptor = next(
+        item
+        for item in objects
+        if item["kind"] == "looking-glass-scene-object"
+    )
+    assert result["fetched_objects"] == 3
+    assert descriptor["path"] == "apps/looking-glass/hash-scene.json"
+    assert descriptor["metadata"]["dimension_count"] == 7
+    assert descriptor["metadata"]["scene_digest"] == "a" * 64
+    assert descriptor["metadata"]["target_frame_hash"] == "b" * 64
+
+
+def test_agent_amusement_park_round_trips_as_public_data(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    source = ROOT / "apps" / "agent-park"
+    target = root / "apps" / "agent-park"
+    shutil.copytree(source, target)
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+
+    objects = [
+        item
+        for item in sync_client.list_data_objects(state_dir)
+        if item["kind"] == "agent-amusement-park-object"
+    ]
+    assert result["fetched_objects"] == 5
+    assert [item["metadata"]["resource_type"] for item in objects] == [
+        "agent-contract",
+        "event-ledger",
+        "state",
+    ]
+    state = next(
+        item
+        for item in objects
+        if item["metadata"]["resource_type"] == "state"
+    )
+    ledger = next(
+        item
+        for item in objects
+        if item["metadata"]["resource_type"] == "event-ledger"
+    )
+    assert state["metadata"]["night_count"] == 7
+    assert state["metadata"]["event_head"] == ledger["metadata"]["event_head"]
+
+
+def test_agent_park_ledger_allows_only_valid_prefix_growth(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    source = ROOT / "apps" / "agent-park"
+    target = root / "apps" / "agent-park"
+    shutil.copytree(source, target)
+    builder.build(root)
+    events_path = target / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line
+    ]
+    payload = {
+        "night": 8,
+        "result": "future-customer-approved-append",
+    }
+    event = {
+        "kind": "park.night-open",
+        "park_id": "park.rappterzoo-agent-amusement-park",
+        "payload": payload,
+        "payload_hash": builder.frame_hash_value(
+            builder.AGENT_PARK_PAYLOAD_SPACE,
+            payload,
+        ),
+        "prev": events[-1]["event_hash"],
+        "schema": builder.AGENT_PARK_EVENT_SCHEMA,
+        "seq": len(events),
+        "utc": "2026-08-23T00:00:00.000Z",
+        "visibility": "public-metadata",
+    }
+    event["event_hash"] = builder.frame_hash_value(
+        builder.AGENT_PARK_EVENT_SPACE,
+        event,
+    )
+    events.append(event)
+    events_path.write_bytes(
+        b"".join(
+            builder.canonical_frame_bytes(item) + b"\n"
+            for item in events
+        )
+    )
+
+    result = builder.build(root)
+    snapshot = read_json(root / "apps" / "syndication" / "snapshot.json")
+    descriptor = next(
+        item
+        for item in snapshot["data_objects"]
+        if item["path"] == "apps/agent-park/events.jsonl"
+    )
+    assert result["delta_created"] is True
+    assert descriptor["metadata"]["event_count"] == len(events)
+    assert descriptor["metadata"]["event_head"] == event["event_hash"]
+
+    mutated = json.loads(json.dumps(events))
+    mutated[3]["payload"]["night"] = 99
+    with pytest.raises(
+        builder.SyndicationError,
+        match="payload hash mismatch",
+    ):
+        builder.validate_agent_park_event_ledger(mutated)
+    with pytest.raises(
+        sync_client.SyncError,
+        match="payload hash mismatch",
+    ):
+        sync_client.validate_agent_park_event_ledger(mutated)
 
 
 def test_attention_comment_privacy_and_object_immutability(tmp_path):
@@ -675,6 +841,28 @@ def test_attention_comment_privacy_and_object_immutability(tmp_path):
         match="immutable attention data object changed",
     ):
         builder.build(root)
+
+
+def test_explicit_false_privacy_policy_is_public_but_true_is_rejected():
+    safe = {
+        "private_media_in_public_ledger": False,
+        "pulse_persisted": False,
+        "visibility": "public-metadata",
+    }
+    builder.validate_public_data_value(safe)
+    sync_client.validate_public_data_value(safe)
+    unsafe = dict(safe)
+    unsafe["private_media_in_public_ledger"] = True
+    with pytest.raises(
+        builder.SyndicationError,
+        match="sensitive key",
+    ):
+        builder.validate_public_data_value(unsafe)
+    with pytest.raises(
+        sync_client.SyncError,
+        match="sensitive key",
+    ):
+        sync_client.validate_public_data_value(unsafe)
 
 
 def test_false_token_policy_is_public_but_credentials_are_rejected():

@@ -32,7 +32,23 @@ PROFILE_V5 = "rappterzoo-syndication-profile/5"
 PROFILE_V6 = "rappterzoo-syndication-profile/6"
 PROFILE_V7 = "rappterzoo-syndication-profile/7"
 PROFILE_V8 = "rappterzoo-syndication-profile/8"
-PROFILE = "rappterzoo-syndication-profile/9"
+PROFILE_V9 = "rappterzoo-syndication-profile/9"
+PROFILE = "rappterzoo-syndication-profile/10"
+AGENT_PARK_PAYLOAD_SPACE = "rappterzoo/agent-park-payload/1"
+AGENT_PARK_EVENT_SPACE = "rappterzoo/agent-park-event/1"
+AGENT_PARK_EVENT_SCHEMA = "rappterzoo-agent-park-event/1"
+AGENT_PARK_EVENT_KEYS = {
+    "event_hash",
+    "kind",
+    "park_id",
+    "payload",
+    "payload_hash",
+    "prev",
+    "schema",
+    "seq",
+    "utc",
+    "visibility",
+}
 FRAME_SCHEMA = "rappterzoo-organism-frame/1"
 FRAME_KEYS = {
     "spec",
@@ -124,12 +140,18 @@ PUBLIC_DATA_SUFFIXES = {
     ".ndjson": "application/x-ndjson",
 }
 PUBLIC_DATA_ROOTS = (
+    "agent-park",
     "attention",
     "fold",
     "fold-at-home",
+    "looking-glass",
     "shards",
 )
 REJECTED_PUBLIC_DATA = object()
+SAFE_FALSE_PUBLIC_POLICY_KEYS = {
+    "privatemediainpublicledger",
+    "pulsepersisted",
+}
 TRANSPARENCY_MODEL = {
     "analogy": "bitcoin-inspired-append-only-block-sequencing",
     "consensus": "none",
@@ -310,6 +332,53 @@ def frame_hash_value(space: str, value: Any) -> str:
     ).hexdigest()
 
 
+def validate_agent_park_event_ledger(
+    events: Any,
+) -> List[Dict[str, Any]]:
+    if not isinstance(events, list) or not events:
+        raise SyndicationError("agent park event ledger must be non-empty")
+    previous = None
+    for index, event in enumerate(events):
+        if type(event) is not dict or set(event) != AGENT_PARK_EVENT_KEYS:
+            raise SyndicationError(
+                "agent park event {} has an invalid key set".format(index)
+            )
+        if (
+            event["schema"] != AGENT_PARK_EVENT_SCHEMA
+            or event["park_id"]
+            != "park.rappterzoo-agent-amusement-park"
+            or event["visibility"] != "public-metadata"
+            or event["seq"] != index
+            or type(event["payload"]) is not dict
+        ):
+            raise SyndicationError("invalid agent park event ledger")
+        if event["prev"] != (
+            previous["event_hash"] if previous else None
+        ):
+            raise SyndicationError("agent park event chain is broken")
+        if previous is not None and event["utc"] < previous["utc"]:
+            raise SyndicationError(
+                "agent park event timestamps are not monotonic"
+            )
+        if event["payload_hash"] != frame_hash_value(
+            AGENT_PARK_PAYLOAD_SPACE,
+            event["payload"],
+        ):
+            raise SyndicationError("agent park payload hash mismatch")
+        projected = {
+            key: value
+            for key, value in event.items()
+            if key != "event_hash"
+        }
+        if event["event_hash"] != frame_hash_value(
+            AGENT_PARK_EVENT_SPACE,
+            projected,
+        ):
+            raise SyndicationError("agent park event hash mismatch")
+        previous = event
+    return events
+
+
 def _privacy_key_token(key: str) -> str:
     return "".join(
         character.lower()
@@ -403,6 +472,8 @@ def _validate_shard_main_append(payload: Dict[str, Any]) -> None:
 
 def _data_key_is_sensitive(key: str, value: Any) -> bool:
     token = _privacy_key_token(key)
+    if token in SAFE_FALSE_PUBLIC_POLICY_KEYS and value is False:
+        return False
     if token == "token" and (
         value is False
         or (
@@ -616,6 +687,132 @@ def _public_data_metadata(value: Any) -> Dict[str, Any]:
             or type(value[key]) in {str, int, bool}
         )
     }
+
+
+def _looking_glass_metadata(
+    value: Any,
+    path: str,
+) -> Optional[Dict[str, Any]]:
+    if not path.startswith("apps/looking-glass/"):
+        return None
+    if type(value) is not dict:
+        raise SyndicationError("Looking Glass scene must be an object")
+    target = value.get("target_frame")
+    integrity = value.get("integrity")
+    dimensions = value.get("dimensions")
+    experience_id = value.get(
+        "experience_id",
+        "looking-glass-inside-one-hash",
+    )
+    visibility = value.get("visibility", "public-metadata")
+    public_scene = (
+        value.get("status") == "public-structural-view"
+        or (
+            value.get("visibility") == "public-metadata"
+            and type(value.get("experience_id")) is str
+            and bool(value["experience_id"])
+        )
+    )
+    if (
+        value.get("schema") != "rappterzoo-looking-glass-scene/1"
+        or not public_scene
+        or visibility != "public-metadata"
+        or type(experience_id) is not str
+        or not experience_id
+        or type(target) is not dict
+        or type(target.get("frame_hash")) is not str
+        or not HASH_RE.fullmatch(target["frame_hash"])
+        or type(integrity) is not dict
+        or type(integrity.get("scene_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["scene_digest"])
+        or type(dimensions) is not list
+        or len(dimensions) != 7
+    ):
+        raise SyndicationError("invalid Looking Glass scene object")
+    return {
+        "dimension_count": len(dimensions),
+        "experience_id": experience_id,
+        "scene_digest": integrity["scene_digest"],
+        "schema": value["schema"],
+        "target_frame_hash": target["frame_hash"],
+        "visibility": visibility,
+    }
+
+
+def _agent_park_metadata(
+    value: Any,
+    path: str,
+) -> Optional[Dict[str, Any]]:
+    if not path.startswith("apps/agent-park/"):
+        return None
+    if path.endswith("/park-state.json"):
+        if type(value) is not dict:
+            raise SyndicationError("agent park state must be an object")
+        ledger = value.get("event_ledger")
+        economy = value.get("economy")
+        if (
+            value.get("schema") != "rappterzoo-agent-amusement-park/1"
+            or value.get("visibility") != "public-metadata"
+            or value.get("park_id")
+            != "park.rappterzoo-agent-amusement-park"
+            or type(ledger) is not dict
+            or type(ledger.get("event_count")) is not int
+            or type(ledger.get("head")) is not str
+            or not HASH_RE.fullmatch(ledger["head"])
+            or value.get("night_count") != 7
+            or type(economy) is not dict
+            or economy.get("real_money") is not False
+            or economy.get("balanced") is not True
+        ):
+            raise SyndicationError("invalid agent amusement park state")
+        return {
+            "event_count": ledger["event_count"],
+            "event_head": ledger["head"],
+            "night_count": value["night_count"],
+            "park_id": value["park_id"],
+            "resource_type": "state",
+            "schema": value["schema"],
+            "visibility": value["visibility"],
+        }
+    if path.endswith("/agent-contract.json"):
+        if type(value) is not dict:
+            raise SyndicationError("agent park contract must be an object")
+        integrity = value.get("integrity")
+        economy = value.get("economy")
+        controls = value.get("control_boundary")
+        if (
+            value.get("schema") != "rappterzoo-agent-park-contract/1"
+            or value.get("visibility") != "public-metadata"
+            or value.get("park_id")
+            != "park.rappterzoo-agent-amusement-park"
+            or type(integrity) is not dict
+            or type(integrity.get("contract_digest")) is not str
+            or not HASH_RE.fullmatch(integrity["contract_digest"])
+            or type(economy) is not dict
+            or economy.get("real_money") is not False
+            or type(controls) is not dict
+            or controls.get("customer_can_shutdown_immediately") is not True
+            or controls.get("park_or_vendor_remote_shutdown") is not False
+        ):
+            raise SyndicationError("invalid agent amusement park contract")
+        return {
+            "contract_digest": integrity["contract_digest"],
+            "park_id": value["park_id"],
+            "resource_type": "agent-contract",
+            "schema": value["schema"],
+            "visibility": value["visibility"],
+        }
+    if path.endswith("/events.jsonl"):
+        validate_agent_park_event_ledger(value)
+        return {
+            "event_count": len(value),
+            "event_head": value[-1]["event_hash"],
+            "park_id": value[-1]["park_id"],
+            "resource_type": "event-ledger",
+            "schema": value[-1]["schema"],
+            "visibility": value[-1]["visibility"],
+        }
+    raise SyndicationError("unknown agent amusement park public object")
 
 
 def _bounded_metadata_copy(
@@ -987,21 +1184,36 @@ def build_public_data_descriptors(
         )
         metadata = _public_data_metadata(root_value)
         kind = "attention-group-object"
-        shard_metadata = _shard_metadata(
+        agent_park_metadata = _agent_park_metadata(
             parsed,
             relative,
-            synthetic_test_mode=synthetic_test_mode,
         )
-        if shard_metadata is REJECTED_PUBLIC_DATA:
-            continue
-        if shard_metadata is not None:
-            kind, shard_projection = shard_metadata
-            metadata.update(shard_projection)
+        looking_glass_metadata = _looking_glass_metadata(
+            parsed,
+            relative,
+        )
+        if agent_park_metadata is not None:
+            kind = "agent-amusement-park-object"
+            metadata = agent_park_metadata
+        elif looking_glass_metadata is not None:
+            kind = "looking-glass-scene-object"
+            metadata = looking_glass_metadata
         else:
-            dimension_metadata = _dimension_metadata(parsed, relative)
-            if dimension_metadata is not None:
-                kind = "attention-dimension-object"
-                metadata.update(dimension_metadata)
+            shard_metadata = _shard_metadata(
+                parsed,
+                relative,
+                synthetic_test_mode=synthetic_test_mode,
+            )
+            if shard_metadata is REJECTED_PUBLIC_DATA:
+                continue
+            if shard_metadata is not None:
+                kind, shard_projection = shard_metadata
+                metadata.update(shard_projection)
+            else:
+                dimension_metadata = _dimension_metadata(parsed, relative)
+                if dimension_metadata is not None:
+                    kind = "attention-dimension-object"
+                    metadata.update(dimension_metadata)
         descriptors.append({
             "content_id": "sha256:{}".format(digest),
             "kind": kind,
@@ -1017,6 +1229,51 @@ def build_public_data_descriptors(
             },
         })
     return sorted(descriptors, key=_data_descriptor_sort_key)
+
+
+def _agent_park_history_growth(
+    root: Path,
+    previous_data_map: Dict[str, Dict[str, Any]],
+    current_data_map: Dict[str, Dict[str, Any]],
+) -> bool:
+    path = "apps/agent-park/events.jsonl"
+    previous = previous_data_map.get(path)
+    current = current_data_map.get(path)
+    if (
+        type(previous) is not dict
+        or type(current) is not dict
+        or previous.get("kind") != "agent-amusement-park-object"
+        or current.get("kind") != "agent-amusement-park-object"
+        or previous.get("metadata", {}).get("resource_type")
+        != "event-ledger"
+        or current.get("metadata", {}).get("resource_type")
+        != "event-ledger"
+    ):
+        return False
+    previous_count = previous["metadata"].get("event_count")
+    current_count = current["metadata"].get("event_count")
+    previous_head = previous["metadata"].get("event_head")
+    current_head = current["metadata"].get("event_head")
+    if (
+        type(previous_count) is not int
+        or type(current_count) is not int
+        or current_count <= previous_count
+        or type(previous_head) is not str
+        or type(current_head) is not str
+    ):
+        return False
+    ledger_path = root / path
+    parsed = parse_public_data_bytes(
+        ledger_path.read_bytes(),
+        ".jsonl",
+        path,
+    )
+    events = validate_agent_park_event_ledger(parsed)
+    return (
+        len(events) == current_count
+        and events[previous_count - 1]["event_hash"] == previous_head
+        and events[-1]["event_hash"] == current_head
+    )
 
 
 def validate_frames(
@@ -1714,6 +1971,7 @@ def load_existing_chain(
                 PROFILE_V6,
                 PROFILE_V7,
                 PROFILE_V8,
+                PROFILE_V9,
                 PROFILE,
             }
         ):
@@ -1727,6 +1985,7 @@ def load_existing_chain(
             PROFILE_V6,
             PROFILE_V7,
             PROFILE_V8,
+            PROFILE_V9,
             PROFILE,
         } and set(
             delta["changes"]
@@ -2049,11 +2308,38 @@ def build(
         and previous_snapshot.get("profile") == PROFILE
     )
     if enforce_data_immutability:
+        park_history_grew = _agent_park_history_growth(
+            root,
+            previous_data_map,
+            current_data_map,
+        )
         for path in sorted(set(previous_data_map) & set(current_data_map)):
             if (
                 previous_data_map[path]["sha256"]
                 != current_data_map[path]["sha256"]
             ):
+                if (
+                    park_history_grew
+                    and path == "apps/agent-park/events.jsonl"
+                ):
+                    continue
+                if (
+                    park_history_grew
+                    and path == "apps/agent-park/park-state.json"
+                    and current_data_map[path].get("metadata", {}).get(
+                        "event_count"
+                    )
+                    == current_data_map[
+                        "apps/agent-park/events.jsonl"
+                    ]["metadata"]["event_count"]
+                    and current_data_map[path].get("metadata", {}).get(
+                        "event_head"
+                    )
+                    == current_data_map[
+                        "apps/agent-park/events.jsonl"
+                    ]["metadata"]["event_head"]
+                ):
+                    continue
                 raise SyndicationError(
                     "immutable attention data object changed: {}".format(path)
                 )
