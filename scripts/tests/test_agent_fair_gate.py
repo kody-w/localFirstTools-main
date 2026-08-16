@@ -649,6 +649,10 @@ def test_all_pr_attestation_workflow_mutations_turn_red(old, new):
             '${{ github.event.pull_request.head.sha }}:scripts/'
             "agent_world_fair.py",
         ),
+        (
+            '              "skill.md",\n',
+            "",
+        ),
     ],
 )
 def test_bootstrap_workflow_mutations_turn_red(old, new):

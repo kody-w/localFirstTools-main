@@ -545,6 +545,18 @@ async function waitForPosts(page) {
   return page.locator(".post").count();
 }
 
+async function dismissJoinOverlay(page) {
+  const overlay = page.locator("#join-overlay.open");
+  if (await overlay.count() && await overlay.isVisible()) {
+    const skip = overlay.locator("[data-action='skip']");
+    if (await skip.count()) {
+      await skip.click({ force: true });
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  }
+}
+
 async function storageDeniedContext(browser, viewport) {
   const context = await browser.newContext({ viewport });
   await context.addInitScript(() => {
@@ -580,6 +592,7 @@ async function storageDeniedContext(browser, viewport) {
     const galleryErrors = errorCollectors(gallery);
     await gallery.goto(baseUrl, { waitUntil: "domcontentloaded", timeout });
     const onlineCount = await waitForPosts(gallery);
+    await dismissJoinOverlay(gallery);
     const firstTitle = await gallery.locator(".post-title").first().textContent();
     const bootErrors = galleryErrors.slice();
     result.galleryBoot = {
@@ -627,6 +640,7 @@ async function storageDeniedContext(browser, viewport) {
       bridged,
       frameUrl
     };
+    await dismissJoinOverlay(gallery);
     await gallery.locator("#modal-close").click();
 
     await gallery.route("**/apps/manifest.json", (route) => route.abort());
@@ -634,6 +648,7 @@ async function storageDeniedContext(browser, viewport) {
     await gallery.route("**/apps/community.json", (route) => route.abort());
     await gallery.reload({ waitUntil: "domcontentloaded", timeout });
     const offlineCount = await waitForPosts(gallery);
+    await dismissJoinOverlay(gallery);
     const offlineTitle = await gallery.locator(".post-title").first().textContent();
     result.galleryCacheOffline = {
       pass: offlineCount === onlineCount &&
@@ -657,6 +672,7 @@ async function storageDeniedContext(browser, viewport) {
       timeout
     });
     const deniedGalleryCount = await waitForPosts(deniedGallery);
+    await dismissJoinOverlay(deniedGallery);
     result.galleryStorageDenied = {
       pass: deniedGalleryCount > 0 && deniedGalleryErrors.length === 0,
       postCount: deniedGalleryCount,
@@ -670,6 +686,7 @@ async function storageDeniedContext(browser, viewport) {
     const mobile = await mobileContext.newPage();
     await mobile.goto(baseUrl, { waitUntil: "domcontentloaded", timeout });
     await waitForPosts(mobile);
+    await dismissJoinOverlay(mobile);
     const mobileTargets = await mobile.evaluate(() => {
       const selector = [
         ".sidebar-toggle",

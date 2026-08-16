@@ -23,6 +23,45 @@ import organism_ledger
 import verify_agent_fair_release_attestation as verifier
 
 
+EXPECTED_BOOTSTRAP_PATHS = {
+    ".github/CODEOWNERS",
+    ".github/workflows/agent-fair-release-attestation.yml",
+    ".github/workflows/agent-fair-release.yml",
+    ".well-known/agent-protocol",
+    ".well-known/feeddata-toc",
+    ".well-known/mcp.json",
+    ".well-known/rappterzoo-syndication",
+    "apps/3d-immersive/agent-worlds-fair-sw.js",
+    "apps/3d-immersive/agent-worlds-fair.html",
+    "apps/agent-fair/agent-contract.json",
+    "apps/agent-fair/district.json",
+    "apps/agent-fair/events.jsonl",
+    "apps/agent-fair/fair-state.json",
+    "apps/agent-fair/release-candidate.json",
+    "apps/feed.json",
+    "apps/feed.xml",
+    "apps/manifest.json",
+    "docs/AGENT-WORLDS-FAIR.md",
+    "scripts/agent_fair_gate.py",
+    "scripts/agent_park_gate.py",
+    "scripts/agent_world_fair.py",
+    "scripts/build_syndication.py",
+    "scripts/moonshot_gate.py",
+    "scripts/rappterzoo_mcp.py",
+    "scripts/rappterzoo_sync.py",
+    "scripts/tests/test_agent_fair_gate.py",
+    "scripts/tests/test_agent_park_gate.py",
+    "scripts/tests/test_agent_world_fair.py",
+    "scripts/tests/test_observatory_security.py",
+    "scripts/tests/test_rappterzoo_mcp.py",
+    "scripts/tests/test_syndication.py",
+    "scripts/tests/test_verify_agent_fair_release_attestation.py",
+    "scripts/verify_agent_fair_release_attestation.py",
+    "skill.json",
+    "skill.md",
+}
+
+
 @pytest.fixture
 def scratch_dir():
     path = ROOT / ".agent-fair-attestation-test-work"
@@ -155,7 +194,11 @@ def _release_repo(scratch_dir):
 def _bootstrap_repo(scratch_dir):
     root = scratch_dir / "bootstrap-repo"
     _copy_release_tree(root)
-    shutil.rmtree(root / "apps" / "agent-fair")
+    for relative in EXPECTED_BOOTSTRAP_PATHS:
+        destination = root / relative
+        if destination.is_file():
+            destination.unlink()
+    shutil.rmtree(root / "apps" / "agent-fair", ignore_errors=True)
     _run(root, "git", "init", "-q")
     _run(root, "git", "config", "user.name", "bootstrap-test")
     _run(root, "git", "config", "user.email", "bootstrap@example.invalid")
@@ -163,11 +206,11 @@ def _bootstrap_repo(scratch_dir):
     _run(root, "git", "commit", "-q", "-m", "base without verifier")
     base_sha = _run(root, "git", "rev-parse", "HEAD")
     _run(root, "git", "checkout", "-q", "-b", "feature/bootstrap-verifier")
-    for relative in sorted(verifier.BOOTSTRAP_ALLOWED_PATHS):
+    for relative in sorted(EXPECTED_BOOTSTRAP_PATHS):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative, destination)
-    _run(root, "git", "add", ".github", "apps/agent-fair", "scripts")
+    _run(root, "git", "add", ".")
     _run(root, "git", "commit", "-q", "-m", "install release verifier")
     return {
         "base_sha": base_sha,
@@ -570,6 +613,7 @@ def test_release_commit_edited_after_artifact_is_rejected(scratch_dir):
 
 
 def test_missing_base_verifier_allows_exact_nonrelease_bootstrap(scratch_dir):
+    assert verifier.BOOTSTRAP_ALLOWED_PATHS == EXPECTED_BOOTSTRAP_PATHS
     case = _bootstrap_repo(scratch_dir)
     result = verifier.verify_bootstrap_install(
         case["root"],
@@ -578,7 +622,7 @@ def test_missing_base_verifier_allows_exact_nonrelease_bootstrap(scratch_dir):
         "feature/bootstrap-verifier",
     )
     assert result == {
-        "changed_paths": sorted(verifier.BOOTSTRAP_ALLOWED_PATHS),
+        "changed_paths": sorted(EXPECTED_BOOTSTRAP_PATHS),
         "reason": "trusted base verifier is not installed yet",
         "status": "bootstrap-not-release",
         "valid": True,
