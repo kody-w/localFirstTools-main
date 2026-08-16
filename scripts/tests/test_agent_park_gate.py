@@ -144,6 +144,7 @@ def test_key_static_mutations_turn_red(mutation, check_name):
             "apps/attention/policy.json",
             "apps/attention/prompt-contract.json",
             "apps/looking-glass/hash-scene.json",
+            "apps/agent-fair",
         ],
     }[mutation]
     with fixture_root(paths) as root:

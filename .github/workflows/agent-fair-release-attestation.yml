@@ -1,0 +1,55 @@
+name: Agent Fair Release Attestation
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: agent-fair-release-attestation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  agent-fair-release-attestation:
+    name: agent-fair-release-attestation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out exact pull request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Materialize trusted verifier from pull request base
+        shell: bash
+        run: |
+          trusted="${RUNNER_TEMP}/agent-fair-release-verifier"
+          mkdir -p "$trusted"
+          git show "${{ github.event.pull_request.base.sha }}:scripts/verify_agent_fair_release_attestation.py" > "$trusted/verify_agent_fair_release_attestation.py"
+          git show "${{ github.event.pull_request.base.sha }}:scripts/agent_world_fair.py" > "$trusted/agent_world_fair.py"
+          git show "${{ github.event.pull_request.base.sha }}:scripts/organism_ledger.py" > "$trusted/organism_ledger.py"
+
+      - name: Verify release attestation or pass non-release PR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3
+          "${RUNNER_TEMP}/agent-fair-release-verifier/verify_agent_fair_release_attestation.py"
+          verify-pr
+          --root "${GITHUB_WORKSPACE}"
+          --repository "${{ github.repository }}"
+          --pr-number "${{ github.event.pull_request.number }}"
+          --base-sha "${{ github.event.pull_request.base.sha }}"
+          --head-sha "${{ github.event.pull_request.head.sha }}"
+          --head-ref "${{ github.event.pull_request.head.ref }}"
+          --wait-seconds 300
