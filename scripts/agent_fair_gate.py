@@ -1232,6 +1232,10 @@ def _release_workflow_evidence(root: Path, candidate_digest: str) -> str:
         "if: env.AGENT_FAIR_RELEASE_PR == 'true'",
         "Run released fair core tests",
         "agent_fair_gate.py --phase released",
+        "statuses: write",
+        "Publish explicit released Moonshot status",
+        'statuses/${GITHUB_SHA}',
+        "context=moonshot-gate",
     )
     missing_moonshot = [
         marker for marker in moonshot_release_markers
@@ -1341,6 +1345,7 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "actions: read",
         "contents: read",
         "pull-requests: read",
+        "statuses: write",
         "agent-fair-release-attestation:",
         "name: agent-fair-release-attestation",
         "ref: ${{ env.HEAD_SHA }}",
@@ -1389,6 +1394,9 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "bootstrap changes paths outside one-time allowlist",
         '"reason": "trusted base verifier is not installed yet"',
         '"status": "bootstrap-not-release"',
+        "Publish explicit release attestation status",
+        'statuses/${HEAD_SHA}',
+        "context=agent-fair-release-attestation",
     )
     missing = [marker for marker in required if marker not in text]
     _require(
