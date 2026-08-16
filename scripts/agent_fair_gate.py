@@ -2,6 +2,7 @@
 """Fail-closed acceptance gate for the RappterZoo Agent World's Fair."""
 
 import argparse
+import ast
 import base64
 import copy
 import fnmatch
@@ -13,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -94,6 +96,26 @@ OIDC_WORKFLOW_REF = (
 OIDC_ENVIRONMENT = "agent-fair-production"
 OIDC_EVENT_NAME = "workflow_dispatch"
 RELEASE_ATTESTATION_ENV = "AGENT_FAIR_RELEASE_ATTESTATION"
+BOOTSTRAP_ALLOWED_PATHS = {
+    ".github/CODEOWNERS",
+    ".github/workflows/agent-fair-release-attestation.yml",
+    ".github/workflows/agent-fair-release.yml",
+    "apps/agent-fair/agent-contract.json",
+    "apps/agent-fair/district.json",
+    "apps/agent-fair/events.jsonl",
+    "apps/agent-fair/fair-state.json",
+    "apps/agent-fair/release-candidate.json",
+    "scripts/tests/test_verify_agent_fair_release_attestation.py",
+    "scripts/verify_agent_fair_release_attestation.py",
+}
+BOOTSTRAP_FORBIDDEN_PATHS = {
+    "apps/organism-frames.json",
+    "apps/organism-frames.jsonl",
+}
+BOOTSTRAP_FORBIDDEN_PREFIXES = (
+    "apps/organism-frames.json",
+    "apps/syndication/",
+)
 OIDC_APPROVAL_KEYS = {
     "actor",
     "attestation_sha256",
@@ -1230,6 +1252,32 @@ def _check_release_artifact_workflow(root: Path) -> str:
     )
 
 
+def _python_literal_assignment(
+    source: str,
+    name: str,
+    label: str,
+) -> Any:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as error:
+        raise GateError("{} policy is invalid Python".format(label)) from error
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
+            continue
+        try:
+            return ast.literal_eval(node.value)
+        except (ValueError, TypeError) as error:
+            raise GateError(
+                "{} {} must be a literal".format(label, name)
+            ) from error
+    raise GateError("{} {} is missing".format(label, name))
+
+
 def _check_pr_attestation_workflow(root: Path) -> str:
     path = (
         root
@@ -1246,17 +1294,49 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "agent-fair-release-attestation:",
         "name: agent-fair-release-attestation",
         "ref: ${{ github.event.pull_request.head.sha }}",
+        "Detect trusted base verifier",
+        "id: trusted",
+        "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+        'git cat-file -e "${BASE_SHA}:scripts/'
+        'verify_agent_fair_release_attestation.py"',
+        'echo "available=true" >> "$GITHUB_OUTPUT"',
+        'echo "available=false" >> "$GITHUB_OUTPUT"',
         "Materialize trusted verifier from pull request base",
+        "if: steps.trusted.outputs.available == 'true'",
         '${{ github.event.pull_request.base.sha }}:scripts/'
         "verify_agent_fair_release_attestation.py",
+        '${{ github.event.pull_request.base.sha }}:scripts/'
+        "agent_world_fair.py",
+        '${{ github.event.pull_request.base.sha }}:scripts/'
+        "organism_ledger.py",
         '${RUNNER_TEMP}/agent-fair-release-verifier/'
         "verify_agent_fair_release_attestation.py",
+        "Verify with trusted base verifier",
+        "GITHUB_TOKEN: ${{ github.token }}",
         "verify-pr",
+        '--root "${GITHUB_WORKSPACE}"',
         '--repository "${{ github.repository }}"',
         '--pr-number "${{ github.event.pull_request.number }}"',
         '--base-sha "${{ github.event.pull_request.base.sha }}"',
         '--head-sha "${{ github.event.pull_request.head.sha }}"',
         '--head-ref "${{ github.event.pull_request.head.ref }}"',
+        "--wait-seconds 300",
+        "Bootstrap verifier installation without release authority",
+        "if: steps.trusted.outputs.available == 'false'",
+        "HEAD_REF: ${{ github.event.pull_request.head.ref }}",
+        "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+        'if head_ref.startswith("release/agent-fair-"):',
+        'release_prefix = "agent-worlds-fair-release:"',
+        'str(payload.get("event_id", "")).startswith(',
+        '"apps/organism-frames.json",',
+        '"apps/organism-frames.jsonl",',
+        '"apps/syndication/",',
+        "bootstrap pull request cannot use a release branch",
+        "bootstrap pull request contains a fair release event",
+        "bootstrap changes forbidden generated release paths",
+        "bootstrap changes paths outside one-time allowlist",
+        '"reason": "trusted base verifier is not installed yet"',
+        '"status": "bootstrap-not-release"',
     )
     missing = [marker for marker in required if marker not in text]
     _require(
@@ -1264,6 +1344,65 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "all-PR attestation workflow markers missing: {}".format(
             ", ".join(missing)
         ),
+    )
+    _require(
+        text.count(
+            "if: steps.trusted.outputs.available == 'true'"
+        ) == 2
+        and text.count(
+            "if: steps.trusted.outputs.available == 'false'"
+        ) == 1,
+        "trusted-base and one-time bootstrap branches changed",
+    )
+    bootstrap_step = re.search(
+        r"(?ms)^      - name: Bootstrap verifier installation without "
+        r"release authority\n(?P<body>.*)\Z",
+        text,
+    )
+    _require(
+        bootstrap_step is not None,
+        "bootstrap verifier workflow step is missing",
+    )
+    bootstrap_source_match = re.search(
+        r"(?ms)^\s*python3 - <<'PY'\n(?P<source>.*?)^\s*PY\s*$",
+        bootstrap_step.group("body"),
+    )
+    _require(
+        bootstrap_source_match is not None,
+        "bootstrap verifier inline policy is missing",
+    )
+    bootstrap_source = textwrap.dedent(
+        bootstrap_source_match.group("source")
+    )
+    workflow_allowed = _python_literal_assignment(
+        bootstrap_source,
+        "allowed",
+        "bootstrap workflow",
+    )
+    workflow_forbidden = _python_literal_assignment(
+        bootstrap_source,
+        "forbidden",
+        "bootstrap workflow",
+    )
+    workflow_prefixes = _python_literal_assignment(
+        bootstrap_source,
+        "forbidden_prefixes",
+        "bootstrap workflow",
+    )
+    _require(
+        type(workflow_allowed) is set
+        and workflow_allowed == BOOTSTRAP_ALLOWED_PATHS,
+        "bootstrap workflow allowlist changed",
+    )
+    _require(
+        type(workflow_forbidden) is set
+        and workflow_forbidden == BOOTSTRAP_FORBIDDEN_PATHS,
+        "bootstrap workflow forbidden paths changed",
+    )
+    _require(
+        type(workflow_prefixes) is tuple
+        and workflow_prefixes == BOOTSTRAP_FORBIDDEN_PREFIXES,
+        "bootstrap workflow forbidden prefixes changed",
     )
     _require(
         re.search(r"^\s*pull_request\s*:\s*$", text, re.MULTILINE)
@@ -1303,6 +1442,15 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "PROTECTED_RELEASE_PREFIXES = (",
         "def _changed_paths(",
         "def _protected_changed_paths(",
+        "BOOTSTRAP_ALLOWED_PATHS = {",
+        "BOOTSTRAP_FORBIDDEN_PATHS = {",
+        "BOOTSTRAP_FORBIDDEN_PREFIXES = (",
+        "def verify_bootstrap_install(",
+        "bootstrap pull request cannot use a release branch",
+        "bootstrap pull request contains a fair release event",
+        "bootstrap pull request changes forbidden generated release paths",
+        "bootstrap pull request changes paths outside the one-time allowlist",
+        '"status": "bootstrap-not-release"',
         "head_ref.startswith(RELEASE_BRANCH_PREFIX)",
         "and protected_changes",
         "release branch changed protected paths without a fair frame",
@@ -1320,6 +1468,36 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "release PR attestation verifier markers missing: {}".format(
             ", ".join(absent)
         ),
+    )
+    source_allowed = _python_literal_assignment(
+        verifier,
+        "BOOTSTRAP_ALLOWED_PATHS",
+        "release PR attestation verifier",
+    )
+    source_forbidden = _python_literal_assignment(
+        verifier,
+        "BOOTSTRAP_FORBIDDEN_PATHS",
+        "release PR attestation verifier",
+    )
+    source_prefixes = _python_literal_assignment(
+        verifier,
+        "BOOTSTRAP_FORBIDDEN_PREFIXES",
+        "release PR attestation verifier",
+    )
+    _require(
+        type(source_allowed) is set
+        and source_allowed == BOOTSTRAP_ALLOWED_PATHS,
+        "release PR attestation verifier bootstrap allowlist changed",
+    )
+    _require(
+        type(source_forbidden) is set
+        and source_forbidden == BOOTSTRAP_FORBIDDEN_PATHS,
+        "release PR attestation verifier bootstrap forbidden paths changed",
+    )
+    _require(
+        type(source_prefixes) is tuple
+        and source_prefixes == BOOTSTRAP_FORBIDDEN_PREFIXES,
+        "release PR attestation verifier bootstrap prefixes changed",
     )
     return (
         "all-PR agent-fair-release-attestation job invokes the closed "

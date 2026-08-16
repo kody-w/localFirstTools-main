@@ -603,6 +603,213 @@ def test_all_pr_attestation_workflow_mutations_turn_red(old, new):
         assert result.passed is False
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            'if head_ref.startswith("release/agent-fair-"):',
+            "if False:",
+        ),
+        (
+            '              "apps/organism-frames.json",\n',
+            "",
+        ),
+        (
+            '              "apps/syndication/",\n',
+            "",
+        ),
+        (
+            "bootstrap pull request contains a fair release event",
+            "bootstrap release events allowed",
+        ),
+        (
+            "if: steps.trusted.outputs.available == 'true'",
+            "if: steps.trusted.outputs.available == 'false'",
+        ),
+        (
+            "          GITHUB_TOKEN: ${{ github.token }}\n",
+            "",
+        ),
+        (
+            "          --wait-seconds 300\n",
+            "          --wait-seconds 0\n",
+        ),
+        (
+            '              "scripts/verify_agent_fair_release_attestation.py",\n',
+            '              "scripts/verify_agent_fair_release_attestation.py",\n'
+            '              "README.md",\n',
+        ),
+        (
+            'str(payload.get("event_id", "")).startswith(',
+            'str(payload.get("event_id", "")).endswith(',
+        ),
+        (
+            '${{ github.event.pull_request.base.sha }}:scripts/'
+            "agent_world_fair.py",
+            '${{ github.event.pull_request.head.sha }}:scripts/'
+            "agent_world_fair.py",
+        ),
+    ],
+)
+def test_bootstrap_workflow_mutations_turn_red(old, new):
+    paths = [
+        ".github/workflows/agent-fair-release-attestation.yml",
+        "scripts/verify_agent_fair_release_attestation.py",
+    ]
+    with fixture_root(paths) as root:
+        path = root / paths[0]
+        text = path.read_text(encoding="utf-8")
+        assert old in text
+        path.write_text(text.replace(old, new), encoding="utf-8")
+        result = gate._run_check(
+            "release.all-pr-attestation",
+            lambda: gate._check_pr_attestation_workflow(root),
+        )
+        assert result.passed is False
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            'BOOTSTRAP_ALLOWED_PATHS = {\n'
+            '    ".github/CODEOWNERS",',
+            'BOOTSTRAP_ALLOWED_PATHS = {\n'
+            '    "README.md",\n'
+            '    ".github/CODEOWNERS",',
+        ),
+        (
+            'BOOTSTRAP_FORBIDDEN_PREFIXES = (\n'
+            '    "apps/organism-frames.json",\n'
+            '    "apps/syndication/",\n'
+            ")",
+            "BOOTSTRAP_FORBIDDEN_PREFIXES = ()",
+        ),
+    ],
+)
+def test_bootstrap_verifier_policy_mutations_turn_red(old, new):
+    paths = [
+        ".github/workflows/agent-fair-release-attestation.yml",
+        "scripts/verify_agent_fair_release_attestation.py",
+    ]
+    with fixture_root(paths) as root:
+        path = root / paths[1]
+        text = path.read_text(encoding="utf-8")
+        assert old in text
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        result = gate._run_check(
+            "release.all-pr-attestation",
+            lambda: gate._check_pr_attestation_workflow(root),
+        )
+        assert result.passed is False
+
+
+def test_bootstrap_verifier_rejects_release_authority_mutations(
+    monkeypatch,
+):
+    verifier = gate.release_attestation
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    monkeypatch.setattr(
+        verifier,
+        "_changed_paths",
+        lambda _root, _base, _head: [
+            "scripts/verify_agent_fair_release_attestation.py"
+        ],
+    )
+    monkeypatch.setattr(
+        verifier,
+        "_git_bytes",
+        lambda _root, _arguments: b"",
+    )
+    valid = verifier.verify_bootstrap_install(
+        ROOT,
+        base_sha,
+        head_sha,
+        "feature/install-attestation-verifier",
+    )
+    assert valid["status"] == "bootstrap-not-release"
+    assert valid["valid"] is True
+
+    with pytest.raises(
+        verifier.AttestationError,
+        match="cannot use a release branch",
+    ):
+        verifier.verify_bootstrap_install(
+            ROOT,
+            base_sha,
+            head_sha,
+            "release/agent-fair-123",
+        )
+
+    for changed in (
+        ["apps/organism-frames.json"],
+        ["apps/organism-frames.jsonl"],
+        ["apps/syndication/index.json"],
+    ):
+        monkeypatch.setattr(
+            verifier,
+            "_changed_paths",
+            lambda _root, _base, _head, value=changed: value,
+        )
+        with pytest.raises(
+            verifier.AttestationError,
+            match="forbidden generated release paths",
+        ):
+            verifier.verify_bootstrap_install(
+                ROOT,
+                base_sha,
+                head_sha,
+                "feature/install-attestation-verifier",
+            )
+
+    monkeypatch.setattr(
+        verifier,
+        "_changed_paths",
+        lambda _root, _base, _head: ["README.md"],
+    )
+    with pytest.raises(
+        verifier.AttestationError,
+        match="outside the one-time allowlist",
+    ):
+        verifier.verify_bootstrap_install(
+            ROOT,
+            base_sha,
+            head_sha,
+            "feature/install-attestation-verifier",
+        )
+
+    monkeypatch.setattr(
+        verifier,
+        "_changed_paths",
+        lambda _root, _base, _head: [
+            "scripts/verify_agent_fair_release_attestation.py"
+        ],
+    )
+    for payload in (
+        {"event": "agent-worlds-fair-release"},
+        {"event_id": "agent-worlds-fair-release:forged"},
+    ):
+        release_line = json.dumps({
+            "payload": payload,
+        }).encode("utf-8") + b"\n"
+        monkeypatch.setattr(
+            verifier,
+            "_git_bytes",
+            lambda _root, _arguments, value=release_line: value,
+        )
+        with pytest.raises(
+            verifier.AttestationError,
+            match="contains a fair release event",
+        ):
+            verifier.verify_bootstrap_install(
+                ROOT,
+                base_sha,
+                head_sha,
+                "feature/install-attestation-verifier",
+            )
+
+
 def test_permissive_release_branch_nonrelease_path_turns_red():
     paths = [
         ".github/workflows/agent-fair-release-attestation.yml",

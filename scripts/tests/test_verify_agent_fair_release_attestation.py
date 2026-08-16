@@ -3,6 +3,7 @@
 import copy
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -149,6 +150,66 @@ def _release_repo(scratch_dir):
         "head_sha": head_sha,
         "root": root,
     }
+
+
+def _bootstrap_repo(scratch_dir):
+    root = scratch_dir / "bootstrap-repo"
+    _copy_release_tree(root)
+    shutil.rmtree(root / "apps" / "agent-fair")
+    _run(root, "git", "init", "-q")
+    _run(root, "git", "config", "user.name", "bootstrap-test")
+    _run(root, "git", "config", "user.email", "bootstrap@example.invalid")
+    _run(root, "git", "add", "apps")
+    _run(root, "git", "commit", "-q", "-m", "base without verifier")
+    base_sha = _run(root, "git", "rev-parse", "HEAD")
+    _run(root, "git", "checkout", "-q", "-b", "feature/bootstrap-verifier")
+    for relative in sorted(verifier.BOOTSTRAP_ALLOWED_PATHS):
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
+    _run(root, "git", "add", ".github", "apps/agent-fair", "scripts")
+    _run(root, "git", "commit", "-q", "-m", "install release verifier")
+    return {
+        "base_sha": base_sha,
+        "head_sha": _run(root, "git", "rev-parse", "HEAD"),
+        "root": root,
+    }
+
+
+def _run_bootstrap_workflow(case, head_ref):
+    workflow = (
+        ROOT
+        / ".github"
+        / "workflows"
+        / "agent-fair-release-attestation.yml"
+    ).read_text(encoding="utf-8")
+    marker = (
+        "      - name: Bootstrap verifier installation "
+        "without release authority\n"
+    )
+    section = workflow.split(marker, 1)[1]
+    script = section.split("        run: |\n", 1)[1]
+    script = "\n".join(
+        line[10:]
+        for line in script.splitlines()
+        if not line or line.startswith("          ")
+    )
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_SHA": case["base_sha"],
+            "HEAD_REF": head_ref,
+            "HEAD_SHA": case["head_sha"],
+        }
+    )
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=str(case["root"]),
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def _artifact_zip(value, extra=False):
@@ -508,6 +569,154 @@ def test_release_commit_edited_after_artifact_is_rejected(scratch_dir):
         )
 
 
+def test_missing_base_verifier_allows_exact_nonrelease_bootstrap(scratch_dir):
+    case = _bootstrap_repo(scratch_dir)
+    result = verifier.verify_bootstrap_install(
+        case["root"],
+        case["base_sha"],
+        case["head_sha"],
+        "feature/bootstrap-verifier",
+    )
+    assert result == {
+        "changed_paths": sorted(verifier.BOOTSTRAP_ALLOWED_PATHS),
+        "reason": "trusted base verifier is not installed yet",
+        "status": "bootstrap-not-release",
+        "valid": True,
+    }
+    workflow = _run_bootstrap_workflow(
+        case,
+        "feature/bootstrap-verifier",
+    )
+    assert workflow.returncode == 0, workflow.stderr
+    assert '"status": "bootstrap-not-release"' in workflow.stdout
+
+
+def test_missing_base_verifier_rejects_release_branch(scratch_dir):
+    case = _bootstrap_repo(scratch_dir)
+    with pytest.raises(
+        verifier.AttestationError,
+        match="cannot use a release branch",
+    ):
+        verifier.verify_bootstrap_install(
+            case["root"],
+            case["base_sha"],
+            case["head_sha"],
+            "release/agent-fair-123456789",
+        )
+    workflow = _run_bootstrap_workflow(
+        case,
+        "release/agent-fair-123456789",
+    )
+    assert workflow.returncode != 0
+    assert "cannot use a release branch" in workflow.stderr
+
+
+@pytest.mark.parametrize(
+    ("relative", "contents"),
+    (
+        ("apps/organism-frames.json", '{"edited":true}\n'),
+        ("apps/organism-frames.json.backup", "{}\n"),
+        ("apps/syndication/bootstrap-forgery.json", "{}\n"),
+    ),
+)
+def test_missing_base_verifier_rejects_generated_release_paths(
+    scratch_dir,
+    relative,
+    contents,
+):
+    case = _bootstrap_repo(scratch_dir)
+    target = case["root"] / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(contents, encoding="utf-8")
+    _run(case["root"], "git", "add", relative)
+    _run(case["root"], "git", "commit", "-q", "-m", "forged output")
+    with pytest.raises(
+        verifier.AttestationError,
+        match="forbidden generated release paths",
+    ):
+        verifier.verify_bootstrap_install(
+            case["root"],
+            case["base_sha"],
+            _run(case["root"], "git", "rev-parse", "HEAD"),
+            "feature/bootstrap-verifier",
+        )
+    case["head_sha"] = _run(case["root"], "git", "rev-parse", "HEAD")
+    workflow = _run_bootstrap_workflow(
+        case,
+        "feature/bootstrap-verifier",
+    )
+    assert workflow.returncode != 0
+    assert "forbidden generated release paths" in workflow.stderr
+
+
+def test_missing_base_verifier_rejects_fair_release_frame(scratch_dir):
+    case = _bootstrap_repo(scratch_dir)
+    root = case["root"]
+    candidate = fair._load_json(
+        root / "apps" / "agent-fair" / "release-candidate.json"
+    )
+    organism_ledger.append_frame(
+        "zoo.observation",
+        fair._render_release_frame_payload(
+            candidate,
+            _approval_evidence(),
+        ),
+        utc=_release_utc(root),
+        ledger_path=root / "apps" / "organism-frames.jsonl",
+        projection_path=root / "apps" / "organism-frames.json",
+    )
+    _run(
+        root,
+        "git",
+        "add",
+        "apps/organism-frames.json",
+        "apps/organism-frames.jsonl",
+    )
+    _run(root, "git", "commit", "-q", "-m", "forged release")
+    with pytest.raises(
+        verifier.AttestationError,
+        match="contains a fair release event",
+    ):
+        verifier.verify_bootstrap_install(
+            root,
+            case["base_sha"],
+            _run(root, "git", "rev-parse", "HEAD"),
+            "feature/bootstrap-verifier",
+        )
+    case["head_sha"] = _run(root, "git", "rev-parse", "HEAD")
+    workflow = _run_bootstrap_workflow(
+        case,
+        "feature/bootstrap-verifier",
+    )
+    assert workflow.returncode != 0
+    assert "contains a fair release event" in workflow.stderr
+
+
+def test_missing_base_verifier_rejects_nonbootstrap_path(scratch_dir):
+    case = _bootstrap_repo(scratch_dir)
+    target = case["root"] / "README.md"
+    target.write_text("unrelated change\n", encoding="utf-8")
+    _run(case["root"], "git", "add", "README.md")
+    _run(case["root"], "git", "commit", "-q", "-m", "unrelated")
+    with pytest.raises(
+        verifier.AttestationError,
+        match="outside the one-time allowlist",
+    ):
+        verifier.verify_bootstrap_install(
+            case["root"],
+            case["base_sha"],
+            _run(case["root"], "git", "rev-parse", "HEAD"),
+            "feature/bootstrap-verifier",
+        )
+    case["head_sha"] = _run(case["root"], "git", "rev-parse", "HEAD")
+    workflow = _run_bootstrap_workflow(
+        case,
+        "feature/bootstrap-verifier",
+    )
+    assert workflow.returncode != 0
+    assert "outside one-time allowlist" in workflow.stderr
+
+
 def test_workflows_and_codeowners_close_provenance_path():
     release = (
         ROOT / ".github" / "workflows" / "agent-fair-release.yml"
@@ -543,6 +752,26 @@ def test_workflows_and_codeowners_close_provenance_path():
     assert "contents: read" in attestation
     assert "--head-ref" in attestation
     assert (
+        'git cat-file -e "${BASE_SHA}:scripts/'
+        'verify_agent_fair_release_attestation.py"'
+    ) in attestation
+    assert (
+        "if: steps.trusted.outputs.available == 'true'"
+    ) in attestation
+    assert (
+        "if: steps.trusted.outputs.available == 'false'"
+    ) in attestation
+    assert "bootstrap-not-release" in attestation
+    assert '"apps/organism-frames.jsonl"' in attestation
+    assert '"apps/syndication/"' in attestation
+    assert (
+        '"scripts/verify_agent_fair_release_attestation.py"'
+        in attestation
+    )
+    assert attestation.index("Detect trusted base verifier") < (
+        attestation.index("Materialize trusted verifier")
+    )
+    assert (
         '${{ github.event.pull_request.base.sha }}:scripts/'
         "verify_agent_fair_release_attestation.py"
     ) in attestation
@@ -565,8 +794,12 @@ def test_workflows_and_codeowners_close_provenance_path():
     ).read_text(encoding="utf-8")
     assert "PROTECTED_RELEASE_PATHS" in source
     assert "PROTECTED_RELEASE_PREFIXES" in source
+    assert "BOOTSTRAP_ALLOWED_PATHS" in source
+    assert "BOOTSTRAP_FORBIDDEN_PATHS" in source
+    assert "BOOTSTRAP_FORBIDDEN_PREFIXES" in source
     assert "def _changed_paths(" in source
     assert "def _protected_changed_paths(" in source
+    assert "def verify_bootstrap_install(" in source
 
 
 def test_attestation_contains_no_token_or_jwt_fields(scratch_dir):

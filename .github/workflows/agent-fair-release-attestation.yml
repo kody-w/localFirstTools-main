@@ -30,7 +30,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Detect trusted base verifier
+        id: trusted
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          if git cat-file -e "${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Materialize trusted verifier from pull request base
+        if: steps.trusted.outputs.available == 'true'
         shell: bash
         run: |
           trusted="${RUNNER_TEMP}/agent-fair-release-verifier"
@@ -39,7 +52,8 @@ jobs:
           git show "${{ github.event.pull_request.base.sha }}:scripts/agent_world_fair.py" > "$trusted/agent_world_fair.py"
           git show "${{ github.event.pull_request.base.sha }}:scripts/organism_ledger.py" > "$trusted/organism_ledger.py"
 
-      - name: Verify release attestation or pass non-release PR
+      - name: Verify with trusted base verifier
+        if: steps.trusted.outputs.available == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
@@ -53,3 +67,125 @@ jobs:
           --head-sha "${{ github.event.pull_request.head.sha }}"
           --head-ref "${{ github.event.pull_request.head.ref }}"
           --wait-seconds 300
+
+      - name: Bootstrap verifier installation without release authority
+        if: steps.trusted.outputs.available == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          release_prefix = "agent-worlds-fair-release:"
+          allowed = {
+              ".github/CODEOWNERS",
+              ".github/workflows/agent-fair-release-attestation.yml",
+              ".github/workflows/agent-fair-release.yml",
+              "apps/agent-fair/agent-contract.json",
+              "apps/agent-fair/district.json",
+              "apps/agent-fair/events.jsonl",
+              "apps/agent-fair/fair-state.json",
+              "apps/agent-fair/release-candidate.json",
+              "scripts/tests/test_verify_agent_fair_release_attestation.py",
+              "scripts/verify_agent_fair_release_attestation.py",
+          }
+          forbidden = {
+              "apps/organism-frames.json",
+              "apps/organism-frames.jsonl",
+          }
+          forbidden_prefixes = (
+              "apps/organism-frames.json",
+              "apps/syndication/",
+          )
+
+          def git(*arguments):
+              result = subprocess.run(
+                  ["git", *arguments],
+                  capture_output=True,
+                  check=False,
+              )
+              if result.returncode != 0:
+                  raise SystemExit(
+                      result.stderr.decode("utf-8", "replace")
+                      or "bootstrap git command failed"
+                  )
+              return result.stdout
+
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
+          head_ref = os.environ["HEAD_REF"]
+          if head_ref.startswith("release/agent-fair-"):
+              raise SystemExit(
+                  "bootstrap pull request cannot use a release branch"
+              )
+          ledger = git(
+              "show",
+              head + ":apps/organism-frames.jsonl",
+          )
+          for line in ledger.splitlines():
+              try:
+                  frame = json.loads(line.decode("utf-8"))
+              except (UnicodeError, ValueError):
+                  continue
+              payload = frame.get("payload", {}) if isinstance(
+                  frame, dict
+              ) else {}
+              if (
+                  isinstance(payload, dict)
+                  and (
+                      payload.get("event")
+                      == "agent-worlds-fair-release"
+                      or str(payload.get("event_id", "")).startswith(
+                          release_prefix
+                      )
+                  )
+              ):
+                  raise SystemExit(
+                      "bootstrap pull request contains a fair release event"
+                  )
+          changed = sorted({
+              value.decode("utf-8")
+              for value in git(
+                  "diff",
+                  "--name-only",
+                  "-z",
+                  base,
+                  head,
+              ).split(b"\x00")
+              if value
+          })
+          blocked = [
+              path
+              for path in changed
+              if (
+                  path in forbidden
+                  or any(
+                      path.startswith(prefix)
+                      for prefix in forbidden_prefixes
+                  )
+              )
+          ]
+          if blocked:
+              raise SystemExit(
+                  "bootstrap changes forbidden generated release paths: "
+                  + ", ".join(blocked)
+              )
+          unexpected = [path for path in changed if path not in allowed]
+          if unexpected:
+              raise SystemExit(
+                  "bootstrap changes paths outside one-time allowlist: "
+                  + ", ".join(unexpected)
+              )
+          print(json.dumps({
+              "changed_paths": changed,
+              "reason": "trusted base verifier is not installed yet",
+              "status": "bootstrap-not-release",
+              "valid": True,
+          }, sort_keys=True))
+          PY

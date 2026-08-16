@@ -66,6 +66,26 @@ PROTECTED_RELEASE_PREFIXES = (
     "apps/agent-fair/",
     "apps/syndication/",
 )
+BOOTSTRAP_ALLOWED_PATHS = {
+    ".github/CODEOWNERS",
+    ".github/workflows/agent-fair-release-attestation.yml",
+    ".github/workflows/agent-fair-release.yml",
+    "apps/agent-fair/agent-contract.json",
+    "apps/agent-fair/district.json",
+    "apps/agent-fair/events.jsonl",
+    "apps/agent-fair/fair-state.json",
+    "apps/agent-fair/release-candidate.json",
+    "scripts/tests/test_verify_agent_fair_release_attestation.py",
+    "scripts/verify_agent_fair_release_attestation.py",
+}
+BOOTSTRAP_FORBIDDEN_PATHS = {
+    "apps/organism-frames.json",
+    "apps/organism-frames.jsonl",
+}
+BOOTSTRAP_FORBIDDEN_PREFIXES = (
+    "apps/organism-frames.json",
+    "apps/syndication/",
+)
 
 
 class AttestationError(ValueError):
@@ -170,6 +190,62 @@ def _release_lines(raw: bytes) -> List[bytes]:
         ):
             result.append(line)
     return result
+
+
+def verify_bootstrap_install(
+    root: Path,
+    base_sha: str,
+    head_sha: str,
+    head_ref: str,
+) -> Dict[str, Any]:
+    repository = Path(root).resolve()
+    _require(
+        type(head_ref) is str
+        and not head_ref.startswith(RELEASE_BRANCH_PREFIX),
+        "bootstrap pull request cannot use a release branch",
+    )
+    changed_paths = _changed_paths(repository, base_sha, head_sha)
+    head_raw = _git_bytes(
+        repository,
+        [
+            "show",
+            "{}:{}".format(head_sha, LEDGER_RELATIVE.as_posix()),
+        ],
+    )
+    _require(
+        not _release_lines(head_raw),
+        "bootstrap pull request contains a fair release event",
+    )
+    forbidden = [
+        path
+        for path in changed_paths
+        if (
+            path in BOOTSTRAP_FORBIDDEN_PATHS
+            or any(
+                path.startswith(prefix)
+                for prefix in BOOTSTRAP_FORBIDDEN_PREFIXES
+            )
+        )
+    ]
+    _require(
+        not forbidden,
+        "bootstrap pull request changes forbidden generated release paths",
+    )
+    disallowed = [
+        path
+        for path in changed_paths
+        if path not in BOOTSTRAP_ALLOWED_PATHS
+    ]
+    _require(
+        not disallowed,
+        "bootstrap pull request changes paths outside the one-time allowlist",
+    )
+    return {
+        "changed_paths": changed_paths,
+        "reason": "trusted base verifier is not installed yet",
+        "status": "bootstrap-not-release",
+        "valid": True,
+    }
 
 
 def _read_verified_frames(raw: bytes) -> List[Dict[str, Any]]:
