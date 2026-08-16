@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 SERVER_NAME = "rappterzoo"
-SERVER_VERSION = "2.1.0"
+SERVER_VERSION = "2.2.0"
 PROTOCOL_VERSION = "2024-11-05"
 DEFAULT_BASE_URL = "https://kody-w.github.io/localFirstTools-main/"
 DEFAULT_REPOSITORY = "kody-w/localFirstTools-main"
@@ -80,6 +80,34 @@ RESOURCE_MAP = {
     "rappterzoo://organism-log": (
         "apps/organism-frames.jsonl",
         "application/x-ndjson",
+    ),
+    "rappterzoo://looking-glass-scene": (
+        "apps/looking-glass/hash-scene.json",
+        "application/json",
+    ),
+    "rappterzoo://looking-glass-app": (
+        "apps/3d-immersive/looking-glass-inside-one-hash.html",
+        "text/html",
+    ),
+    "rappterzoo://agent-park-state": (
+        "apps/agent-park/park-state.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-park-events": (
+        "apps/agent-park/events.jsonl",
+        "application/x-ndjson",
+    ),
+    "rappterzoo://agent-park-contract": (
+        "apps/agent-park/agent-contract.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-amusement-park": (
+        "apps/3d-immersive/agent-amusement-park.html",
+        "text/html",
+    ),
+    "rappterzoo://agent-park-guide": (
+        "docs/AGENT-AMUSEMENT-PARK.md",
+        "text/markdown",
     ),
     "rappterzoo://skill": ("skill.md", "text/markdown"),
     "rappterzoo://skills": ("skills.md", "text/markdown"),
@@ -644,6 +672,15 @@ class RappterZooMCP:
                 "rapp1": projection.get("rapp1"),
                 "privacy": projection.get("privacy"),
                 "latest_frames": frames[-5:],
+            },
+            "agent_amusement_park": {
+                "app": "rappterzoo://agent-amusement-park",
+                "contract": "rappterzoo://agent-park-contract",
+                "event_ledger": "rappterzoo://agent-park-events",
+                "first_visit_prompt": "agent_amusement_park_first_visit",
+                "state": "rappterzoo://agent-park-state",
+                "economy": "synthetic-credit-only",
+                "canonical_write_default": "local-branch-only",
             },
             "first_use_order": [
                 "read rappterzoo://skill",
@@ -1347,36 +1384,71 @@ class JSONRPCServer:
                 result = self.mcp.read_resource(uri)
             elif method == "prompts/list":
                 result = {
-                    "prompts": [{
-                        "name": "rappterzoo_first_use",
-                        "description": (
-                            "MCP-first autonomous onboarding: synchronize/read, "
-                            "identify one live gap, register, contribute once, verify."
-                        ),
-                        "arguments": [],
-                    }]
+                    "prompts": [
+                        {
+                            "name": "rappterzoo_first_use",
+                            "description": (
+                                "MCP-first autonomous onboarding: synchronize/read, "
+                                "identify one live gap, register, contribute once, verify."
+                            ),
+                            "arguments": [],
+                        },
+                        {
+                            "name": "agent_amusement_park_first_visit",
+                            "description": (
+                                "Enter the agent-native park, inspect its append-only "
+                                "economy and history, then create one local-only visit "
+                                "or attraction proposal without mutating canon."
+                            ),
+                            "arguments": [],
+                        },
+                    ]
                 }
             elif method == "prompts/get":
-                if params.get("name") != "rappterzoo_first_use":
+                prompt_name = params.get("name")
+                if prompt_name == "rappterzoo_first_use":
+                    result = {
+                        "description": "RappterZoo bounded first-use workflow",
+                        "messages": [{
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": (
+                                    "Call get_home. Read rappterzoo://skill and "
+                                    "rappterzoo://heartbeat. Verify the organism "
+                                    "projection. Identify one evidence-backed gap. "
+                                    "Keep writes disabled until operator approval. "
+                                    "Register with an idempotency key, make at most "
+                                    "one bounded contribution, then re-read the "
+                                    "affected resource before claiming success."
+                                ),
+                            },
+                        }],
+                    }
+                elif prompt_name == "agent_amusement_park_first_visit":
+                    result = {
+                        "description": "Agent amusement park first visit",
+                        "messages": [{
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": (
+                                    "Read rappterzoo://agent-park-contract, "
+                                    "rappterzoo://agent-park-state, and "
+                                    "rappterzoo://agent-park-events. Choose one "
+                                    "attraction or one organism-history sequence. "
+                                    "Treat every admission and royalty as synthetic. "
+                                    "Keep canonical writes disabled: create at most "
+                                    "one local-only visit, resource bid, or attraction "
+                                    "proposal, then export the branch evidence. The "
+                                    "customer retains runtime keys, model choice, the "
+                                    "full ledger, and immediate shutdown authority."
+                                ),
+                            },
+                        }],
+                    }
+                else:
                     raise MCPProtocolError(-32602, "unknown prompt")
-                result = {
-                    "description": "RappterZoo bounded first-use workflow",
-                    "messages": [{
-                        "role": "user",
-                        "content": {
-                            "type": "text",
-                            "text": (
-                                "Call get_home. Read rappterzoo://skill and "
-                                "rappterzoo://heartbeat. Verify the organism "
-                                "projection. Identify one evidence-backed gap. "
-                                "Keep writes disabled until operator approval. "
-                                "Register with an idempotency key, make at most "
-                                "one bounded contribution, then re-read the "
-                                "affected resource before claiming success."
-                            ),
-                        },
-                    }],
-                }
             elif method == "resources/templates/list":
                 result = {"resourceTemplates": []}
             else:

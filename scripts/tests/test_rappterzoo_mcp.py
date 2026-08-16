@@ -169,6 +169,13 @@ def test_initialize_lists_real_tools_and_resources(tmp_path):
         item["uri"] == "rappterzoo://organism-frames"
         for item in resources
     )
+    assert {
+        "rappterzoo://agent-park-contract",
+        "rappterzoo://agent-park-events",
+        "rappterzoo://agent-park-state",
+        "rappterzoo://agent-amusement-park",
+        "rappterzoo://agent-park-guide",
+    }.issubset({item["uri"] for item in resources})
 
 
 def test_home_is_bounded_and_data_derived(tmp_path):
@@ -181,6 +188,12 @@ def test_home_is_bounded_and_data_derived(tmp_path):
     assert len(value["quality"]["lowest_scored"]) == 2
     assert len(value["organism"]["latest_frames"]) <= 5
     assert value["writes_enabled"] is False
+    assert value["agent_amusement_park"]["economy"] == (
+        "synthetic-credit-only"
+    )
+    assert value["agent_amusement_park"]["canonical_write_default"] == (
+        "local-branch-only"
+    )
 
 
 def test_resource_reads_are_allowlisted(tmp_path):
@@ -422,7 +435,8 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     server = make_server(tmp_path)
     prompts = call(server, "prompts/list")["result"]["prompts"]
     assert [item["name"] for item in prompts] == [
-        "rappterzoo_first_use"
+        "rappterzoo_first_use",
+        "agent_amusement_park_first_visit",
     ]
     prompt = call(
         server,
@@ -432,6 +446,15 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     text = prompt["messages"][0]["content"]["text"]
     assert "get_home" in text
     assert "at most one bounded contribution" in text
+    park_prompt = call(
+        server,
+        "prompts/get",
+        {"name": "agent_amusement_park_first_visit"},
+    )["result"]
+    park_text = park_prompt["messages"][0]["content"]["text"]
+    assert "rappterzoo://agent-park-contract" in park_text
+    assert "local-only visit" in park_text
+    assert "immediate shutdown authority" in park_text
 
 
 def test_server_source_has_no_unsafe_execution_sink():

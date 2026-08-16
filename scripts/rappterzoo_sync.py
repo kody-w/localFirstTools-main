@@ -36,12 +36,32 @@ PROFILE_V5 = "rappterzoo-syndication-profile/5"
 PROFILE_V6 = "rappterzoo-syndication-profile/6"
 PROFILE_V7 = "rappterzoo-syndication-profile/7"
 PROFILE_V8 = "rappterzoo-syndication-profile/8"
-PROFILE = "rappterzoo-syndication-profile/9"
+PROFILE_V9 = "rappterzoo-syndication-profile/9"
+PROFILE = "rappterzoo-syndication-profile/10"
+AGENT_PARK_PAYLOAD_SPACE = "rappterzoo/agent-park-payload/1"
+AGENT_PARK_EVENT_SPACE = "rappterzoo/agent-park-event/1"
+AGENT_PARK_EVENT_SCHEMA = "rappterzoo-agent-park-event/1"
+AGENT_PARK_EVENT_KEYS = {
+    "event_hash",
+    "kind",
+    "park_id",
+    "payload",
+    "payload_hash",
+    "prev",
+    "schema",
+    "seq",
+    "utc",
+    "visibility",
+}
 FRAME_SCHEMA = "rappterzoo-organism-frame/1"
 MAX_INDEX_BYTES = 8 * 1024 * 1024
 MAX_DELTA_BYTES = 16 * 1024 * 1024
 MAX_APP_BYTES = 32 * 1024 * 1024
 MAX_PUBLIC_DATA_BYTES = 4 * 1024 * 1024
+SAFE_FALSE_PUBLIC_POLICY_KEYS = {
+    "privatemediainpublicledger",
+    "pulsepersisted",
+}
 MAX_SAFE_INTEGER = (1 << 53) - 1
 MAX_CANONICAL_BYTES = 1024 * 1024
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -423,6 +443,51 @@ def frame_hash_value(space: str, value: Any) -> str:
     ).hexdigest()
 
 
+def validate_agent_park_event_ledger(
+    events: Any,
+) -> List[Dict[str, Any]]:
+    if not isinstance(events, list) or not events:
+        raise SyncError("agent park event ledger must be non-empty")
+    previous = None
+    for index, event in enumerate(events):
+        if type(event) is not dict or set(event) != AGENT_PARK_EVENT_KEYS:
+            raise SyncError(
+                "agent park event {} has an invalid key set".format(index)
+            )
+        if (
+            event["schema"] != AGENT_PARK_EVENT_SCHEMA
+            or event["park_id"]
+            != "park.rappterzoo-agent-amusement-park"
+            or event["visibility"] != "public-metadata"
+            or event["seq"] != index
+            or type(event["payload"]) is not dict
+        ):
+            raise SyncError("invalid agent park event ledger")
+        if event["prev"] != (
+            previous["event_hash"] if previous else None
+        ):
+            raise SyncError("agent park event chain is broken")
+        if previous is not None and event["utc"] < previous["utc"]:
+            raise SyncError("agent park event timestamps are not monotonic")
+        if event["payload_hash"] != frame_hash_value(
+            AGENT_PARK_PAYLOAD_SPACE,
+            event["payload"],
+        ):
+            raise SyncError("agent park payload hash mismatch")
+        projected = {
+            key: value
+            for key, value in event.items()
+            if key != "event_hash"
+        }
+        if event["event_hash"] != frame_hash_value(
+            AGENT_PARK_EVENT_SPACE,
+            projected,
+        ):
+            raise SyncError("agent park event hash mismatch")
+        previous = event
+    return events
+
+
 def _privacy_key_token(key: str) -> str:
     return "".join(
         character.lower()
@@ -677,6 +742,8 @@ def validate_tombstone(
 
 def _data_key_is_sensitive(key: str, value: Any) -> bool:
     token = _privacy_key_token(key)
+    if token in SAFE_FALSE_PUBLIC_POLICY_KEYS and value is False:
+        return False
     if token == "token" and (
         value is False
         or (
@@ -892,15 +959,18 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     public_root = any(
         path.startswith("apps/{}/".format(directory))
         for directory in (
+            "agent-park",
             "attention",
             "fold",
             "fold-at-home",
+            "looking-glass",
             "shards",
         )
     )
     if (
         not public_root
         or kind not in {
+            "agent-amusement-park-object",
             "attention-group-object",
             "attention-dimension-object",
             "fold-action-receipt",
@@ -911,6 +981,7 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
             "fold-shard-dimension-object",
             "fold-shard-lease",
             "fold-shard-result-object",
+            "looking-glass-scene-object",
         }
         or type(digest) is not str
         or not HASH_RE.fullmatch(digest)
@@ -930,6 +1001,42 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
         }
     ):
         raise SyncError("invalid or unpinned public data descriptor")
+    if kind == "agent-amusement-park-object" and (
+        not path.startswith("apps/agent-park/")
+        or metadata.get("park_id")
+        != "park.rappterzoo-agent-amusement-park"
+        or metadata.get("visibility") != "public-metadata"
+        or metadata.get("resource_type")
+        not in {"agent-contract", "event-ledger", "state"}
+        or type(metadata.get("schema")) is not str
+    ):
+        raise SyncError("invalid agent amusement park descriptor metadata")
+    if (
+        kind == "agent-amusement-park-object"
+        and metadata["resource_type"] in {"event-ledger", "state"}
+        and (
+            type(metadata.get("event_count")) is not int
+            or metadata["event_count"] < 1
+            or type(metadata.get("event_head")) is not str
+            or not HASH_RE.fullmatch(metadata["event_head"])
+        )
+    ):
+        raise SyncError("agent amusement park ledger metadata is invalid")
+    if (
+        kind == "agent-amusement-park-object"
+        and metadata["resource_type"] == "state"
+        and metadata.get("night_count") != 7
+    ):
+        raise SyncError("agent amusement park state must contain seven nights")
+    if (
+        kind == "agent-amusement-park-object"
+        and metadata["resource_type"] == "agent-contract"
+        and (
+            type(metadata.get("contract_digest")) is not str
+            or not HASH_RE.fullmatch(metadata["contract_digest"])
+        )
+    ):
+        raise SyncError("agent amusement park contract digest is invalid")
     if kind in {
         "attention-dimension-object",
         "fold-shard-dimension-object",
@@ -952,6 +1059,20 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
             != sha256_bytes(stable_json_bytes(drift))
         ):
             raise SyncError("dimension descriptor lacks deterministic drift metadata")
+    if kind == "looking-glass-scene-object" and (
+        not path.startswith("apps/looking-glass/")
+        or metadata.get("schema")
+        != "rappterzoo-looking-glass-scene/1"
+        or metadata.get("visibility") != "public-metadata"
+        or type(metadata.get("experience_id")) is not str
+        or not metadata["experience_id"]
+        or type(metadata.get("target_frame_hash")) is not str
+        or not HASH_RE.fullmatch(metadata["target_frame_hash"])
+        or type(metadata.get("scene_digest")) is not str
+        or not HASH_RE.fullmatch(metadata["scene_digest"])
+        or metadata.get("dimension_count") != 7
+    ):
+        raise SyncError("invalid Looking Glass descriptor metadata")
     if kind.startswith("fold-"):
         synthetic_cycle_kinds = {
             "fold-action-receipt",
@@ -1339,6 +1460,7 @@ def validate_index(
                 PROFILE_V6,
                 PROFILE_V7,
                 PROFILE_V8,
+                PROFILE_V9,
                 PROFILE,
             }
             or (
@@ -1349,6 +1471,7 @@ def validate_index(
                     PROFILE_V6,
                     PROFILE_V7,
                     PROFILE_V8,
+                    PROFILE_V9,
                     PROFILE,
                 }
                 and (
@@ -1458,6 +1581,7 @@ def validate_delta(
             PROFILE_V6,
             PROFILE_V7,
             PROFILE_V8,
+            PROFILE_V9,
             PROFILE,
         }
         else legacy_keys
@@ -1480,6 +1604,7 @@ def validate_delta(
                 PROFILE_V6,
                 PROFILE_V7,
                 PROFILE_V8,
+                PROFILE_V9,
                 PROFILE,
             }
             and computed_segments["data"]["sha256"]
@@ -1503,6 +1628,7 @@ def validate_delta(
             PROFILE_V6,
             PROFILE_V7,
             PROFILE_V8,
+            PROFILE_V9,
             PROFILE,
         }
         or entry.get("profile") != profile
@@ -1569,6 +1695,7 @@ def validate_delta(
         PROFILE_V6,
         PROFILE_V7,
         PROFILE_V8,
+        PROFILE_V9,
         PROFILE,
     }:
         changes["data_upserts"] = data_upserts
@@ -1686,6 +1813,7 @@ def _fetch_app_object(
     if sha256_bytes(data) != descriptor["sha256"]:
         raise SyncError("object hash mismatch for {}".format(descriptor["path"]))
     if descriptor.get("kind") in {
+        "agent-amusement-park-object",
         "attention-group-object",
         "attention-dimension-object",
         "fold-action-receipt",
@@ -1696,6 +1824,7 @@ def _fetch_app_object(
         "fold-shard-dimension-object",
         "fold-shard-lease",
         "fold-shard-result-object",
+        "looking-glass-scene-object",
     }:
         parsed = validate_public_data_bytes(
             data,
@@ -1703,6 +1832,82 @@ def _fetch_app_object(
         )
         if descriptor["kind"].startswith("fold-"):
             validate_shard_object_bytes(parsed, descriptor)
+        if descriptor["kind"] == "agent-amusement-park-object":
+            metadata = descriptor["metadata"]
+            resource_type = metadata["resource_type"]
+            root_value = (
+                parsed[0]
+                if isinstance(parsed, list) and parsed
+                else parsed
+            )
+            if (
+                resource_type == "state"
+                and (
+                    type(parsed) is not dict
+                    or parsed.get("schema")
+                    != "rappterzoo-agent-amusement-park/1"
+                    or parsed.get("park_id") != metadata["park_id"]
+                    or parsed.get("night_count") != 7
+                    or type(parsed.get("event_ledger")) is not dict
+                    or parsed["event_ledger"].get("head")
+                    != metadata["event_head"]
+                )
+            ):
+                raise SyncError("agent amusement park state mismatches descriptor")
+            if (
+                resource_type == "agent-contract"
+                and (
+                    type(parsed) is not dict
+                    or parsed.get("schema")
+                    != "rappterzoo-agent-park-contract/1"
+                    or parsed.get("park_id") != metadata["park_id"]
+                    or type(parsed.get("integrity")) is not dict
+                    or parsed["integrity"].get("contract_digest")
+                    != metadata["contract_digest"]
+                )
+            ):
+                raise SyncError(
+                    "agent amusement park contract mismatches descriptor"
+                )
+            if (
+                resource_type == "event-ledger"
+                and (
+                    not isinstance(parsed, list)
+                    or not parsed
+                    or not validate_agent_park_event_ledger(parsed)
+                    or root_value.get("schema")
+                    != "rappterzoo-agent-park-event/1"
+                    or parsed[-1].get("event_hash")
+                    != metadata["event_head"]
+                    or len(parsed) != metadata["event_count"]
+                )
+            ):
+                raise SyncError(
+                    "agent amusement park ledger mismatches descriptor"
+                )
+        if descriptor["kind"] == "looking-glass-scene-object" and (
+            type(parsed) is not dict
+            or parsed.get("schema")
+            != "rappterzoo-looking-glass-scene/1"
+            or (
+                parsed.get("status") != "public-structural-view"
+                and (
+                    parsed.get("visibility") != "public-metadata"
+                    or parsed.get("experience_id")
+                    != descriptor["metadata"]["experience_id"]
+                )
+            )
+            or type(parsed.get("target_frame")) is not dict
+            or parsed["target_frame"].get("frame_hash")
+            != descriptor["metadata"]["target_frame_hash"]
+            or type(parsed.get("integrity")) is not dict
+            or parsed["integrity"].get("scene_digest")
+            != descriptor["metadata"]["scene_digest"]
+            or type(parsed.get("dimensions")) is not list
+            or len(parsed["dimensions"])
+            != descriptor["metadata"]["dimension_count"]
+        ):
+            raise SyncError("Looking Glass scene does not match descriptor")
     path, created = _store_object(
         state_dir,
         descriptor["sha256"],
@@ -1750,12 +1955,26 @@ def _effective_data_descriptors(
     connection: sqlite3.Connection,
     deltas: Sequence[Tuple[Dict[str, Any], str, Dict[str, Any]]],
 ) -> List[Dict[str, Any]]:
-    effective = {
-        row["path"]: {
+    effective = {}
+    for row in connection.execute(
+        """
+        SELECT path, kind, url, sha256, size, media_type, metadata_json
+        FROM data_objects WHERE deleted = 0
+        """
+    ):
+        try:
+            metadata = json.loads(row["metadata_json"])
+        except (TypeError, ValueError) as error:
+            raise SyncError(
+                "stored public data metadata is invalid"
+            ) from error
+        if type(metadata) is not dict:
+            raise SyncError("stored public data metadata must be an object")
+        effective[row["path"]] = {
             "content_id": "sha256:{}".format(row["sha256"]),
             "kind": row["kind"],
             "media_type": row["media_type"],
-            "metadata": {},
+            "metadata": metadata,
             "path": row["path"],
             "sha256": row["sha256"],
             "size": row["size"],
@@ -1765,13 +1984,6 @@ def _effective_data_descriptors(
                 "required": True,
             },
         }
-        for row in connection.execute(
-            """
-            SELECT path, kind, url, sha256, size, media_type
-            FROM data_objects WHERE deleted = 0
-            """
-        )
-    }
     for _entry, _delta_url, delta in deltas:
         for descriptor in delta["changes"].get("data_upserts", []):
             effective[descriptor["path"]] = descriptor
