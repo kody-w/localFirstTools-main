@@ -784,12 +784,20 @@ def test_workflows_and_codeowners_close_provenance_path():
     assert release.index("actions/upload-artifact@v4") < release.index(
         "gh pr create"
     )
+    assert "Dispatch required release pull request checks" in release
+    assert "gh workflow run moonshot-gate.yml" in release
+    assert "gh workflow run agent-fair-release-attestation.yml" in release
     assert not re.search(
         r"git\s+push[^\n]*(?:HEAD:main|refs/heads/main|origin\s+main)",
         release,
         re.IGNORECASE,
     )
     assert "pull_request:" in attestation
+    assert "workflow_dispatch:" in attestation
+    for input_name in ("pr_number:", "base_sha:", "head_sha:", "head_ref:"):
+        assert input_name in attestation
+    assert 'test "$HEAD_SHA" = "$GITHUB_SHA"' in attestation
+    assert 'test "$HEAD_REF" = "$GITHUB_REF_NAME"' in attestation
     assert "agent-fair-release-attestation:" in attestation
     assert "actions: read" in attestation
     assert "pull-requests: read" in attestation
@@ -816,8 +824,8 @@ def test_workflows_and_codeowners_close_provenance_path():
         attestation.index("Materialize trusted verifier")
     )
     assert (
-        '${{ github.event.pull_request.base.sha }}:scripts/'
-        "verify_agent_fair_release_attestation.py"
+        'git show "${BASE_SHA}:scripts/'
+        'verify_agent_fair_release_attestation.py"'
     ) in attestation
     assert (
         '"${RUNNER_TEMP}/agent-fair-release-verifier/'

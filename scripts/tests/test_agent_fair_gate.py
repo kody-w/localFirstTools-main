@@ -584,6 +584,10 @@ def test_release_artifact_after_pr_turns_red():
             "    paths:\n"
             "      - apps/agent-fair/**\n",
         ),
+        (
+            '          test "$HEAD_SHA" = "$GITHUB_SHA"\n',
+            "",
+        ),
     ],
 )
 def test_all_pr_attestation_workflow_mutations_turn_red(old, new):
@@ -644,10 +648,8 @@ def test_all_pr_attestation_workflow_mutations_turn_red(old, new):
             'str(payload.get("event_id", "")).endswith(',
         ),
         (
-            '${{ github.event.pull_request.base.sha }}:scripts/'
-            "agent_world_fair.py",
-            '${{ github.event.pull_request.head.sha }}:scripts/'
-            "agent_world_fair.py",
+            '${BASE_SHA}:scripts/agent_world_fair.py',
+            '${HEAD_SHA}:scripts/agent_world_fair.py',
         ),
         (
             '              "skill.md",\n',
