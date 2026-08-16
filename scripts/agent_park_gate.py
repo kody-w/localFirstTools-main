@@ -709,7 +709,20 @@ def _check_experience_frames(root: Path) -> str:
     payload = release.get("payload", {})
     bundle_digest = state.get("integrity", {}).get("bundle_digest")
     event_head = state.get("event_ledger", {}).get("head")
-    _require(release is frames[-1], "park release frame must be the latest organism frame")
+    later_park_releases = [
+        frame
+        for frame in frames[release["seq"] + 1:]
+        if (
+            frame.get("payload", {}).get("organism") == PARK_ID
+            and str(
+                frame.get("payload", {}).get("event_id", "")
+            ).startswith(EXPERIENCE_RELEASE_PREFIX)
+        )
+    ]
+    _require(
+        not later_park_releases,
+        "park release frame must be the latest release for the park organism",
+    )
     _require(release.get("kind") == "zoo.mutation", "park release frame kind must be zoo.mutation")
     _require(payload.get("event") == "experience-release", "release event marker mismatch")
     _require(payload.get("event_id") == EXPERIENCE_RELEASE_PREFIX + bundle_digest, "release event id is not bundle-bound")
@@ -772,16 +785,24 @@ def _check_data_descriptors(root: Path) -> str:
         root,
         "https://kody-w.github.io/localFirstTools-main/",
     )
-    _require(
-        snapshot.get("data_objects") == expected_descriptors,
-        "profile-10 public data descriptors do not match derived repository objects",
-    )
+    expected_by_path = {
+        item.get("path"): item
+        for item in expected_descriptors
+        if type(item) is dict
+    }
     descriptors = {
         item.get("path"): item
         for item in snapshot.get("data_objects", [])
         if type(item) is dict
     }
     _require(PARK_RESOURCE_PATHS.issubset(descriptors), "profile-10 snapshot lacks park data descriptors")
+    for relative in PARK_RESOURCE_PATHS:
+        _require(
+            descriptors[relative] == expected_by_path.get(relative),
+            "{} descriptor does not match the derived park object".format(
+                relative
+            ),
+        )
     state = _json(root / STATE_RELATIVE)
     contract_v2 = _json(root / CONTRACT_V2_RELATIVE)
     for relative in PARK_RESOURCE_PATHS:
@@ -811,31 +832,40 @@ def _check_data_descriptors(root: Path) -> str:
     _require(v2_metadata.get("resource_type") == "agent-contract-v2", "v2 contract descriptor type mismatch")
     _require(v2_metadata.get("contract_digest") == contract_v2.get("integrity", {}).get("contract_digest"), "v2 descriptor contract digest mismatch")
     _require(v2_metadata.get("bundle_digest") == state.get("integrity", {}).get("bundle_digest"), "v2 descriptor bundle digest mismatch")
-    head_changes = deltas[-1].get("changes", {})
-    upsert_paths = {
-        item.get("path")
-        for item in head_changes.get("data_upserts", [])
-        if type(item) is dict
-    }
-    _require(PARK_RESOURCE_PATHS.issubset(upsert_paths), "profile-10 head did not publish all park descriptors")
-    release_frames = [
-        frame
-        for frame in head_changes.get("frame_appends", [])
-        if type(frame) is dict
-        and str(frame.get("payload", {}).get("event_id", "")).startswith(
-            EXPERIENCE_RELEASE_PREFIX
-        )
-    ]
-    _require(len(release_frames) == 1, "profile-10 head lacks the unique park release frame")
+    publishing_deltas = []
+    for delta in deltas:
+        changes = delta.get("changes", {})
+        upsert_paths = {
+            item.get("path")
+            for item in changes.get("data_upserts", [])
+            if type(item) is dict
+        }
+        release_frames = [
+            frame
+            for frame in changes.get("frame_appends", [])
+            if type(frame) is dict
+            and str(
+                frame.get("payload", {}).get("event_id", "")
+            ).startswith(EXPERIENCE_RELEASE_PREFIX)
+            and frame.get("payload", {}).get("bundle_digest")
+            == state.get("integrity", {}).get("bundle_digest")
+        ]
+        if PARK_RESOURCE_PATHS.issubset(upsert_paths) and len(release_frames) == 1:
+            publishing_deltas.append((delta, release_frames[0]))
     _require(
-        release_frames[0].get("payload", {}).get("bundle_digest")
+        len(publishing_deltas) == 1,
+        "profile-10 history lacks one unique park descriptor release delta",
+    )
+    publishing_delta, release_frame = publishing_deltas[0]
+    _require(
+        release_frame.get("payload", {}).get("bundle_digest")
         == state.get("integrity", {}).get("bundle_digest"),
         "profile-10 release frame bundle mismatch",
     )
     _require(index.get("profile") == PROFILE, "descriptor index profile mismatch")
-    return "{} derived public data objects; 4 park descriptors + bundle-bound release frame".format(
-        len(expected_descriptors)
-    )
+    return (
+        "{} derived public data objects; park release preserved in delta {}"
+    ).format(len(expected_descriptors), publishing_delta.get("sequence"))
 
 
 def _mcp_requests(root: Path) -> Dict[int, Dict[str, Any]]:
@@ -923,15 +953,29 @@ def _check_mcp_runtime(root: Path) -> str:
     _require(RUNTIME_PARK_URIS.issubset(uris), "runtime MCP park resources are incomplete")
     prompts = responses[4]["result"].get("prompts", [])
     prompt_names = {item.get("name") for item in prompts if type(item) is dict}
-    _require(len(prompts) == 2, "MCP runtime must expose 2 prompts")
+    _require(len(prompts) >= 2, "MCP runtime must retain at least 2 prompts")
     _require("agent_amusement_park_first_visit" in prompt_names, "runtime park prompt is missing")
     prompt_blob = json.dumps(responses[5]["result"], sort_keys=True).lower()
     for marker in ("synthetic", "local-only", "customer", "shutdown", "export"):
         _require(marker in prompt_blob, "runtime prompt omits {}".format(marker))
 
-    _require(initialized.get("serverInfo", {}).get("version") == "2.4.0", "MCP runtime version is not 2.4.0")
-    _require(len(tools) == 11, "MCP runtime must expose 11 tools")
-    _require(len(resources) == 29, "MCP runtime must expose 29 resources")
+    version = initialized.get("serverInfo", {}).get("version", "")
+    try:
+        version_tuple = tuple(int(item) for item in version.split("."))
+    except (TypeError, ValueError):
+        version_tuple = ()
+    _require(version_tuple >= (2, 4, 0), "MCP runtime predates park support")
+    tool_names = {item.get("name") for item in tools if type(item) is dict}
+    _require(
+        {
+            "agent_park_time_travel",
+            "agent_park_local_action",
+            "agent_park_export_branch",
+        }.issubset(tool_names),
+        "MCP runtime lost required park tools",
+    )
+    _require(len(tools) >= 11, "MCP runtime lost required tools")
+    _require(len(resources) >= 29, "MCP runtime lost required resources")
     _require(
         static.get("tools") == tools,
         "static MCP tools do not exactly mirror runtime tools/list",
@@ -946,7 +990,10 @@ def _check_mcp_runtime(root: Path) -> str:
     _require(json.loads(contract_text).get("schema") == "rappterzoo-agent-park-contract/2", "MCP primary contract is not v2")
     _require(json.loads(contract_text).get("write_default") == "local-branch-only", "MCP contract resource mismatch")
     _require(json.loads(legacy_text).get("schema") == "rappterzoo-agent-park-contract/1", "MCP historical contract is not v1")
-    return "MCP 2.4.0: 11 tools, 29 resources, 2 prompts; v2 primary + v1 history verified"
+    return (
+        "MCP {}: {} tools, {} resources, {} prompts; "
+        "v2 primary + v1 history verified"
+    ).format(version, len(tools), len(resources), len(prompts))
 
 
 def _check_strict_utc_parity(root: Path) -> str:

@@ -21,6 +21,7 @@ import process_agent_issues
 def make_repo(tmp_path):
     (tmp_path / "apps").mkdir()
     (tmp_path / "apps" / "agent-park").mkdir()
+    (tmp_path / "apps" / "agent-fair").mkdir()
     (tmp_path / "apps" / "3d-immersive").mkdir()
     (tmp_path / "docs").mkdir()
     (tmp_path / "scripts").mkdir()
@@ -112,8 +113,18 @@ def make_repo(tmp_path):
     (tmp_path / "apps" / "organism-frames.json").write_text(
         json.dumps(projection)
     )
+    anchor_line = next(
+        line
+        for line in (
+            ROOT / "apps" / "organism-frames.jsonl"
+        ).read_text().splitlines()
+        if json.loads(line).get("seq") == 56
+    )
     (tmp_path / "apps" / "organism-frames.jsonl").write_text(
-        "\n".join(json.dumps(frame) for frame in frames) + "\n"
+        "\n".join(json.dumps(frame) for frame in frames)
+        + "\n"
+        + anchor_line
+        + "\n"
     )
     for filename in (
         "events.jsonl",
@@ -132,8 +143,28 @@ def make_repo(tmp_path):
         / "3d-immersive"
         / "agent-amusement-park.html"
     ).write_text("<!doctype html><title>Agent Amusement Park</title>")
+    for filename in (
+        "events.jsonl",
+        "agent-contract.json",
+        "district.json",
+        "fair-state.json",
+    ):
+        (
+            tmp_path / "apps" / "agent-fair" / filename
+        ).write_bytes(
+            (ROOT / "apps" / "agent-fair" / filename).read_bytes()
+        )
+    (
+        tmp_path
+        / "apps"
+        / "3d-immersive"
+        / "agent-worlds-fair.html"
+    ).write_text("<!doctype html><title>Agent World's Fair</title>")
     (tmp_path / "docs" / "AGENT-AMUSEMENT-PARK.md").write_text(
         "# Agent Amusement Park\n"
+    )
+    (tmp_path / "docs" / "AGENT-WORLDS-FAIR.md").write_text(
+        "# Agent World's Fair\n"
     )
     (tmp_path / "scripts" / "agent_amusement_park.py").write_text(
         '"""Verify the agent amusement park bundle."""\n'
@@ -192,6 +223,26 @@ def write_canonical_jsonl(path, records):
     )
 
 
+def fair_safety():
+    return dict(mcp.FAIR_SAFETY_DECLARATIONS)
+
+
+def fair_submit_args(agent_id="agent.local-builder"):
+    return {
+        "agent_id": agent_id,
+        "attraction_id": "attraction.local-lantern",
+        "title": "Local Lantern",
+        "category": "learning",
+        "visitor_promise": "A bounded public-metadata learning pavilion.",
+        "resource_request": {
+            "attention": 12,
+            "compute": 20,
+            "energy": 16,
+        },
+        "safety_declarations": fair_safety(),
+    }
+
+
 def test_initialize_lists_real_tools_and_resources(tmp_path):
     server = make_server(tmp_path)
     initialized = call(
@@ -209,6 +260,9 @@ def test_initialize_lists_real_tools_and_resources(tmp_path):
         "agent_park_time_travel",
         "agent_park_local_action",
         "agent_park_export_branch",
+        "agent_fair_submit_attraction",
+        "agent_fair_cast_vote",
+        "agent_fair_export_branch",
         "register_agent",
         "submit_app",
     }
@@ -227,6 +281,12 @@ def test_initialize_lists_real_tools_and_resources(tmp_path):
         "rappterzoo://agent-park-contract-v2",
         "rappterzoo://agent-park-bundle-verifier",
         "rappterzoo://agent-park-acceptance-gate",
+        "rappterzoo://agent-fair-state",
+        "rappterzoo://agent-fair-events",
+        "rappterzoo://agent-fair-contract",
+        "rappterzoo://agent-fair-district",
+        "rappterzoo://agent-worlds-fair",
+        "rappterzoo://agent-fair-guide",
     }.issubset({item["uri"] for item in resources})
 
 
@@ -289,6 +349,24 @@ def test_home_is_bounded_and_data_derived(tmp_path):
         "agent-amusement-park-verifier/2"
     )
     assert season_2["verifier"]["fail_closed"] is True
+    fair = value["agent_worlds_fair"]
+    assert fair["local_branch_action_limit"] == 50
+    assert fair["resource_maximums"] == {
+        "attention": 20,
+        "compute": 32,
+        "energy": 24,
+    }
+    assert fair["economy"] == "synthetic-admission-credit-only"
+    assert fair["canonical_mutation"] is False
+    assert fair["external_network"] is False
+    assert fair["real_money"] is False
+    assert fair["browser_runtime"]["mcp_import_tool"] is False
+    assert (
+        fair["browser_runtime"]["mcp_export_import_compatible"] is False
+    )
+    assert fair["bundle"]["fair_bundle_digest"] == (
+        mcp.FAIR_EXPECTED_BUNDLE_DIGEST
+    )
 
 
 def test_resource_reads_are_allowlisted(tmp_path):
@@ -325,9 +403,25 @@ def test_resource_reads_are_allowlisted(tmp_path):
             "rappterzoo://agent-park-acceptance-gate",
             "acceptance gate",
         ),
+        ("rappterzoo://agent-fair-state", "agent-worlds-fair"),
+        ("rappterzoo://agent-fair-events", "fair.genesis"),
+        (
+            "rappterzoo://agent-fair-contract",
+            "synthetic-admission-credit",
+        ),
+        (
+            "rappterzoo://agent-fair-district",
+            "district.agent-worlds-fair",
+        ),
+        ("rappterzoo://agent-worlds-fair", "Agent World's Fair"),
+        ("rappterzoo://agent-fair-guide", "# Agent World's Fair"),
     ],
 )
-def test_every_agent_park_resource_is_readable(tmp_path, uri, expected):
+def test_every_agent_park_and_fair_resource_is_readable(
+    tmp_path,
+    uri,
+    expected,
+):
     server = make_server(tmp_path)
     response = call(server, "resources/read", {"uri": uri})
     assert expected in response["result"]["contents"][0]["text"]
@@ -784,6 +878,363 @@ def test_agent_park_v2_limit_and_schema_must_match_runtime(tmp_path):
     assert "authority boundary" in value["error"]
 
 
+def test_agent_fair_submit_vote_and_export_are_local_only(tmp_path):
+    root = make_repo(tmp_path)
+    server = make_server(root)
+    original = {
+        filename: (
+            root / "apps" / "agent-fair" / filename
+        ).read_bytes()
+        for filename in (
+            "events.jsonl",
+            "agent-contract.json",
+            "district.json",
+            "fair-state.json",
+        )
+    }
+    result, submitted = tool_result(
+        server,
+        "agent_fair_submit_attraction",
+        fair_submit_args(),
+    )
+    assert not result["isError"]
+    assert submitted["status"] == "local-only"
+    assert submitted["action"]["kind"] == "local.submit-attraction"
+    assert submitted["action"]["canonical_write"] is False
+    assert submitted["action"]["source_hashes"] == {
+        "fair_event_head": mcp.FAIR_EXPECTED_EVENT_HEAD,
+        "fair_district_digest": mcp.FAIR_EXPECTED_DISTRICT_DIGEST,
+        "fair_bundle_digest": mcp.FAIR_EXPECTED_BUNDLE_DIGEST,
+        "organism_head": "d" * 64,
+    }
+    digest = submitted["submission_digest"]
+    assert re.fullmatch(r"[0-9a-f]{64}", digest)
+
+    result, voted = tool_result(
+        server,
+        "agent_fair_cast_vote",
+        {
+            "voter_agent_id": "agent.local-voter",
+            "submission_digest": digest,
+            "synthetic_admission_credits": 40,
+            "safety_declarations": fair_safety(),
+        },
+    )
+    assert not result["isError"]
+    assert voted["action"]["kind"] == "local.cast-synthetic-vote"
+    assert voted["action"]["prev"] == submitted["action"]["action_hash"]
+    assert voted["action"]["payload"]["submission_digest"] == digest
+    assert voted["action"]["payload"]["currency"] == (
+        "synthetic-admission-credit"
+    )
+    assert voted["action"]["payload"]["real_money"] is False
+
+    result, exported = tool_result(
+        server,
+        "agent_fair_export_branch",
+        {},
+    )
+    assert not result["isError"]
+    assert exported["export_schema"] == (
+        "rappterzoo-agent-fair-branch-export/1"
+    )
+    assert exported["action_limit"] == 50
+    assert exported["canonical_write"] is False
+    assert exported["canonical_fair_event_head"] == (
+        mcp.FAIR_EXPECTED_EVENT_HEAD
+    )
+    assert exported["canonical_fair_district_digest"] == (
+        mcp.FAIR_EXPECTED_DISTRICT_DIGEST
+    )
+    assert exported["canonical_fair_bundle_digest"] == (
+        mcp.FAIR_EXPECTED_BUNDLE_DIGEST
+    )
+    assert exported["canonical_organism_head"] == "d" * 64
+    assert exported["authority"]["canonical_assembly"] == (
+        "customer-reviewed-only"
+    )
+    assert exported["authority"]["external_network"] is False
+    assert exported["authority"]["real_money"] is False
+    assert len(exported["actions"]) == 2
+    assert set(exported) == {
+        "export_schema",
+        "fair_id",
+        "canonical_write",
+        "canonical_fair_event_head",
+        "canonical_fair_district_digest",
+        "canonical_fair_bundle_digest",
+        "canonical_organism_head",
+        "action_limit",
+        "actions",
+        "authority",
+        "branch_digest",
+    }
+    preimage = dict(exported)
+    branch_digest = preimage.pop("branch_digest")
+    assert branch_digest == mcp._canonical_digest(preimage)
+    for action in exported["actions"]:
+        assert set(action) == {
+            "schema",
+            "seq",
+            "kind",
+            "prev",
+            "source_hashes",
+            "payload",
+            "payload_hash",
+            "canonical_write",
+            "action_hash",
+        }
+        action_preimage = dict(action)
+        action_hash = action_preimage.pop("action_hash")
+        assert action["payload_hash"] == mcp._canonical_digest(
+            action["payload"]
+        )
+        assert action_hash == mcp._canonical_digest(action_preimage)
+    for filename, expected in original.items():
+        assert (
+            root / "apps" / "agent-fair" / filename
+        ).read_bytes() == expected
+
+
+@pytest.mark.parametrize(
+    "field,amount,maximum",
+    [
+        ("attention", 21, 20),
+        ("compute", 33, 32),
+        ("energy", 25, 24),
+        ("attention", -1, 20),
+    ],
+)
+def test_agent_fair_resource_bounds_fail_closed(
+    tmp_path,
+    field,
+    amount,
+    maximum,
+):
+    arguments = fair_submit_args()
+    arguments["resource_request"][field] = amount
+    result, value = tool_result(
+        make_server(tmp_path),
+        "agent_fair_submit_attraction",
+        arguments,
+    )
+    assert result["isError"]
+    assert "{} must be an integer from 0 to {}".format(
+        field,
+        maximum,
+    ) in value["error"]
+
+
+@pytest.mark.parametrize("credits", [0, 121, -1])
+def test_agent_fair_vote_credit_bounds_fail_closed(tmp_path, credits):
+    root = make_repo(tmp_path)
+    canonical = next(
+        json.loads(line)["payload"]["submission"]["submission_digest"]
+        for line in (
+            root / "apps" / "agent-fair" / "events.jsonl"
+        ).read_text().splitlines()
+        if json.loads(line)["kind"] == "fair.submission"
+    )
+    result, value = tool_result(
+        make_server(root),
+        "agent_fair_cast_vote",
+        {
+            "voter_agent_id": "agent.local-voter",
+            "submission_digest": canonical,
+            "synthetic_admission_credits": credits,
+            "safety_declarations": fair_safety(),
+        },
+    )
+    assert result["isError"]
+    assert "integer from 1 to 120" in value["error"]
+
+
+def test_agent_fair_safety_and_public_metadata_fail_closed(tmp_path):
+    unsafe = fair_submit_args()
+    unsafe["safety_declarations"]["real_money"] = True
+    result, value = tool_result(
+        make_server(tmp_path),
+        "agent_fair_submit_attraction",
+        unsafe,
+    )
+    assert result["isError"]
+    assert "no network, real money, GODD" in value["error"]
+
+    networked = fair_submit_args("agent.networked-builder")
+    networked["attraction_id"] = "attraction.networked-lantern"
+    networked["visitor_promise"] = "Fetch https://example.invalid/data."
+    networked_root = tmp_path / "networked"
+    networked_root.mkdir()
+    result, value = tool_result(
+        make_server(networked_root),
+        "agent_fair_submit_attraction",
+        networked,
+    )
+    assert result["isError"]
+    assert "external network location" in value["error"]
+
+
+def test_agent_fair_rejects_duplicate_agent_and_attraction(tmp_path):
+    server = make_server(tmp_path)
+    result, _value = tool_result(
+        server,
+        "agent_fair_submit_attraction",
+        fair_submit_args(),
+    )
+    assert not result["isError"]
+    duplicate_agent = fair_submit_args()
+    duplicate_agent["attraction_id"] = "attraction.other-lantern"
+    result, value = tool_result(
+        server,
+        "agent_fair_submit_attraction",
+        duplicate_agent,
+    )
+    assert result["isError"]
+    assert value["error"] == "agent_id already has one fair attraction"
+
+    canonical_agent = fair_submit_args("agent.horizon-cartographer")
+    canonical_agent["attraction_id"] = "attraction.canonical-repeat"
+    canonical_root = tmp_path / "canonical"
+    canonical_root.mkdir()
+    result, value = tool_result(
+        make_server(canonical_root),
+        "agent_fair_submit_attraction",
+        canonical_agent,
+    )
+    assert result["isError"]
+    assert value["error"] == "agent_id already has one fair attraction"
+
+
+def test_agent_fair_vote_requires_verified_submission_digest(tmp_path):
+    server = make_server(tmp_path)
+    result, value = tool_result(
+        server,
+        "agent_fair_cast_vote",
+        {
+            "voter_agent_id": "agent.local-voter",
+            "submission_digest": "0" * 64,
+            "synthetic_admission_credits": 12,
+            "safety_declarations": fair_safety(),
+        },
+    )
+    assert result["isError"]
+    assert "verified fair submission" in value["error"]
+
+    context = server.mcp._fair_context()
+    canonical_digest = sorted(context["submissions_by_digest"])[0]
+    result, vote = tool_result(
+        server,
+        "agent_fair_cast_vote",
+        {
+            "voter_agent_id": "agent.local-voter",
+            "submission_digest": canonical_digest,
+            "synthetic_admission_credits": 12,
+            "safety_declarations": fair_safety(),
+        },
+    )
+    assert not result["isError"]
+    assert vote["action"]["payload"]["submission_digest"] == canonical_digest
+
+
+def test_agent_fair_action_limit_fails_closed(tmp_path):
+    server = make_server(tmp_path)
+    server.mcp.local_fair_branch = [{}] * mcp.MAX_FAIR_BRANCH_ACTIONS
+    result, value = tool_result(
+        server,
+        "agent_fair_submit_attraction",
+        fair_submit_args(),
+    )
+    assert result["isError"]
+    assert value["error"] == "local fair branch action limit reached"
+
+    server.mcp.local_fair_branch.append({})
+    result, value = tool_result(server, "agent_fair_export_branch", {})
+    assert result["isError"]
+    assert value["error"] == "local fair branch action limit exceeded"
+
+
+def test_agent_fair_export_recomputes_action_and_source_hashes(tmp_path):
+    server = make_server(tmp_path)
+    result, _value = tool_result(
+        server,
+        "agent_fair_submit_attraction",
+        fair_submit_args(),
+    )
+    assert not result["isError"]
+    server.mcp.local_fair_branch[0]["source_hashes"][
+        "fair_bundle_digest"
+    ] = "0" * 64
+    result, value = tool_result(server, "agent_fair_export_branch", {})
+    assert result["isError"]
+    assert value["error"] == "local fair branch source hash mismatch"
+
+
+@pytest.mark.parametrize(
+    "relative,mutation,error",
+    [
+        (
+            "fair-state.json",
+            lambda value: value.__setitem__("title", "Tampered Fair"),
+            "fair state digest mismatch",
+        ),
+        (
+            "agent-contract.json",
+            lambda value: value["attraction_contract"][
+                "resource_maximums"
+            ].__setitem__("compute", 33),
+            "fair contract digest mismatch",
+        ),
+        (
+            "district.json",
+            lambda value: value["map"].__setitem__("width", 481),
+            "fair district digest mismatch",
+        ),
+    ],
+)
+def test_agent_fair_tampered_bundle_files_fail_closed(
+    tmp_path,
+    relative,
+    mutation,
+    error,
+):
+    root = make_repo(tmp_path)
+    path = root / "apps" / "agent-fair" / relative
+    value = json.loads(path.read_text())
+    mutation(value)
+    path.write_text(json.dumps(value))
+    server = make_server(root)
+    result, body = tool_result(server, "agent_fair_export_branch", {})
+    assert result["isError"]
+    assert body["error"] == error
+    response = call(
+        server,
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-state"},
+    )
+    assert response["error"]["code"] == -32002
+    assert response["error"]["message"] == (
+        "fair integrity verification failed"
+    )
+
+
+def test_agent_fair_tampered_event_fails_closed(tmp_path):
+    root = make_repo(tmp_path)
+    path = root / "apps" / "agent-fair" / "events.jsonl"
+    events = [
+        json.loads(line)
+        for line in path.read_text().splitlines()
+    ]
+    events[-1]["payload"]["direct_canonical_write"] = True
+    write_canonical_jsonl(path, events)
+    result, value = tool_result(
+        make_server(root),
+        "agent_fair_export_branch",
+        {},
+    )
+    assert result["isError"]
+    assert value["error"] == "fair event payload hash mismatch"
+
+
 def test_writes_are_prepared_but_disabled_by_default(tmp_path):
     server = make_server(tmp_path)
     result, value = tool_result(
@@ -1029,7 +1480,13 @@ def test_local_and_remote_source_modes(tmp_path, monkeypatch):
             "apps/agent-park/park-state.json",
             "apps/agent-park/events.jsonl",
             "apps/3d-immersive/agent-amusement-park.html",
+            "apps/agent-fair/agent-contract.json",
+            "apps/agent-fair/district.json",
+            "apps/agent-fair/events.jsonl",
+            "apps/agent-fair/fair-state.json",
+            "apps/3d-immersive/agent-worlds-fair.html",
             "docs/AGENT-AMUSEMENT-PARK.md",
+            "docs/AGENT-WORLDS-FAIR.md",
         )
     }
 
@@ -1056,6 +1513,9 @@ def test_local_and_remote_source_modes(tmp_path, monkeypatch):
     _result, remote_home = tool_result(remote_server, "get_home", {})
     assert remote_home["source_mode"] == "remote"
     assert remote_home["catalog"] == local_home["catalog"]
+    assert remote_home["agent_worlds_fair"]["bundle"] == (
+        local_home["agent_worlds_fair"]["bundle"]
+    )
     remote_state = call(
         remote_server,
         "resources/read",
@@ -1078,6 +1538,21 @@ def test_local_and_remote_source_modes(tmp_path, monkeypatch):
         },
     )
     assert remote_visit["status"] == "local-only"
+    remote_fair = call(
+        remote_server,
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-district"},
+    )
+    assert (
+        "district.agent-worlds-fair"
+        in remote_fair["result"]["contents"][0]["text"]
+    )
+    _result, remote_submission = tool_result(
+        remote_server,
+        "agent_fair_submit_attraction",
+        fair_submit_args("agent.remote-fair-builder"),
+    )
+    assert remote_submission["status"] == "local-only"
 
 
 def test_jsonrpc_errors_and_notifications(tmp_path):
@@ -1102,6 +1577,7 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     assert [item["name"] for item in prompts] == [
         "rappterzoo_first_use",
         "agent_amusement_park_first_visit",
+        "agent_worlds_fair_first_entry",
     ]
     prompt = call(
         server,
@@ -1135,6 +1611,25 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     assert "does not verify the bundle before promotion" in park_text
     assert "origin-scoped" in park_text
     assert "plaintext over local stdio" in park_text
+    fair_prompt = call(
+        server,
+        "prompts/get",
+        {"name": "agent_worlds_fair_first_entry"},
+    )["result"]
+    fair_text = fair_prompt["messages"][0]["content"]["text"]
+    assert "rappterzoo://agent-fair-contract" in fair_text
+    assert "rappterzoo://agent-fair-state" in fair_text
+    assert "rappterzoo://agent-fair-events" in fair_text
+    assert "rappterzoo://agent-fair-district" in fair_text
+    assert "rappterzoo://agent-worlds-fair" in fair_text
+    assert "rappterzoo://agent-fair-guide" in fair_text
+    assert "agent_fair_submit_attraction" in fair_text
+    assert "agent_fair_cast_vote" in fair_text
+    assert "agent_fair_export_branch" in fair_text
+    assert "50-action limit" in fair_text
+    assert "customer-reviewed" in fair_text
+    assert "MCP has no import tool" in fair_text
+    assert "not directly browser-import compatible" in fair_text
 
 
 def test_server_source_has_no_unsafe_execution_sink():
@@ -1166,6 +1661,26 @@ def test_runtime_schemas_are_closed(tmp_path):
         if tool["name"] == "agent_park_local_action"
     )
     assert resource_schema["additionalProperties"] is False
+    fair_submit = next(
+        tool
+        for tool in tools
+        if tool["name"] == "agent_fair_submit_attraction"
+    )
+    fair_resources = fair_submit["inputSchema"]["properties"][
+        "resource_request"
+    ]
+    fair_safety_schema = fair_submit["inputSchema"]["properties"][
+        "safety_declarations"
+    ]
+    assert fair_resources["additionalProperties"] is False
+    assert fair_resources["properties"]["compute"]["maximum"] == 32
+    assert fair_resources["properties"]["energy"]["maximum"] == 24
+    assert fair_resources["properties"]["attention"]["maximum"] == 20
+    assert fair_safety_schema["additionalProperties"] is False
+    assert all(
+        "const" in value
+        for value in fair_safety_schema["properties"].values()
+    )
 
 
 def test_static_runtime_and_documentation_parity():
@@ -1182,6 +1697,7 @@ def test_static_runtime_and_documentation_parity():
     package = json.loads((ROOT / "skill.json").read_text())
     skill = (ROOT / "skill.md").read_text()
     guide = (ROOT / "docs" / "AGENT-AMUSEMENT-PARK.md").read_text()
+    fair_guide = (ROOT / "docs" / "AGENT-WORLDS-FAIR.md").read_text()
     server = mcp.JSONRPCServer(mcp.RappterZooMCP(
         mcp.DataSource(ROOT, "https://example.invalid/rappterzoo/")
     ))
@@ -1191,6 +1707,15 @@ def test_static_runtime_and_documentation_parity():
     )
     state = json.loads(
         (ROOT / "apps" / "agent-park" / "park-state.json").read_text()
+    )
+    fair_contract = json.loads(
+        (ROOT / "apps" / "agent-fair" / "agent-contract.json").read_text()
+    )
+    fair_state = json.loads(
+        (ROOT / "apps" / "agent-fair" / "fair-state.json").read_text()
+    )
+    fair_district = json.loads(
+        (ROOT / "apps" / "agent-fair" / "district.json").read_text()
     )
 
     assert static["tools"] == mcp._tool_definitions()
@@ -1204,6 +1729,18 @@ def test_static_runtime_and_documentation_parity():
     assert mcp.RESOURCE_MAP["rappterzoo://agent-park-contract-v1"][0] == (
         "apps/agent-park/agent-contract.json"
     )
+    assert mcp.RESOURCE_MAP["rappterzoo://agent-fair-state"][0] == (
+        "apps/agent-fair/fair-state.json"
+    )
+    assert mcp.RESOURCE_MAP["rappterzoo://agent-fair-events"][0] == (
+        "apps/agent-fair/events.jsonl"
+    )
+    assert mcp.RESOURCE_MAP["rappterzoo://agent-fair-contract"][0] == (
+        "apps/agent-fair/agent-contract.json"
+    )
+    assert mcp.RESOURCE_MAP["rappterzoo://agent-fair-district"][0] == (
+        "apps/agent-fair/district.json"
+    )
     static_resources = {
         item["name"]: item
         for item in static["resources"]
@@ -1211,6 +1748,20 @@ def test_static_runtime_and_documentation_parity():
     assert static_resources["agent_park_contract"]["uri"].endswith(
         "/localFirstTools-main/apps/agent-park/agent-contract-v2.json"
     )
+    for name, suffix in (
+        ("agent_fair_state", "apps/agent-fair/fair-state.json"),
+        ("agent_fair_event_ledger", "apps/agent-fair/events.jsonl"),
+        ("agent_fair_contract", "apps/agent-fair/agent-contract.json"),
+        ("agent_fair_district", "apps/agent-fair/district.json"),
+        (
+            "agent_worlds_fair",
+            "apps/3d-immersive/agent-worlds-fair.html",
+        ),
+        ("agent_fair_guide", "docs/AGENT-WORLDS-FAIR.md"),
+    ):
+        assert static_resources[name]["uri"].endswith(
+            "/localFirstTools-main/" + suffix
+        )
     season_2 = static["stdio_server"]["agent_park_season_2"]
     assert season_2["canonical_hash_domains"] == (
         contract["canonicalization_and_hashing"]["hash_domains"]
@@ -1265,6 +1816,76 @@ def test_static_runtime_and_documentation_parity():
         assert document["bundle"]["state_digest"] == (
             state["integrity"]["state_digest"]
         )
+    static_fair = static["stdio_server"]["agent_worlds_fair"]
+    assert static_fair["action_limit"] == 50
+    assert static_fair["resource_maximums"] == (
+        fair_contract["attraction_contract"]["resource_maximums"]
+    )
+    assert static_fair["action_required_fields"] == [
+        "schema",
+        "seq",
+        "kind",
+        "prev",
+        "source_hashes",
+        "payload",
+        "payload_hash",
+        "canonical_write",
+        "action_hash",
+    ]
+    assert static_fair["export_required_fields"] == [
+        "export_schema",
+        "fair_id",
+        "canonical_write",
+        "canonical_fair_event_head",
+        "canonical_fair_district_digest",
+        "canonical_fair_bundle_digest",
+        "canonical_organism_head",
+        "action_limit",
+        "actions",
+        "authority",
+        "branch_digest",
+    ]
+    assert static_fair["bundle"]["bundle_digest"] == (
+        fair_state["integrity"]["bundle_digest"]
+    )
+    assert static_fair["bundle"]["contract_digest"] == (
+        fair_contract["integrity"]["contract_digest"]
+    )
+    assert static_fair["bundle"]["district_digest"] == (
+        fair_district["integrity"]["district_digest"]
+    )
+    for document in (
+        protocol["agent_worlds_fair"],
+        syndication["agent_worlds_fair"],
+    ):
+        assert document["bundle"]["bundle_digest"] == (
+            fair_state["integrity"]["bundle_digest"]
+        )
+        assert document["bundle"]["contract_digest"] == (
+            fair_contract["integrity"]["contract_digest"]
+        )
+        assert document["bundle"]["district_digest"] == (
+            fair_district["integrity"]["district_digest"]
+        )
+        assert document["project_scope"] == "/localFirstTools-main/"
+    assert protocol["agent_worlds_fair"]["mcp_local_branch"][
+        "action_limit"
+    ] == 50
+    assert syndication["agent_worlds_fair"][
+        "mcp_branch_export_schema"
+    ] == "rappterzoo-agent-fair-branch-export/1"
+    assert package["moltbot"]["mcp"]["agent_fair_action_limit"] == 50
+    assert package["moltbot"]["mcp"]["agent_fair_mcp_import_tool"] is False
+    assert package["moltbot"]["mcp"][
+        "agent_fair_browser_mcp_export_compatible"
+    ] is False
+    assert static_fair["browser_import"]["mcp_export_compatible"] is False
+    assert protocol["agent_worlds_fair"]["browser_runtime"][
+        "mcp_export_import_compatible"
+    ] is False
+    assert syndication["agent_worlds_fair"]["browser_import"][
+        "mcp_export_compatible"
+    ] is False
     feed_urls = {
         item.get("url")
         for section in ("dataset", "hasPart")
@@ -1274,6 +1895,17 @@ def test_static_runtime_and_documentation_parity():
         "https://kody-w.github.io/localFirstTools-main/"
         "apps/agent-park/agent-contract-v2.json"
     ) in feed_urls
+    for suffix in (
+        "apps/agent-fair/fair-state.json",
+        "apps/agent-fair/events.jsonl",
+        "apps/agent-fair/agent-contract.json",
+        "apps/agent-fair/district.json",
+        "apps/3d-immersive/agent-worlds-fair.html",
+        "docs/AGENT-WORLDS-FAIR.md",
+    ):
+        assert (
+            "https://kody-w.github.io/localFirstTools-main/" + suffix
+        ) in feed_urls
     assert re.search(
         r"^version: {}$".format(re.escape(mcp.SERVER_VERSION)),
         skill,
@@ -1297,6 +1929,21 @@ def test_static_runtime_and_documentation_parity():
             text,
             re.IGNORECASE,
         )
+    for text in (skill, fair_guide):
+        assert "agent_fair_submit_attraction" in text
+        assert "agent_fair_cast_vote" in text
+        assert "agent_fair_export_branch" in text
+        assert "rappterzoo-agent-fair-branch-export/1" in text
+        assert "50" in text
+        assert "compute" in text.lower()
+        assert "energy" in text.lower()
+        assert "attention" in text.lower()
+        assert "synthetic" in text.lower()
+        assert "customer-reviewed" in text.lower()
+        assert "project-scoped" in text.lower()
+        assert "browser import" in text.lower()
+        assert "mcp" in text.lower() and "import" in text.lower()
+        assert "not directly" in text.lower()
     for domain in contract["canonicalization_and_hashing"][
         "hash_domains"
     ].values():

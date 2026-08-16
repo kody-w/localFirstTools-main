@@ -1,0 +1,216 @@
+name: Agent Fair Release Attestation
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: agent-fair-release-attestation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  agent-fair-release-attestation:
+    name: agent-fair-release-attestation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out exact pull request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Detect trusted base verifier
+        id: trusted
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          if git cat-file -e "${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Materialize trusted verifier from pull request base
+        if: steps.trusted.outputs.available == 'true'
+        shell: bash
+        run: |
+          trusted="${RUNNER_TEMP}/agent-fair-release-verifier"
+          mkdir -p "$trusted"
+          git show "${{ github.event.pull_request.base.sha }}:scripts/verify_agent_fair_release_attestation.py" > "$trusted/verify_agent_fair_release_attestation.py"
+          git show "${{ github.event.pull_request.base.sha }}:scripts/agent_world_fair.py" > "$trusted/agent_world_fair.py"
+          git show "${{ github.event.pull_request.base.sha }}:scripts/organism_ledger.py" > "$trusted/organism_ledger.py"
+
+      - name: Verify with trusted base verifier
+        if: steps.trusted.outputs.available == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3
+          "${RUNNER_TEMP}/agent-fair-release-verifier/verify_agent_fair_release_attestation.py"
+          verify-pr
+          --root "${GITHUB_WORKSPACE}"
+          --repository "${{ github.repository }}"
+          --pr-number "${{ github.event.pull_request.number }}"
+          --base-sha "${{ github.event.pull_request.base.sha }}"
+          --head-sha "${{ github.event.pull_request.head.sha }}"
+          --head-ref "${{ github.event.pull_request.head.ref }}"
+          --wait-seconds 300
+
+      - name: Bootstrap verifier installation without release authority
+        if: steps.trusted.outputs.available == 'false'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          release_prefix = "agent-worlds-fair-release:"
+          allowed = {
+              ".github/CODEOWNERS",
+              ".github/workflows/agent-fair-release-attestation.yml",
+              ".github/workflows/agent-fair-release.yml",
+              ".well-known/agent-protocol",
+              ".well-known/feeddata-toc",
+              ".well-known/mcp.json",
+              ".well-known/rappterzoo-syndication",
+              "apps/3d-immersive/agent-worlds-fair-sw.js",
+              "apps/3d-immersive/agent-worlds-fair.html",
+              "apps/agent-fair/agent-contract.json",
+              "apps/agent-fair/district.json",
+              "apps/agent-fair/events.jsonl",
+              "apps/agent-fair/fair-state.json",
+              "apps/agent-fair/release-candidate.json",
+              "apps/feed.json",
+              "apps/feed.xml",
+              "apps/manifest.json",
+              "docs/AGENT-WORLDS-FAIR.md",
+              "scripts/agent_fair_gate.py",
+              "scripts/agent_park_gate.py",
+              "scripts/agent_world_fair.py",
+              "scripts/build_syndication.py",
+              "scripts/moonshot_gate.py",
+              "scripts/rappterzoo_mcp.py",
+              "scripts/rappterzoo_sync.py",
+              "scripts/tests/test_agent_fair_gate.py",
+              "scripts/tests/test_agent_park_gate.py",
+              "scripts/tests/test_agent_world_fair.py",
+              "scripts/tests/test_observatory_security.py",
+              "scripts/tests/test_rappterzoo_mcp.py",
+              "scripts/tests/test_syndication.py",
+              "scripts/tests/test_verify_agent_fair_release_attestation.py",
+              "scripts/verify_agent_fair_release_attestation.py",
+              "skill.json",
+              "skill.md",
+          }
+          forbidden = {
+              "apps/organism-frames.json",
+              "apps/organism-frames.jsonl",
+          }
+          forbidden_prefixes = (
+              "apps/organism-frames.json",
+              "apps/syndication/",
+          )
+
+          def git(*arguments):
+              result = subprocess.run(
+                  ["git", *arguments],
+                  capture_output=True,
+                  check=False,
+              )
+              if result.returncode != 0:
+                  raise SystemExit(
+                      result.stderr.decode("utf-8", "replace")
+                      or "bootstrap git command failed"
+                  )
+              return result.stdout
+
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
+          head_ref = os.environ["HEAD_REF"]
+          if head_ref.startswith("release/agent-fair-"):
+              raise SystemExit(
+                  "bootstrap pull request cannot use a release branch"
+              )
+          ledger = git(
+              "show",
+              head + ":apps/organism-frames.jsonl",
+          )
+          for line in ledger.splitlines():
+              try:
+                  frame = json.loads(line.decode("utf-8"))
+              except (UnicodeError, ValueError):
+                  continue
+              payload = frame.get("payload", {}) if isinstance(
+                  frame, dict
+              ) else {}
+              if (
+                  isinstance(payload, dict)
+                  and (
+                      payload.get("event")
+                      == "agent-worlds-fair-release"
+                      or str(payload.get("event_id", "")).startswith(
+                          release_prefix
+                      )
+                  )
+              ):
+                  raise SystemExit(
+                      "bootstrap pull request contains a fair release event"
+                  )
+          changed = sorted({
+              value.decode("utf-8")
+              for value in git(
+                  "diff",
+                  "--name-only",
+                  "-z",
+                  base,
+                  head,
+              ).split(b"\x00")
+              if value
+          })
+          blocked = [
+              path
+              for path in changed
+              if (
+                  path in forbidden
+                  or any(
+                      path.startswith(prefix)
+                      for prefix in forbidden_prefixes
+                  )
+              )
+          ]
+          if blocked:
+              raise SystemExit(
+                  "bootstrap changes forbidden generated release paths: "
+                  + ", ".join(blocked)
+              )
+          unexpected = [path for path in changed if path not in allowed]
+          if unexpected:
+              raise SystemExit(
+                  "bootstrap changes paths outside one-time allowlist: "
+                  + ", ".join(unexpected)
+              )
+          print(json.dumps({
+              "changed_paths": changed,
+              "reason": "trusted base verifier is not installed yet",
+              "status": "bootstrap-not-release",
+              "valid": True,
+          }, sort_keys=True))
+          PY

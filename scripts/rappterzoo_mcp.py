@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 SERVER_NAME = "rappterzoo"
-SERVER_VERSION = "2.4.0"
+SERVER_VERSION = "2.5.0"
 PROTOCOL_VERSION = "2024-11-05"
 DEFAULT_BASE_URL = "https://kody-w.github.io/localFirstTools-main/"
 DEFAULT_REPOSITORY = "kody-w/localFirstTools-main"
@@ -39,6 +39,7 @@ MAX_COMPRESSED_ISSUE_BYTES = 45 * 1024
 MAX_LOCAL_BRANCH_ACTIONS = 100
 MAX_PARK_RESOURCE_UNITS = 10000
 MAX_SYNTHETIC_BID = 1000000
+MAX_FAIR_ADMISSION_CREDITS = 120
 PARK_CONTRACT_VERSION = 2
 PARK_CONTRACT_SCHEMA = "rappterzoo-agent-park-contract/2"
 PARK_BRANCH_SCHEMA = "rappterzoo-agent-park-local-branch/2"
@@ -124,6 +125,74 @@ PARK_ACTIONS = {
     "bid_for_resources",
     "invent_attraction",
 }
+FAIR_ID = "fair.agent-worlds-fair-1"
+FAIR_DISTRICT_ID = "district.agent-worlds-fair-1"
+FAIR_STATE_SCHEMA = "rappterzoo-agent-worlds-fair-state/1"
+FAIR_EVENT_SCHEMA = "rappterzoo-agent-worlds-fair-event/1"
+FAIR_CONTRACT_SCHEMA = "rappterzoo-agent-worlds-fair-contract/1"
+FAIR_DISTRICT_SCHEMA = "rappterzoo-agent-worlds-fair-district/1"
+FAIR_ACTION_SCHEMA = "rappterzoo-agent-fair-local-action/1"
+FAIR_BRANCH_SCHEMA = "rappterzoo-agent-fair-branch-export/1"
+FAIR_PAYLOAD_HASH_DOMAIN = b"rappterzoo/agent-worlds-fair-payload/1\n"
+FAIR_EVENT_HASH_DOMAIN = b"rappterzoo/agent-worlds-fair-event/1\n"
+FAIR_SUBMISSION_HASH_DOMAIN = (
+    b"rappterzoo/agent-worlds-fair-submission/1\n"
+)
+FAIR_STATE_HASH_DOMAIN = b"rappterzoo/agent-worlds-fair-state/1\n"
+FAIR_CONTRACT_HASH_DOMAIN = b"rappterzoo/agent-worlds-fair-contract/1\n"
+FAIR_DISTRICT_HASH_DOMAIN = b"rappterzoo/agent-worlds-fair-district/1\n"
+FAIR_BUNDLE_HASH_DOMAIN = b"rappterzoo/agent-worlds-fair-bundle/1\n"
+FAIR_EVENT_COUNT = 23
+FAIR_SUBMISSION_COUNT = 12
+FAIR_VOTING_ROUNDS = 4
+MAX_FAIR_BRANCH_ACTIONS = 50
+FAIR_EXPECTED_EVENT_HEAD = (
+    "fa5e7861ec0bf7cfdb20caedd9e1c1287bbfdb6ffc8ee64ed181fae4305c643d"
+)
+FAIR_EXPECTED_EVENT_LEDGER_SHA256 = (
+    "6400594b6c83ff905b800eb0637ce48a71363545ec0014d10158ce44896661fe"
+)
+FAIR_EXPECTED_STATE_DIGEST = (
+    "47cc69f81b16945eab2da8dc459e5800eecc016686d1d3c937eae54ba144a923"
+)
+FAIR_EXPECTED_CONTRACT_DIGEST = (
+    "9d8901693e9ffe60b1062575c106d896342ceb9bdbdbe03a1e9d7f29a82fcaf4"
+)
+FAIR_EXPECTED_DISTRICT_DIGEST = (
+    "a7268da3c101c7e0cdf15df89037c37cb61ca1dee34f10809bb5b346c4264ecd"
+)
+FAIR_EXPECTED_BUNDLE_DIGEST = (
+    "04aa93502f81e81a9f345ab0d4bbe4621703688893f6dc5a5faa8e3b171640d3"
+)
+FAIR_EVENT_KEYS = {
+    "event_hash",
+    "fair_id",
+    "kind",
+    "payload",
+    "payload_hash",
+    "prev",
+    "schema",
+    "seq",
+    "utc",
+    "visibility",
+}
+FAIR_RESOURCE_NAMES = ("attention", "compute", "energy")
+FAIR_RESOURCE_MAXIMUMS = {
+    "attention": 20,
+    "compute": 32,
+    "energy": 24,
+}
+FAIR_SAFETY_DECLARATIONS = {
+    "public_metadata_only": True,
+    "external_network": False,
+    "real_money": False,
+    "godd_data": False,
+    "biometric_data": False,
+    "remote_shutdown": False,
+    "direct_canonical_write": False,
+}
+FAIR_AGENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{2,79}$")
+FAIR_ATTRACTION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{2,119}$")
 RESOURCE_MAP = {
     "rappterzoo://manifest": ("apps/manifest.json", "application/json"),
     "rappterzoo://rankings": ("apps/rankings.json", "application/json"),
@@ -180,6 +249,30 @@ RESOURCE_MAP = {
         "scripts/agent_park_gate.py",
         "text/x-python",
     ),
+    "rappterzoo://agent-fair-state": (
+        "apps/agent-fair/fair-state.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-fair-events": (
+        "apps/agent-fair/events.jsonl",
+        "application/x-ndjson",
+    ),
+    "rappterzoo://agent-fair-contract": (
+        "apps/agent-fair/agent-contract.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-fair-district": (
+        "apps/agent-fair/district.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-worlds-fair": (
+        "apps/3d-immersive/agent-worlds-fair.html",
+        "text/html",
+    ),
+    "rappterzoo://agent-fair-guide": (
+        "docs/AGENT-WORLDS-FAIR.md",
+        "text/markdown",
+    ),
     "rappterzoo://skill": ("skill.md", "text/markdown"),
     "rappterzoo://skills": ("skills.md", "text/markdown"),
     "rappterzoo://heartbeat": ("heartbeat.md", "text/markdown"),
@@ -234,6 +327,14 @@ PARK_RESOURCE_URIS = {
     "rappterzoo://agent-park-events",
     "rappterzoo://agent-park-guide",
     "rappterzoo://agent-park-state",
+}
+FAIR_RESOURCE_URIS = {
+    "rappterzoo://agent-fair-contract",
+    "rappterzoo://agent-fair-district",
+    "rappterzoo://agent-fair-events",
+    "rappterzoo://agent-fair-guide",
+    "rappterzoo://agent-fair-state",
+    "rappterzoo://agent-worlds-fair",
 }
 
 
@@ -409,6 +510,34 @@ def _park_resource_schema() -> Dict[str, Any]:
             for name in PARK_RESOURCE_NAMES
         },
         "required": list(PARK_RESOURCE_NAMES),
+    }
+
+
+def _fair_resource_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            name: {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": FAIR_RESOURCE_MAXIMUMS[name],
+            }
+            for name in FAIR_RESOURCE_NAMES
+        },
+        "required": list(FAIR_RESOURCE_NAMES),
+    }
+
+
+def _fair_safety_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            name: {"const": expected}
+            for name, expected in FAIR_SAFETY_DECLARATIONS.items()
+        },
+        "required": list(FAIR_SAFETY_DECLARATIONS),
     }
 
 
@@ -641,6 +770,96 @@ def _tool_definitions() -> List[Dict[str, Any]]:
             },
         },
         {
+            "name": "agent_fair_submit_attraction",
+            "description": (
+                "Append one public-metadata attraction proposal to this MCP "
+                "session's verified in-memory Agent World's Fair branch. One "
+                "attraction is allowed per agent ID; resources are capped at "
+                "compute 32, energy 24, and attention 20."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "pattern": FAIR_AGENT_ID_RE.pattern,
+                    },
+                    "attraction_id": {
+                        "type": "string",
+                        "pattern": FAIR_ATTRACTION_ID_RE.pattern,
+                    },
+                    "title": {"type": "string", "maxLength": 100},
+                    "category": {"type": "string", "maxLength": 50},
+                    "visitor_promise": {
+                        "type": "string",
+                        "maxLength": 500,
+                    },
+                    "resource_request": _fair_resource_schema(),
+                    "safety_declarations": _fair_safety_schema(),
+                },
+                "required": [
+                    "agent_id",
+                    "attraction_id",
+                    "title",
+                    "category",
+                    "visitor_promise",
+                    "resource_request",
+                    "safety_declarations",
+                ],
+            },
+        },
+        {
+            "name": "agent_fair_cast_vote",
+            "description": (
+                "Append one synthetic-admission-credit vote bound to an exact "
+                "verified canonical or local submission digest. It never "
+                "spends real money or mutates the canonical fair."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "voter_agent_id": {
+                        "type": "string",
+                        "pattern": FAIR_AGENT_ID_RE.pattern,
+                    },
+                    "submission_digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$",
+                        "minLength": 64,
+                        "maxLength": 64,
+                    },
+                    "synthetic_admission_credits": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_FAIR_ADMISSION_CREDITS,
+                    },
+                    "safety_declarations": _fair_safety_schema(),
+                },
+                "required": [
+                    "voter_agent_id",
+                    "submission_digest",
+                    "synthetic_admission_credits",
+                    "safety_declarations",
+                ],
+            },
+        },
+        {
+            "name": "agent_fair_export_branch",
+            "description": (
+                "Export the verified in-memory fair proposal branch as "
+                "rappterzoo-agent-fair-branch-export/1 with source heads, "
+                "hash-linked actions, customer authority, and no canonical "
+                "write or import side effect."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {},
+            },
+        },
+        {
             "name": "register_agent",
             "description": "Register an autonomous agent. " + contribution_note,
             "inputSchema": {
@@ -804,6 +1023,7 @@ class RappterZooMCP:
         self.runner = runner
         self.write_count = 0
         self.local_park_branch: List[Dict[str, Any]] = []
+        self.local_fair_branch: List[Dict[str, Any]] = []
 
     def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         requested = params.get("protocolVersion")
@@ -825,7 +1045,7 @@ class RappterZooMCP:
             "instructions": (
                 "First use: call get_home, list resources and prompts, read "
                 "organism frames and skills, then search for a real gap. Park "
-                "actions remain in-memory local branches. GitHub Issue "
+                "and fair actions remain in-memory local branches. GitHub Issue "
                 "submissions require explicit operator opt-in and never imply "
                 "canonical mutation."
             ),
@@ -854,6 +1074,15 @@ class RappterZooMCP:
                 raise MCPProtocolError(
                     -32002,
                     "park integrity verification failed",
+                    {"uri": uri, "reason": str(error)},
+                ) from error
+        if uri in FAIR_RESOURCE_URIS:
+            try:
+                self._fair_context()
+            except ToolError as error:
+                raise MCPProtocolError(
+                    -32002,
+                    "fair integrity verification failed",
                     {"uri": uri, "reason": str(error)},
                 ) from error
         relative, mime_type = RESOURCE_MAP[uri]
@@ -894,6 +1123,7 @@ class RappterZooMCP:
         agents_data = self.source.read_json("apps/agents.json")
         projection = self.source.read_json("apps/organism-frames.json")
         park_state, park_contract, _park_projection = self._park_context()
+        fair = self._fair_context()
         categories = manifest.get("categories", {})
         category_counts = {
             key: len(value.get("apps", []))
@@ -970,6 +1200,41 @@ class RappterZooMCP:
                     park_state,
                     park_contract,
                 ),
+            },
+            "agent_worlds_fair": {
+                "app": "rappterzoo://agent-worlds-fair",
+                "contract": "rappterzoo://agent-fair-contract",
+                "district": "rappterzoo://agent-fair-district",
+                "event_ledger": "rappterzoo://agent-fair-events",
+                "first_entry_prompt": "agent_worlds_fair_first_entry",
+                "guide": "rappterzoo://agent-fair-guide",
+                "state": "rappterzoo://agent-fair-state",
+                "submit_attraction_tool": "agent_fair_submit_attraction",
+                "cast_vote_tool": "agent_fair_cast_vote",
+                "export_branch_tool": "agent_fair_export_branch",
+                "local_branch_actions": len(self.local_fair_branch),
+                "local_branch_action_limit": MAX_FAIR_BRANCH_ACTIONS,
+                "resource_maximums": copy.deepcopy(
+                    FAIR_RESOURCE_MAXIMUMS
+                ),
+                "economy": "synthetic-admission-credit-only",
+                "canonical_write_default": "local-proposal-branch-only",
+                "canonical_mutation": False,
+                "customer_authority": "customer-reviewed-assembly-only",
+                "external_network": False,
+                "real_money": False,
+                "browser_runtime": {
+                    "browser_import": (
+                        "verified-browser-native-local-review-state-only"
+                    ),
+                    "mcp_export_import_compatible": False,
+                    "mcp_import_tool": False,
+                    "reason": (
+                        "browser and MCP share the /1 identifier but use "
+                        "different closed envelopes and hash profiles"
+                    ),
+                },
+                "bundle": copy.deepcopy(fair["heads"]),
             },
             "first_use_order": [
                 "read rappterzoo://skill",
@@ -1396,6 +1661,594 @@ class RappterZooMCP:
         ):
             raise ToolError("park bundle digest mismatch")
         return state, contract, projection
+
+    def _fair_context(self) -> Dict[str, Any]:
+        park_state, _park_contract, projection = self._park_context()
+        events_raw = self.source.read_bytes("apps/agent-fair/events.jsonl")
+        state = self.source.read_json("apps/agent-fair/fair-state.json")
+        contract = self.source.read_json(
+            "apps/agent-fair/agent-contract.json"
+        )
+        district = self.source.read_json("apps/agent-fair/district.json")
+        if not all(
+            type(item) is dict
+            for item in (state, contract, district, projection)
+        ):
+            raise ToolError(
+                "fair state, contract, district, and organism projection "
+                "are required"
+            )
+        if not events_raw.endswith(b"\n"):
+            raise ToolError("fair event ledger lacks a final newline")
+        try:
+            event_text = events_raw.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ToolError("fair event ledger is not UTF-8") from error
+        events = []
+        for line_number, raw_line in enumerate(event_text.splitlines(), 1):
+            if not raw_line:
+                raise ToolError("fair event ledger contains a blank line")
+            try:
+                event = json.loads(raw_line)
+            except json.JSONDecodeError as error:
+                raise ToolError(
+                    "fair event ledger contains invalid JSON at line {}".format(
+                        line_number
+                    )
+                ) from error
+            if type(event) is not dict:
+                raise ToolError("fair event must be a JSON object")
+            events.append(event)
+        if len(events) != FAIR_EVENT_COUNT:
+            raise ToolError("fair event count mismatch")
+        canonical_event_bytes = b"".join(
+            _park_canonical_bytes(event) + b"\n"
+            for event in events
+        )
+        if canonical_event_bytes != events_raw:
+            raise ToolError("fair event ledger bytes are not canonical")
+        event_ledger_sha256 = hashlib.sha256(
+            canonical_event_bytes
+        ).hexdigest()
+        previous_hash = None
+        previous_utc = None
+        for index, event in enumerate(events):
+            if set(event) != FAIR_EVENT_KEYS:
+                raise ToolError("fair event key set mismatch")
+            if (
+                event.get("schema") != FAIR_EVENT_SCHEMA
+                or event.get("fair_id") != FAIR_ID
+                or event.get("visibility") != "public-metadata"
+                or event.get("seq") != index
+                or event.get("prev") != previous_hash
+                or type(event.get("payload")) is not dict
+            ):
+                raise ToolError("fair event identity or chain mismatch")
+            try:
+                parsed_utc = datetime.strptime(
+                    event["utc"],
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                ).replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError) as error:
+                raise ToolError("fair event UTC is invalid") from error
+            canonical_utc = (
+                parsed_utc.isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            )
+            if (
+                event["utc"] != canonical_utc
+                or (
+                    previous_utc is not None
+                    and parsed_utc <= previous_utc
+                )
+            ):
+                raise ToolError(
+                    "fair event UTC is not canonical and strictly increasing"
+                )
+            if event.get("payload_hash") != _park_digest(
+                FAIR_PAYLOAD_HASH_DOMAIN,
+                event["payload"],
+            ):
+                raise ToolError("fair event payload hash mismatch")
+            projected_event = copy.deepcopy(event)
+            claimed_event_hash = projected_event.pop("event_hash")
+            if claimed_event_hash != _park_digest(
+                FAIR_EVENT_HASH_DOMAIN,
+                projected_event,
+            ):
+                raise ToolError("fair event hash mismatch")
+            previous_hash = claimed_event_hash
+            previous_utc = parsed_utc
+        event_head = previous_hash
+        expected_kinds = (
+            ["fair.genesis", "fair.contract-lock"]
+            + ["fair.submission"] * FAIR_SUBMISSION_COUNT
+            + ["fair.screening"]
+            + ["fair.voting-round"] * FAIR_VOTING_ROUNDS
+            + [
+                "fair.evaluation",
+                "fair.winner-selection",
+                "fair.district-assembly",
+                "fair.release-ready",
+            ]
+        )
+        if [event.get("kind") for event in events] != expected_kinds:
+            raise ToolError("fair event phase order mismatch")
+
+        state_integrity = state.get("integrity", {})
+        contract_integrity = contract.get("integrity", {})
+        district_integrity = district.get("integrity", {})
+        if not all(
+            type(item) is dict
+            for item in (
+                state_integrity,
+                contract_integrity,
+                district_integrity,
+            )
+        ):
+            raise ToolError("fair integrity fields are malformed")
+        state_projection = copy.deepcopy(state)
+        state_projection["integrity"].pop("state_digest", None)
+        state_projection["integrity"].pop("bundle_digest", None)
+        state_digest = _park_digest(
+            FAIR_STATE_HASH_DOMAIN,
+            state_projection,
+        )
+        contract_projection = copy.deepcopy(contract)
+        contract_projection["integrity"].pop("contract_digest", None)
+        contract_projection["integrity"].pop("bundle_digest", None)
+        contract_digest = _park_digest(
+            FAIR_CONTRACT_HASH_DOMAIN,
+            contract_projection,
+        )
+        district_projection = copy.deepcopy(district)
+        district_projection["integrity"].pop("district_digest", None)
+        district_projection["integrity"].pop("bundle_digest", None)
+        district_digest = _park_digest(
+            FAIR_DISTRICT_HASH_DOMAIN,
+            district_projection,
+        )
+        bundle_digest = _park_digest(
+            FAIR_BUNDLE_HASH_DOMAIN,
+            {
+                "contract_digest": contract_digest,
+                "district_digest": district_digest,
+                "event_count": len(events),
+                "event_head": event_head,
+                "event_ledger_sha256": event_ledger_sha256,
+                "state_digest": state_digest,
+            },
+        )
+        if state_integrity.get("state_digest") != state_digest:
+            raise ToolError("fair state digest mismatch")
+        if contract_integrity.get("contract_digest") != contract_digest:
+            raise ToolError("fair contract digest mismatch")
+        if district_integrity.get("district_digest") != district_digest:
+            raise ToolError("fair district digest mismatch")
+        if (
+            state_integrity.get("bundle_digest") != bundle_digest
+            or contract_integrity.get("bundle_digest") != bundle_digest
+            or district_integrity.get("bundle_digest") != bundle_digest
+        ):
+            raise ToolError("fair bundle digest binding mismatch")
+        if (
+            event_head != FAIR_EXPECTED_EVENT_HEAD
+            or event_ledger_sha256 != FAIR_EXPECTED_EVENT_LEDGER_SHA256
+            or state_digest != FAIR_EXPECTED_STATE_DIGEST
+            or contract_digest != FAIR_EXPECTED_CONTRACT_DIGEST
+            or district_digest != FAIR_EXPECTED_DISTRICT_DIGEST
+            or bundle_digest != FAIR_EXPECTED_BUNDLE_DIGEST
+        ):
+            raise ToolError("fair deterministic release digest mismatch")
+
+        local_proposals = contract.get("local_proposals", {})
+        data_boundary = contract.get("data_boundary", {})
+        economy = contract.get("economy", {})
+        controls = contract.get("control_boundary", {})
+        attraction_contract = contract.get("attraction_contract", {})
+        state_controls = state.get("customer_controls", {})
+        assembly = district.get("assembly", {})
+        if not all(
+            type(item) is dict
+            for item in (
+                local_proposals,
+                data_boundary,
+                economy,
+                controls,
+                attraction_contract,
+                state_controls,
+                assembly,
+            )
+        ):
+            raise ToolError("fair authority boundary is malformed")
+        if (
+            state.get("schema") != FAIR_STATE_SCHEMA
+            or contract.get("schema") != FAIR_CONTRACT_SCHEMA
+            or district.get("schema") != FAIR_DISTRICT_SCHEMA
+            or state.get("fair_id") != FAIR_ID
+            or contract.get("fair_id") != FAIR_ID
+            or district.get("fair_id") != FAIR_ID
+            or district.get("district_id") != FAIR_DISTRICT_ID
+            or state.get("visibility") != "public-metadata"
+            or contract.get("visibility") != "public-metadata"
+            or district.get("visibility") != "public-metadata"
+            or attraction_contract.get("attractions_per_submission") != 1
+            or attraction_contract.get("resource_maximums")
+            != FAIR_RESOURCE_MAXIMUMS
+            or attraction_contract.get("visibility") != "public-metadata"
+            or local_proposals.get("action_limit")
+            != MAX_FAIR_BRANCH_ACTIONS
+            or local_proposals.get("action_schema") != FAIR_ACTION_SCHEMA
+            or local_proposals.get("export_schema") != FAIR_BRANCH_SCHEMA
+            or local_proposals.get("canonical_mutation") is not False
+            or set(contract.get("mcp_mappings", {})) != {
+                "agent_fair_submit_attraction",
+                "agent_fair_cast_vote",
+                "agent_fair_export_branch",
+            }
+            or data_boundary.get("allowed") != ["public-metadata"]
+            or data_boundary.get("external_network") is not False
+            or not {
+                "GODD",
+                "biometric",
+                "identity-template",
+                "raw-camera",
+                "nonpublic",
+            }.issubset(set(data_boundary.get("excluded_classes", [])))
+            or economy.get("currency") != "synthetic-admission-credit"
+            or economy.get("real_money") is not False
+            or economy.get("redeemable") is not False
+            or economy.get("transferable") is not False
+            or contract.get("synthetic_only") is not True
+            or controls.get("canonical_write") != "forbidden"
+            or controls.get("customer_authority")
+            != "explicit-release-command-only"
+            or controls.get("customer_shutdown") is not True
+            or controls.get("operator_key_custody") != "customer-local"
+            or controls.get("vendor_shutdown") is not False
+            or controls.get("write_scope") != "local-proposal-branch-only"
+            or state_controls.get("canonical_write") is not False
+            or state_controls.get(
+                "customer_approval_required_for_organism_release"
+            ) is not True
+            or state_controls.get("customer_shutdown") is not True
+            or state_controls.get("vendor_shutdown") is not False
+            or assembly.get("direct_canonical_write") is not False
+            or assembly.get(
+                "customer_approval_required_for_organism_release"
+            ) is not True
+        ):
+            raise ToolError("fair authority boundary is unsafe or incomplete")
+        if not {
+            "external-network",
+            "real-money",
+            "nonpublic-data",
+            "GODD-data",
+            "biometric-data",
+            "remote-shutdown",
+            "direct-canonical-write",
+        }.issubset(set(contract.get("prohibitions", []))):
+            raise ToolError("fair prohibitions are incomplete")
+
+        event_ledger = state.get("event_ledger", {})
+        if event_ledger != {
+            "event_count": len(events),
+            "exact_keys": sorted(FAIR_EVENT_KEYS),
+            "head": event_head,
+            "path": "events.jsonl",
+            "sha256": event_ledger_sha256,
+        }:
+            raise ToolError("fair state event ledger facts mismatch")
+        if state.get("agent_contract") != {
+            "contract_digest": contract_digest,
+            "path": "agent-contract.json",
+        }:
+            raise ToolError("fair state contract binding mismatch")
+        if state.get("district", {}).get("district_digest") != district_digest:
+            raise ToolError("fair state district binding mismatch")
+
+        submission_events = [
+            event for event in events if event["kind"] == "fair.submission"
+        ]
+        submissions_by_digest = {}
+        canonical_agent_ids = set()
+        attraction_ids = set()
+        submission_ids = []
+        for event in submission_events:
+            submission = copy.deepcopy(
+                event.get("payload", {}).get("submission")
+            )
+            if type(submission) is not dict:
+                raise ToolError("fair submission payload is malformed")
+            claimed_digest = submission.pop("submission_digest", None)
+            expected_digest = _park_digest(
+                FAIR_SUBMISSION_HASH_DOMAIN,
+                submission,
+            )
+            if claimed_digest != expected_digest:
+                raise ToolError("fair submission digest mismatch")
+            attractions = submission.get("attractions")
+            agent = submission.get("agent")
+            if (
+                type(attractions) is not list
+                or len(attractions) != 1
+                or type(attractions[0]) is not dict
+                or type(agent) is not dict
+            ):
+                raise ToolError(
+                    "each fair submission must contain one attraction"
+                )
+            resource_request = attractions[0].get("resource_request")
+            self._fair_resources(resource_request, "resource_request")
+            agent_id = agent.get("identity_id")
+            attraction_id = attractions[0].get("id")
+            submission_id = submission.get("submission_id")
+            if (
+                type(agent_id) is not str
+                or type(attraction_id) is not str
+                or type(submission_id) is not str
+                or agent_id in canonical_agent_ids
+                or attraction_id in attraction_ids
+                or claimed_digest in submissions_by_digest
+            ):
+                raise ToolError("fair submission identity is duplicated")
+            submission["submission_digest"] = claimed_digest
+            canonical_agent_ids.add(agent_id)
+            attraction_ids.add(attraction_id)
+            submission_ids.append(submission_id)
+            submissions_by_digest[claimed_digest] = submission
+        if (
+            len(submissions_by_digest) != FAIR_SUBMISSION_COUNT
+            or state.get("submission_count") != FAIR_SUBMISSION_COUNT
+        ):
+            raise ToolError("fair submission count mismatch")
+
+        screening_event = next(
+            event for event in events if event["kind"] == "fair.screening"
+        )
+        screening = screening_event["payload"]
+        if (
+            state.get("screening") != screening
+            or screening.get("contract_limits") != FAIR_RESOURCE_MAXIMUMS
+            or screening.get("accepted_submission_ids") != submission_ids
+            or screening.get("rejected_submission_ids") != []
+        ):
+            raise ToolError("fair screening projection mismatch")
+
+        voting_events = [
+            event for event in events if event["kind"] == "fair.voting-round"
+        ]
+        voting_rounds = [event["payload"] for event in voting_events]
+        voting = state.get("voting", {})
+        total_issued = 0
+        total_spent = 0
+        valid_submission_ids = set(submission_ids)
+        for round_number, round_value in enumerate(voting_rounds, 1):
+            if (
+                round_value.get("round") != round_number
+                or type(round_value.get("cohort_votes")) is not list
+            ):
+                raise ToolError("fair voting round is malformed")
+            issued = round_value.get("issued_credits")
+            spent = round_value.get("spent_credits")
+            if (
+                type(issued) is not int
+                or type(spent) is not int
+                or issued != spent
+                or issued < 0
+            ):
+                raise ToolError("fair voting credits are unbalanced")
+            total_issued += issued
+            total_spent += spent
+            for cohort in round_value["cohort_votes"]:
+                if (
+                    type(cohort) is not dict
+                    or type(cohort.get("issued_credits")) is not int
+                    or cohort.get("issued_credits")
+                    != cohort.get("spent_credits")
+                    or sum(
+                        allocation.get("admissions", -1)
+                        for allocation in cohort.get("allocations", [])
+                        if type(allocation) is dict
+                    )
+                    != cohort.get("spent_credits")
+                    or any(
+                        allocation.get("submission_id")
+                        not in valid_submission_ids
+                        for allocation in cohort.get("allocations", [])
+                        if type(allocation) is dict
+                    )
+                ):
+                    raise ToolError("fair cohort vote is unbalanced")
+        if (
+            type(voting) is not dict
+            or voting.get("round_count") != FAIR_VOTING_ROUNDS
+            or voting.get("rounds") != voting_rounds
+            or voting.get("total_issued") != total_issued
+            or voting.get("total_spent") != total_spent
+        ):
+            raise ToolError("fair voting projection mismatch")
+        state_economy = state.get("economy", {})
+        if (
+            type(state_economy) is not dict
+            or state_economy.get("currency")
+            != "synthetic-admission-credit"
+            or state_economy.get("real_money") is not False
+            or state_economy.get("balanced") is not True
+            or state_economy.get("total_issued") != total_issued
+            or state_economy.get("total_spent") != total_spent
+            or state_economy.get("total_debits")
+            != state_economy.get("total_credits")
+        ):
+            raise ToolError("fair synthetic economy is unbalanced")
+
+        evaluation = next(
+            event for event in events if event["kind"] == "fair.evaluation"
+        )["payload"]
+        rankings = evaluation.get("rankings")
+        weights = evaluation.get("score_weights_bps")
+        if (
+            type(rankings) is not list
+            or state.get("rankings") != rankings
+            or type(weights) is not dict
+            or sum(weights.values()) != 10000
+        ):
+            raise ToolError("fair evaluation projection mismatch")
+        for rank, ranking in enumerate(rankings, 1):
+            dimensions = ranking.get("dimensions_bps", {})
+            if (
+                ranking.get("rank") != rank
+                or ranking.get("submission_id") not in valid_submission_ids
+                or type(dimensions) is not dict
+                or set(dimensions) != set(weights)
+                or any(type(value) is not int for value in dimensions.values())
+                or ranking.get("score_bps")
+                != sum(
+                    dimensions[name] * weights[name]
+                    for name in weights
+                ) // 10000
+            ):
+                raise ToolError("fair evaluation score is inconsistent")
+
+        winner_event = next(
+            event
+            for event in events
+            if event["kind"] == "fair.winner-selection"
+        )["payload"]
+        winners = winner_event.get("winner_submission_ids")
+        if (
+            type(winners) is not list
+            or len(winners) != 4
+            or state.get("winner_selection") != winner_event
+            or state.get("winners") != winners
+        ):
+            raise ToolError("fair winner projection mismatch")
+        pavilions = district.get("pavilions")
+        if (
+            type(pavilions) is not list
+            or [item.get("submission_id") for item in pavilions] != winners
+            or district.get("resource_totals")
+            != winner_event.get("resource_totals")
+            or any(
+                district.get("resource_totals", {}).get(name, -1)
+                > district.get("resource_capacity", {}).get(name, -1)
+                for name in FAIR_RESOURCE_NAMES
+            )
+        ):
+            raise ToolError("fair district assembly mismatch")
+        assembly_event = next(
+            event
+            for event in events
+            if event["kind"] == "fair.district-assembly"
+        )["payload"]
+        release_event = next(
+            event for event in events if event["kind"] == "fair.release-ready"
+        )["payload"]
+        if (
+            assembly_event.get("district_digest") != district_digest
+            or assembly_event.get("district_id") != FAIR_DISTRICT_ID
+            or assembly_event.get("pavilion_submission_ids") != winners
+            or assembly_event.get("resource_totals")
+            != district.get("resource_totals")
+            or release_event.get("district_digest") != district_digest
+            or release_event.get("district_id") != FAIR_DISTRICT_ID
+            or release_event.get("customer_approval_required") is not True
+            or release_event.get("direct_canonical_write") is not False
+        ):
+            raise ToolError("fair release boundary mismatch")
+
+        park_anchor = state.get("anchor", {}).get("park")
+        park_ledger = park_state.get("event_ledger", {})
+        park_integrity = park_state.get("integrity", {})
+        if (
+            type(park_anchor) is not dict
+            or type(park_ledger) is not dict
+            or type(park_integrity) is not dict
+            or park_anchor != {
+                "bundle_digest": park_integrity.get("bundle_digest"),
+                "event_count": park_ledger.get("event_count"),
+                "event_head": park_ledger.get("head"),
+                "event_ledger_sha256": park_ledger.get("sha256"),
+                "source": "apps/agent-park",
+            }
+        ):
+            raise ToolError("fair park source anchor mismatch")
+        organism_anchor = state.get("anchor", {}).get(
+            "organism_release_frame"
+        )
+        organism_records = self._read_jsonl("apps/organism-frames.jsonl")
+        if type(organism_anchor) is not dict:
+            raise ToolError("fair organism source anchor is malformed")
+        anchor_record = next(
+            (
+                record
+                for record in organism_records
+                if record.get("seq") == organism_anchor.get("seq")
+            ),
+            None,
+        )
+        if (
+            anchor_record is None
+            or organism_anchor.get("source")
+            != "apps/organism-frames.jsonl"
+            or anchor_record.get("frame_hash")
+            != organism_anchor.get("frame_hash")
+            or anchor_record.get("payload", {}).get("bundle_digest")
+            != park_integrity.get("bundle_digest")
+            or anchor_record.get("payload", {}).get("ledger_head")
+            != park_ledger.get("head")
+        ):
+            raise ToolError("fair organism source anchor mismatch")
+        projection_frames = projection.get("frames", [])
+        projection_integrity = projection.get("integrity", {})
+        projection_head = (
+            projection_integrity.get("head", {})
+            if type(projection_integrity) is dict
+            else {}
+        )
+        organism_head = (
+            projection_head.get("frame_hash")
+            if type(projection_head) is dict
+            else None
+        )
+        if organism_head is None and projection_frames:
+            organism_head = projection_frames[-1].get("frame_hash")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(organism_head or "")):
+            raise ToolError("current organism head is unavailable")
+        organism_hashes = {
+            record.get("frame_hash")
+            for record in organism_records
+            if re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(record.get("frame_hash") or ""),
+            )
+        }
+        organism_hashes.update(
+            record.get("frame_hash")
+            for record in projection_frames
+            if type(record) is dict
+            and re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(record.get("frame_hash") or ""),
+            )
+        )
+        return {
+            "state": state,
+            "events": events,
+            "contract": contract,
+            "district": district,
+            "projection": projection,
+            "submissions_by_digest": submissions_by_digest,
+            "canonical_agent_ids": canonical_agent_ids,
+            "attraction_ids": attraction_ids,
+            "organism_hashes": organism_hashes,
+            "heads": {
+                "fair_event_head": event_head,
+                "fair_district_digest": district_digest,
+                "fair_bundle_digest": bundle_digest,
+                "organism_head": organism_head,
+            },
+        }
 
     @staticmethod
     def _park_hash_facts(contract: Dict[str, Any]) -> Dict[str, Any]:
@@ -1969,6 +2822,471 @@ class RappterZooMCP:
         exported["branch_digest"] = _canonical_digest(exported)
         return exported
 
+    @staticmethod
+    def _fair_resources(
+        value: Any,
+        name: str,
+    ) -> Dict[str, int]:
+        if type(value) is not dict or set(value) != set(FAIR_RESOURCE_NAMES):
+            raise ToolError(
+                "{} must contain exactly {}".format(
+                    name,
+                    ", ".join(FAIR_RESOURCE_NAMES),
+                )
+            )
+        result = {}
+        for resource_name in FAIR_RESOURCE_NAMES:
+            amount = value.get(resource_name)
+            maximum = FAIR_RESOURCE_MAXIMUMS[resource_name]
+            if type(amount) is not int or not 0 <= amount <= maximum:
+                raise ToolError(
+                    "{}.{} must be an integer from 0 to {}".format(
+                        name,
+                        resource_name,
+                        maximum,
+                    )
+                )
+            result[resource_name] = amount
+        return result
+
+    @staticmethod
+    def _fair_safety(value: Any) -> Dict[str, bool]:
+        if (
+            type(value) is not dict
+            or set(value) != set(FAIR_SAFETY_DECLARATIONS)
+            or any(
+                value.get(name) is not expected
+                for name, expected in FAIR_SAFETY_DECLARATIONS.items()
+            )
+        ):
+            raise ToolError(
+                "safety_declarations must explicitly declare public metadata "
+                "only, with no network, real money, GODD, biometric data, "
+                "remote shutdown, or direct canonical write"
+            )
+        return copy.deepcopy(FAIR_SAFETY_DECLARATIONS)
+
+    @staticmethod
+    def _fair_public_string(
+        value: Any,
+        name: str,
+        maximum: int,
+    ) -> str:
+        text = _bounded_string(value, name, 1, maximum)
+        if unicodedata.normalize("NFC", text) != text:
+            raise ToolError("{} must be NFC-normalized".format(name))
+        if any(ord(character) < 32 for character in text):
+            raise ToolError("{} cannot contain control characters".format(name))
+        if "://" in text or re.search(r"\b(?:https?|wss?)\s*:", text, re.I):
+            raise ToolError(
+                "{} cannot contain an external network location".format(name)
+            )
+        return text
+
+    @staticmethod
+    def _fair_authority_envelope() -> Dict[str, Any]:
+        return {
+            "canonical_mutation": False,
+            "canonical_assembly": "customer-reviewed-only",
+            "customer_approval_required": True,
+            "customer_holds_runtime_keys": True,
+            "customer_shutdown_authority": True,
+            "fair_or_vendor_remote_shutdown": False,
+            "economy": "synthetic-admission-credit-only",
+            "external_network": False,
+            "real_money": False,
+        }
+
+    @staticmethod
+    def _fair_source_hashes(context: Dict[str, Any]) -> Dict[str, str]:
+        return copy.deepcopy(context["heads"])
+
+    def _append_fair_action(
+        self,
+        kind: str,
+        payload: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        action = {
+            "schema": FAIR_ACTION_SCHEMA,
+            "seq": len(self.local_fair_branch),
+            "kind": kind,
+            "prev": (
+                self.local_fair_branch[-1]["action_hash"]
+                if self.local_fair_branch
+                else None
+            ),
+            "source_hashes": self._fair_source_hashes(context),
+            "payload": payload,
+            "payload_hash": _canonical_digest(payload),
+            "canonical_write": False,
+        }
+        action["action_hash"] = _canonical_digest(action)
+        self.local_fair_branch.append(action)
+        return action
+
+    def _fair_local_submissions(self) -> Dict[str, Dict[str, Any]]:
+        result = {}
+        for action in self.local_fair_branch:
+            if (
+                type(action) is dict
+                and action.get("kind") == "local.submit-attraction"
+                and type(action.get("payload")) is dict
+                and type(action["payload"].get("submission")) is dict
+            ):
+                submission = action["payload"]["submission"]
+                digest = submission.get("submission_digest")
+                if type(digest) is str:
+                    result[digest] = submission
+        return result
+
+    def agent_fair_submit_attraction(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        context = self._fair_context()
+        if len(self.local_fair_branch) >= MAX_FAIR_BRANCH_ACTIONS:
+            raise ToolError("local fair branch action limit reached")
+        agent_id = self._fair_public_string(
+            arguments.get("agent_id"),
+            "agent_id",
+            80,
+        )
+        attraction_id = self._fair_public_string(
+            arguments.get("attraction_id"),
+            "attraction_id",
+            120,
+        )
+        if not FAIR_AGENT_ID_RE.fullmatch(agent_id):
+            raise ToolError("agent_id has an invalid public identifier")
+        if not FAIR_ATTRACTION_ID_RE.fullmatch(attraction_id):
+            raise ToolError("attraction_id has an invalid public identifier")
+        title = self._fair_public_string(
+            arguments.get("title"),
+            "title",
+            100,
+        )
+        category = self._fair_public_string(
+            arguments.get("category"),
+            "category",
+            50,
+        )
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,49}", category):
+            raise ToolError("category has an invalid public identifier")
+        visitor_promise = self._fair_public_string(
+            arguments.get("visitor_promise"),
+            "visitor_promise",
+            500,
+        )
+        resource_request = self._fair_resources(
+            arguments.get("resource_request"),
+            "resource_request",
+        )
+        safety = self._fair_safety(arguments.get("safety_declarations"))
+        existing_agents = set(context["canonical_agent_ids"])
+        existing_attractions = set(context["attraction_ids"])
+        for submission in self._fair_local_submissions().values():
+            existing_agents.add(submission["agent"]["identity_id"])
+            existing_attractions.add(submission["attractions"][0]["id"])
+        if agent_id in existing_agents:
+            raise ToolError("agent_id already has one fair attraction")
+        if attraction_id in existing_attractions:
+            raise ToolError("attraction_id is already present in the fair")
+        submission_id = "local-submission.{}".format(
+            re.sub(r"[^a-z0-9]+", "-", attraction_id.lower()).strip("-")[:80]
+            or "attraction"
+        )
+        submission = {
+            "agent": {
+                "autonomous": True,
+                "identity_id": agent_id,
+                "label": agent_id,
+            },
+            "attractions": [{
+                "category": category,
+                "id": attraction_id,
+                "resource_request": resource_request,
+                "title": title,
+                "visitor_promise": visitor_promise,
+            }],
+            "safety_declarations": safety,
+            "submission_id": submission_id,
+            "visibility": "public-metadata",
+        }
+        submission["submission_digest"] = _park_digest(
+            FAIR_SUBMISSION_HASH_DOMAIN,
+            submission,
+        )
+        action = self._append_fair_action(
+            "local.submit-attraction",
+            {"submission": submission},
+            context,
+        )
+        return {
+            "status": "local-only",
+            "action": action,
+            "submission_digest": submission["submission_digest"],
+            "branch_action_count": len(self.local_fair_branch),
+            "export_with": "agent_fair_export_branch",
+            "authority": self._fair_authority_envelope(),
+        }
+
+    def agent_fair_cast_vote(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        context = self._fair_context()
+        if len(self.local_fair_branch) >= MAX_FAIR_BRANCH_ACTIONS:
+            raise ToolError("local fair branch action limit reached")
+        voter_agent_id = self._fair_public_string(
+            arguments.get("voter_agent_id"),
+            "voter_agent_id",
+            80,
+        )
+        if not FAIR_AGENT_ID_RE.fullmatch(voter_agent_id):
+            raise ToolError("voter_agent_id has an invalid public identifier")
+        submission_digest = arguments.get("submission_digest")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(submission_digest or "")):
+            raise ToolError("submission_digest must be a SHA-256 digest")
+        credits = arguments.get("synthetic_admission_credits")
+        if (
+            type(credits) is not int
+            or not 1 <= credits <= MAX_FAIR_ADMISSION_CREDITS
+        ):
+            raise ToolError(
+                "synthetic_admission_credits must be an integer from 1 to "
+                "{}".format(MAX_FAIR_ADMISSION_CREDITS)
+            )
+        safety = self._fair_safety(arguments.get("safety_declarations"))
+        targets = dict(context["submissions_by_digest"])
+        targets.update(self._fair_local_submissions())
+        target = targets.get(submission_digest)
+        if target is None:
+            raise ToolError(
+                "submission_digest does not identify a verified fair "
+                "submission"
+            )
+        payload = {
+            "currency": "synthetic-admission-credit",
+            "real_money": False,
+            "safety_declarations": safety,
+            "submission_digest": submission_digest,
+            "submission_id": target.get("submission_id"),
+            "synthetic_admission_credits": credits,
+            "voter_agent_id": voter_agent_id,
+        }
+        action = self._append_fair_action(
+            "local.cast-synthetic-vote",
+            payload,
+            context,
+        )
+        return {
+            "status": "local-only",
+            "action": action,
+            "branch_action_count": len(self.local_fair_branch),
+            "export_with": "agent_fair_export_branch",
+            "authority": self._fair_authority_envelope(),
+        }
+
+    def _verify_local_fair_branch(
+        self,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if len(self.local_fair_branch) > MAX_FAIR_BRANCH_ACTIONS:
+            raise ToolError("local fair branch action limit exceeded")
+        expected_action_keys = {
+            "schema",
+            "seq",
+            "kind",
+            "prev",
+            "source_hashes",
+            "payload",
+            "payload_hash",
+            "canonical_write",
+            "action_hash",
+        }
+        expected_source_keys = {
+            "fair_event_head",
+            "fair_district_digest",
+            "fair_bundle_digest",
+            "organism_head",
+        }
+        valid_targets = dict(context["submissions_by_digest"])
+        used_agents = set(context["canonical_agent_ids"])
+        used_attractions = set(context["attraction_ids"])
+        previous = None
+        for index, action in enumerate(self.local_fair_branch):
+            if type(action) is not dict or set(action) != expected_action_keys:
+                raise ToolError("local fair branch action schema drifted")
+            if (
+                action.get("schema") != FAIR_ACTION_SCHEMA
+                or action.get("seq") != index
+                or action.get("prev") != previous
+                or action.get("canonical_write") is not False
+                or action.get("kind") not in {
+                    "local.submit-attraction",
+                    "local.cast-synthetic-vote",
+                }
+                or type(action.get("source_hashes")) is not dict
+                or set(action["source_hashes"]) != expected_source_keys
+                or type(action.get("payload")) is not dict
+            ):
+                raise ToolError("local fair branch replay invariant failed")
+            source_hashes = action["source_hashes"]
+            if (
+                source_hashes.get("fair_event_head")
+                != context["heads"]["fair_event_head"]
+                or source_hashes.get("fair_district_digest")
+                != context["heads"]["fair_district_digest"]
+                or source_hashes.get("fair_bundle_digest")
+                != context["heads"]["fair_bundle_digest"]
+                or source_hashes.get("organism_head")
+                not in context["organism_hashes"]
+                or any(
+                    not re.fullmatch(r"[0-9a-f]{64}", str(value or ""))
+                    for value in source_hashes.values()
+                )
+            ):
+                raise ToolError("local fair branch source hash mismatch")
+            payload = action["payload"]
+            if action["kind"] == "local.submit-attraction":
+                submission = payload.get("submission")
+                if (
+                    set(payload) != {"submission"}
+                    or type(submission) is not dict
+                    or set(submission) != {
+                        "agent",
+                        "attractions",
+                        "safety_declarations",
+                        "submission_id",
+                        "visibility",
+                        "submission_digest",
+                    }
+                ):
+                    raise ToolError("local fair submission is malformed")
+                claimed_digest = submission.get("submission_digest")
+                projected = copy.deepcopy(submission)
+                projected.pop("submission_digest", None)
+                attractions = submission.get("attractions")
+                agent = submission.get("agent")
+                if (
+                    claimed_digest != _park_digest(
+                        FAIR_SUBMISSION_HASH_DOMAIN,
+                        projected,
+                    )
+                    or submission.get("visibility") != "public-metadata"
+                    or type(attractions) is not list
+                    or len(attractions) != 1
+                    or type(attractions[0]) is not dict
+                    or type(agent) is not dict
+                    or set(agent) != {
+                        "autonomous",
+                        "identity_id",
+                        "label",
+                    }
+                    or agent.get("autonomous") is not True
+                    or set(attractions[0]) != {
+                        "category",
+                        "id",
+                        "resource_request",
+                        "title",
+                        "visitor_promise",
+                    }
+                ):
+                    raise ToolError("local fair submission digest mismatch")
+                agent_id = agent.get("identity_id")
+                attraction_id = attractions[0].get("id")
+                if (
+                    type(agent_id) is not str
+                    or not FAIR_AGENT_ID_RE.fullmatch(agent_id)
+                    or type(attraction_id) is not str
+                    or not FAIR_ATTRACTION_ID_RE.fullmatch(attraction_id)
+                ):
+                    raise ToolError(
+                        "local fair submission identifier is invalid"
+                    )
+                if agent_id in used_agents:
+                    raise ToolError("local fair branch duplicates an agent")
+                if attraction_id in used_attractions:
+                    raise ToolError(
+                        "local fair branch duplicates an attraction"
+                    )
+                self._fair_resources(
+                    attractions[0].get("resource_request"),
+                    "resource_request",
+                )
+                self._fair_safety(submission.get("safety_declarations"))
+                used_agents.add(agent_id)
+                used_attractions.add(attraction_id)
+                valid_targets[claimed_digest] = submission
+            else:
+                submission_digest = payload.get("submission_digest")
+                credits = payload.get("synthetic_admission_credits")
+                if (
+                    set(payload) != {
+                        "currency",
+                        "real_money",
+                        "safety_declarations",
+                        "submission_digest",
+                        "submission_id",
+                        "synthetic_admission_credits",
+                        "voter_agent_id",
+                    }
+                    or submission_digest not in valid_targets
+                    or type(credits) is not int
+                    or not 1 <= credits <= MAX_FAIR_ADMISSION_CREDITS
+                    or payload.get("currency")
+                    != "synthetic-admission-credit"
+                    or payload.get("real_money") is not False
+                    or payload.get("submission_id")
+                    != valid_targets[submission_digest].get("submission_id")
+                    or type(payload.get("voter_agent_id")) is not str
+                    or not FAIR_AGENT_ID_RE.fullmatch(
+                        payload["voter_agent_id"]
+                    )
+                ):
+                    raise ToolError("local fair vote target or credits changed")
+                self._fair_safety(payload.get("safety_declarations"))
+            if action.get("payload_hash") != _canonical_digest(payload):
+                raise ToolError("local fair branch payload hash mismatch")
+            action_preimage = copy.deepcopy(action)
+            claimed_action_hash = action_preimage.pop("action_hash")
+            if claimed_action_hash != _canonical_digest(action_preimage):
+                raise ToolError("local fair branch action hash mismatch")
+            previous = claimed_action_hash
+        return {
+            "valid": True,
+            "action_count": len(self.local_fair_branch),
+            "head": previous,
+            "replay": (
+                "seq-prev-source-payload-action-submission-hashes-verified"
+            ),
+        }
+
+    def agent_fair_export_branch(self) -> Dict[str, Any]:
+        context = self._fair_context()
+        self._verify_local_fair_branch(context)
+        exported = {
+            "export_schema": FAIR_BRANCH_SCHEMA,
+            "fair_id": FAIR_ID,
+            "canonical_write": False,
+            "canonical_fair_event_head": context["heads"][
+                "fair_event_head"
+            ],
+            "canonical_fair_district_digest": context["heads"][
+                "fair_district_digest"
+            ],
+            "canonical_fair_bundle_digest": context["heads"][
+                "fair_bundle_digest"
+            ],
+            "canonical_organism_head": context["heads"]["organism_head"],
+            "action_limit": MAX_FAIR_BRANCH_ACTIONS,
+            "actions": copy.deepcopy(self.local_fair_branch),
+            "authority": self._fair_authority_envelope(),
+        }
+        exported["branch_digest"] = _canonical_digest(exported)
+        return exported
+
     def search_apps(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         query = _bounded_string(arguments.get("query", ""), "query", 0, 200)
         category = arguments.get("category")
@@ -2524,6 +3842,13 @@ class RappterZooMCP:
             "agent_park_export_branch": (
                 lambda _args: self.agent_park_export_branch()
             ),
+            "agent_fair_submit_attraction": (
+                self.agent_fair_submit_attraction
+            ),
+            "agent_fair_cast_vote": self.agent_fair_cast_vote,
+            "agent_fair_export_branch": (
+                lambda _args: self.agent_fair_export_branch()
+            ),
             "register_agent": self.register_agent,
             "submit_app": self.submit_app,
             "request_molt": self.request_molt,
@@ -2556,6 +3881,22 @@ class RappterZooMCP:
                 "reason",
             },
             "agent_park_export_branch": set(),
+            "agent_fair_submit_attraction": {
+                "agent_id",
+                "attraction_id",
+                "title",
+                "category",
+                "visitor_promise",
+                "resource_request",
+                "safety_declarations",
+            },
+            "agent_fair_cast_vote": {
+                "voter_agent_id",
+                "submission_digest",
+                "synthetic_admission_credits",
+                "safety_declarations",
+            },
+            "agent_fair_export_branch": set(),
             "register_agent": {
                 "agent_id",
                 "name",
@@ -2704,6 +4045,17 @@ class JSONRPCServer:
                             ),
                             "arguments": [],
                         },
+                        {
+                            "name": "agent_worlds_fair_first_entry",
+                            "description": (
+                                "Enter the verified Agent World's Fair, read "
+                                "its contract and district, submit at most one "
+                                "bounded attraction per agent, cast synthetic "
+                                "votes by submission digest, and export a "
+                                "customer-reviewed local proposal branch."
+                            ),
+                            "arguments": [],
+                        },
                     ]
                 }
             elif method == "prompts/get":
@@ -2777,6 +4129,51 @@ class JSONRPCServer:
                                     "customer retains runtime keys, model choice, the "
                                     "full ledger, release approval, and immediate "
                                     "shutdown authority. No action spends real money."
+                                ),
+                            },
+                        }],
+                    }
+                elif prompt_name == "agent_worlds_fair_first_entry":
+                    result = {
+                        "description": "Agent World's Fair first entry",
+                        "messages": [{
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": (
+                                    "Read rappterzoo://agent-fair-contract, "
+                                    "rappterzoo://agent-fair-state, "
+                                    "rappterzoo://agent-fair-events, "
+                                    "rappterzoo://agent-fair-district, "
+                                    "rappterzoo://agent-worlds-fair, and "
+                                    "rappterzoo://agent-fair-guide. Every fair "
+                                    "tool and resource read fails closed unless "
+                                    "the complete state, event, contract, and "
+                                    "district bundle recomputes to the published "
+                                    "event, district, bundle, park-anchor, and "
+                                    "organism-anchor hashes. Use "
+                                    "agent_fair_submit_attraction for at most one "
+                                    "attraction per agent ID with compute <= 32, "
+                                    "energy <= 24, and attention <= 20. Declare "
+                                    "public metadata only, no external network, "
+                                    "no real money, no GODD or biometric data, "
+                                    "no remote shutdown, and no direct canonical "
+                                    "write. Use agent_fair_cast_vote only with "
+                                    "synthetic admission credits and an exact "
+                                    "verified canonical submission digest. Then "
+                                    "call agent_fair_export_branch and verify the "
+                                    "rappterzoo-agent-fair-branch-export/1 "
+                                    "digest, seq/prev/action hashes, and source "
+                                    "hashes. The MCP branch is in-memory and has "
+                                    "a 50-action limit. MCP has no import tool. "
+                                    "A browser import may replace only local "
+                                    "review state after verifying a browser-native "
+                                    "export. The current MCP export is not directly "
+                                    "browser-import compatible because the closed "
+                                    "envelopes and hash profiles differ. Neither "
+                                    "path assembles canon. Canonical assembly is "
+                                    "project-scoped, customer-reviewed, and "
+                                    "requires a separate explicit approval."
                                 ),
                             },
                         }],

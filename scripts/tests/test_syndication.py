@@ -66,6 +66,67 @@ def make_frame(
     return frame
 
 
+def make_fair_release_frame(previous):
+    return make_frame(
+        previous["seq"] + 1,
+        previous,
+        kind="zoo.observation",
+        event="agent-worlds-fair-release",
+        payload_updates={
+            "app_file": "agent-worlds-fair.html",
+            "approval_basis": (
+                "verified-github-actions-oidc-attestation"
+            ),
+            "approval_evidence": {
+                "actor": "release-operator",
+                "attestation_sha256": "a" * 64,
+                "aud": "rappterzoo-agent-fair-release",
+                "environment": "agent-fair-production",
+                "event_name": "workflow_dispatch",
+                "exp": 2000000000,
+                "iss": "https://token.actions.githubusercontent.com",
+                "nbf": 1900000000,
+                "ref": "refs/heads/main",
+                "repository": "kody-w/localFirstTools-main",
+                "run_id": "123456789",
+                "workflow_ref": (
+                    "kody-w/localFirstTools-main/.github/workflows/"
+                    "agent-fair-release.yml@refs/heads/main"
+                ),
+            },
+            "assurance": "unsigned-structural-unverified",
+            "customer_approved": True,
+            "display_name": "Agent World's Fair",
+            "district_digest": builder.AGENT_FAIR_BASE_DISTRICT_DIGEST,
+            "event_id": builder.AGENT_FAIR_RELEASE_EVENT_ID,
+            "fair_bundle_digest": builder.AGENT_FAIR_BASE_BUNDLE_DIGEST,
+            "fair_event_head": builder.AGENT_FAIR_BASE_EVENT_HEAD,
+            "organism": builder.AGENT_FAIR_DISTRICT_ID,
+            "organism_type": "agent-worlds-fair-district",
+            "release_candidate_digest": (
+                builder.AGENT_FAIR_RELEASE_CANDIDATE_DIGEST
+            ),
+            "winner_submission_ids": builder.AGENT_FAIR_WINNERS,
+        },
+    )
+
+
+def rehash_frame(frame):
+    frame["payload_hash"] = builder.frame_hash_value(
+        builder.PARTICLE_SPACE,
+        frame["payload"],
+    )
+    wave = {
+        key: value
+        for key, value in frame.items()
+        if key not in {"frame_hash", "sig"}
+    }
+    frame["frame_hash"] = builder.frame_hash_value(
+        builder.WAVE_SPACE,
+        wave,
+    )
+
+
 def write_ledger(root, count=2):
     frames = []
     previous = None
@@ -307,6 +368,130 @@ def copy_agent_park(root):
     }
     write_json(target / "park-state.json", state)
     return target
+
+
+def copy_agent_fair(root):
+    target = root / "apps" / "agent-fair"
+    target.mkdir(parents=True)
+    for name in (
+        "agent-contract.json",
+        "district.json",
+        "events.jsonl",
+        "fair-state.json",
+    ):
+        shutil.copyfile(
+            ROOT / "apps" / "agent-fair" / name,
+            target / name,
+        )
+    return target
+
+
+def read_fair_events(target):
+    return [
+        json.loads(line)
+        for line in (target / "events.jsonl").read_text().splitlines()
+        if line
+    ]
+
+
+def write_fair_events(target, events):
+    data = builder.agent_fair_event_ledger_bytes(events)
+    (target / "events.jsonl").write_bytes(data)
+    return data
+
+
+def append_fair_event(events):
+    event = {
+        "fair_id": builder.AGENT_FAIR_ID,
+        "kind": "fair.audit",
+        "payload": {
+            "result": "future-customer-approved-prefix-growth",
+        },
+        "prev": events[-1]["event_hash"],
+        "schema": builder.AGENT_FAIR_EVENT_SCHEMA,
+        "seq": len(events),
+        "utc": "2026-08-16T12:23:00.000Z",
+        "visibility": "public-metadata",
+    }
+    event["payload_hash"] = builder.frame_hash_value(
+        builder.AGENT_FAIR_PAYLOAD_SPACE,
+        event["payload"],
+    )
+    event["event_hash"] = builder.frame_hash_value(
+        builder.AGENT_FAIR_EVENT_SPACE,
+        event,
+    )
+    return events + [event]
+
+
+def rebind_fair_bundle(target, update_contract_bundle=True):
+    events = read_fair_events(target)
+    state = read_json(target / "fair-state.json")
+    contract = read_json(target / "agent-contract.json")
+    district = read_json(target / "district.json")
+    event_bytes = builder.agent_fair_event_ledger_bytes(events)
+    state["event_ledger"].update({
+        "event_count": len(events),
+        "head": events[-1]["event_hash"],
+        "sha256": hashlib.sha256(event_bytes).hexdigest(),
+    })
+
+    projected_contract = json.loads(json.dumps(contract))
+    projected_contract["integrity"].pop("bundle_digest", None)
+    projected_contract["integrity"].pop("contract_digest", None)
+    contract_digest = builder.frame_hash_value(
+        builder.AGENT_FAIR_CONTRACT_SPACE,
+        projected_contract,
+    )
+    contract["integrity"]["contract_digest"] = contract_digest
+
+    district["integrity"]["contract_digest"] = contract_digest
+    projected_district = json.loads(json.dumps(district))
+    projected_district["integrity"].pop("bundle_digest", None)
+    projected_district["integrity"].pop("district_digest", None)
+    district_digest = builder.frame_hash_value(
+        builder.AGENT_FAIR_DISTRICT_SPACE,
+        projected_district,
+    )
+    district["integrity"]["district_digest"] = district_digest
+
+    state["agent_contract"]["contract_digest"] = contract_digest
+    state["district"]["district_digest"] = district_digest
+    state["district"]["resource_totals"] = json.loads(
+        json.dumps(district["resource_totals"])
+    )
+    state["integrity"]["contract_digest"] = contract_digest
+    state["integrity"]["district_digest"] = district_digest
+    projected_state = json.loads(json.dumps(state))
+    projected_state["integrity"].pop("bundle_digest", None)
+    projected_state["integrity"].pop("state_digest", None)
+    state_digest = builder.frame_hash_value(
+        builder.AGENT_FAIR_STATE_SPACE,
+        projected_state,
+    )
+    state["integrity"]["state_digest"] = state_digest
+    bundle_digest = builder.frame_hash_value(
+        builder.AGENT_FAIR_BUNDLE_SPACE,
+        {
+            "contract_digest": contract_digest,
+            "district_digest": district_digest,
+            "event_count": len(events),
+            "event_head": events[-1]["event_hash"],
+            "event_ledger_sha256": hashlib.sha256(
+                event_bytes
+            ).hexdigest(),
+            "state_digest": state_digest,
+        },
+    )
+    state["integrity"]["bundle_digest"] = bundle_digest
+    district["integrity"]["bundle_digest"] = bundle_digest
+    if update_contract_bundle:
+        contract["integrity"]["bundle_digest"] = bundle_digest
+    write_json(target / "fair-state.json", state)
+    if update_contract_bundle:
+        write_json(target / "agent-contract.json", contract)
+    write_json(target / "district.json", district)
+    return state, contract, district
 
 
 def read_park_events(target):
@@ -1016,6 +1201,439 @@ def test_looking_glass_scene_round_trips_as_public_data(tmp_path):
     assert descriptor["metadata"]["dimension_count"] == 7
     assert descriptor["metadata"]["scene_digest"] == "a" * 64
     assert descriptor["metadata"]["target_frame_hash"] == "b" * 64
+
+
+def test_agent_worlds_fair_fixture_roundtrip_and_overlay(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+
+    fair_objects = [
+        item
+        for item in sync_client.list_data_objects(state_dir)
+        if item["kind"] == "agent-worlds-fair-object"
+    ]
+    assert result["fetched_objects"] == 4
+    assert {
+        item["metadata"]["resource_type"]
+        for item in fair_objects
+    } == {"agent-contract", "district", "event-ledger", "state"}
+    ledger = next(
+        item
+        for item in fair_objects
+        if item["metadata"]["resource_type"] == "event-ledger"
+    )
+    state = next(
+        item
+        for item in fair_objects
+        if item["metadata"]["resource_type"] == "state"
+    )
+    assert ledger["metadata"]["event_count"] == 23
+    assert ledger["metadata"]["event_head"] == (
+        builder.AGENT_FAIR_BASE_EVENT_HEAD
+    )
+    assert state["metadata"]["winner_submission_ids"] == (
+        builder.AGENT_FAIR_WINNERS
+    )
+
+    overlay = tmp_path / "fair-state-overlay.json"
+    overlay.write_bytes(b'{"local_overlay":true}\n')
+    sync_client.add_local_app(
+        state_dir,
+        overlay,
+        "apps/agent-fair/fair-state.json",
+        "Local Fair State",
+    )
+    listed = sync_client.list_data_objects(state_dir)
+    overlaid = next(
+        item
+        for item in listed
+        if item["path"] == "apps/agent-fair/fair-state.json"
+    )
+    assert overlaid["overlayed"] is True
+
+
+@pytest.mark.parametrize(
+    "resource_type",
+    ["event-ledger", "state", "agent-contract", "district"],
+)
+def test_agent_worlds_fair_tampered_objects_are_rejected(
+    tmp_path,
+    resource_type,
+):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_fair(root)
+    descriptors = builder.build_public_data_descriptors(
+        root,
+        "https://example.test/zoo/",
+    )
+    descriptor = next(
+        item
+        for item in descriptors
+        if item["metadata"].get("resource_type") == resource_type
+        and item["kind"] == "agent-worlds-fair-object"
+    )
+    if resource_type == "event-ledger":
+        events = read_fair_events(target)
+        events[2]["payload"]["submission"]["submission_id"] = (
+            "submission.tampered"
+        )
+        write_fair_events(target, events)
+        path = target / "events.jsonl"
+    else:
+        path = target / {
+            "state": "fair-state.json",
+            "agent-contract": "agent-contract.json",
+            "district": "district.json",
+        }[resource_type]
+        value = read_json(path)
+        if resource_type == "state":
+            value["winners"] = list(reversed(value["winners"]))
+        elif resource_type == "agent-contract":
+            value["local_proposals"]["canonical_mutation"] = True
+        else:
+            value["pavilions"][0]["lineage"][
+                "submission_event_hash"
+            ] = "0" * 64
+        write_json(path, value)
+
+    with pytest.raises(builder.SyndicationError):
+        builder.build(root)
+    with pytest.raises(sync_client.SyncError):
+        sync_client._validate_descriptor_object(
+            path.read_bytes(),
+            sync_client.validate_data_descriptor(descriptor),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["truncation", "fork", "equal-utc"])
+def test_agent_worlds_fair_chain_rejects_history_mutations(
+    tmp_path,
+    mutation,
+):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_fair(root)
+    events = read_fair_events(target)
+    if mutation == "truncation":
+        events = events[:-1]
+    elif mutation == "fork":
+        events[5]["prev"] = "0" * 64
+        projected = {
+            key: value
+            for key, value in events[5].items()
+            if key != "event_hash"
+        }
+        events[5]["event_hash"] = builder.frame_hash_value(
+            builder.AGENT_FAIR_EVENT_SPACE,
+            projected,
+        )
+    else:
+        events[-1]["utc"] = events[-2]["utc"]
+        projected = {
+            key: value
+            for key, value in events[-1].items()
+            if key != "event_hash"
+        }
+        events[-1]["event_hash"] = builder.frame_hash_value(
+            builder.AGENT_FAIR_EVENT_SPACE,
+            projected,
+        )
+
+    with pytest.raises(builder.SyndicationError):
+        builder.validate_agent_fair_event_ledger(events)
+    with pytest.raises(sync_client.SyncError):
+        sync_client.validate_agent_fair_event_ledger(events)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["over-cap-district", "unsafe-proposal", "missing-winner-lineage"],
+)
+def test_agent_worlds_fair_resealed_semantic_mutations_fail(
+    tmp_path,
+    mutation,
+):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_fair(root)
+    update_contract = mutation == "unsafe-proposal"
+    if mutation == "unsafe-proposal":
+        contract_path = target / "agent-contract.json"
+        contract = read_json(contract_path)
+        contract["local_proposals"]["canonical_mutation"] = True
+        write_json(contract_path, contract)
+    else:
+        district_path = target / "district.json"
+        district = read_json(district_path)
+        if mutation == "over-cap-district":
+            district["pavilions"][3]["resource_request"]["compute"] = 32
+            district["resource_totals"]["compute"] = 98
+        else:
+            district["pavilions"][0]["lineage"][
+                "vote_event_hashes"
+            ].pop()
+        write_json(district_path, district)
+    rebind_fair_bundle(
+        target,
+        update_contract_bundle=update_contract,
+    )
+
+    with pytest.raises(builder.SyndicationError):
+        builder.build(root)
+
+
+def test_agent_worlds_fair_allows_coherent_exact_prefix_growth(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_fair(root)
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(state_dir, server.index_url)
+        before = {
+            item["metadata"]["resource_type"]: item
+            for item in sync_client.list_data_objects(state_dir)
+            if item["kind"] == "agent-worlds-fair-object"
+        }
+
+        events = append_fair_event(read_fair_events(target))
+        write_fair_events(target, events)
+        rebind_fair_bundle(target, update_contract_bundle=False)
+        assert build_served(root, server)["delta_created"] is True
+        result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+
+    after = {
+        item["metadata"]["resource_type"]: item
+        for item in sync_client.list_data_objects(state_dir)
+        if item["kind"] == "agent-worlds-fair-object"
+    }
+    assert result["applied_deltas"] == 1
+    assert after["event-ledger"]["metadata"]["event_count"] == 24
+    assert after["agent-contract"]["sha256"] == (
+        before["agent-contract"]["sha256"]
+    )
+    assert after["state"]["sha256"] != before["state"]["sha256"]
+    assert after["district"]["sha256"] != before["district"]["sha256"]
+    assert after["state"]["metadata"]["bundle_digest"] == (
+        after["district"]["metadata"]["bundle_digest"]
+    )
+
+
+def test_agent_worlds_fair_conditional_repair_and_rollback(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_fair(root)
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(state_dir, server.index_url)
+        contract = next(
+            item
+            for item in sync_client.list_data_objects(state_dir)
+            if item["kind"] == "agent-worlds-fair-object"
+            and item["metadata"]["resource_type"] == "agent-contract"
+        )
+        cached_contract = sync_client._object_path(
+            state_dir,
+            contract["sha256"],
+        )
+        cached_contract.write_bytes(b"corrupt")
+        repaired = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+        assert hashlib.sha256(cached_contract.read_bytes()).hexdigest() == (
+            contract["sha256"]
+        )
+
+        events = append_fair_event(read_fair_events(target))
+        write_fair_events(target, events)
+        rebind_fair_bundle(target, update_contract_bundle=False)
+        build_served(root, server)
+        before_failure = sync_client.status(state_dir)
+        (target / "events.jsonl").write_bytes(
+            (target / "events.jsonl").read_bytes() + b" "
+        )
+        with pytest.raises(sync_client.SyncError):
+            sync_client.sync_repository(state_dir, server.index_url)
+
+    after_failure = sync_client.status(state_dir)
+    assert repaired["not_modified"] is True
+    assert after_failure["head_sha256"] == before_failure["head_sha256"]
+    assert after_failure["deltas"] == before_failure["deltas"]
+    index_requests = [
+        request
+        for request in server.requests
+        if request["path"].endswith("/index.json")
+    ]
+    assert index_requests[1]["if_none_match"]
+    assert any(
+        request["path"].endswith("/apps/agent-fair/agent-contract.json")
+        for request in server.requests
+    )
+
+
+def test_agent_worlds_fair_profile9_replay_and_tombstone_rejection(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        downgrade_chain_to_profile9(root, server.base_url)
+        assert builder.build(
+            root,
+            server.base_url,
+        )["delta_created"] is True
+        result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+        assert result["applied_deltas"] == 2
+
+    delta_path = delta_path_for_sequence(root, 0)
+    delta = read_json(delta_path)
+    descriptor = next(
+        item
+        for item in delta["changes"]["data_upserts"]
+        if item["kind"] == "agent-worlds-fair-object"
+        and item["metadata"]["resource_type"] == "district"
+    )
+    delta["profile"] = builder.PROFILE_V9
+    delta["changes"]["data_upserts"].remove(descriptor)
+    delta["changes"]["data_tombstones"] = [{
+        "descriptor": descriptor,
+        "path": descriptor["path"],
+        "reason": "forbidden-fair-removal",
+        "removed_at": delta["created_at"],
+        "sequence": delta["sequence"],
+    }]
+    delta["segments"] = builder.segment_metadata(delta["changes"])
+    delta_bytes = builder.stable_json_bytes(delta)
+    digest = hashlib.sha256(delta_bytes).hexdigest()
+    entry = builder._delta_entry(
+        delta,
+        digest,
+        delta_bytes,
+        "https://example.test/zoo/",
+    )
+    with pytest.raises(sync_client.SyncError, match="cannot be tombstoned"):
+        sync_client.validate_delta(
+            delta_bytes,
+            entry,
+            builder.STREAM_ID,
+        )
+    with pytest.raises(builder.SyndicationError, match="cannot be tombstoned"):
+        builder.replay_immutable_deltas([delta])
+
+
+def test_agent_worlds_fair_path_and_privacy_fail_closed(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_fair(root)
+    candidate = target / "release-candidate.json"
+    candidate.write_bytes(b'{"credential":"non-public-candidate"}\n')
+    descriptors = builder.build_public_data_descriptors(
+        root,
+        "https://example.test/zoo/",
+    )
+    assert {
+        item["path"]
+        for item in descriptors
+        if item["kind"] == "agent-worlds-fair-object"
+    } == {
+        "apps/agent-fair/agent-contract.json",
+        "apps/agent-fair/district.json",
+        "apps/agent-fair/events.jsonl",
+        "apps/agent-fair/fair-state.json",
+    }
+
+    extra = target / "nested" / "extra.json"
+    extra.parent.mkdir()
+    extra.write_bytes(builder.stable_json_bytes({
+        "schema": "rappterzoo-agent-worlds-fair-state/1",
+        "visibility": "public-metadata",
+    }))
+    with pytest.raises(
+        builder.SyndicationError,
+        match="unknown agent fair public object",
+    ):
+        builder.build(root)
+
+    extra.unlink()
+    contract_path = target / "agent-contract.json"
+    contract = read_json(contract_path)
+    contract["credential"] = "must-not-publish"
+    write_json(contract_path, contract)
+    with pytest.raises(builder.SyndicationError, match="sensitive key"):
+        builder.build(root)
+
+
+def test_agent_worlds_fair_release_frame_requires_oidc_authority():
+    candidate = read_json(
+        ROOT / "apps" / "agent-fair" / "release-candidate.json"
+    )
+    assert candidate["candidate_digest"] == (
+        builder.AGENT_FAIR_RELEASE_CANDIDATE_DIGEST
+    )
+    base = make_frame(0)
+    release = make_fair_release_frame(base)
+
+    assert builder.validate_frames([base, release]) == [base, release]
+    assert sync_client.validate_frames(
+        [base, release],
+        None,
+        set(),
+    ) == release
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "candidate",
+        "missing-claim",
+        "fixed-claim",
+        "time-range",
+        "attestation",
+        "extra-key",
+    ],
+)
+def test_agent_worlds_fair_release_authority_mutations_fail(mutation):
+    base = make_frame(0)
+    release = make_fair_release_frame(base)
+    evidence = release["payload"]["approval_evidence"]
+    if mutation == "candidate":
+        release["payload"]["release_candidate_digest"] = "0" * 64
+    elif mutation == "missing-claim":
+        evidence.pop("actor")
+    elif mutation == "fixed-claim":
+        evidence["repository"] = "fork/example"
+    elif mutation == "time-range":
+        evidence["exp"] = evidence["nbf"]
+    elif mutation == "attestation":
+        evidence["attestation_sha256"] = "0" * 64
+    else:
+        release["payload"]["unexpected"] = True
+    rehash_frame(release)
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="OIDC approval evidence",
+    ):
+        builder.validate_frames([base, release])
+    with pytest.raises(
+        sync_client.SyncError,
+        match="OIDC approval evidence",
+    ):
+        sync_client.validate_frames([base, release], None, set())
 
 
 def test_agent_amusement_park_round_trips_as_public_data(tmp_path):

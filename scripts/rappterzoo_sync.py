@@ -127,6 +127,201 @@ AGENT_PARK_EVENT_V2_KEYS = AGENT_PARK_EVENT_KEYS | {
     "season",
     "season_seq",
 }
+AGENT_FAIR_STATE_SCHEMA = "rappterzoo-agent-worlds-fair-state/1"
+AGENT_FAIR_EVENT_SCHEMA = "rappterzoo-agent-worlds-fair-event/1"
+AGENT_FAIR_CONTRACT_SCHEMA = "rappterzoo-agent-worlds-fair-contract/1"
+AGENT_FAIR_DISTRICT_SCHEMA = "rappterzoo-agent-worlds-fair-district/1"
+AGENT_FAIR_ID = "fair.agent-worlds-fair-1"
+AGENT_FAIR_DISTRICT_ID = "district.agent-worlds-fair-1"
+AGENT_FAIR_PAYLOAD_SPACE = "rappterzoo/agent-worlds-fair-payload/1"
+AGENT_FAIR_EVENT_SPACE = "rappterzoo/agent-worlds-fair-event/1"
+AGENT_FAIR_SUBMISSION_SPACE = "rappterzoo/agent-worlds-fair-submission/1"
+AGENT_FAIR_STATE_SPACE = "rappterzoo/agent-worlds-fair-state/1"
+AGENT_FAIR_CONTRACT_SPACE = "rappterzoo/agent-worlds-fair-contract/1"
+AGENT_FAIR_DISTRICT_SPACE = "rappterzoo/agent-worlds-fair-district/1"
+AGENT_FAIR_BUNDLE_SPACE = "rappterzoo/agent-worlds-fair-bundle/1"
+AGENT_FAIR_BASE_EVENT_COUNT = 23
+AGENT_FAIR_BASE_EVENT_HEAD = (
+    "fa5e7861ec0bf7cfdb20caedd9e1c1287bbfdb6ffc8ee64ed181fae4305c643d"
+)
+AGENT_FAIR_BASE_PREFIX_SHA256 = (
+    "6400594b6c83ff905b800eb0637ce48a71363545ec0014d10158ce44896661fe"
+)
+AGENT_FAIR_BASE_BUNDLE_DIGEST = (
+    "04aa93502f81e81a9f345ab0d4bbe4621703688893f6dc5a5faa8e3b171640d3"
+)
+AGENT_FAIR_CONTRACT_DIGEST = (
+    "9d8901693e9ffe60b1062575c106d896342ceb9bdbdbe03a1e9d7f29a82fcaf4"
+)
+AGENT_FAIR_BASE_DISTRICT_DIGEST = (
+    "a7268da3c101c7e0cdf15df89037c37cb61ca1dee34f10809bb5b346c4264ecd"
+)
+AGENT_FAIR_EVENT_KEYS = {
+    "event_hash",
+    "fair_id",
+    "kind",
+    "payload",
+    "payload_hash",
+    "prev",
+    "schema",
+    "seq",
+    "utc",
+    "visibility",
+}
+AGENT_FAIR_STATE_KEYS = {
+    "agent_contract",
+    "anchor",
+    "customer_controls",
+    "district",
+    "economy",
+    "event_ledger",
+    "fair_id",
+    "integrity",
+    "rankings",
+    "rejections",
+    "schema",
+    "screening",
+    "status",
+    "submission_count",
+    "title",
+    "visibility",
+    "voting",
+    "winner_selection",
+    "winners",
+}
+AGENT_FAIR_CONTRACT_KEYS = {
+    "assurance",
+    "attraction_contract",
+    "canonicalization",
+    "control_boundary",
+    "data_boundary",
+    "economy",
+    "fair_id",
+    "hashing",
+    "integrity",
+    "local_proposals",
+    "mcp_mappings",
+    "prohibitions",
+    "schema",
+    "synthetic_only",
+    "visibility",
+}
+AGENT_FAIR_DISTRICT_KEYS = {
+    "assembly",
+    "district_id",
+    "fair_id",
+    "integrity",
+    "map",
+    "pavilions",
+    "resource_capacity",
+    "resource_totals",
+    "schema",
+    "visibility",
+}
+AGENT_FAIR_ATTRACTION_LIMITS = {
+    "attention": 20,
+    "compute": 32,
+    "energy": 24,
+}
+AGENT_FAIR_DISTRICT_CAPACITY = {
+    "attention": 60,
+    "compute": 96,
+    "energy": 72,
+}
+AGENT_FAIR_WINNERS = [
+    "submission.memory-mosaic",
+    "submission.resonance-commons",
+    "submission.aurora-atlas",
+    "submission.many-worlds-theatre",
+]
+AGENT_FAIR_EVENT_KINDS = (
+    ["fair.genesis", "fair.contract-lock"]
+    + ["fair.submission"] * 12
+    + ["fair.screening"]
+    + ["fair.voting-round"] * 4
+    + [
+        "fair.evaluation",
+        "fair.winner-selection",
+        "fair.district-assembly",
+        "fair.release-ready",
+    ]
+)
+AGENT_FAIR_ANCHOR = {
+    "organism_release_frame": {
+        "frame_hash": (
+            "9e21f50524057dba0392a4db63fdeee981d9775f005cc8ae16b829e06fe4eecd"
+        ),
+        "seq": 56,
+        "source": "apps/organism-frames.jsonl",
+    },
+    "park": {
+        "bundle_digest": (
+            "a8d5df723b6c94790e8da5cb0b59550c2fb8a10cc6a11317c09650e584140ca7"
+        ),
+        "event_count": 94,
+        "event_head": (
+            "a7cf7ce7e18c97c4099bd01edb47211b9cf2c53ddd968d76f9d626d412a29ed9"
+        ),
+        "event_ledger_sha256": (
+            "bfefe99e73fd89bc4f435dd3dfd9c4a5b784788017e406a79fe92194273351bf"
+        ),
+        "source": "apps/agent-park",
+    },
+}
+AGENT_FAIR_RELEASE_CANDIDATE_DIGEST = (
+    "ad5a75e12715d476f4aa197c83190c814952184756e67ef08ffed570dcd62ae3"
+)
+AGENT_FAIR_RELEASE_EVENT_ID = (
+    "agent-worlds-fair-release:"
+    + AGENT_FAIR_BASE_BUNDLE_DIGEST
+    + ":"
+    + AGENT_FAIR_BASE_DISTRICT_DIGEST
+)
+AGENT_FAIR_APPROVAL_EVIDENCE_KEYS = {
+    "actor",
+    "attestation_sha256",
+    "aud",
+    "environment",
+    "event_name",
+    "exp",
+    "iss",
+    "nbf",
+    "ref",
+    "repository",
+    "run_id",
+    "workflow_ref",
+}
+AGENT_FAIR_APPROVAL_FIXED_CLAIMS = {
+    "aud": "rappterzoo-agent-fair-release",
+    "environment": "agent-fair-production",
+    "event_name": "workflow_dispatch",
+    "iss": "https://token.actions.githubusercontent.com",
+    "ref": "refs/heads/main",
+    "repository": "kody-w/localFirstTools-main",
+    "workflow_ref": (
+        "kody-w/localFirstTools-main/.github/workflows/"
+        "agent-fair-release.yml@refs/heads/main"
+    ),
+}
+AGENT_FAIR_RELEASE_PAYLOAD_KEYS = {
+    "app_file",
+    "approval_basis",
+    "approval_evidence",
+    "assurance",
+    "customer_approved",
+    "display_name",
+    "district_digest",
+    "event",
+    "event_id",
+    "fair_bundle_digest",
+    "fair_event_head",
+    "organism",
+    "organism_type",
+    "release_candidate_digest",
+    "schema",
+    "visibility",
+    "winner_submission_ids",
+}
 FRAME_SCHEMA = "rappterzoo-organism-frame/1"
 MAX_INDEX_BYTES = 8 * 1024 * 1024
 MAX_DELTA_BYTES = 16 * 1024 * 1024
@@ -643,6 +838,323 @@ def validate_agent_park_event_ledger(
     return events
 
 
+def agent_fair_event_ledger_bytes(
+    events: Sequence[Dict[str, Any]],
+) -> bytes:
+    return b"".join(
+        canonical_frame_bytes(event) + b"\n"
+        for event in events
+    )
+
+
+def _agent_fair_projection_sha256(value: Any) -> str:
+    return sha256_bytes(canonical_frame_bytes(value))
+
+
+def _agent_fair_without_integrity_digests(
+    value: Dict[str, Any],
+    digest_name: str,
+) -> Dict[str, Any]:
+    projected = copy.deepcopy(value)
+    integrity = projected.get("integrity")
+    if type(integrity) is not dict:
+        raise SyncError("agent fair integrity fields are malformed")
+    integrity.pop("bundle_digest", None)
+    integrity.pop(digest_name, None)
+    return projected
+
+
+def validate_agent_fair_event_ledger(
+    events: Any,
+) -> List[Dict[str, Any]]:
+    if (
+        not isinstance(events, list)
+        or len(events) < AGENT_FAIR_BASE_EVENT_COUNT
+    ):
+        raise SyncError(
+            "agent fair ledger must preserve the exact 23-event release prefix"
+        )
+    previous = None
+    previous_utc = None
+    for index, event in enumerate(events):
+        if type(event) is not dict or set(event) != AGENT_FAIR_EVENT_KEYS:
+            raise SyncError(
+                "agent fair event {} has an invalid key set".format(index)
+            )
+        if (
+            event.get("schema") != AGENT_FAIR_EVENT_SCHEMA
+            or event.get("fair_id") != AGENT_FAIR_ID
+            or event.get("visibility") != "public-metadata"
+            or type(event.get("kind")) is not str
+            or not KIND_RE.fullmatch(event["kind"])
+            or type(event.get("seq")) is not int
+            or event["seq"] != index
+            or type(event.get("utc")) is not str
+            or not UTC_RE.fullmatch(event["utc"])
+            or type(event.get("payload")) is not dict
+            or type(event.get("payload_hash")) is not str
+            or not HASH_RE.fullmatch(event["payload_hash"])
+            or type(event.get("event_hash")) is not str
+            or not HASH_RE.fullmatch(event["event_hash"])
+            or (
+                event.get("prev") is not None
+                and (
+                    type(event["prev"]) is not str
+                    or not HASH_RE.fullmatch(event["prev"])
+                )
+            )
+        ):
+            raise SyncError("invalid agent fair event ledger")
+        try:
+            parsed_utc = datetime.strptime(
+                event["utc"],
+                "%Y-%m-%dT%H:%M:%S.%fZ",
+            ).replace(tzinfo=timezone.utc)
+        except ValueError as error:
+            raise SyncError("invalid agent fair event UTC") from error
+        normalized_utc = parsed_utc.isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z")
+        if normalized_utc != event["utc"]:
+            raise SyncError(
+                "agent fair event UTC is not canonical milliseconds"
+            )
+        if previous_utc is not None and parsed_utc <= previous_utc:
+            raise SyncError(
+                "agent fair event UTC is not strictly increasing"
+            )
+        if event["prev"] != (
+            previous["event_hash"] if previous else None
+        ):
+            raise SyncError("agent fair event chain is broken")
+        if event["payload_hash"] != frame_hash_value(
+            AGENT_FAIR_PAYLOAD_SPACE,
+            event["payload"],
+        ):
+            raise SyncError("agent fair payload hash mismatch")
+        projected = {
+            key: value
+            for key, value in event.items()
+            if key != "event_hash"
+        }
+        if event["event_hash"] != frame_hash_value(
+            AGENT_FAIR_EVENT_SPACE,
+            projected,
+        ):
+            raise SyncError("agent fair event hash mismatch")
+        forbidden = _find_forbidden_key(event)
+        if forbidden:
+            raise SyncError(
+                "agent fair event contains sensitive key {}".format(
+                    forbidden
+                )
+            )
+        previous = event
+        previous_utc = parsed_utc
+
+    release_events = events[:AGENT_FAIR_BASE_EVENT_COUNT]
+    if (
+        sha256_bytes(agent_fair_event_ledger_bytes(release_events))
+        != AGENT_FAIR_BASE_PREFIX_SHA256
+        or release_events[-1]["event_hash"]
+        != AGENT_FAIR_BASE_EVENT_HEAD
+        or [event["kind"] for event in release_events]
+        != AGENT_FAIR_EVENT_KINDS
+    ):
+        raise SyncError(
+            "agent fair ledger rewrites the exact 23-event release prefix"
+        )
+    submissions = []
+    for event in release_events:
+        if event["kind"] != "fair.submission":
+            continue
+        if set(event["payload"]) != {"submission"}:
+            raise SyncError("agent fair submission payload is malformed")
+        submission = event["payload"]["submission"]
+        if type(submission) is not dict:
+            raise SyncError("agent fair submission is malformed")
+        projected = copy.deepcopy(submission)
+        submitted_digest = projected.pop("submission_digest", None)
+        if submitted_digest != frame_hash_value(
+            AGENT_FAIR_SUBMISSION_SPACE,
+            projected,
+        ):
+            raise SyncError("agent fair submission digest mismatch")
+        attractions = submission.get("attractions")
+        if not isinstance(attractions, list) or len(attractions) != 1:
+            raise SyncError(
+                "agent fair submission must contain one attraction"
+            )
+        resources = attractions[0].get("resource_request")
+        if (
+            type(resources) is not dict
+            or set(resources) != set(AGENT_FAIR_ATTRACTION_LIMITS)
+        ):
+            raise SyncError(
+                "agent fair attraction resources are malformed"
+            )
+        for resource, maximum in AGENT_FAIR_ATTRACTION_LIMITS.items():
+            amount = resources.get(resource)
+            if type(amount) is not int or not 0 <= amount <= maximum:
+                raise SyncError(
+                    "agent fair attraction contract bound exceeded"
+                )
+        submissions.append(submission)
+    if (
+        len(submissions) != 12
+        or len({item.get("submission_id") for item in submissions}) != 12
+        or len(
+            {
+                item.get("agent", {}).get("identity_id")
+                for item in submissions
+            }
+        )
+        != 12
+        or len(
+            {
+                item["attractions"][0].get("id")
+                for item in submissions
+            }
+        )
+        != 12
+        or len(
+            {
+                item["attractions"][0].get("category")
+                for item in submissions
+            }
+        )
+        < 6
+    ):
+        raise SyncError(
+            "agent fair must contain 12 diverse public submissions"
+        )
+    contract_lock = release_events[1]["payload"]
+    winner_selection = release_events[20]["payload"]
+    if (
+        contract_lock.get("contract_digest")
+        != AGENT_FAIR_CONTRACT_DIGEST
+        or contract_lock.get("submission_count") != 12
+        or contract_lock.get("local_proposal_action_limit") != 50
+        or winner_selection.get("winner_submission_ids")
+        != AGENT_FAIR_WINNERS
+        or winner_selection.get("capacity")
+        != AGENT_FAIR_DISTRICT_CAPACITY
+    ):
+        raise SyncError("agent fair release contract or winners changed")
+    return events
+
+
+def _validate_agent_fair_contract(value: Any) -> Dict[str, Any]:
+    if type(value) is not dict or set(value) != AGENT_FAIR_CONTRACT_KEYS:
+        raise SyncError("agent fair contract has an invalid schema")
+    integrity = value.get("integrity")
+    controls = value.get("control_boundary")
+    proposals = value.get("local_proposals")
+    if (
+        value.get("schema") != AGENT_FAIR_CONTRACT_SCHEMA
+        or value.get("fair_id") != AGENT_FAIR_ID
+        or value.get("visibility") != "public-metadata"
+        or value.get("synthetic_only") is not True
+        or value.get("assurance") != {
+            "claim": "deterministic-structural-validation-only",
+            "consensus": False,
+            "signed": False,
+        }
+        or value.get("attraction_contract") != {
+            "attractions_per_submission": 1,
+            "resource_maximums": AGENT_FAIR_ATTRACTION_LIMITS,
+            "visibility": "public-metadata",
+        }
+        or value.get("economy") != {
+            "currency": "synthetic-admission-credit",
+            "real_money": False,
+            "redeemable": False,
+            "transferable": False,
+        }
+        or controls != {
+            "canonical_write": "forbidden",
+            "customer_authority": "explicit-release-command-only",
+            "customer_shutdown": True,
+            "operator_key_custody": "customer-local",
+            "vendor_shutdown": False,
+            "write_scope": "local-proposal-branch-only",
+        }
+        or proposals != {
+            "action_limit": 50,
+            "action_schema": "rappterzoo-agent-fair-local-action/1",
+            "canonical_mutation": False,
+            "export_schema": "rappterzoo-agent-fair-branch-export/1",
+        }
+        or set(value.get("mcp_mappings", {})) != {
+            "agent_fair_cast_vote",
+            "agent_fair_export_branch",
+            "agent_fair_submit_attraction",
+        }
+        or any(
+            mapping.get("writes")
+            not in {"local-proposal-branch", "customer-selected-file"}
+            for mapping in value.get("mcp_mappings", {}).values()
+            if type(mapping) is dict
+        )
+        or value.get("data_boundary", {}).get("allowed")
+        != ["public-metadata"]
+        or value.get("data_boundary", {}).get("external_network") is not False
+        or type(integrity) is not dict
+        or integrity.get("algorithm") != "sha256"
+        or integrity.get("contract_digest")
+        != AGENT_FAIR_CONTRACT_DIGEST
+        or integrity.get("bundle_digest")
+        != AGENT_FAIR_BASE_BUNDLE_DIGEST
+    ):
+        raise SyncError(
+            "invalid agent fair synthetic or customer-authority contract"
+        )
+    hashing = value.get("hashing")
+    if (
+        type(hashing) is not dict
+        or hashing.get("algorithm") != "sha256"
+        or hashing.get("domains") != {
+            "bundle": AGENT_FAIR_BUNDLE_SPACE + "\n",
+            "contract": AGENT_FAIR_CONTRACT_SPACE + "\n",
+            "district": AGENT_FAIR_DISTRICT_SPACE + "\n",
+            "event": AGENT_FAIR_EVENT_SPACE + "\n",
+            "event_payload": AGENT_FAIR_PAYLOAD_SPACE + "\n",
+            "state": AGENT_FAIR_STATE_SPACE + "\n",
+            "submission": AGENT_FAIR_SUBMISSION_SPACE + "\n",
+        }
+        or set(hashing.get("preimages", {})) != {
+            "bundle",
+            "contract",
+            "district",
+            "event",
+            "event_payload",
+            "state",
+            "submission",
+        }
+    ):
+        raise SyncError("invalid agent fair hashing contract")
+    projected = _agent_fair_without_integrity_digests(
+        value,
+        "contract_digest",
+    )
+    if frame_hash_value(
+        AGENT_FAIR_CONTRACT_SPACE,
+        projected,
+    ) != AGENT_FAIR_CONTRACT_DIGEST:
+        raise SyncError("agent fair contract digest mismatch")
+    return {
+        "action_limit": proposals["action_limit"],
+        "attraction_limits": copy.deepcopy(AGENT_FAIR_ATTRACTION_LIMITS),
+        "bundle_digest": integrity["bundle_digest"],
+        "contract_digest": integrity["contract_digest"],
+        "fair_id": AGENT_FAIR_ID,
+        "resource_type": "agent-contract",
+        "schema": AGENT_FAIR_CONTRACT_SCHEMA,
+        "synthetic_only": True,
+        "visibility": "public-metadata",
+    }
+
+
 def _privacy_key_token(key: str) -> str:
     return "".join(
         character.lower()
@@ -738,6 +1250,75 @@ def _validate_shard_main_append(payload: Dict[str, Any]) -> None:
         )
 
 
+def _validate_agent_fair_release_frame(
+    frame: Dict[str, Any],
+) -> None:
+    payload = frame["payload"]
+    release_signal = (
+        payload.get("event") == "agent-worlds-fair-release"
+        or (
+            type(payload.get("event_id")) is str
+            and payload["event_id"].startswith(
+                "agent-worlds-fair-release:"
+            )
+        )
+        or payload.get("organism_type") == "agent-worlds-fair-district"
+        or "release_candidate_digest" in payload
+        or "approval_evidence" in payload
+        or payload.get("approval_basis")
+        == "verified-github-actions-oidc-attestation"
+    )
+    if not release_signal:
+        return
+    evidence = payload.get("approval_evidence")
+    if (
+        frame.get("kind") != "zoo.observation"
+        or set(payload) != AGENT_FAIR_RELEASE_PAYLOAD_KEYS
+        or payload.get("app_file") != "agent-worlds-fair.html"
+        or payload.get("approval_basis")
+        != "verified-github-actions-oidc-attestation"
+        or payload.get("assurance") != "unsigned-structural-unverified"
+        or payload.get("customer_approved") is not True
+        or payload.get("display_name") != "Agent World's Fair"
+        or payload.get("district_digest")
+        != AGENT_FAIR_BASE_DISTRICT_DIGEST
+        or payload.get("event") != "agent-worlds-fair-release"
+        or payload.get("event_id") != AGENT_FAIR_RELEASE_EVENT_ID
+        or payload.get("fair_bundle_digest")
+        != AGENT_FAIR_BASE_BUNDLE_DIGEST
+        or payload.get("fair_event_head")
+        != AGENT_FAIR_BASE_EVENT_HEAD
+        or payload.get("organism") != AGENT_FAIR_DISTRICT_ID
+        or payload.get("organism_type")
+        != "agent-worlds-fair-district"
+        or payload.get("release_candidate_digest")
+        != AGENT_FAIR_RELEASE_CANDIDATE_DIGEST
+        or payload.get("schema") != FRAME_SCHEMA
+        or payload.get("visibility") != "public-metadata"
+        or payload.get("winner_submission_ids") != AGENT_FAIR_WINNERS
+        or type(evidence) is not dict
+        or set(evidence) != AGENT_FAIR_APPROVAL_EVIDENCE_KEYS
+        or any(
+            evidence.get(name) != value
+            for name, value in AGENT_FAIR_APPROVAL_FIXED_CLAIMS.items()
+        )
+        or type(evidence.get("actor")) is not str
+        or not evidence["actor"]
+        or evidence["actor"].strip() != evidence["actor"]
+        or type(evidence.get("run_id")) is not str
+        or not evidence["run_id"].isdigit()
+        or type(evidence.get("exp")) is not int
+        or type(evidence.get("nbf")) is not int
+        or evidence["exp"] <= evidence["nbf"]
+        or type(evidence.get("attestation_sha256")) is not str
+        or not HASH_RE.fullmatch(evidence["attestation_sha256"])
+        or evidence["attestation_sha256"] == "0" * 64
+    ):
+        raise SyncError(
+            "agent fair release lacks verified OIDC approval evidence"
+        )
+
+
 def validate_frames(
     frames: Iterable[Dict[str, Any]],
     previous: Optional[Dict[str, Any]],
@@ -782,6 +1363,7 @@ def validate_frames(
             raise SyncError(
                 "public frame contains forbidden key {}".format(forbidden)
             )
+        _validate_agent_fair_release_frame(frame)
         _validate_shard_main_append(payload)
         if event_id in seen_event_ids:
             raise SyncError("frame event replay {}".format(event_id))
@@ -1334,6 +1916,430 @@ def _validate_agent_park_v2_contract(value: Any) -> None:
         raise SyncError("agent amusement park contract v2 digest mismatch")
 
 
+def _validate_agent_fair_state(value: Any) -> Dict[str, Any]:
+    if type(value) is not dict or set(value) != AGENT_FAIR_STATE_KEYS:
+        raise SyncError("agent fair state has an invalid schema")
+    ledger = value.get("event_ledger")
+    integrity = value.get("integrity")
+    economy = value.get("economy")
+    winners = value.get("winners")
+    selection = value.get("winner_selection")
+    voting = value.get("voting")
+    if (
+        value.get("schema") != AGENT_FAIR_STATE_SCHEMA
+        or value.get("fair_id") != AGENT_FAIR_ID
+        or value.get("visibility") != "public-metadata"
+        or value.get("anchor") != AGENT_FAIR_ANCHOR
+        or value.get("submission_count") != 12
+        or winners != AGENT_FAIR_WINNERS
+        or value.get("agent_contract") != {
+            "contract_digest": AGENT_FAIR_CONTRACT_DIGEST,
+            "path": "agent-contract.json",
+        }
+        or value.get("customer_controls") != {
+            "canonical_write": False,
+            "customer_approval_required_for_organism_release": True,
+            "customer_shutdown": True,
+            "release_performed": False,
+            "vendor_shutdown": False,
+        }
+        or type(ledger) is not dict
+        or ledger.get("path") != "events.jsonl"
+        or ledger.get("exact_keys") != sorted(AGENT_FAIR_EVENT_KEYS)
+        or type(ledger.get("event_count")) is not int
+        or ledger["event_count"] < AGENT_FAIR_BASE_EVENT_COUNT
+        or type(ledger.get("head")) is not str
+        or not HASH_RE.fullmatch(ledger["head"])
+        or type(ledger.get("sha256")) is not str
+        or not HASH_RE.fullmatch(ledger["sha256"])
+        or type(integrity) is not dict
+        or integrity.get("algorithm") != "sha256"
+        or integrity.get("contract_digest")
+        != AGENT_FAIR_CONTRACT_DIGEST
+        or type(integrity.get("district_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["district_digest"])
+        or type(integrity.get("state_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["state_digest"])
+        or type(integrity.get("bundle_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["bundle_digest"])
+        or type(selection) is not dict
+        or selection.get("capacity") != AGENT_FAIR_DISTRICT_CAPACITY
+        or selection.get("winner_submission_ids") != AGENT_FAIR_WINNERS
+        or selection.get("resource_totals")
+        != value.get("district", {}).get("resource_totals")
+        or type(voting) is not dict
+        or voting.get("round_count") != 4
+        or voting.get("cohort_count") != 4
+        or not isinstance(voting.get("rounds"), list)
+        or len(voting["rounds"]) != 4
+        or voting.get("total_issued") != 1680
+        or voting.get("total_spent") != 1680
+        or type(economy) is not dict
+        or economy.get("balanced") is not True
+        or economy.get("real_money") is not False
+        or economy.get("currency") != "synthetic-admission-credit"
+        or economy.get("total_issued") != 1680
+        or economy.get("total_spent") != 1680
+        or economy.get("total_debits") != economy.get("total_credits")
+        or economy.get("total_debits") != 3360
+        or not isinstance(value.get("rankings"), list)
+        or len(value["rankings"]) != 12
+        or {
+            ranking.get("submission_id")
+            for ranking in value["rankings"]
+            if type(ranking) is dict
+        }
+        != {
+            decision.get("submission_id")
+            for decision in selection.get("decisions", [])
+            if type(decision) is dict
+        }
+    ):
+        raise SyncError("invalid agent fair state projection")
+    district = value.get("district")
+    if (
+        type(district) is not dict
+        or district.get("path") != "district.json"
+        or district.get("district_id") != AGENT_FAIR_DISTRICT_ID
+        or district.get("district_digest")
+        != integrity["district_digest"]
+        or any(
+            type(district.get("resource_totals", {}).get(resource)) is not int
+            or district["resource_totals"][resource] > capacity
+            for resource, capacity in AGENT_FAIR_DISTRICT_CAPACITY.items()
+        )
+    ):
+        raise SyncError("agent fair state district binding is invalid")
+    projected = _agent_fair_without_integrity_digests(
+        value,
+        "state_digest",
+    )
+    state_digest = frame_hash_value(AGENT_FAIR_STATE_SPACE, projected)
+    if integrity["state_digest"] != state_digest:
+        raise SyncError("agent fair state digest mismatch")
+    return {
+        "bundle_digest": integrity["bundle_digest"],
+        "contract_digest": integrity["contract_digest"],
+        "district_digest": integrity["district_digest"],
+        "district_id": district["district_id"],
+        "event_count": ledger["event_count"],
+        "event_head": ledger["head"],
+        "event_ledger_sha256": ledger["sha256"],
+        "fair_id": AGENT_FAIR_ID,
+        "rankings_sha256": _agent_fair_projection_sha256(
+            value["rankings"]
+        ),
+        "resource_totals": copy.deepcopy(district["resource_totals"]),
+        "resource_type": "state",
+        "schema": AGENT_FAIR_STATE_SCHEMA,
+        "screening_sha256": _agent_fair_projection_sha256(
+            value["screening"]
+        ),
+        "state_digest": state_digest,
+        "submission_count": 12,
+        "visibility": "public-metadata",
+        "voting_sha256": _agent_fair_projection_sha256(voting),
+        "winner_count": len(winners),
+        "winner_selection_sha256": _agent_fair_projection_sha256(
+            selection
+        ),
+        "winner_submission_ids": copy.deepcopy(winners),
+    }
+
+
+def _validate_agent_fair_district(value: Any) -> Dict[str, Any]:
+    if type(value) is not dict or set(value) != AGENT_FAIR_DISTRICT_KEYS:
+        raise SyncError("agent fair district has an invalid schema")
+    integrity = value.get("integrity")
+    pavilions = value.get("pavilions")
+    totals = value.get("resource_totals")
+    if (
+        value.get("schema") != AGENT_FAIR_DISTRICT_SCHEMA
+        or value.get("fair_id") != AGENT_FAIR_ID
+        or value.get("district_id") != AGENT_FAIR_DISTRICT_ID
+        or value.get("visibility") != "public-metadata"
+        or value.get("resource_capacity")
+        != AGENT_FAIR_DISTRICT_CAPACITY
+        or value.get("map") != {
+            "coordinate_system": "deterministic-integer-grid/1",
+            "height": 480,
+            "slot_order": "winner-rank-order",
+            "width": 480,
+        }
+        or value.get("assembly") != {
+            "customer_approval_required_for_organism_release": True,
+            "direct_canonical_write": False,
+            "phase_order": [
+                "screening",
+                "voting",
+                "evaluation",
+                "winner-selection",
+                "district-assembly",
+            ],
+            "status": "release-ready-awaiting-customer-approval",
+        }
+        or not isinstance(pavilions, list)
+        or len(pavilions) != 4
+        or [item.get("submission_id") for item in pavilions]
+        != AGENT_FAIR_WINNERS
+        or len({item.get("category") for item in pavilions}) != 4
+        or type(totals) is not dict
+        or set(totals) != set(AGENT_FAIR_DISTRICT_CAPACITY)
+        or type(integrity) is not dict
+        or integrity.get("algorithm") != "sha256"
+        or integrity.get("contract_digest")
+        != AGENT_FAIR_CONTRACT_DIGEST
+        or type(integrity.get("district_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["district_digest"])
+        or type(integrity.get("bundle_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["bundle_digest"])
+    ):
+        raise SyncError("invalid agent fair district projection")
+    summed = {resource: 0 for resource in AGENT_FAIR_DISTRICT_CAPACITY}
+    lineage_projection = []
+    for pavilion in pavilions:
+        resources = pavilion.get("resource_request")
+        lineage = pavilion.get("lineage")
+        if (
+            type(resources) is not dict
+            or set(resources) != set(AGENT_FAIR_ATTRACTION_LIMITS)
+            or type(lineage) is not dict
+            or set(lineage) != {
+                "evaluation_event_hash",
+                "submission_event_hash",
+                "vote_event_hashes",
+                "winner_selection_event_hash",
+            }
+            or not all(
+                type(lineage.get(name)) is str
+                and HASH_RE.fullmatch(lineage[name])
+                for name in (
+                    "evaluation_event_hash",
+                    "submission_event_hash",
+                    "winner_selection_event_hash",
+                )
+            )
+            or not isinstance(lineage.get("vote_event_hashes"), list)
+            or len(lineage["vote_event_hashes"]) != 4
+            or not all(
+                type(item) is str and HASH_RE.fullmatch(item)
+                for item in lineage["vote_event_hashes"]
+            )
+        ):
+            raise SyncError(
+                "agent fair winner pavilion lineage is invalid"
+            )
+        for resource, maximum in AGENT_FAIR_ATTRACTION_LIMITS.items():
+            amount = resources[resource]
+            if type(amount) is not int or not 0 <= amount <= maximum:
+                raise SyncError(
+                    "agent fair district attraction exceeds its fixed cap"
+                )
+            summed[resource] += amount
+        lineage_projection.append({
+            "lineage": copy.deepcopy(lineage),
+            "submission_id": pavilion["submission_id"],
+        })
+    if (
+        totals != summed
+        or any(
+            totals[resource] > capacity
+            for resource, capacity in AGENT_FAIR_DISTRICT_CAPACITY.items()
+        )
+    ):
+        raise SyncError("agent fair district exceeds fixed capacity")
+    projected = _agent_fair_without_integrity_digests(
+        value,
+        "district_digest",
+    )
+    district_digest = frame_hash_value(
+        AGENT_FAIR_DISTRICT_SPACE,
+        projected,
+    )
+    if integrity["district_digest"] != district_digest:
+        raise SyncError("agent fair district digest mismatch")
+    return {
+        "bundle_digest": integrity["bundle_digest"],
+        "contract_digest": integrity["contract_digest"],
+        "district_digest": district_digest,
+        "district_id": AGENT_FAIR_DISTRICT_ID,
+        "fair_id": AGENT_FAIR_ID,
+        "lineage_sha256": _agent_fair_projection_sha256(
+            lineage_projection
+        ),
+        "resource_capacity": copy.deepcopy(
+            AGENT_FAIR_DISTRICT_CAPACITY
+        ),
+        "resource_totals": copy.deepcopy(totals),
+        "resource_type": "district",
+        "schema": AGENT_FAIR_DISTRICT_SCHEMA,
+        "visibility": "public-metadata",
+        "winner_count": len(pavilions),
+        "winner_submission_ids": [
+            item["submission_id"]
+            for item in pavilions
+        ],
+    }
+
+
+def _agent_fair_ledger_metadata(events: Any) -> Dict[str, Any]:
+    validated = validate_agent_fair_event_ledger(events)
+    release = validated[:AGENT_FAIR_BASE_EVENT_COUNT]
+    submission_hashes = {
+        event["payload"]["submission"]["submission_id"]: event[
+            "event_hash"
+        ]
+        for event in release
+        if event["kind"] == "fair.submission"
+    }
+    vote_hashes = [
+        event["event_hash"]
+        for event in release
+        if event["kind"] == "fair.voting-round"
+    ]
+    evaluation_hash = release[19]["event_hash"]
+    selection_hash = release[20]["event_hash"]
+    lineage_projection = [
+        {
+            "lineage": {
+                "evaluation_event_hash": evaluation_hash,
+                "submission_event_hash": submission_hashes[submission_id],
+                "vote_event_hashes": copy.deepcopy(vote_hashes),
+                "winner_selection_event_hash": selection_hash,
+            },
+            "submission_id": submission_id,
+        }
+        for submission_id in AGENT_FAIR_WINNERS
+    ]
+    rounds = [
+        event["payload"]
+        for event in release
+        if event["kind"] == "fair.voting-round"
+    ]
+    voting = {
+        "cohort_count": 4,
+        "round_count": 4,
+        "rounds": rounds,
+        "total_issued": sum(item["issued_credits"] for item in rounds),
+        "total_spent": sum(item["spent_credits"] for item in rounds),
+    }
+    return {
+        "event_count": len(validated),
+        "event_head": validated[-1]["event_hash"],
+        "fair_id": AGENT_FAIR_ID,
+        "lineage_sha256": _agent_fair_projection_sha256(
+            lineage_projection
+        ),
+        "rankings_sha256": _agent_fair_projection_sha256(
+            release[19]["payload"]["rankings"]
+        ),
+        "release_prefix_sha256": AGENT_FAIR_BASE_PREFIX_SHA256,
+        "resource_type": "event-ledger",
+        "schema": AGENT_FAIR_EVENT_SCHEMA,
+        "screening_sha256": _agent_fair_projection_sha256(
+            release[14]["payload"]
+        ),
+        "visibility": "public-metadata",
+        "voting_sha256": _agent_fair_projection_sha256(voting),
+        "winner_selection_sha256": _agent_fair_projection_sha256(
+            release[20]["payload"]
+        ),
+        "winner_submission_ids": copy.deepcopy(AGENT_FAIR_WINNERS),
+    }
+
+
+def validate_agent_fair_descriptor_coherence(
+    descriptors: Sequence[Dict[str, Any]],
+) -> None:
+    resources = {}
+    for descriptor in descriptors:
+        if descriptor.get("kind") != "agent-worlds-fair-object":
+            continue
+        resource_type = descriptor.get("metadata", {}).get(
+            "resource_type"
+        )
+        if resource_type in resources:
+            raise SyncError(
+                "agent fair publishes a duplicate {} resource".format(
+                    resource_type
+                )
+            )
+        resources[resource_type] = descriptor
+    if not resources:
+        return
+    required = {"state", "event-ledger", "agent-contract", "district"}
+    if set(resources) != required:
+        raise SyncError(
+            "agent fair state, ledger, contract, and district must be "
+            "synchronized together"
+        )
+    state = resources["state"]["metadata"]
+    ledger_descriptor = resources["event-ledger"]
+    ledger = ledger_descriptor["metadata"]
+    contract = resources["agent-contract"]["metadata"]
+    district = resources["district"]["metadata"]
+    projection_fields = (
+        "lineage_sha256",
+        "rankings_sha256",
+        "screening_sha256",
+        "voting_sha256",
+        "winner_selection_sha256",
+        "winner_submission_ids",
+    )
+    if (
+        state["event_count"] != ledger["event_count"]
+        or state["event_head"] != ledger["event_head"]
+        or state["event_ledger_sha256"] != ledger_descriptor["sha256"]
+        or state["contract_digest"] != contract["contract_digest"]
+        or state["contract_digest"] != district["contract_digest"]
+        or state["district_digest"] != district["district_digest"]
+        or state["district_id"] != district["district_id"]
+        or state["resource_totals"] != district["resource_totals"]
+        or state["winner_submission_ids"]
+        != district["winner_submission_ids"]
+        or any(
+            (
+                district[field] if field == "lineage_sha256" else state[field]
+            )
+            != ledger[field]
+            for field in projection_fields
+        )
+    ):
+        raise SyncError(
+            "agent fair state, event, contract, or district coherence failed"
+        )
+    expected_bundle = frame_hash_value(
+        AGENT_FAIR_BUNDLE_SPACE,
+        {
+            "contract_digest": contract["contract_digest"],
+            "district_digest": district["district_digest"],
+            "event_count": ledger["event_count"],
+            "event_head": ledger["event_head"],
+            "event_ledger_sha256": ledger_descriptor["sha256"],
+            "state_digest": state["state_digest"],
+        },
+    )
+    if (
+        state["bundle_digest"] != expected_bundle
+        or district["bundle_digest"] != expected_bundle
+        or (
+            ledger["event_count"] == AGENT_FAIR_BASE_EVENT_COUNT
+            and (
+                expected_bundle != AGENT_FAIR_BASE_BUNDLE_DIGEST
+                or district["district_digest"]
+                != AGENT_FAIR_BASE_DISTRICT_DIGEST
+                or contract["bundle_digest"] != expected_bundle
+            )
+        )
+        or (
+            ledger["event_count"] > AGENT_FAIR_BASE_EVENT_COUNT
+            and contract["bundle_digest"]
+            != AGENT_FAIR_BASE_BUNDLE_DIGEST
+        )
+    ):
+        raise SyncError("agent fair bundle digest binding mismatch")
+
+
 def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     if type(descriptor) is not dict:
         raise SyncError("data descriptor must be an object")
@@ -1366,6 +2372,7 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     public_root = any(
         path.startswith("apps/{}/".format(directory))
         for directory in (
+            "agent-fair",
             "agent-park",
             "attention",
             "fold",
@@ -1377,6 +2384,7 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     if (
         not public_root
         or kind not in {
+            "agent-worlds-fair-object",
             "agent-amusement-park-object",
             "attention-group-object",
             "attention-dimension-object",
@@ -1408,6 +2416,118 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
         }
     ):
         raise SyncError("invalid or unpinned public data descriptor")
+    if kind == "agent-worlds-fair-object" and (
+        path != {
+            "agent-contract": "apps/agent-fair/agent-contract.json",
+            "district": "apps/agent-fair/district.json",
+            "event-ledger": "apps/agent-fair/events.jsonl",
+            "state": "apps/agent-fair/fair-state.json",
+        }.get(metadata.get("resource_type"))
+        or metadata.get("fair_id") != AGENT_FAIR_ID
+        or metadata.get("visibility") != "public-metadata"
+        or metadata.get("resource_type")
+        not in {"agent-contract", "district", "event-ledger", "state"}
+        or type(metadata.get("schema")) is not str
+    ):
+        raise SyncError("invalid agent fair descriptor metadata")
+    if (
+        kind == "agent-worlds-fair-object"
+        and metadata["resource_type"] == "event-ledger"
+        and (
+            metadata.get("schema") != AGENT_FAIR_EVENT_SCHEMA
+            or type(metadata.get("event_count")) is not int
+            or metadata["event_count"] < AGENT_FAIR_BASE_EVENT_COUNT
+            or type(metadata.get("event_head")) is not str
+            or not HASH_RE.fullmatch(metadata["event_head"])
+            or metadata.get("release_prefix_sha256")
+            != AGENT_FAIR_BASE_PREFIX_SHA256
+            or metadata.get("winner_submission_ids")
+            != AGENT_FAIR_WINNERS
+            or any(
+                type(metadata.get(field)) is not str
+                or not HASH_RE.fullmatch(metadata[field])
+                for field in (
+                    "lineage_sha256",
+                    "rankings_sha256",
+                    "screening_sha256",
+                    "voting_sha256",
+                    "winner_selection_sha256",
+                )
+            )
+        )
+    ):
+        raise SyncError("invalid agent fair event descriptor metadata")
+    if (
+        kind == "agent-worlds-fair-object"
+        and metadata["resource_type"] == "state"
+        and (
+            metadata.get("schema") != AGENT_FAIR_STATE_SCHEMA
+            or metadata.get("district_id") != AGENT_FAIR_DISTRICT_ID
+            or metadata.get("submission_count") != 12
+            or metadata.get("winner_count") != 4
+            or metadata.get("winner_submission_ids")
+            != AGENT_FAIR_WINNERS
+            or type(metadata.get("event_count")) is not int
+            or metadata["event_count"] < AGENT_FAIR_BASE_EVENT_COUNT
+            or any(
+                type(metadata.get(field)) is not str
+                or not HASH_RE.fullmatch(metadata[field])
+                for field in (
+                    "bundle_digest",
+                    "contract_digest",
+                    "district_digest",
+                    "event_head",
+                    "event_ledger_sha256",
+                    "rankings_sha256",
+                    "screening_sha256",
+                    "state_digest",
+                    "voting_sha256",
+                    "winner_selection_sha256",
+                )
+            )
+        )
+    ):
+        raise SyncError("invalid agent fair state descriptor metadata")
+    if (
+        kind == "agent-worlds-fair-object"
+        and metadata["resource_type"] == "agent-contract"
+        and (
+            metadata.get("schema") != AGENT_FAIR_CONTRACT_SCHEMA
+            or metadata.get("contract_digest")
+            != AGENT_FAIR_CONTRACT_DIGEST
+            or metadata.get("bundle_digest")
+            != AGENT_FAIR_BASE_BUNDLE_DIGEST
+            or metadata.get("action_limit") != 50
+            or metadata.get("attraction_limits")
+            != AGENT_FAIR_ATTRACTION_LIMITS
+            or metadata.get("synthetic_only") is not True
+        )
+    ):
+        raise SyncError("invalid agent fair contract descriptor metadata")
+    if (
+        kind == "agent-worlds-fair-object"
+        and metadata["resource_type"] == "district"
+        and (
+            metadata.get("schema") != AGENT_FAIR_DISTRICT_SCHEMA
+            or metadata.get("district_id") != AGENT_FAIR_DISTRICT_ID
+            or metadata.get("winner_count") != 4
+            or metadata.get("winner_submission_ids")
+            != AGENT_FAIR_WINNERS
+            or metadata.get("resource_capacity")
+            != AGENT_FAIR_DISTRICT_CAPACITY
+            or any(
+                type(metadata.get(field)) is not str
+                or not HASH_RE.fullmatch(metadata[field])
+                for field in (
+                    "bundle_digest",
+                    "contract_digest",
+                    "district_digest",
+                    "lineage_sha256",
+                )
+            )
+        )
+    ):
+        raise SyncError("invalid agent fair district descriptor metadata")
     if kind == "agent-amusement-park-object" and (
         path != {
             "agent-contract-v1": "apps/agent-park/agent-contract.json",
@@ -2264,20 +3384,28 @@ def validate_delta(
         validate_data_tombstone(value, delta["sequence"])
         for value in changes.get("data_tombstones", [])
     ]
+    if any(
+        tombstone.get("descriptor", {}).get("kind")
+        == "agent-worlds-fair-object"
+        for tombstone in data_tombstones
+    ):
+        raise SyncError("immutable agent fair objects cannot be tombstoned")
     if profile == PROFILE:
         if any(
             tombstone.get("descriptor", {}).get("metadata", {}).get(
                 "resource_type"
             ) in {
+                "agent-contract",
                 "agent-contract-v1",
                 "agent-contract-v2",
+                "district",
                 "event-ledger",
                 "state",
             }
             for tombstone in data_tombstones
         ):
             raise SyncError(
-                "profile 10 cannot tombstone append-only agent park history"
+                "profile 10 cannot tombstone append-only agent history"
             )
     data_paths = [item["path"] for item in data_upserts]
     data_tombstone_paths = [item["path"] for item in data_tombstones]
@@ -2569,12 +3697,51 @@ def _validate_agent_park_object(
         )
 
 
+def _validate_agent_fair_object(
+    parsed: Any,
+    descriptor: Dict[str, Any],
+    checkpoint: Optional[Tuple[int, str, str]] = None,
+) -> None:
+    resource_type = descriptor["metadata"]["resource_type"]
+    if resource_type == "state":
+        actual = _validate_agent_fair_state(parsed)
+    elif resource_type == "agent-contract":
+        actual = _validate_agent_fair_contract(parsed)
+    elif resource_type == "district":
+        actual = _validate_agent_fair_district(parsed)
+    elif resource_type == "event-ledger":
+        actual = _agent_fair_ledger_metadata(parsed)
+    else:
+        raise SyncError("unknown agent fair resource type")
+    if actual != descriptor["metadata"]:
+        raise SyncError(
+            "agent fair {} mismatches descriptor".format(resource_type)
+        )
+    if resource_type != "event-ledger" or checkpoint is None:
+        return
+    previous_count, previous_head, previous_digest = checkpoint
+    if len(parsed) < previous_count:
+        raise SyncError("agent fair event ledger was truncated")
+    if previous_count == 0:
+        return
+    if parsed[previous_count - 1]["event_hash"] != previous_head:
+        raise SyncError("agent fair event ledger forked from verified prefix")
+    if sha256_bytes(
+        agent_fair_event_ledger_bytes(parsed[:previous_count])
+    ) != previous_digest:
+        raise SyncError(
+            "agent fair event ledger rewrites the verified byte prefix"
+        )
+
+
 def _validate_descriptor_object(
     data: bytes,
     descriptor: Dict[str, Any],
     park_checkpoint: Optional[Tuple[int, str, str]] = None,
+    fair_checkpoint: Optional[Tuple[int, str, str]] = None,
 ) -> None:
     if descriptor.get("kind") not in {
+        "agent-worlds-fair-object",
         "agent-amusement-park-object",
         "attention-group-object",
         "attention-dimension-object",
@@ -2608,6 +3775,19 @@ def _validate_descriptor_object(
             descriptor,
             checkpoint=park_checkpoint,
         )
+    if descriptor["kind"] == "agent-worlds-fair-object":
+        if (
+            descriptor["metadata"].get("resource_type") == "event-ledger"
+            and data != agent_fair_event_ledger_bytes(parsed)
+        ):
+            raise SyncError(
+                "agent fair event ledger is not canonical byte-prefix JSONL"
+            )
+        _validate_agent_fair_object(
+            parsed,
+            descriptor,
+            checkpoint=fair_checkpoint,
+        )
     if descriptor["kind"] == "looking-glass-scene-object" and (
         type(parsed) is not dict
         or parsed.get("schema")
@@ -2638,6 +3818,7 @@ def _fetch_app_object(
     index_url: str,
     state_dir: Path,
     park_checkpoint: Optional[Tuple[int, str, str]] = None,
+    fair_checkpoint: Optional[Tuple[int, str, str]] = None,
 ) -> Tuple[str, int, str, bool]:
     app_url = urljoin(index_url, descriptor["url"])
     status, _headers, data = fetch_url(
@@ -2654,6 +3835,7 @@ def _fetch_app_object(
         data,
         descriptor,
         park_checkpoint=park_checkpoint,
+        fair_checkpoint=fair_checkpoint,
     )
     path, created = _store_object(
         state_dir,
@@ -2811,6 +3993,75 @@ def _validate_agent_park_transition(
         )
 
 
+def _validate_agent_fair_transition(
+    connection: sqlite3.Connection,
+    current_descriptors: Sequence[Dict[str, Any]],
+) -> None:
+    current = {
+        descriptor["path"]: descriptor
+        for descriptor in current_descriptors
+        if descriptor.get("kind") == "agent-worlds-fair-object"
+    }
+    if not current:
+        return
+    paths = (
+        "apps/agent-fair/agent-contract.json",
+        "apps/agent-fair/district.json",
+        "apps/agent-fair/events.jsonl",
+        "apps/agent-fair/fair-state.json",
+    )
+    previous = {}
+    for row in connection.execute(
+        """
+        SELECT path, sha256, metadata_json
+        FROM data_objects
+        WHERE deleted = 0 AND path IN (?, ?, ?, ?)
+        """,
+        paths,
+    ):
+        previous[row["path"]] = {
+            "metadata": json.loads(row["metadata_json"]),
+            "sha256": row["sha256"],
+        }
+    if not previous:
+        return
+    if set(previous) != set(paths) or set(current) != set(paths):
+        raise SyncError("agent fair immutable release bundle was removed")
+    contract_path, district_path, ledger_path, state_path = paths
+    if previous[contract_path]["sha256"] != current[contract_path]["sha256"]:
+        raise SyncError("immutable agent fair contract changed")
+    previous_ledger = previous[ledger_path]
+    current_ledger = current[ledger_path]
+    previous_count = previous_ledger["metadata"].get("event_count")
+    current_count = current_ledger["metadata"].get("event_count")
+    ledger_changed = (
+        current_ledger["sha256"] != previous_ledger["sha256"]
+    )
+    grew = (
+        ledger_changed
+        and type(previous_count) is int
+        and type(current_count) is int
+        and current_count > previous_count
+    )
+    if ledger_changed and not grew:
+        raise SyncError("agent fair event ledger is not exact prefix growth")
+    replacement_changes = [
+        path
+        for path in (district_path, state_path)
+        if previous[path]["sha256"] != current[path]["sha256"]
+    ]
+    if grew and len(replacement_changes) != 2:
+        raise SyncError(
+            "agent fair ledger growth requires coherent state and district "
+            "replacement"
+        )
+    if not grew and replacement_changes:
+        raise SyncError(
+            "agent fair state or district replacement requires exact ledger "
+            "prefix growth"
+        )
+
+
 def _fetch_descriptor_objects(
     connection: sqlite3.Connection,
     descriptors: Sequence[Dict[str, Any]],
@@ -2820,10 +4071,12 @@ def _fetch_descriptor_objects(
     Dict[str, Tuple[str, int, str, bool]],
     List[Path],
     Optional[Tuple[int, str, str]],
+    Optional[Tuple[int, str, str]],
 ]:
     records = {}
     created_paths = []
     verified_park_checkpoint = None
+    verified_fair_checkpoint = None
     raw_count = _get_meta(connection, "agent_park_verified_event_count")
     raw_head = _get_meta(connection, "agent_park_verified_event_head")
     raw_digest = _get_meta(
@@ -2856,6 +4109,48 @@ def _fetch_descriptor_objects(
             raise SyncError(
                 "stored agent park checkpoint is inconsistent"
             ) from error
+    fair_raw_count = _get_meta(
+        connection,
+        "agent_fair_verified_event_count",
+    )
+    fair_raw_head = _get_meta(
+        connection,
+        "agent_fair_verified_event_head",
+    )
+    fair_raw_digest = _get_meta(
+        connection,
+        "agent_fair_verified_event_ledger_sha256",
+    )
+    fair_checkpoint = None
+    if fair_raw_count is not None or fair_raw_head is not None:
+        if fair_raw_digest is None:
+            row = connection.execute(
+                """
+                SELECT sha256
+                FROM data_objects
+                WHERE deleted = 0 AND path = ?
+                """,
+                ("apps/agent-fair/events.jsonl",),
+            ).fetchone()
+            fair_raw_digest = row["sha256"] if row is not None else None
+        if (
+            fair_raw_count is None
+            or fair_raw_head is None
+            or fair_raw_digest is None
+            or not HASH_RE.fullmatch(fair_raw_head)
+            or not HASH_RE.fullmatch(fair_raw_digest)
+        ):
+            raise SyncError("stored agent fair checkpoint is inconsistent")
+        try:
+            fair_checkpoint = (
+                int(fair_raw_count),
+                fair_raw_head,
+                fair_raw_digest,
+            )
+        except ValueError as error:
+            raise SyncError(
+                "stored agent fair checkpoint is inconsistent"
+            ) from error
     try:
         for descriptor in descriptors:
             digest = descriptor["sha256"]
@@ -2871,6 +4166,7 @@ def _fetch_descriptor_objects(
                     data,
                     descriptor,
                     park_checkpoint=park_checkpoint,
+                    fair_checkpoint=fair_checkpoint,
                 )
                 metadata = descriptor.get("metadata", {})
                 if (
@@ -2879,6 +4175,16 @@ def _fetch_descriptor_objects(
                     and metadata.get("resource_type") == "event-ledger"
                 ):
                     verified_park_checkpoint = (
+                        metadata["event_count"],
+                        metadata["event_head"],
+                        descriptor["sha256"],
+                    )
+                if (
+                    descriptor.get("kind")
+                    == "agent-worlds-fair-object"
+                    and metadata.get("resource_type") == "event-ledger"
+                ):
+                    verified_fair_checkpoint = (
                         metadata["event_count"],
                         metadata["event_head"],
                         descriptor["sha256"],
@@ -2897,6 +4203,7 @@ def _fetch_descriptor_objects(
                     data,
                     descriptor,
                     park_checkpoint=park_checkpoint,
+                    fair_checkpoint=fair_checkpoint,
                 )
                 records[digest] = (
                     digest,
@@ -2910,6 +4217,7 @@ def _fetch_descriptor_objects(
                     index_url,
                     state_dir,
                     park_checkpoint=park_checkpoint,
+                    fair_checkpoint=fair_checkpoint,
                 )
                 records[digest] = record
                 if record[3]:
@@ -2925,6 +4233,16 @@ def _fetch_descriptor_objects(
                     metadata["event_head"],
                     descriptor["sha256"],
                 )
+            if (
+                descriptor.get("kind")
+                == "agent-worlds-fair-object"
+                and metadata.get("resource_type") == "event-ledger"
+            ):
+                verified_fair_checkpoint = (
+                    metadata["event_count"],
+                    metadata["event_head"],
+                    descriptor["sha256"],
+                )
     except Exception:
         for created_path in created_paths:
             try:
@@ -2932,7 +4250,12 @@ def _fetch_descriptor_objects(
             except OSError:
                 pass
         raise
-    return records, created_paths, verified_park_checkpoint
+    return (
+        records,
+        created_paths,
+        verified_park_checkpoint,
+        verified_fair_checkpoint,
+    )
 
 
 def _validate_local_checkpoint(
@@ -3050,18 +4373,23 @@ def _sync_repository_locked(
         if status == 304:
             object_records = {}
             verified_park_checkpoint = None
+            verified_fair_checkpoint = None
             effective_data = _effective_data_descriptors(connection, [])
+            validate_agent_fair_descriptor_coherence(effective_data)
             validate_agent_park_descriptor_coherence(effective_data)
             required_descriptors = [
                 descriptor
                 for descriptor in effective_data
                 if (
-                    descriptor.get("kind")
-                    == "agent-amusement-park-object"
-                    and _get_meta(
-                        connection,
-                        "agent_park_verified_event_head",
-                    ) is None
+                    descriptor.get("kind") == "agent-worlds-fair-object"
+                    or (
+                        descriptor.get("kind")
+                        == "agent-amusement-park-object"
+                        and _get_meta(
+                            connection,
+                            "agent_park_verified_event_head",
+                        ) is None
+                    )
                 )
             ]
             if fetch_apps or required_descriptors:
@@ -3077,6 +4405,7 @@ def _sync_repository_locked(
                     object_records,
                     created_objects,
                     verified_park_checkpoint,
+                    verified_fair_checkpoint,
                 ) = _fetch_descriptor_objects(
                     connection,
                     descriptors,
@@ -3117,6 +4446,22 @@ def _sync_repository_locked(
                                 connection,
                                 "agent_park_verified_event_ledger_sha256",
                                 verified_park_checkpoint[2],
+                            )
+                        if verified_fair_checkpoint is not None:
+                            _set_meta(
+                                connection,
+                                "agent_fair_verified_event_count",
+                                str(verified_fair_checkpoint[0]),
+                            )
+                            _set_meta(
+                                connection,
+                                "agent_fair_verified_event_head",
+                                verified_fair_checkpoint[1],
+                            )
+                            _set_meta(
+                                connection,
+                                "agent_fair_verified_event_ledger_sha256",
+                                verified_fair_checkpoint[2],
                             )
                 except Exception:
                     for path in created_objects:
@@ -3189,8 +4534,11 @@ def _sync_repository_locked(
 
         object_records = {}
         verified_park_checkpoint = None
+        verified_fair_checkpoint = None
         effective_data = _effective_data_descriptors(connection, deltas)
+        validate_agent_fair_descriptor_coherence(effective_data)
         validate_agent_park_descriptor_coherence(effective_data)
+        _validate_agent_fair_transition(connection, effective_data)
         _validate_agent_park_transition(connection, effective_data)
         park_descriptors = [
             descriptor
@@ -3211,7 +4559,12 @@ def _sync_repository_locked(
                 ]
             )
         )
-        required_descriptors = (
+        fair_descriptors = [
+            descriptor
+            for descriptor in effective_data
+            if descriptor.get("kind") == "agent-worlds-fair-object"
+        ]
+        required_descriptors = fair_descriptors + (
             park_descriptors
             if (
                 park_descriptors
@@ -3238,6 +4591,7 @@ def _sync_repository_locked(
                 object_records,
                 created_objects,
                 verified_park_checkpoint,
+                verified_fair_checkpoint,
             ) = _fetch_descriptor_objects(
                 connection,
                 descriptors,
@@ -3567,6 +4921,22 @@ def _sync_repository_locked(
                         connection,
                         "agent_park_verified_event_ledger_sha256",
                         verified_park_checkpoint[2],
+                    )
+                if verified_fair_checkpoint is not None:
+                    _set_meta(
+                        connection,
+                        "agent_fair_verified_event_count",
+                        str(verified_fair_checkpoint[0]),
+                    )
+                    _set_meta(
+                        connection,
+                        "agent_fair_verified_event_head",
+                        verified_fair_checkpoint[1],
+                    )
+                    _set_meta(
+                        connection,
+                        "agent_fair_verified_event_ledger_sha256",
+                        verified_fair_checkpoint[2],
                     )
                 _set_meta(
                     connection,
