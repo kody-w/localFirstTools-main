@@ -155,6 +155,13 @@ def write_frames(root, frames):
     )
 
 
+def release_agent_fair(root):
+    frames = builder.read_ledger(root / "apps" / "organism-frames.jsonl")
+    release = make_fair_release_frame(frames[-1])
+    write_frames(root, frames + [release])
+    return release
+
+
 def write_manifest(root, app_names=("alpha.html", "beta.html")):
     folder = root / "apps" / "demo"
     folder.mkdir(parents=True, exist_ok=True)
@@ -1203,9 +1210,137 @@ def test_looking_glass_scene_round_trips_as_public_data(tmp_path):
     assert descriptor["metadata"]["target_frame_hash"] == "b" * 64
 
 
+def test_agent_worlds_fair_prepared_then_released_delta_is_atomic(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        prepared_result = build_served(root, server)
+        prepared_delta = read_json(delta_path_for_sequence(root, 0))
+        prepared_snapshot = read_json(
+            root / "apps" / "syndication" / "snapshot.json"
+        )
+        prepared_sync = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+
+        release = release_agent_fair(root)
+        released_result = build_served(root, server)
+        released_delta = read_json(delta_path_for_sequence(root, 1))
+        released_sync = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+
+    assert prepared_result["delta_created"] is True
+    assert prepared_delta["changes"]["app_upserts"]
+    assert not [
+        item
+        for item in prepared_delta["changes"]["data_upserts"]
+        if item["kind"] == "agent-worlds-fair-object"
+    ]
+    assert not [
+        frame
+        for frame in prepared_delta["changes"]["frame_appends"]
+        if frame["payload"]["event"] == "agent-worlds-fair-release"
+    ]
+    assert not [
+        item
+        for item in prepared_snapshot["data_objects"]
+        if item["kind"] == "agent-worlds-fair-object"
+    ]
+    assert prepared_sync["fetched_objects"] == 0
+
+    fair_upserts = [
+        item
+        for item in released_delta["changes"]["data_upserts"]
+        if item["kind"] == "agent-worlds-fair-object"
+    ]
+    fair_frames = [
+        frame
+        for frame in released_delta["changes"]["frame_appends"]
+        if frame["payload"]["event"] == "agent-worlds-fair-release"
+    ]
+    assert released_result["delta_created"] is True
+    assert {
+        item["metadata"]["resource_type"]
+        for item in fair_upserts
+    } == {"agent-contract", "district", "event-ledger", "state"}
+    assert fair_frames == [release]
+    assert released_sync["applied_deltas"] == 1
+    assert released_sync["fetched_objects"] == 4
+    assert len([
+        item
+        for item in sync_client.list_data_objects(state_dir)
+        if item["kind"] == "agent-worlds-fair-object"
+    ]) == 4
+
+
+def test_agent_worlds_fair_invalid_release_blocks_prepared_build(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    frames = builder.read_ledger(root / "apps" / "organism-frames.jsonl")
+    invalid_release = make_fair_release_frame(frames[-1])
+    invalid_release["payload"]["approval_evidence"].pop("actor")
+    rehash_frame(invalid_release)
+    write_frames(root, frames + [invalid_release])
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="OIDC approval evidence",
+    ):
+        builder.build(root)
+    assert not (root / "apps" / "syndication").exists()
+
+
+@pytest.mark.parametrize("mutation", ["missing-frame", "missing-resource"])
+def test_sync_rejects_non_atomic_agent_worlds_fair_release(
+    tmp_path,
+    mutation,
+):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    builder.build(root, "https://example.test/zoo/")
+    release_agent_fair(root)
+    builder.build(root, "https://example.test/zoo/")
+    delta = read_json(delta_path_for_sequence(root, 1))
+    if mutation == "missing-frame":
+        delta["changes"]["frame_appends"] = []
+    else:
+        district = next(
+            item
+            for item in delta["changes"]["data_upserts"]
+            if item["metadata"].get("resource_type") == "district"
+        )
+        delta["changes"]["data_upserts"].remove(district)
+    delta["segments"] = builder.segment_metadata(delta["changes"])
+    delta["frame_control"] = builder.frame_control_metadata(
+        delta["changes"],
+        delta["proof_of_fold"],
+    )
+    delta_bytes = builder.stable_json_bytes(delta)
+    digest = hashlib.sha256(delta_bytes).hexdigest()
+    entry = builder._delta_entry(
+        delta,
+        digest,
+        delta_bytes,
+        "https://example.test/zoo/",
+    )
+
+    with pytest.raises(sync_client.SyncError, match="atomically"):
+        sync_client.validate_delta(
+            delta_bytes,
+            entry,
+            builder.STREAM_ID,
+        )
+
+
 def test_agent_worlds_fair_fixture_roundtrip_and_overlay(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
     copy_agent_fair(root)
+    release_agent_fair(root)
     state_dir = tmp_path / "state"
 
     with serving(root) as server:
@@ -1391,6 +1526,7 @@ def test_agent_worlds_fair_resealed_semantic_mutations_fail(
 def test_agent_worlds_fair_allows_coherent_exact_prefix_growth(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
     target = copy_agent_fair(root)
+    release_agent_fair(root)
     state_dir = tmp_path / "state"
 
     with serving(root) as server:
@@ -1431,6 +1567,7 @@ def test_agent_worlds_fair_allows_coherent_exact_prefix_growth(tmp_path):
 def test_agent_worlds_fair_conditional_repair_and_rollback(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
     target = copy_agent_fair(root)
+    release_agent_fair(root)
     state_dir = tmp_path / "state"
 
     with serving(root) as server:
@@ -1485,6 +1622,7 @@ def test_agent_worlds_fair_conditional_repair_and_rollback(tmp_path):
 def test_agent_worlds_fair_profile9_replay_and_tombstone_rejection(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
     copy_agent_fair(root)
+    release_agent_fair(root)
     state_dir = tmp_path / "state"
 
     with serving(root) as server:
