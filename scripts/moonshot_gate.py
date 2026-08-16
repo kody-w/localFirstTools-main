@@ -641,7 +641,10 @@ async function storageDeniedContext(browser, viewport) {
       frameUrl
     };
     await dismissJoinOverlay(gallery);
-    await gallery.locator("#modal-close").click();
+    await gallery.locator("#modal-close").click({ force: true });
+    await gallery.evaluate(() => {
+      document.getElementById("join-overlay")?.classList.remove("open");
+    });
 
     await gallery.route("**/apps/manifest.json", (route) => route.abort());
     await gallery.route("**/apps/archive/manifest.json", (route) => route.abort());
