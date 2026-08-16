@@ -283,6 +283,7 @@ def _run_bootstrap_workflow(case, head_ref):
     )
     section = workflow.split(marker, 1)[1]
     script = section.split("        run: |\n", 1)[1]
+    script = script.split("\n      - name:", 1)[0]
     script = "\n".join(
         line[10:]
         for line in script.splitlines()
@@ -821,6 +822,9 @@ def test_workflows_and_codeowners_close_provenance_path():
         / "workflows"
         / "agent-fair-release-attestation.yml"
     ).read_text(encoding="utf-8")
+    moonshot = (
+        ROOT / ".github" / "workflows" / "moonshot-gate.yml"
+    ).read_text(encoding="utf-8")
     owners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
     assert "actions/upload-artifact@v4" in release
     assert "agent-fair-release-attestation-${{ github.run_id }}" in release
@@ -852,6 +856,14 @@ def test_workflows_and_codeowners_close_provenance_path():
     assert "agent-fair-release-attestation:" in attestation
     assert "actions: read" in attestation
     assert "pull-requests: read" in attestation
+    assert "statuses: write" in attestation
+    assert "Publish explicit release attestation status" in attestation
+    assert 'statuses/${HEAD_SHA}' in attestation
+    assert "context=agent-fair-release-attestation" in attestation
+    assert "statuses: write" in moonshot
+    assert "Publish explicit released Moonshot status" in moonshot
+    assert 'statuses/${GITHUB_SHA}' in moonshot
+    assert "context=moonshot-gate" in moonshot
     assert "contents: read" in attestation
     assert "--head-ref" in attestation
     assert (

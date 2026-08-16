@@ -887,6 +887,11 @@ def test_cross_origin_artifact_auth_forwarding_turns_red():
             "agent_fair_gate.py --phase released",
             "agent_fair_gate.py --phase prepared",
         ),
+        (
+            ".github/workflows/moonshot-gate.yml",
+            "context=moonshot-gate",
+            "context=forged-gate",
+        ),
     ],
 )
 def test_workflow_protection_mutations_turn_red(relative, old, new):
