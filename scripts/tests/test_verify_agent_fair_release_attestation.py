@@ -787,6 +787,7 @@ def test_workflows_and_codeowners_close_provenance_path():
     assert "Dispatch required release pull request checks" in release
     assert "gh workflow run moonshot-gate.yml" in release
     assert "gh workflow run agent-fair-release-attestation.yml" in release
+    assert "actions: write" in release
     assert not re.search(
         r"git\s+push[^\n]*(?:HEAD:main|refs/heads/main|origin\s+main)",
         release,
