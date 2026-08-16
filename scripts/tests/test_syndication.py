@@ -273,6 +273,219 @@ def remove_manifest_app(root, name):
     write_json(manifest_path, manifest)
 
 
+def copy_agent_park(root):
+    target = root / "apps" / "agent-park"
+    target.mkdir(parents=True)
+    source_events = [
+        json.loads(line)
+        for line in (
+            ROOT / "apps" / "agent-park" / "events.jsonl"
+        ).read_text().splitlines()[:47]
+    ]
+    write_park_events(target, source_events)
+    shutil.copyfile(
+        ROOT / "apps" / "agent-park" / "agent-contract.json",
+        target / "agent-contract.json",
+    )
+    ledger_bytes = (target / "events.jsonl").read_bytes()
+    state = {
+        "agent_contract": "agent-contract.json",
+        "economy": {
+            "balanced": True,
+            "real_money": False,
+        },
+        "event_ledger": {
+            "event_count": len(source_events),
+            "head": source_events[-1]["event_hash"],
+            "path": "events.jsonl",
+            "sha256": hashlib.sha256(ledger_bytes).hexdigest(),
+        },
+        "night_count": 7,
+        "park_id": "park.rappterzoo-agent-amusement-park",
+        "schema": "rappterzoo-agent-amusement-park/1",
+        "visibility": "public-metadata",
+    }
+    write_json(target / "park-state.json", state)
+    return target
+
+
+def read_park_events(target):
+    return [
+        json.loads(line)
+        for line in (target / "events.jsonl").read_text().splitlines()
+        if line
+    ]
+
+
+def write_park_events(target, events):
+    data = b"".join(
+        builder.canonical_frame_bytes(event) + b"\n"
+        for event in events
+    )
+    (target / "events.jsonl").write_bytes(data)
+    return data
+
+
+def update_park_state(
+    target,
+    events,
+    agent_contract=None,
+    bundle_digest=None,
+):
+    state_path = target / "park-state.json"
+    state = read_json(state_path)
+    ledger_bytes = (target / "events.jsonl").read_bytes()
+    state["event_ledger"].update({
+        "event_count": len(events),
+        "head": events[-1]["event_hash"],
+        "sha256": hashlib.sha256(ledger_bytes).hexdigest(),
+    })
+    if agent_contract is not None:
+        state["agent_contract"] = agent_contract
+    if bundle_digest is not None:
+        state.setdefault("integrity", {})["bundle_digest"] = bundle_digest
+    state["night_count"] = 7
+    write_json(state_path, state)
+
+
+def migrate_agent_park_v2(target):
+    source = ROOT / "apps" / "agent-park"
+    events = [
+        json.loads(line)
+        for line in (source / "events.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert len(events) > builder.AGENT_PARK_SEASON1_EVENT_COUNT
+    write_park_events(target, events)
+    contract = read_json(source / "agent-contract-v2.json")
+    write_json(target / "agent-contract-v2.json", contract)
+    write_json(target / "park-state.json", read_json(source / "park-state.json"))
+    return events, contract
+
+
+def rehash_v2_contract(contract):
+    projected = json.loads(json.dumps(contract))
+    projected["integrity"].pop("bundle_digest")
+    projected["integrity"].pop("contract_digest")
+    contract["integrity"]["contract_digest"] = builder.frame_hash_value(
+        "rappterzoo/agent-park-contract/2",
+        projected,
+    )
+
+
+def rewrite_v2_bundle_for_events(target, events):
+    ledger_bytes = (target / "events.jsonl").read_bytes()
+    ledger_digest = hashlib.sha256(ledger_bytes).hexdigest()
+    contract_path = target / "agent-contract-v2.json"
+    contract = read_json(contract_path)
+    contract["seasons"]["season_2"]["event_count"] = (
+        len(events) - builder.AGENT_PARK_SEASON1_EVENT_COUNT
+    )
+    contract["seasons"]["season_2"]["head"] = events[-1]["event_hash"]
+    rehash_v2_contract(contract)
+
+    state_path = target / "park-state.json"
+    state = read_json(state_path)
+    state["event_ledger"].update({
+        "event_count": len(events),
+        "head": events[-1]["event_hash"],
+        "sha256": ledger_digest,
+    })
+    state["seasons"][1].update({
+        "event_count": len(events) - builder.AGENT_PARK_SEASON1_EVENT_COUNT,
+        "head": events[-1]["event_hash"],
+        "last_seq": len(events) - 1,
+    })
+    projected_state = json.loads(json.dumps(state))
+    projected_state["integrity"].pop("bundle_digest", None)
+    projected_state["integrity"].pop("state_digest", None)
+    state_digest = builder.frame_hash_value(
+        builder.AGENT_PARK_STATE_V2_HASH_SPACE,
+        projected_state,
+    )
+    state["integrity"]["state_digest"] = state_digest
+    bundle_digest = builder.frame_hash_value(
+        builder.AGENT_PARK_BUNDLE_V2_HASH_SPACE,
+        {
+            "contract_digest": contract["integrity"]["contract_digest"],
+            "event_count": len(events),
+            "event_head": events[-1]["event_hash"],
+            "event_ledger_sha256": ledger_digest,
+            "state_digest": state_digest,
+        },
+    )
+    contract["integrity"]["bundle_digest"] = bundle_digest
+    state["integrity"]["bundle_digest"] = bundle_digest
+    write_json(contract_path, contract)
+    write_json(state_path, state)
+
+
+def rechain_park_events(events):
+    result = []
+    previous = None
+    for sequence, source in enumerate(events):
+        event = json.loads(json.dumps(source))
+        event["seq"] = sequence
+        event["prev"] = previous["event_hash"] if previous else None
+        payload_space = (
+            builder.AGENT_PARK_PAYLOAD_SPACE
+            if event["schema"] == builder.AGENT_PARK_EVENT_SCHEMA
+            else builder.AGENT_PARK_PAYLOAD_SPACE_V2
+        )
+        event_space = (
+            builder.AGENT_PARK_EVENT_SPACE
+            if event["schema"] == builder.AGENT_PARK_EVENT_SCHEMA
+            else builder.AGENT_PARK_EVENT_SPACE_V2
+        )
+        event["payload_hash"] = builder.frame_hash_value(
+            payload_space,
+            event["payload"],
+        )
+        projected = {
+            key: value
+            for key, value in event.items()
+            if key != "event_hash"
+        }
+        event["event_hash"] = builder.frame_hash_value(
+            event_space,
+            projected,
+        )
+        result.append(event)
+        previous = event
+    return result
+
+
+def append_park_event(events):
+    event = {
+        "kind": "park.night-open",
+        "park_id": "park.rappterzoo-agent-amusement-park",
+        "payload": {
+            "night": 8,
+            "result": "future-customer-approved-append",
+        },
+        "prev": events[-1]["event_hash"],
+        "schema": builder.AGENT_PARK_EVENT_SCHEMA_V2,
+        "season": 2,
+        "season_seq": len(events) - builder.AGENT_PARK_SEASON1_EVENT_COUNT,
+        "seq": len(events),
+        "utc": (
+            "2026-08-23T00:00:00.000Z"
+            if len(events) == builder.AGENT_PARK_SEASON1_EVENT_COUNT
+            else "2026-08-30T00:00:00.000Z"
+        ),
+        "visibility": "public-metadata",
+    }
+    event["payload_hash"] = builder.frame_hash_value(
+        builder.AGENT_PARK_PAYLOAD_SPACE_V2,
+        event["payload"],
+    )
+    event["event_hash"] = builder.frame_hash_value(
+        builder.AGENT_PARK_EVENT_SPACE_V2,
+        event,
+    )
+    return events + [event]
+
+
 def delta_paths(root):
     return sorted((root / "apps" / "syndication" / "deltas").glob("*.json"))
 
@@ -281,6 +494,100 @@ def delta_path_for_sequence(root, sequence):
     index = read_json(root / "apps" / "syndication" / "index.json")
     digest = index["deltas"][sequence]["sha256"]
     return root / "apps" / "syndication" / "deltas" / (digest + ".json")
+
+
+def downgrade_chain_to_profile9(root, base_url):
+    output = root / "apps" / "syndication"
+    index_path = output / "index.json"
+    snapshot_path = output / "snapshot.json"
+    index = read_json(index_path)
+    old_entry = index["deltas"][0]
+    delta = read_json(output / old_entry["path"])
+    delta["profile"] = builder.PROFILE_V9
+    delta_bytes = builder.stable_json_bytes(delta)
+    digest = hashlib.sha256(delta_bytes).hexdigest()
+    (output / "deltas" / (digest + ".json")).write_bytes(delta_bytes)
+    entry = builder._delta_entry(delta, digest, delta_bytes, base_url)
+
+    snapshot = read_json(snapshot_path)
+    snapshot["profile"] = builder.PROFILE_V9
+    snapshot["head"] = {
+        "path": entry["path"],
+        "sequence": 0,
+        "sha256": digest,
+        "url": entry["url"],
+    }
+    snapshot["checkpoint"]["delta_sha256"] = digest
+    snapshot["checkpoint"]["next_frame_challenge_seed"] = entry["block"][
+        "next_frame_challenge_seed"
+    ]
+    write_json(snapshot_path, snapshot)
+
+    index["profile"] = builder.PROFILE_V9
+    index["deltas"] = [entry]
+    index["head"] = dict(snapshot["head"])
+    index["next_frame_challenge_seed"] = entry["block"][
+        "next_frame_challenge_seed"
+    ]
+    snapshot_bytes = snapshot_path.read_bytes()
+    index["snapshot"].update({
+        "sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
+        "size": len(snapshot_bytes),
+    })
+    write_json(index_path, index)
+
+
+def append_data_delta(root, base_url, descriptors):
+    output = root / "apps" / "syndication"
+    index_path = output / "index.json"
+    index = read_json(index_path)
+    sequence = len(index["deltas"])
+    previous = index["deltas"][-1]["sha256"]
+    changes = {
+        "app_tombstones": [],
+        "app_upserts": [],
+        "data_tombstones": [],
+        "data_upserts": descriptors,
+        "frame_appends": [],
+    }
+    proof = builder.proof_of_fold_metadata(changes)
+    delta = {
+        "changes": changes,
+        "challenge_state_machine": builder.CHALLENGE_STATE_MACHINE,
+        "created_at": "2026-08-23T00:00:00.000Z",
+        "frame_control": builder.frame_control_metadata(changes, proof),
+        "frame_control_schema": builder.FRAME_CONTROL_SCHEMA,
+        "profile": builder.PROFILE,
+        "previous_delta": previous,
+        "proof_of_fold": proof,
+        "rollout": builder.SOAK_ROLLOUT,
+        "schema": builder.DELTA_SCHEMA,
+        "segments": builder.segment_metadata(changes),
+        "sequence": sequence,
+        "since_seq": sequence - 1,
+        "stream_id": builder.STREAM_ID,
+        "transparency": builder.TRANSPARENCY_MODEL,
+        "through_seq": sequence,
+    }
+    delta_bytes = builder.stable_json_bytes(delta)
+    digest = hashlib.sha256(delta_bytes).hexdigest()
+    (output / "deltas" / (digest + ".json")).write_bytes(delta_bytes)
+    entry = builder._delta_entry(delta, digest, delta_bytes, base_url)
+    index["deltas"].append(entry)
+    index["delta_count"] = len(index["deltas"])
+    index["cursor"]["head_seq"] = sequence
+    index["head"] = {
+        "path": entry["path"],
+        "sequence": sequence,
+        "sha256": digest,
+        "url": entry["url"],
+    }
+    index["next_frame_challenge_seed"] = entry["block"][
+        "next_frame_challenge_seed"
+    ]
+    index["updated"] = delta["created_at"]
+    write_json(index_path, index)
+    return entry
 
 
 def published_feed_ids(root):
@@ -432,6 +739,31 @@ def test_idempotent_rebuild_does_not_append_or_rewrite(tmp_path):
         "snapshot": False,
     }
     assert before == after
+
+
+def test_profile9_history_upgrades_to_profile10_and_syncs(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        downgrade_chain_to_profile9(root, server.base_url)
+        mutate_app(root)
+        result = build_served(root, server)
+        synced = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+
+    index = read_json(root / "apps" / "syndication" / "index.json")
+    assert result["delta_count"] == 2
+    assert [entry["profile"] for entry in index["deltas"]] == [
+        builder.PROFILE_V9,
+        builder.PROFILE,
+    ]
+    assert index["profile"] == builder.PROFILE
+    assert synced["applied_deltas"] == 2
+    assert sync_client.status(state_dir)["deltas"] == 2
 
 
 def test_builder_rejects_snapshot_poisoned_with_future_descriptor(tmp_path):
@@ -688,9 +1020,7 @@ def test_looking_glass_scene_round_trips_as_public_data(tmp_path):
 
 def test_agent_amusement_park_round_trips_as_public_data(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
-    source = ROOT / "apps" / "agent-park"
-    target = root / "apps" / "agent-park"
-    shutil.copytree(source, target)
+    copy_agent_park(root)
     state_dir = tmp_path / "state"
 
     with serving(root) as server:
@@ -708,7 +1038,7 @@ def test_agent_amusement_park_round_trips_as_public_data(tmp_path):
     ]
     assert result["fetched_objects"] == 5
     assert [item["metadata"]["resource_type"] for item in objects] == [
-        "agent-contract",
+        "agent-contract-v1",
         "event-ledger",
         "state",
     ]
@@ -726,47 +1056,308 @@ def test_agent_amusement_park_round_trips_as_public_data(tmp_path):
     assert state["metadata"]["event_head"] == ledger["metadata"]["event_head"]
 
 
+def test_agent_park_v2_migration_preserves_v1_and_grows_one_chain(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    builder.build(root)
+    first_snapshot = read_json(
+        root / "apps" / "syndication" / "snapshot.json"
+    )
+    v1_before = next(
+        item
+        for item in first_snapshot["data_objects"]
+        if item["path"] == "apps/agent-park/agent-contract.json"
+    )
+    events, contract = migrate_agent_park_v2(target)
+
+    result = builder.build(root)
+    snapshot = read_json(root / "apps" / "syndication" / "snapshot.json")
+    migrated = [
+        item
+        for item in snapshot["data_objects"]
+        if item["kind"] == "agent-amusement-park-object"
+    ]
+    v1_after = next(
+        item
+        for item in migrated
+        if item["path"] == "apps/agent-park/agent-contract.json"
+    )
+    state = next(
+        item
+        for item in migrated
+        if item["metadata"]["resource_type"] == "state"
+    )
+    ledger = next(
+        item
+        for item in migrated
+        if item["metadata"]["resource_type"] == "event-ledger"
+    )
+    v2 = next(
+        item
+        for item in migrated
+        if item["metadata"]["resource_type"] == "agent-contract-v2"
+    )
+
+    assert result["delta_count"] == 2
+    assert len(events) == 94
+    assert hashlib.sha256(
+        (target / "events.jsonl").read_bytes()
+    ).hexdigest() == (
+        "bfefe99e73fd89bc4f435dd3dfd9c4a5b784788017e406a79fe92194273351bf"
+    )
+    assert v1_after == v1_before
+    assert {
+        item["metadata"]["resource_type"]
+        for item in migrated
+    } == {
+        "agent-contract-v1",
+        "agent-contract-v2",
+        "event-ledger",
+        "state",
+    }
+    assert state["metadata"]["agent_contract"] == "agent-contract-v2.json"
+    assert state["metadata"]["event_count"] == ledger["metadata"]["event_count"]
+    assert state["metadata"]["event_head"] == ledger["metadata"]["event_head"]
+    assert state["metadata"]["bundle_digest"] == v2["metadata"]["bundle_digest"]
+    assert (
+        v2["metadata"]["action_limit"]
+        == builder.AGENT_PARK_V2_ACTION_LIMIT
+    )
+    assert v2["metadata"]["mcp_mapping"] == contract["mcp_mapping"]
+    assert v2["metadata"]["season2_event_count"] == 47
+    assert v2["metadata"]["season2_head"] == events[-1]["event_hash"]
+
+
+def test_agent_park_exact_season1_prefix_is_mandatory(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    events = read_park_events(target)
+    assert len(events) == 47
+    assert hashlib.sha256(
+        write_park_events(target, events)
+    ).hexdigest() == builder.AGENT_PARK_SEASON1_PREFIX_SHA256
+
+    events[3]["payload"]["night"] = 99
+    rewritten = append_park_event(rechain_park_events(events))
+    with pytest.raises(
+        builder.SyndicationError,
+        match="Season 1 prefix",
+    ):
+        builder.validate_agent_park_event_ledger(rewritten)
+    with pytest.raises(
+        sync_client.SyncError,
+        match="Season 1 prefix",
+    ):
+        sync_client.validate_agent_park_event_ledger(rewritten)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["canonicalization_and_hashing", "mcp_mapping", "action_limit"],
+)
+def test_agent_park_v2_contract_fields_are_fail_closed(tmp_path, field):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    _events, contract = migrate_agent_park_v2(target)
+    if field == "canonicalization_and_hashing":
+        contract[field]["hash_domains"]["contract_v2"] = (
+            "rappterzoo/agent-park-contract/unscoped\n"
+        )
+    elif field == "mcp_mapping":
+        contract[field]["tools"]["visit"] = "unbounded_remote_write"
+    else:
+        contract[field]["max_local_actions_per_mcp_session"] = 101
+    rehash_v2_contract(contract)
+    write_json(target / "agent-contract-v2.json", contract)
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="contract v2",
+    ):
+        builder.build(root)
+
+
+def test_actual_agent_park_v2_hash_spec_is_accepted():
+    contract = read_json(
+        ROOT / "apps" / "agent-park" / "agent-contract-v2.json"
+    )
+    hashing = contract["canonicalization_and_hashing"]
+
+    builder._validate_agent_park_v2_hashing(hashing)
+    sync_client._validate_agent_park_v2_hashing(hashing)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "remove-domain",
+        "change-domain",
+        "remove-preimage",
+        "change-preimage",
+    ],
+)
+def test_agent_park_v2_hash_spec_requires_every_exact_entry(mutation):
+    contract = read_json(
+        ROOT / "apps" / "agent-park" / "agent-contract-v2.json"
+    )
+    hashing = contract["canonicalization_and_hashing"]
+    if mutation == "remove-domain":
+        hashing["hash_domains"].pop("full_export_v2")
+    elif mutation == "change-domain":
+        hashing["hash_domains"]["full_export_v2"] = (
+            "rappterzoo/agent-park-full-export/3\n"
+        )
+    elif mutation == "remove-preimage":
+        hashing["preimages"].pop("full_export_content_digest")
+    else:
+        hashing["preimages"]["local_action_hash"]["bytes"][0] = (
+            "mcp_local_branch_json(action excluding action_hash)"
+        )
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="contract v2 hash spec",
+    ):
+        builder._validate_agent_park_v2_hashing(hashing)
+    with pytest.raises(
+        sync_client.SyncError,
+        match="contract v2 hash spec",
+    ):
+        sync_client._validate_agent_park_v2_hashing(hashing)
+
+
+def test_agent_park_v2_state_replacement_requires_ledger_growth(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    builder.build(root)
+    original = read_park_events(target)
+    _events, _contract = migrate_agent_park_v2(target)
+    write_park_events(target, original)
+    update_park_state(
+        target,
+        original,
+        agent_contract="agent-contract-v2.json",
+        bundle_digest="b" * 64,
+    )
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="invalid.*state|growth",
+    ):
+        builder.build(root)
+
+
+def test_agent_park_v1_contract_stays_immutable_during_v2_growth(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    builder.build(root)
+    migrate_agent_park_v2(target)
+    v1_path = target / "agent-contract.json"
+    v1 = read_json(v1_path)
+    v1["integrity"]["contract_digest"] = "c" * 64
+    write_json(v1_path, v1)
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="immutable",
+    ):
+        builder.build(root)
+
+
+def test_agent_park_v2_sync_304_cache_repair_and_rollback(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+        initial = sync_client.status(state_dir)
+        migrate_agent_park_v2(target)
+        build_served(root, server)
+        migrated = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+        objects = sync_client.list_data_objects(state_dir)
+        v2 = next(
+            item
+            for item in objects
+            if item["metadata"].get("resource_type")
+            == "agent-contract-v2"
+        )
+        cached_v2 = sync_client._object_path(state_dir, v2["sha256"])
+        cached_v2.write_bytes(b"corrupt")
+        repaired = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+        repaired_v2_sha256 = hashlib.sha256(
+            cached_v2.read_bytes()
+        ).hexdigest()
+
+        mutate_app(root)
+        build_served(root, server)
+        v2_path = target / "agent-contract-v2.json"
+        v2_path.write_bytes(v2_path.read_bytes() + b" ")
+        cached_v2.unlink()
+        before_failure = sync_client.status(state_dir)
+        with pytest.raises(sync_client.SyncError):
+            sync_client.sync_repository(
+                state_dir,
+                server.index_url,
+                fetch_apps=True,
+            )
+
+    after_failure = sync_client.status(state_dir)
+    assert initial["deltas"] == 1
+    assert migrated["applied_deltas"] == 1
+    assert migrated["fetched_objects"] == 4
+    assert repaired["not_modified"] is True
+    assert repaired_v2_sha256 == v2["sha256"]
+    assert after_failure["head_sha256"] == before_failure["head_sha256"]
+    assert after_failure["deltas"] == before_failure["deltas"]
+
+
+def test_historical_park_descriptor_metadata_normalizes_for_replay():
+    legacy = {}
+    for path in sorted(
+        (ROOT / "apps" / "syndication" / "deltas").glob("*.json")
+    ):
+        delta = read_json(path)
+        for descriptor in delta["changes"].get("data_upserts", []):
+            metadata = descriptor.get("metadata", {})
+            resource_type = metadata.get("resource_type")
+            if (
+                descriptor.get("path")
+                == "apps/agent-park/agent-contract.json"
+                and resource_type == "agent-contract"
+            ):
+                legacy["contract"] = descriptor
+            if (
+                descriptor.get("path")
+                == "apps/agent-park/park-state.json"
+                and metadata.get("schema")
+                == "rappterzoo-agent-amusement-park/1"
+            ):
+                legacy["state"] = descriptor
+    assert set(legacy) == {"contract", "state"}
+    contract = sync_client.validate_data_descriptor(legacy["contract"])
+    state = sync_client.validate_data_descriptor(legacy["state"])
+    assert contract["metadata"]["resource_type"] == "agent-contract-v1"
+    assert state["metadata"]["agent_contract"] == "agent-contract.json"
+
+
 def test_agent_park_ledger_allows_only_valid_prefix_growth(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
-    source = ROOT / "apps" / "agent-park"
-    target = root / "apps" / "agent-park"
-    shutil.copytree(source, target)
+    target = copy_agent_park(root)
     builder.build(root)
-    events_path = target / "events.jsonl"
-    events = [
-        json.loads(line)
-        for line in events_path.read_text().splitlines()
-        if line
-    ]
-    payload = {
-        "night": 8,
-        "result": "future-customer-approved-append",
-    }
-    event = {
-        "kind": "park.night-open",
-        "park_id": "park.rappterzoo-agent-amusement-park",
-        "payload": payload,
-        "payload_hash": builder.frame_hash_value(
-            builder.AGENT_PARK_PAYLOAD_SPACE,
-            payload,
-        ),
-        "prev": events[-1]["event_hash"],
-        "schema": builder.AGENT_PARK_EVENT_SCHEMA,
-        "seq": len(events),
-        "utc": "2026-08-23T00:00:00.000Z",
-        "visibility": "public-metadata",
-    }
-    event["event_hash"] = builder.frame_hash_value(
-        builder.AGENT_PARK_EVENT_SPACE,
-        event,
-    )
-    events.append(event)
-    events_path.write_bytes(
-        b"".join(
-            builder.canonical_frame_bytes(item) + b"\n"
-            for item in events
-        )
-    )
+    events, _contract = migrate_agent_park_v2(target)
+    event = events[-1]
 
     result = builder.build(root)
     snapshot = read_json(root / "apps" / "syndication" / "snapshot.json")
@@ -791,6 +1382,250 @@ def test_agent_park_ledger_allows_only_valid_prefix_growth(tmp_path):
         match="payload hash mismatch",
     ):
         sync_client.validate_agent_park_event_ledger(mutated)
+
+
+def test_agent_park_v2_allows_future_growth_but_rejects_fork(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    builder.build(root)
+    events, _contract = migrate_agent_park_v2(target)
+    builder.build(root)
+
+    events = append_park_event(events)
+    write_park_events(target, events)
+    rewrite_v2_bundle_for_events(target, events)
+    assert builder.build(root)["delta_created"] is True
+
+    forked = json.loads(json.dumps(events))
+    forked[50]["payload"]["season"] = 99
+    forked = rechain_park_events(forked)
+    write_park_events(target, forked)
+    rewrite_v2_bundle_for_events(target, forked)
+    with pytest.raises(
+        builder.SyndicationError,
+        match="valid prefix growth",
+    ):
+        builder.build(root)
+
+
+def test_agent_park_event_structure_hashes_and_links_are_strict(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    original = read_park_events(target)
+    mutations = []
+
+    bad_utc = json.loads(json.dumps(original))
+    bad_utc[2]["utc"] = "not-a-time"
+    mutations.append(rechain_park_events(bad_utc))
+
+    bad_kind = json.loads(json.dumps(original))
+    bad_kind[2]["kind"] = "Park Night Open"
+    mutations.append(rechain_park_events(bad_kind))
+
+    bad_prev = json.loads(json.dumps(original))
+    bad_prev[2]["prev"] = "0" * 64
+    projected = {
+        key: value
+        for key, value in bad_prev[2].items()
+        if key != "event_hash"
+    }
+    bad_prev[2]["event_hash"] = builder.frame_hash_value(
+        builder.AGENT_PARK_EVENT_SPACE,
+        projected,
+    )
+    mutations.append(bad_prev)
+
+    bad_hash = json.loads(json.dumps(original))
+    bad_hash[2]["event_hash"] = "0" * 64
+    mutations.append(bad_hash)
+
+    for events in mutations:
+        with pytest.raises(builder.SyndicationError):
+            builder.validate_agent_park_event_ledger(events)
+        with pytest.raises(sync_client.SyncError):
+            sync_client.validate_agent_park_event_ledger(events)
+
+
+@pytest.mark.parametrize("season", [1, 2])
+def test_agent_park_event_timestamps_must_strictly_increase(
+    tmp_path,
+    season,
+):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    events = read_park_events(target)
+    if season == 2:
+        events, _contract = migrate_agent_park_v2(target)
+    events[-1]["utc"] = events[-2]["utc"]
+    events = rechain_park_events(events)
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="strictly increasing",
+    ):
+        builder.validate_agent_park_event_ledger(events)
+    with pytest.raises(
+        sync_client.SyncError,
+        match="strictly increasing",
+    ):
+        sync_client.validate_agent_park_event_ledger(events)
+
+
+def test_agent_park_state_must_match_ledger_head_count_and_digest(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    state_path = target / "park-state.json"
+    state = read_json(state_path)
+    state["event_ledger"]["head"] = "0" * 64
+    state["event_ledger"]["sha256"] = "1" * 64
+    write_json(state_path, state)
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="state.*ledger",
+    ):
+        builder.build(root)
+
+
+def test_agent_park_growth_requires_coherent_state_advance(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    builder.build(root)
+    events = append_park_event(read_park_events(target))
+    write_park_events(target, events)
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="state.*ledger",
+    ):
+        builder.build(root)
+
+
+@pytest.mark.parametrize("mutation", ["fork", "reorder", "truncate", "remove"])
+def test_agent_park_rejects_non_prefix_history_changes(tmp_path, mutation):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    builder.build(root)
+    events = read_park_events(target)
+
+    if mutation == "fork":
+        events[3]["payload"]["night"] = 99
+        events = rechain_park_events(events)
+        write_park_events(target, events)
+        update_park_state(target, events)
+    elif mutation == "reorder":
+        events[3], events[4] = events[4], events[3]
+        events = rechain_park_events(events)
+        write_park_events(target, events)
+        update_park_state(target, events)
+    elif mutation == "truncate":
+        events = events[:-1]
+        write_park_events(target, events)
+        update_park_state(target, events)
+    else:
+        (target / "events.jsonl").unlink()
+        (target / "park-state.json").unlink()
+
+    with pytest.raises(
+        builder.SyndicationError,
+        match="agent park|immutable",
+    ):
+        builder.build(root)
+
+
+def test_sync_rejects_agent_park_state_ledger_metadata_divergence(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+        descriptors = builder.build_public_data_descriptors(
+            root,
+            server.base_url,
+        )
+        state = next(
+            descriptor
+            for descriptor in descriptors
+            if descriptor["metadata"].get("resource_type") == "state"
+        )
+        state = json.loads(json.dumps(state))
+        state["metadata"]["event_head"] = "0" * 64
+        append_data_delta(root, server.base_url, [state])
+
+        with pytest.raises(
+            sync_client.SyncError,
+            match="state.*ledger",
+        ):
+            sync_client.sync_repository(state_dir, server.index_url)
+
+    assert sync_client.status(state_dir)["head_sequence"] == "0"
+    assert (target / "events.jsonl").is_file()
+
+
+def test_sync_rejects_agent_park_fork_before_checkpoint_advance(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    target = copy_agent_park(root)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+        initial = sync_client.status(state_dir)
+        events, _contract = migrate_agent_park_v2(target)
+        descriptors = [
+            descriptor
+            for descriptor in builder.build_public_data_descriptors(
+                root,
+                server.base_url,
+            )
+            if descriptor["metadata"].get("resource_type") in {
+                "agent-contract-v2",
+                "event-ledger",
+                "state",
+            }
+        ]
+        events[3]["payload"]["night"] = 99
+        events = rechain_park_events(events)
+        write_park_events(target, events)
+        rewrite_v2_bundle_for_events(target, events)
+        for descriptor in descriptors:
+            resource_type = descriptor["metadata"]["resource_type"]
+            object_path = root / descriptor["path"]
+            object_bytes = object_path.read_bytes()
+            descriptor["sha256"] = hashlib.sha256(
+                object_bytes
+            ).hexdigest()
+            descriptor["size"] = len(object_bytes)
+            descriptor["content_id"] = "sha256:" + descriptor["sha256"]
+            if resource_type == "event-ledger":
+                descriptor["metadata"]["event_count"] = len(events)
+                descriptor["metadata"]["event_head"] = events[-1][
+                    "event_hash"
+                ]
+            else:
+                descriptor["metadata"] = builder._agent_park_metadata(
+                    read_json(object_path),
+                    descriptor["path"],
+                )
+        append_data_delta(root, server.base_url, descriptors)
+
+        with pytest.raises(
+            sync_client.SyncError,
+            match="prefix|fork",
+        ):
+            sync_client.sync_repository(state_dir, server.index_url)
+
+    current = sync_client.status(state_dir)
+    assert current["head_sequence"] == initial["head_sequence"] == "0"
+    assert current["head_sha256"] == initial["head_sha256"]
 
 
 def test_attention_comment_privacy_and_object_immutability(tmp_path):
@@ -1334,6 +2169,81 @@ def test_sync_uses_conditional_get_and_304(tmp_path):
     )
 
 
+def test_304_fetch_apps_repairs_missing_and_corrupt_cache(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+        apps = sync_client.list_apps(state_dir)
+        missing = sync_client._object_path(state_dir, apps[0]["sha256"])
+        corrupt = sync_client._object_path(state_dir, apps[1]["sha256"])
+        missing.unlink()
+        corrupt.write_bytes(b"corrupt")
+
+        result = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+
+    assert result["not_modified"] is True
+    assert result["fetched_objects"] == 2
+    for app in apps:
+        cached = sync_client._object_path(state_dir, app["sha256"])
+        assert hashlib.sha256(cached.read_bytes()).hexdigest() == app["sha256"]
+
+
+def test_duplicate_and_concurrent_syncs_are_idempotent(tmp_path, monkeypatch):
+    root, _manifest, _frames = make_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    errors = []
+    results = []
+    barrier = threading.Barrier(2)
+    original_fetch = sync_client.fetch_url
+
+    def synchronized_fetch(url, headers=None, max_bytes=sync_client.MAX_DELTA_BYTES):
+        if url.endswith("/index.json") and not headers:
+            try:
+                barrier.wait(timeout=0.5)
+            except threading.BrokenBarrierError:
+                pass
+        return original_fetch(url, headers=headers, max_bytes=max_bytes)
+
+    monkeypatch.setattr(sync_client, "fetch_url", synchronized_fetch)
+    with serving(root) as server:
+        build_served(root, server)
+
+        def run_sync():
+            try:
+                results.append(
+                    sync_client.sync_repository(
+                        state_dir,
+                        server.index_url,
+                    )
+                )
+            except Exception as error:
+                errors.append(error)
+
+        threads = [threading.Thread(target=run_sync) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+    assert errors == []
+    assert len(results) == 2
+    assert sorted(result["applied_deltas"] for result in results) == [0, 1]
+    assert sum(result["not_modified"] for result in results) == 1
+    current = sync_client.status(state_dir)
+    assert current["deltas"] == 1
+    assert current["frames"] == 2
+
+
 def test_sync_rejects_delta_byte_tamper(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
     state_dir = tmp_path / "state"
@@ -1342,7 +2252,10 @@ def test_sync_rejects_delta_byte_tamper(tmp_path):
         delta_paths(root)[0].write_bytes(
             delta_paths(root)[0].read_bytes() + b" "
         )
-        with pytest.raises(sync_client.SyncError, match="content hash"):
+        with pytest.raises(
+            sync_client.SyncError,
+            match="content (hash|size)",
+        ):
             sync_client.sync_repository(state_dir, server.index_url)
     assert sync_client.status(state_dir)["deltas"] == 0
 
@@ -1421,6 +2334,7 @@ def test_sync_rejects_cross_stream_delta_graft(tmp_path):
         entry = dict(original_entry)
         entry["sha256"] = digest
         entry["path"] = "deltas/{}.json".format(digest)
+        entry["size"] = len(data)
         entry["url"] = (
             server.base_url
             + "apps/syndication/deltas/{}.json".format(digest)
@@ -1506,6 +2420,9 @@ def test_sync_refuses_silent_cursor_reset(tmp_path):
             "url": first["url"],
         }
         index["cursor"]["head_seq"] = 0
+        index["next_frame_challenge_seed"] = first["block"][
+            "next_frame_challenge_seed"
+        ]
         write_json(index_path, index)
         with pytest.raises(sync_client.SyncError, match="rolled back"):
             sync_client.sync_repository(state_dir, server.index_url)
@@ -1558,6 +2475,9 @@ def test_independent_witness_receipts_and_fork_evidence(tmp_path):
         index["deltas"][0]["block"][
             "next_frame_challenge_seed"
         ] = builder.next_challenge_seed(fork_hash)
+        index["next_frame_challenge_seed"] = index["deltas"][0]["block"][
+            "next_frame_challenge_seed"
+        ]
         write_json(index_path, index)
         with pytest.raises(
             sync_client.SyncError,
@@ -1589,6 +2509,70 @@ def test_fetch_apps_rejects_hash_mismatch_and_rolls_back(tmp_path):
     assert result["active_apps"] == 0
 
 
+def test_partial_object_fetch_failure_removes_staged_cache(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        mutate_app(root, "beta.html")
+        with pytest.raises(
+            sync_client.SyncError,
+            match="object size mismatch|response exceeds byte limit",
+        ):
+            sync_client.sync_repository(
+                state_dir,
+                server.index_url,
+                fetch_apps=True,
+            )
+
+    objects_dir = state_dir / "objects"
+    cached = [
+        path
+        for path in objects_dir.rglob("*")
+        if path.is_file()
+    ] if objects_dir.exists() else []
+    assert cached == []
+    assert sync_client.status(state_dir)["objects"] == 0
+
+
+def test_storage_transaction_failure_rolls_back_database_and_cache(
+    tmp_path,
+    monkeypatch,
+):
+    root, _manifest, _frames = make_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    original_set_meta = sync_client._set_meta
+
+    def fail_last_sync(connection, key, value):
+        if key == "last_sync":
+            raise RuntimeError("injected storage transaction failure")
+        return original_set_meta(connection, key, value)
+
+    monkeypatch.setattr(sync_client, "_set_meta", fail_last_sync)
+    with serving(root) as server:
+        build_served(root, server)
+        with pytest.raises(
+            RuntimeError,
+            match="injected storage transaction failure",
+        ):
+            sync_client.sync_repository(
+                state_dir,
+                server.index_url,
+                fetch_apps=True,
+            )
+
+    current = sync_client.status(state_dir)
+    assert current["deltas"] == 0
+    assert current["active_apps"] == 0
+    assert current["frames"] == 0
+    assert current["objects"] == 0
+    objects_dir = state_dir / "objects"
+    assert not objects_dir.exists() or not any(
+        path.is_file()
+        for path in objects_dir.rglob("*")
+    )
+
+
 def test_multiple_delta_failure_rolls_back_entire_apply(tmp_path):
     root, _manifest, _frames = make_repo(tmp_path)
     state_dir = tmp_path / "state"
@@ -1598,7 +2582,10 @@ def test_multiple_delta_failure_rolls_back_entire_apply(tmp_path):
         build_served(root, server)
         second_delta = delta_path_for_sequence(root, 1)
         second_delta.write_bytes(second_delta.read_bytes() + b" ")
-        with pytest.raises(sync_client.SyncError, match="content hash"):
+        with pytest.raises(
+            sync_client.SyncError,
+            match="content (hash|size)",
+        ):
             sync_client.sync_repository(state_dir, server.index_url)
     result = sync_client.status(state_dir)
     assert result["deltas"] == 0
@@ -1665,6 +2652,176 @@ def test_tombstone_preserves_local_overlay_and_materializes_it(tmp_path):
     assert len(exported["local_apps"]) == 1
     assert acknowledgement["note"] == "reviewed-locally"
     assert exported["acknowledgements"][-1]["note"] == "reviewed-locally"
+
+
+def test_data_tombstone_preserves_local_overlay(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    public_path = root / "apps" / "attention" / "overlay.json"
+    public_path.parent.mkdir(parents=True)
+    public_path.write_bytes(builder.stable_json_bytes({
+        "group_id": "overlay",
+        "schema": "rappterzoo-attention-group/1",
+        "visibility": "public-metadata",
+    }))
+    local_file = tmp_path / "local-overlay.json"
+    local_file.write_bytes(b'{"local_overlay":true}\n')
+    state_dir = tmp_path / "state"
+
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+            fetch_apps=True,
+        )
+        sync_client.add_local_app(
+            state_dir,
+            local_file,
+            "apps/attention/overlay.json",
+            "Local Data Overlay",
+        )
+        public_path.unlink()
+        build_served(root, server)
+        sync_client.sync_repository(state_dir, server.index_url)
+
+    removed = sync_client.list_data_objects(
+        state_dir,
+        include_removed=True,
+    )
+    overlay = next(
+        item
+        for item in removed
+        if item["path"] == "apps/attention/overlay.json"
+    )
+    output = tmp_path / "data-overlay-materialized"
+    sync_client.materialize(state_dir, output)
+    assert overlay["deleted"] is True
+    assert overlay["overlayed"] is True
+    assert (
+        output / "apps" / "attention" / "overlay.json"
+    ).read_bytes() == local_file.read_bytes()
+
+
+def test_public_data_bounds_paths_and_safe_false_privacy(tmp_path):
+    nested = {}
+    cursor = nested
+    for _depth in range(66):
+        cursor["child"] = {}
+        cursor = cursor["child"]
+    nested_bytes = builder.stable_json_bytes(nested)
+    with pytest.raises(
+        builder.SyndicationError,
+        match="nesting",
+    ):
+        builder.parse_public_data_bytes(
+            nested_bytes,
+            ".json",
+            "apps/attention/nested.json",
+        )
+    with pytest.raises(sync_client.SyncError, match="nesting"):
+        sync_client.validate_public_data_bytes(
+            nested_bytes,
+            "application/json",
+        )
+
+    oversized = b" " * (builder.MAX_PUBLIC_DATA_BYTES + 1)
+    with pytest.raises(builder.SyndicationError, match="four MiB"):
+        builder.parse_public_data_bytes(
+            oversized,
+            ".json",
+            "apps/attention/oversized.json",
+        )
+    with pytest.raises(sync_client.SyncError, match="four MiB"):
+        sync_client.validate_public_data_bytes(
+            oversized,
+            "application/json",
+        )
+
+    parser_bomb = (
+        ("[" * 1100) + "0" + ("]" * 1100)
+    ).encode("ascii")
+    with pytest.raises(
+        builder.SyndicationError,
+        match="invalid JSON|nesting",
+    ):
+        builder.parse_public_data_bytes(
+            parser_bomb,
+            ".json",
+            "apps/attention/parser-bomb.json",
+        )
+    with pytest.raises(
+        sync_client.SyncError,
+        match="invalid JSON|nesting",
+    ):
+        sync_client.validate_public_data_bytes(
+            parser_bomb,
+            "application/json",
+        )
+
+    safe = {
+        "privateMediaInPublicLedger": False,
+        "pulsePersisted": False,
+        "token": False,
+        "visibility": "public-metadata",
+    }
+    builder.validate_public_data_value(safe)
+    sync_client.validate_public_data_value(safe)
+    for unsafe in (
+        {"privateMediaInPublicLedger": True},
+        {"pulsePersisted": True},
+        {"pulsePersisted": 0},
+    ):
+        with pytest.raises(builder.SyndicationError, match="sensitive key"):
+            builder.validate_public_data_value(unsafe)
+        with pytest.raises(sync_client.SyncError, match="sensitive key"):
+            sync_client.validate_public_data_value(unsafe)
+
+    descriptor = {
+        "content_id": "sha256:" + ("0" * 64),
+        "metadata": {},
+        "path": "../escape.html",
+        "sha256": "0" * 64,
+        "size": 1,
+        "url": "https://example.test/escape.html",
+        "verification": {
+            "algorithm": "sha256",
+            "required": True,
+        },
+    }
+    with pytest.raises(sync_client.SyncError, match="unsafe app path"):
+        sync_client.validate_descriptor(descriptor)
+
+    local_file = tmp_path / "local.html"
+    local_file.write_bytes(b"<title>local</title>\n")
+    with pytest.raises(sync_client.SyncError, match="unsafe app path"):
+        sync_client.add_local_app(
+            tmp_path / "state",
+            local_file,
+            "../escape.html",
+        )
+
+
+def test_frame_safe_false_privacy_declarations_require_false():
+    safe = make_frame(
+        0,
+        payload_updates={
+            "privateMediaInPublicLedger": False,
+            "pulsePersisted": False,
+        },
+    )
+    builder.validate_frames([safe])
+    sync_client.validate_frames([safe], None, set())
+
+    for key, value in (
+        ("privateMediaInPublicLedger", True),
+        ("pulsePersisted", True),
+        ("pulsePersisted", 0),
+    ):
+        frame = make_frame(0, payload_updates={key: value})
+        with pytest.raises(builder.SyndicationError, match="forbidden key"):
+            builder.validate_frames([frame])
+        with pytest.raises(sync_client.SyncError, match="forbidden key"):
+            sync_client.validate_frames([frame], None, set())
 
 
 def test_frame_privacy_mutation_is_rejected_even_when_rehashed(tmp_path):
@@ -1762,6 +2919,9 @@ def test_frame_privacy_mutation_is_rejected_even_when_rehashed(tmp_path):
             "url": entry["url"],
         }
         index["cursor"]["head_seq"] = 1
+        index["next_frame_challenge_seed"] = entry["block"][
+            "next_frame_challenge_seed"
+        ]
         write_json(index_path, index)
 
         with pytest.raises(sync_client.SyncError, match="forbidden key"):

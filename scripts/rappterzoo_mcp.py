@@ -8,6 +8,7 @@ sets RAPPTERZOO_MCP_WRITES=1.
 
 import argparse
 import base64
+import copy
 import gzip
 import hashlib
 import json
@@ -16,15 +17,17 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
 SERVER_NAME = "rappterzoo"
-SERVER_VERSION = "2.2.0"
+SERVER_VERSION = "2.4.0"
 PROTOCOL_VERSION = "2024-11-05"
 DEFAULT_BASE_URL = "https://kody-w.github.io/localFirstTools-main/"
 DEFAULT_REPOSITORY = "kody-w/localFirstTools-main"
@@ -33,6 +36,48 @@ MAX_RESOURCE_BYTES = 5 * 1024 * 1024
 MAX_WRITE_COUNT = 10
 MAX_APP_BYTES = 500 * 1024
 MAX_COMPRESSED_ISSUE_BYTES = 45 * 1024
+MAX_LOCAL_BRANCH_ACTIONS = 100
+MAX_PARK_RESOURCE_UNITS = 10000
+MAX_SYNTHETIC_BID = 1000000
+PARK_CONTRACT_VERSION = 2
+PARK_CONTRACT_SCHEMA = "rappterzoo-agent-park-contract/2"
+PARK_BRANCH_SCHEMA = "rappterzoo-agent-park-local-branch/2"
+PARK_ACTION_SCHEMA = "rappterzoo-agent-park-local-action/2"
+PARK_CANONICALIZATION = "mcp_local_branch_json"
+PARK_ID = "park.rappterzoo-agent-amusement-park"
+PARK_STATE_SCHEMA = "rappterzoo-agent-amusement-park/2"
+PARK_EVENT_SCHEMA_V1 = "rappterzoo-agent-park-event/1"
+PARK_EVENT_SCHEMA_V2 = "rappterzoo-agent-park-event/2"
+PARK_EVENT_HASH_DOMAIN_V1 = b"rappterzoo/agent-park-event/1\n"
+PARK_EVENT_HASH_DOMAIN_V2 = b"rappterzoo/agent-park-event/2\n"
+PARK_PAYLOAD_HASH_DOMAIN_V1 = b"rappterzoo/agent-park-payload/1\n"
+PARK_PAYLOAD_HASH_DOMAIN_V2 = b"rappterzoo/agent-park-payload/2\n"
+PARK_STATE_HASH_DOMAIN = b"rappterzoo/agent-park-state/2\n"
+PARK_CONTRACT_HASH_DOMAIN = b"rappterzoo/agent-park-contract/2\n"
+PARK_BUNDLE_HASH_DOMAIN = b"rappterzoo/agent-park-bundle/2\n"
+PARK_SEASON_ONE_EVENT_COUNT = 47
+PARK_SEASON_ONE_HEAD = (
+    "30acf1e7676d475f5a4a0ef0c69e124136e95c4e7ab486995bc10eed3315c352"
+)
+PARK_SEASON_ONE_PREFIX_SHA256 = (
+    "fe725c0a2f1c39e47dcaf987e168274b5a0d1d8c30713af4d6c413ed47787a30"
+)
+PARK_LEGACY_CONTRACT_SHA256 = (
+    "257fb02bceb20ca8d07ea9eb45809ab17262ba83e766da77e74cb893d1b3d06e"
+)
+PARK_EVENT_KEYS_V1 = {
+    "event_hash",
+    "kind",
+    "park_id",
+    "payload",
+    "payload_hash",
+    "prev",
+    "schema",
+    "seq",
+    "utc",
+    "visibility",
+}
+PARK_EVENT_KEYS_V2 = PARK_EVENT_KEYS_V1 | {"season", "season_seq"}
 AGENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,30}$")
 APP_FILE_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.html$")
 IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9._:-]{8,80}$")
@@ -69,6 +114,16 @@ ALLOWED_MOLT_VECTORS = {
     "polish",
     "interactivity",
 }
+PARK_RESOURCE_NAMES = (
+    "compute_units",
+    "energy_units",
+    "attention_slots",
+)
+PARK_ACTIONS = {
+    "visit",
+    "bid_for_resources",
+    "invent_attraction",
+}
 RESOURCE_MAP = {
     "rappterzoo://manifest": ("apps/manifest.json", "application/json"),
     "rappterzoo://rankings": ("apps/rankings.json", "application/json"),
@@ -98,6 +153,14 @@ RESOURCE_MAP = {
         "application/x-ndjson",
     ),
     "rappterzoo://agent-park-contract": (
+        "apps/agent-park/agent-contract-v2.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-park-contract-v2": (
+        "apps/agent-park/agent-contract-v2.json",
+        "application/json",
+    ),
+    "rappterzoo://agent-park-contract-v1": (
         "apps/agent-park/agent-contract.json",
         "application/json",
     ),
@@ -108,6 +171,14 @@ RESOURCE_MAP = {
     "rappterzoo://agent-park-guide": (
         "docs/AGENT-AMUSEMENT-PARK.md",
         "text/markdown",
+    ),
+    "rappterzoo://agent-park-bundle-verifier": (
+        "scripts/agent_amusement_park.py",
+        "text/x-python",
+    ),
+    "rappterzoo://agent-park-acceptance-gate": (
+        "scripts/agent_park_gate.py",
+        "text/x-python",
     ),
     "rappterzoo://skill": ("skill.md", "text/markdown"),
     "rappterzoo://skills": ("skills.md", "text/markdown"),
@@ -152,6 +223,17 @@ RESOURCE_MAP = {
         ".well-known/mcp.json",
         "application/json",
     ),
+}
+PARK_RESOURCE_URIS = {
+    "rappterzoo://agent-amusement-park",
+    "rappterzoo://agent-park-acceptance-gate",
+    "rappterzoo://agent-park-bundle-verifier",
+    "rappterzoo://agent-park-contract",
+    "rappterzoo://agent-park-contract-v1",
+    "rappterzoo://agent-park-contract-v2",
+    "rappterzoo://agent-park-events",
+    "rappterzoo://agent-park-guide",
+    "rappterzoo://agent-park-state",
 }
 
 
@@ -243,13 +325,91 @@ def _validate_base_url(value: str) -> str:
 
 
 def _canonical_digest(value: Any) -> str:
-    encoded = json.dumps(
+    return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _canonical_bytes(value: Any) -> bytes:
+    return json.dumps(
         value,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+
+
+def _park_normalize_json(value: Any, depth: int = 1) -> Any:
+    if depth > 64:
+        raise ToolError("park canonical JSON exceeds 64 levels")
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is int:
+        if not -(2 ** 53 - 1) <= value <= 2 ** 53 - 1:
+            raise ToolError("park integer exceeds the I-JSON safe range")
+        return value
+    if type(value) is float:
+        raise ToolError("park canonical JSON forbids floats")
+    if type(value) is str:
+        if unicodedata.normalize("NFC", value) != value:
+            raise ToolError("park strings must be NFC-normalized")
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise ToolError("park strings contain a lone UTF-16 surrogate")
+        return value
+    if type(value) in (list, tuple):
+        return [
+            _park_normalize_json(item, depth + 1)
+            for item in value
+        ]
+    if type(value) is dict:
+        result = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise ToolError("park JSON object keys must be strings")
+            try:
+                key.encode("ascii")
+            except UnicodeEncodeError as error:
+                raise ToolError(
+                    "park canonical JSON requires ASCII object keys"
+                ) from error
+            if unicodedata.normalize("NFC", key) != key:
+                raise ToolError("park JSON object keys must be NFC-normalized")
+            result[key] = _park_normalize_json(item, depth + 1)
+        return result
+    raise ToolError(
+        "unsupported park JSON value: {}".format(type(value).__name__)
+    )
+
+
+def _park_canonical_bytes(value: Any) -> bytes:
+    encoded = json.dumps(
+        _park_normalize_json(value),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded) > 1024 * 1024:
+        raise ToolError("park canonical value exceeds one MiB")
+    return encoded
+
+
+def _park_digest(domain: bytes, value: Any) -> str:
+    return hashlib.sha256(domain + _park_canonical_bytes(value)).hexdigest()
+
+
+def _park_resource_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            name: {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": MAX_PARK_RESOURCE_UNITS,
+            }
+            for name in PARK_RESOURCE_NAMES
+        },
+        "required": list(PARK_RESOURCE_NAMES),
+    }
 
 
 class DataSource:
@@ -379,6 +539,100 @@ def _tool_definitions() -> List[Dict[str, Any]]:
             "description": (
                 "Return the published integrity, privacy, head, and explicit "
                 "structural-unverified RAPP boundary."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {},
+            },
+        },
+        {
+            "name": "agent_park_time_travel",
+            "description": (
+                "Read one exact park event or organism frame by sequence. "
+                "This is deterministic replay only and never rewrites history."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "enum": ["park", "organism"],
+                        "default": "park",
+                    },
+                    "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                    },
+                },
+                "required": ["sequence"],
+            },
+        },
+        {
+            "name": "agent_park_local_action",
+            "description": (
+                "Append one bounded visit, synthetic resource bid, or "
+                "attraction proposal to this MCP session's in-memory branch "
+                "under the Season 2 contract. It cannot mutate canonical "
+                "files or spend real money."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": sorted(PARK_ACTIONS),
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["park", "organism"],
+                        "default": "park",
+                    },
+                    "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "maxLength": 80,
+                    },
+                    "attraction_id": {
+                        "type": "string",
+                        "maxLength": 120,
+                    },
+                    "requested_resources": _park_resource_schema(),
+                    "synthetic_bid": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": MAX_SYNTHETIC_BID,
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 100,
+                    },
+                    "experience_contract": {
+                        "type": "string",
+                        "maxLength": 500,
+                    },
+                    "resource_request": _park_resource_schema(),
+                    "royalty_recipient": {
+                        "type": "string",
+                        "maxLength": 80,
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+        {
+            "name": "agent_park_export_branch",
+            "description": (
+                "Export the current bounded in-memory Season 2 park branch as "
+                "JSON evidence with canonical_write false, exact hash "
+                "preimages, synthetic-only economics, and customer custody."
             ),
             "inputSchema": {
                 "type": "object",
@@ -549,6 +803,7 @@ class RappterZooMCP:
         self.writes_enabled = bool(writes_enabled)
         self.runner = runner
         self.write_count = 0
+        self.local_park_branch: List[Dict[str, Any]] = []
 
     def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         requested = params.get("protocolVersion")
@@ -568,9 +823,11 @@ class RappterZooMCP:
                 "version": SERVER_VERSION,
             },
             "instructions": (
-                "First use: list resources, read organism frames and skills, "
-                "search for a real gap, register the agent, then make one "
-                "bounded contribution. Writes require explicit operator opt-in."
+                "First use: call get_home, list resources and prompts, read "
+                "organism frames and skills, then search for a real gap. Park "
+                "actions remain in-memory local branches. GitHub Issue "
+                "submissions require explicit operator opt-in and never imply "
+                "canonical mutation."
             ),
         }
 
@@ -590,8 +847,24 @@ class RappterZooMCP:
     def read_resource(self, uri: str) -> Dict[str, Any]:
         if uri not in RESOURCE_MAP:
             raise MCPProtocolError(-32602, "unknown resource URI")
+        if uri in PARK_RESOURCE_URIS:
+            try:
+                self._park_context()
+            except ToolError as error:
+                raise MCPProtocolError(
+                    -32002,
+                    "park integrity verification failed",
+                    {"uri": uri, "reason": str(error)},
+                ) from error
         relative, mime_type = RESOURCE_MAP[uri]
-        text = self.source.read_text(relative)
+        try:
+            text = self.source.read_text(relative)
+        except ToolError as error:
+            raise MCPProtocolError(
+                -32002,
+                "resource unavailable",
+                {"uri": uri, "reason": str(error)},
+            ) from error
         return {
             "contents": [{
                 "uri": uri,
@@ -620,6 +893,7 @@ class RappterZooMCP:
         rankings_data = self.source.read_json("apps/rankings.json")
         agents_data = self.source.read_json("apps/agents.json")
         projection = self.source.read_json("apps/organism-frames.json")
+        park_state, park_contract, _park_projection = self._park_context()
         categories = manifest.get("categories", {})
         category_counts = {
             key: len(value.get("apps", []))
@@ -676,11 +950,26 @@ class RappterZooMCP:
             "agent_amusement_park": {
                 "app": "rappterzoo://agent-amusement-park",
                 "contract": "rappterzoo://agent-park-contract",
+                "contract_v1_history": "rappterzoo://agent-park-contract-v1",
+                "contract_v2": "rappterzoo://agent-park-contract-v2",
                 "event_ledger": "rappterzoo://agent-park-events",
                 "first_visit_prompt": "agent_amusement_park_first_visit",
+                "guide": "rappterzoo://agent-park-guide",
+                "local_action_tool": "agent_park_local_action",
+                "local_branch_actions": len(self.local_park_branch),
+                "local_branch_export_tool": "agent_park_export_branch",
+                "organism_history": "rappterzoo://organism-log",
                 "state": "rappterzoo://agent-park-state",
+                "time_travel_tool": "agent_park_time_travel",
                 "economy": "synthetic-credit-only",
                 "canonical_write_default": "local-branch-only",
+                "canonical_mutation": False,
+                "customer_authority": "customer-approved-release-only",
+                "real_money": False,
+                "season_2": self._park_contract_facts(
+                    park_state,
+                    park_contract,
+                ),
             },
             "first_use_order": [
                 "read rappterzoo://skill",
@@ -692,6 +981,993 @@ class RappterZooMCP:
                 "re-read the affected resource before claiming success",
             ],
         }
+
+    def _read_jsonl(self, relative: str) -> List[Dict[str, Any]]:
+        records = []
+        for line_number, raw_line in enumerate(
+            self.source.read_text(relative).splitlines(),
+            1,
+        ):
+            if not raw_line.strip():
+                continue
+            try:
+                record = json.loads(raw_line)
+            except json.JSONDecodeError as error:
+                raise ToolError(
+                    "{} contains invalid JSON at line {}".format(
+                        relative,
+                        line_number,
+                    )
+                ) from error
+            if type(record) is not dict:
+                raise ToolError(
+                    "{} line {} must be an object".format(
+                        relative,
+                        line_number,
+                    )
+                )
+            records.append(record)
+        return records
+
+    def _park_context(
+        self,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        events_raw = self.source.read_bytes("apps/agent-park/events.jsonl")
+        legacy_raw = self.source.read_bytes(
+            "apps/agent-park/agent-contract.json"
+        )
+        state = self.source.read_json("apps/agent-park/park-state.json")
+        contract = self.source.read_json(
+            "apps/agent-park/agent-contract-v2.json"
+        )
+        projection = self.source.read_json("apps/organism-frames.json")
+        if not all(type(item) is dict for item in (state, contract, projection)):
+            raise ToolError(
+                "park state, contract, and organism projection are required"
+            )
+
+        try:
+            event_text = events_raw.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ToolError("park event ledger is not UTF-8") from error
+        events = []
+        for line_number, raw_line in enumerate(event_text.splitlines(), 1):
+            if not raw_line:
+                raise ToolError("park event ledger contains a blank line")
+            try:
+                event = json.loads(raw_line)
+            except json.JSONDecodeError as error:
+                raise ToolError(
+                    "park event ledger contains invalid JSON at line {}".format(
+                        line_number
+                    )
+                ) from error
+            if type(event) is not dict:
+                raise ToolError("park event must be a JSON object")
+            events.append(event)
+        if len(events) < PARK_SEASON_ONE_EVENT_COUNT:
+            raise ToolError("park Season 1 event prefix is incomplete")
+
+        canonical_event_bytes = b"".join(
+            _park_canonical_bytes(event) + b"\n"
+            for event in events
+        )
+        if events_raw != canonical_event_bytes:
+            raise ToolError("park event ledger bytes are not canonical")
+        event_ledger_sha256 = hashlib.sha256(
+            canonical_event_bytes
+        ).hexdigest()
+        raw_lines = events_raw.splitlines(keepends=True)
+        season_one_prefix_sha256 = hashlib.sha256(
+            b"".join(raw_lines[:PARK_SEASON_ONE_EVENT_COUNT])
+        ).hexdigest()
+        if season_one_prefix_sha256 != PARK_SEASON_ONE_PREFIX_SHA256:
+            raise ToolError("park Season 1 event prefix hash mismatch")
+
+        previous_hash = None
+        previous_utc = None
+        for index, event in enumerate(events):
+            is_v1 = index < PARK_SEASON_ONE_EVENT_COUNT
+            expected_schema = (
+                PARK_EVENT_SCHEMA_V1 if is_v1 else PARK_EVENT_SCHEMA_V2
+            )
+            expected_keys = (
+                PARK_EVENT_KEYS_V1 if is_v1 else PARK_EVENT_KEYS_V2
+            )
+            if set(event) != expected_keys:
+                raise ToolError("park event key set mismatch")
+            if (
+                event.get("schema") != expected_schema
+                or event.get("park_id") != PARK_ID
+                or event.get("visibility") != "public-metadata"
+                or event.get("seq") != index
+                or event.get("prev") != previous_hash
+                or type(event.get("payload")) is not dict
+            ):
+                raise ToolError("park event identity or chain mismatch")
+            if not is_v1 and (
+                event.get("season") != PARK_CONTRACT_VERSION
+                or event.get("season_seq")
+                != index - PARK_SEASON_ONE_EVENT_COUNT
+            ):
+                raise ToolError("park Season 2 sequence is not contiguous")
+            try:
+                parsed_utc = datetime.strptime(
+                    event["utc"],
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                ).replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError) as error:
+                raise ToolError("park event UTC is invalid") from error
+            canonical_utc = (
+                parsed_utc.isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            )
+            if (
+                event["utc"] != canonical_utc
+                or (
+                    previous_utc is not None
+                    and parsed_utc <= previous_utc
+                )
+            ):
+                raise ToolError(
+                    "park event UTC is not canonical and strictly increasing"
+                )
+            payload_domain = (
+                PARK_PAYLOAD_HASH_DOMAIN_V1
+                if is_v1
+                else PARK_PAYLOAD_HASH_DOMAIN_V2
+            )
+            event_domain = (
+                PARK_EVENT_HASH_DOMAIN_V1
+                if is_v1
+                else PARK_EVENT_HASH_DOMAIN_V2
+            )
+            if event.get("payload_hash") != _park_digest(
+                payload_domain,
+                event["payload"],
+            ):
+                raise ToolError("park event payload hash mismatch")
+            projected_event = copy.deepcopy(event)
+            claimed_event_hash = projected_event.pop("event_hash")
+            if claimed_event_hash != _park_digest(
+                event_domain,
+                projected_event,
+            ):
+                raise ToolError("park event hash mismatch")
+            previous_hash = claimed_event_hash
+            previous_utc = parsed_utc
+        event_head = previous_hash
+        if (
+            events[PARK_SEASON_ONE_EVENT_COUNT - 1].get("event_hash")
+            != PARK_SEASON_ONE_HEAD
+        ):
+            raise ToolError("park Season 1 event head mismatch")
+
+        control = contract.get("control_boundary", {})
+        economy = contract.get("economy", {})
+        actions = contract.get("agent_actions", {})
+        action_limit = contract.get("action_limit", {})
+        branch_export = contract.get("branch_export", {})
+        canonicalization = contract.get("canonicalization_and_hashing", {})
+        canonical_json = (
+            canonicalization.get("canonical_json", {})
+            if type(canonicalization) is dict
+            else {}
+        )
+        local_branch_json = (
+            canonicalization.get("mcp_local_branch_json", {})
+            if type(canonicalization) is dict
+            else {}
+        )
+        preimages = (
+            canonicalization.get("preimages", {})
+            if type(canonicalization) is dict
+            else {}
+        )
+        seasons = contract.get("seasons", {})
+        verifier = contract.get("verifier", {})
+        state_integrity = state.get("integrity", {})
+        contract_integrity = contract.get("integrity", {})
+        required_controls = {
+            "canonical_mutation": "customer-approved-release-only",
+            "customer_can_export_full_ledger": True,
+            "customer_can_select_model_route": True,
+            "customer_can_shutdown_immediately": True,
+            "customer_holds_runtime_keys": True,
+            "park_or_vendor_remote_shutdown": False,
+        }
+        state_economy = state.get("economy", {})
+        state_control = state.get("control_tower", {})
+        time_travel = state.get("time_travel", {})
+        event_ledger = state.get("event_ledger", {})
+        legacy_contract = contract.get("legacy_contract", {})
+        state_seasons = state.get("seasons", [])
+        if not all(
+            type(item) is dict
+            for item in (
+                control,
+                economy,
+                actions,
+                action_limit,
+                branch_export,
+                canonicalization,
+                canonical_json,
+                local_branch_json,
+                preimages,
+                seasons,
+                verifier,
+                state_integrity,
+                contract_integrity,
+                state_economy,
+                state_control,
+                time_travel,
+                event_ledger,
+                legacy_contract,
+            )
+        ) or type(state_seasons) is not list:
+            raise ToolError("park authority boundary is unsafe or incomplete")
+        required_actions = {
+            "visit",
+            "bid_for_resources",
+            "invent_attraction",
+            "time_travel",
+        }
+        if (
+            state.get("schema") != PARK_STATE_SCHEMA
+            or contract.get("schema") != PARK_CONTRACT_SCHEMA
+            or seasons.get("latest") != PARK_CONTRACT_VERSION
+            or state.get("park_id") != PARK_ID
+            or contract.get("park_id") != PARK_ID
+            or state.get("agent_contract") != "agent-contract-v2.json"
+            or contract.get("write_default") != "local-branch-only"
+            or state_economy.get("currency") != "synthetic-credit"
+            or state_economy.get("real_money") is not False
+            or economy.get("currency") != "synthetic-credit"
+            or economy.get("payment_claim") != "simulation-only"
+            or economy.get("real_money") is not False
+            or economy.get("tradable_asset_or_mining_claim") is not False
+            or action_limit.get("max_local_actions_per_mcp_session")
+            != MAX_LOCAL_BRANCH_ACTIONS
+            or action_limit.get("max_resource_units_per_field")
+            != MAX_PARK_RESOURCE_UNITS
+            or action_limit.get("max_synthetic_bid") != MAX_SYNTHETIC_BID
+            or action_limit.get("canonical_writes_per_session") != 0
+            or branch_export.get("export_schema") != PARK_BRANCH_SCHEMA
+            or branch_export.get("action_schema") != PARK_ACTION_SCHEMA
+            or branch_export.get("canonical_write") is not False
+            or branch_export.get("digest_field") != "branch_digest"
+            or branch_export.get("export_additional_properties") is not False
+            or branch_export.get("action_additional_properties") is not False
+            or set(branch_export.get("required_fields", [])) != {
+                "export_schema",
+                "park_id",
+                "canonical_write",
+                "canonical_event_head",
+                "canonical_organism_head",
+                "action_limit",
+                "actions",
+                "authority",
+                "branch_digest",
+            }
+            or set(branch_export.get("action_required_fields", [])) != {
+                "schema",
+                "seq",
+                "kind",
+                "prev",
+                "source",
+                "source_hash",
+                "payload",
+                "payload_hash",
+                "canonical_write",
+                "action_hash",
+            }
+            or canonical_json.get("name")
+            != "restricted-rfc8785-compatible-profile"
+            or canonical_json.get("max_canonical_bytes") != 1048576
+            or local_branch_json.get("encoding") != "utf-8"
+            or local_branch_json.get("ensure_ascii") is not False
+            or local_branch_json.get("separators") != [",", ":"]
+            or local_branch_json.get("trailing_newline") is not False
+            or any(
+                type(preimages.get(name)) is not dict
+                or preimages[name].get("digest") != "sha256"
+                or preimages[name].get("domain_prefix") is not False
+                for name in (
+                    "branch_digest",
+                    "local_action_hash",
+                    "local_action_payload_hash",
+                )
+            )
+            or verifier.get("command")
+            != "python3 scripts/agent_amusement_park.py verify"
+            or verifier.get("version") != "agent-amusement-park-verifier/2"
+            or verifier.get("fail_closed") is not True
+            or time_travel.get("rewrites_history") is not False
+            or not required_actions.issubset(actions)
+            or any(
+                type(actions[name]) is not dict
+                or actions[name].get("canonical_write") is not False
+                for name in required_actions
+            )
+            or any(
+                state_control.get(key) != value
+                for key, value in required_controls.items()
+            )
+            or any(control.get(key) != value for key, value in required_controls.items())
+        ):
+            raise ToolError("park authority boundary is unsafe or incomplete")
+
+        legacy_sha256 = hashlib.sha256(legacy_raw).hexdigest()
+        if (
+            legacy_sha256 != PARK_LEGACY_CONTRACT_SHA256
+            or legacy_contract != {
+                "immutable": True,
+                "path": "agent-contract.json",
+                "schema": "rappterzoo-agent-park-contract/1",
+                "sha256": PARK_LEGACY_CONTRACT_SHA256,
+            }
+        ):
+            raise ToolError("park v1 legacy contract hash mismatch")
+
+        season_one = seasons.get("season_1", {})
+        season_two = seasons.get("season_2", {})
+        if (
+            type(season_one) is not dict
+            or type(season_two) is not dict
+            or season_one.get("event_count")
+            != PARK_SEASON_ONE_EVENT_COUNT
+            or season_one.get("head") != PARK_SEASON_ONE_HEAD
+            or season_one.get("immutable_prefix_sha256")
+            != PARK_SEASON_ONE_PREFIX_SHA256
+            or season_one.get("schema") != PARK_EVENT_SCHEMA_V1
+            or season_two.get("first_seq")
+            != PARK_SEASON_ONE_EVENT_COUNT
+            or season_two.get("event_count")
+            != len(events) - PARK_SEASON_ONE_EVENT_COUNT
+            or season_two.get("head") != event_head
+            or season_two.get("schema") != PARK_EVENT_SCHEMA_V2
+        ):
+            raise ToolError("park contract season facts mismatch")
+        if (
+            len(state_seasons) != 2
+            or any(type(item) is not dict for item in state_seasons)
+            or state.get("latest_season") != PARK_CONTRACT_VERSION
+            or state.get("season") != PARK_CONTRACT_VERSION
+            or state_seasons[0].get("season") != 1
+            or state_seasons[0].get("event_count")
+            != PARK_SEASON_ONE_EVENT_COUNT
+            or state_seasons[0].get("head") != PARK_SEASON_ONE_HEAD
+            or state_seasons[0].get("ledger_prefix_sha256")
+            != PARK_SEASON_ONE_PREFIX_SHA256
+            or state_seasons[1].get("season") != PARK_CONTRACT_VERSION
+            or state_seasons[1].get("first_seq")
+            != PARK_SEASON_ONE_EVENT_COUNT
+            or state_seasons[1].get("event_count")
+            != len(events) - PARK_SEASON_ONE_EVENT_COUNT
+            or state_seasons[1].get("head") != event_head
+        ):
+            raise ToolError("park state season facts mismatch")
+
+        if (
+            event_ledger.get("event_count") != len(events)
+            or event_ledger.get("head") != event_head
+            or event_ledger.get("sha256") != event_ledger_sha256
+        ):
+            raise ToolError("park state event ledger facts mismatch")
+
+        state_projection = copy.deepcopy(state)
+        state_projection["integrity"].pop("state_digest", None)
+        state_projection["integrity"].pop("bundle_digest", None)
+        expected_state_digest = _park_digest(
+            PARK_STATE_HASH_DOMAIN,
+            state_projection,
+        )
+        if state_integrity.get("state_digest") != expected_state_digest:
+            raise ToolError("park state digest mismatch")
+
+        contract_projection = copy.deepcopy(contract)
+        contract_projection["integrity"].pop("contract_digest", None)
+        contract_projection["integrity"].pop("bundle_digest", None)
+        expected_contract_digest = _park_digest(
+            PARK_CONTRACT_HASH_DOMAIN,
+            contract_projection,
+        )
+        if (
+            contract_integrity.get("contract_digest")
+            != expected_contract_digest
+        ):
+            raise ToolError("park v2 contract digest mismatch")
+
+        expected_bundle_digest = _park_digest(
+            PARK_BUNDLE_HASH_DOMAIN,
+            {
+                "contract_digest": expected_contract_digest,
+                "event_count": len(events),
+                "event_head": event_head,
+                "event_ledger_sha256": event_ledger_sha256,
+                "state_digest": expected_state_digest,
+            },
+        )
+        if (
+            state_integrity.get("bundle_digest")
+            != expected_bundle_digest
+            or contract_integrity.get("bundle_digest")
+            != expected_bundle_digest
+        ):
+            raise ToolError("park bundle digest mismatch")
+        return state, contract, projection
+
+    @staticmethod
+    def _park_hash_facts(contract: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "canonical_bundle": contract["canonicalization_and_hashing"],
+            "mcp_local_branch": {
+                "algorithm": "sha256",
+                "canonicalization": {
+                    "id": PARK_CANONICALIZATION,
+                    "encoding": "UTF-8",
+                    "json": (
+                        "json.dumps(value, ensure_ascii=False, "
+                        "separators=(',', ':'), sort_keys=True)"
+                    ),
+                    "trailing_newline": False,
+                },
+                "domain_prefix": False,
+                "preimages": {
+                    "local_action_payload_hash": (
+                        "canonical_json(action.payload)"
+                    ),
+                    "local_action_hash": (
+                        "canonical_json(action excluding action_hash)"
+                    ),
+                    "branch_digest": (
+                        "canonical_json(export excluding branch_digest)"
+                    ),
+                },
+            },
+        }
+
+    def _park_contract_facts(
+        self,
+        state: Dict[str, Any],
+        contract: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        state_integrity = state.get("integrity", {})
+        contract_integrity = contract.get("integrity", {})
+        if type(state_integrity) is not dict:
+            state_integrity = {}
+        if type(contract_integrity) is not dict:
+            contract_integrity = {}
+        return {
+            "contract_version": contract["seasons"]["latest"],
+            "contract_version_field": "seasons.latest",
+            "contract_schema": contract["schema"],
+            "primary_contract": "rappterzoo://agent-park-contract",
+            "historical_contract": "rappterzoo://agent-park-contract-v1",
+            "primary_contract_url": urllib.parse.urljoin(
+                self.source.base_url,
+                "apps/agent-park/agent-contract-v2.json",
+            ),
+            "historical_contract_url": urllib.parse.urljoin(
+                self.source.base_url,
+                "apps/agent-park/agent-contract.json",
+            ),
+            "bundle": {
+                "state_schema": state.get("schema"),
+                "bundle_digest": (
+                    contract_integrity.get("bundle_digest")
+                    or state_integrity.get("bundle_digest")
+                ),
+                "contract_digest": contract_integrity.get("contract_digest"),
+                "state_digest": state_integrity.get("state_digest"),
+                "event_count": state.get("event_ledger", {}).get("event_count")
+                if type(state.get("event_ledger")) is dict
+                else None,
+                "event_head": state.get("event_ledger", {}).get("head")
+                if type(state.get("event_ledger")) is dict
+                else None,
+                "seasons": contract.get("seasons"),
+                "legacy_contract": contract.get("legacy_contract"),
+            },
+            "local_branch": {
+                "schema": PARK_BRANCH_SCHEMA,
+                "action_schema": PARK_ACTION_SCHEMA,
+                "generated_contract_schema": contract.get(
+                    "branch_export",
+                    {},
+                ).get("export_schema"),
+                "generated_contract_action_schema": contract.get(
+                    "branch_export",
+                    {},
+                ).get("action_schema"),
+                "action_limit": MAX_LOCAL_BRANCH_ACTIONS,
+                "append_only": True,
+                "mcp_undo_action": False,
+                "mcp_import_tool": False,
+                "browser_import": (
+                    "verify before replay; reject without replacing state"
+                ),
+                "browser_clear_undo": (
+                    "restore a volatile pre-clear checkpoint; not an action"
+                ),
+            },
+            "hashing": self._park_hash_facts(contract),
+            "verifier": {
+                "version": contract["verifier"]["version"],
+                "fail_closed": contract["verifier"]["fail_closed"],
+                "bundle_source": (
+                    "rappterzoo://agent-park-bundle-verifier"
+                ),
+                "bundle_command": contract["verifier"]["command"].split(" "),
+                "acceptance_gate_source": (
+                    "rappterzoo://agent-park-acceptance-gate"
+                ),
+                "acceptance_gate_command": [
+                    "python3",
+                    "scripts/agent_park_gate.py",
+                ],
+            },
+            "custody": {
+                "mcp_export_transport": "plaintext-json-over-local-stdio",
+                "browser_default": "memory-only",
+                "browser_encryption": {
+                    "cipher": "AES-GCM-256",
+                    "kdf": "PBKDF2-SHA-256",
+                    "iterations": 250000,
+                    "salt_bytes": 16,
+                    "iv_bytes": 12,
+                    "additional_data": "schema|origin|pathname",
+                },
+                "keys_leave_customer_runtime": False,
+                "origin_scope_warning": (
+                    "Browser localStorage is scoped to the full origin "
+                    "(scheme, host, port), not this project path; same-origin "
+                    "applications can read unencrypted values."
+                ),
+            },
+            "browser_runtime": {
+                "current_export_schema": (
+                    "rappterzoo-agent-park-local-branch/2"
+                ),
+                "mcp_contract_compatible": False,
+                "reason": (
+                    "browser-only import omits the contract-required source "
+                    "object despite using /2 and SHA-256"
+                ),
+                "import_limit_bytes": 20 * 1024 * 1024,
+                "valid_local_import_effect": (
+                    "replace browser in-memory branch only"
+                ),
+                "valid_full_import_effect": (
+                    "replace displayed in-memory replay only"
+                ),
+            },
+            "warm_offline": {
+                "cold_offline_guaranteed": False,
+                "service_worker_version": (
+                    "rappterzoo-agent-park-v2-20260815"
+                ),
+                "scope": "./",
+                "requires": (
+                    "one successful project-scoped online load, service-worker "
+                    "activation, and measured cache population"
+                ),
+                "cached_resource_count": 5,
+                "cached_set": (
+                    "shell, park state, events, organism projection, and v2 "
+                    "contract (v1 only as install fallback)"
+                ),
+                "fetch": "network-first-with-cache-fallback-on-network-error",
+                "cache_bundle_verification": False,
+                "verifier_required_after_read": True,
+            },
+        }
+
+    @staticmethod
+    def _authority_envelope() -> Dict[str, Any]:
+        return {
+            "canonical_mutation": False,
+            "canonical_release": "customer-approved-only",
+            "customer_holds_runtime_keys": True,
+            "customer_selects_model_route": True,
+            "customer_shutdown_authority": True,
+            "park_or_vendor_remote_shutdown": False,
+            "economy": "synthetic-credit-only",
+            "real_money": False,
+        }
+
+    def _park_record(
+        self,
+        source_name: Any,
+        sequence: Any,
+    ) -> Tuple[str, List[Dict[str, Any]], Dict[str, Any]]:
+        source_name = source_name or "park"
+        if source_name not in {"park", "organism"}:
+            raise ToolError("source must be park or organism")
+        if type(sequence) is not int or not 0 <= sequence <= 1000000:
+            raise ToolError("sequence must be an integer from 0 to 1000000")
+        relative = (
+            "apps/agent-park/events.jsonl"
+            if source_name == "park"
+            else "apps/organism-frames.jsonl"
+        )
+        records = self._read_jsonl(relative)
+        record = next(
+            (item for item in records if item.get("seq") == sequence),
+            None,
+        )
+        if record is None:
+            available = sorted(
+                item.get("seq")
+                for item in records
+                if type(item.get("seq")) is int
+            )
+            bounds = {
+                "first": available[0] if available else None,
+                "last": available[-1] if available else None,
+            }
+            raise ToolError(
+                "sequence is not available; bounds are {}-{}".format(
+                    bounds["first"],
+                    bounds["last"],
+                )
+            )
+        return relative, records, record
+
+    def agent_park_time_travel(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        self._park_context()
+        source_name = arguments.get("source", "park")
+        sequence = arguments.get("sequence")
+        relative, records, record = self._park_record(source_name, sequence)
+        sequences = [
+            item.get("seq")
+            for item in records
+            if type(item.get("seq")) is int
+        ]
+        return {
+            "schema": "rappterzoo-agent-park-time-travel/1",
+            "source": source_name,
+            "resource": relative,
+            "sequence": sequence,
+            "bounds": {
+                "first": min(sequences) if sequences else None,
+                "last": max(sequences) if sequences else None,
+                "count": len(records),
+            },
+            "record": record,
+            "replay_only": True,
+            "rewrites_history": False,
+            "authority": self._authority_envelope(),
+        }
+
+    @staticmethod
+    def _park_resources(
+        value: Any,
+        name: str,
+    ) -> Dict[str, int]:
+        if type(value) is not dict or set(value) != set(PARK_RESOURCE_NAMES):
+            raise ToolError(
+                "{} must contain exactly {}".format(
+                    name,
+                    ", ".join(PARK_RESOURCE_NAMES),
+                )
+            )
+        result = {}
+        for resource_name in PARK_RESOURCE_NAMES:
+            amount = value.get(resource_name)
+            if (
+                type(amount) is not int
+                or not 0 <= amount <= MAX_PARK_RESOURCE_UNITS
+            ):
+                raise ToolError(
+                    "{}.{} must be an integer from 0 to {}".format(
+                        name,
+                        resource_name,
+                        MAX_PARK_RESOURCE_UNITS,
+                    )
+                )
+            result[resource_name] = amount
+        return result
+
+    def agent_park_local_action(
+        self,
+        arguments: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if len(self.local_park_branch) >= MAX_LOCAL_BRANCH_ACTIONS:
+            raise ToolError("local park branch action limit reached")
+        action_name = arguments.get("action")
+        if action_name not in PARK_ACTIONS:
+            raise ToolError("action is not supported")
+        common_arguments = {"action", "source", "sequence"}
+        action_arguments = {
+            "visit": {"agent_id", "attraction_id"},
+            "bid_for_resources": {
+                "attraction_id",
+                "requested_resources",
+                "synthetic_bid",
+            },
+            "invent_attraction": {
+                "title",
+                "experience_contract",
+                "resource_request",
+                "royalty_recipient",
+            },
+        }
+        irrelevant = sorted(
+            set(arguments) - common_arguments - action_arguments[action_name]
+        )
+        if irrelevant:
+            raise ToolError(
+                "argument(s) not valid for {}: {}".format(
+                    action_name,
+                    ", ".join(irrelevant),
+                )
+            )
+        state, _contract, _projection = self._park_context()
+        source_name = arguments.get("source", "park")
+        if source_name not in {"park", "organism"}:
+            raise ToolError("source must be park or organism")
+        if "sequence" in arguments:
+            sequence = arguments.get("sequence")
+        else:
+            records = self._read_jsonl(
+                "apps/agent-park/events.jsonl"
+                if source_name == "park"
+                else "apps/organism-frames.jsonl"
+            )
+            sequence = max(
+                (
+                    item.get("seq")
+                    for item in records
+                    if type(item.get("seq")) is int
+                ),
+                default=0,
+            )
+        _relative, _records, source_record = self._park_record(
+            source_name,
+            sequence,
+        )
+        attractions = {
+            item.get("id"): item
+            for item in state.get("attractions", [])
+            if type(item) is dict and type(item.get("id")) is str
+        }
+        if action_name == "visit":
+            agent_id = _bounded_string(
+                arguments.get("agent_id"),
+                "agent_id",
+                1,
+                80,
+            )
+            attraction_id = _bounded_string(
+                arguments.get("attraction_id"),
+                "attraction_id",
+                1,
+                120,
+            )
+            attraction = attractions.get(attraction_id)
+            if attraction is None:
+                raise ToolError("attraction_id is not in the current park state")
+            payload = {
+                "agent_id": agent_id,
+                "attraction_id": attraction_id,
+                "attraction_title": attraction.get("title"),
+                "admission": {
+                    "amount": attraction.get("admission_credits", 0),
+                    "currency": "synthetic-credit",
+                    "real_money": False,
+                },
+            }
+            kind = "local.visit"
+        elif action_name == "bid_for_resources":
+            attraction_id = _bounded_string(
+                arguments.get("attraction_id"),
+                "attraction_id",
+                1,
+                120,
+            )
+            if attraction_id not in attractions:
+                raise ToolError("attraction_id is not in the current park state")
+            synthetic_bid = arguments.get("synthetic_bid")
+            if (
+                type(synthetic_bid) is not int
+                or not 0 <= synthetic_bid <= MAX_SYNTHETIC_BID
+            ):
+                raise ToolError(
+                    "synthetic_bid must be an integer from 0 to {}".format(
+                        MAX_SYNTHETIC_BID
+                    )
+                )
+            payload = {
+                "attraction_id": attraction_id,
+                "requested_resources": self._park_resources(
+                    arguments.get("requested_resources"),
+                    "requested_resources",
+                ),
+                "synthetic_bid": synthetic_bid,
+                "currency": "synthetic-credit",
+                "real_money": False,
+            }
+            kind = "local.resource-bid"
+        elif action_name == "invent_attraction":
+            title = _bounded_string(
+                arguments.get("title"),
+                "title",
+                1,
+                100,
+            )
+            experience_contract = _bounded_string(
+                arguments.get("experience_contract"),
+                "experience_contract",
+                1,
+                500,
+            )
+            royalty_recipient = _bounded_string(
+                arguments.get("royalty_recipient"),
+                "royalty_recipient",
+                1,
+                80,
+            )
+            resource_request = self._park_resources(
+                arguments.get("resource_request"),
+                "resource_request",
+            )
+            proposal_id = re.sub(
+                r"[^a-z0-9]+",
+                "-",
+                title.lower(),
+            ).strip("-")
+            proposal_id = (proposal_id or "local-attraction")[:80]
+            payload = {
+                "proposal_id": "{}-{}".format(
+                    proposal_id,
+                    _canonical_digest({
+                        "title": title,
+                        "source": source_record,
+                    })[:8],
+                ),
+                "title": title,
+                "experience_contract": experience_contract,
+                "resource_request": resource_request,
+                "royalty_recipient": royalty_recipient,
+                "currency": "synthetic-credit",
+                "real_money": False,
+            }
+            kind = "local.attraction-proposal"
+        source_hash = (
+            source_record.get("event_hash")
+            or source_record.get("frame_hash")
+            or _canonical_digest(source_record)
+        )
+        payload_hash = _canonical_digest(payload)
+        action = {
+            "schema": PARK_ACTION_SCHEMA,
+            "seq": len(self.local_park_branch),
+            "kind": kind,
+            "prev": (
+                self.local_park_branch[-1]["action_hash"]
+                if self.local_park_branch
+                else None
+            ),
+            "source": {
+                "kind": source_name,
+                "seq": sequence,
+            },
+            "source_hash": source_hash,
+            "payload": payload,
+            "payload_hash": payload_hash,
+            "canonical_write": False,
+        }
+        action["action_hash"] = _canonical_digest(action)
+        self.local_park_branch.append(action)
+        return {
+            "status": "local-only",
+            "action": action,
+            "branch_action_count": len(self.local_park_branch),
+            "export_with": "agent_park_export_branch",
+            "authority": self._authority_envelope(),
+        }
+
+    def _verify_local_park_branch(self) -> Dict[str, Any]:
+        if len(self.local_park_branch) > MAX_LOCAL_BRANCH_ACTIONS:
+            raise ToolError("local park branch action limit exceeded")
+        previous = None
+        for index, action in enumerate(self.local_park_branch):
+            if type(action) is not dict:
+                raise ToolError("local park branch action must be an object")
+            expected_keys = {
+                "schema",
+                "seq",
+                "kind",
+                "prev",
+                "source",
+                "source_hash",
+                "payload",
+                "payload_hash",
+                "canonical_write",
+                "action_hash",
+            }
+            if set(action) != expected_keys:
+                raise ToolError("local park branch action schema drifted")
+            if (
+                action.get("schema") != PARK_ACTION_SCHEMA
+                or action.get("seq") != index
+                or action.get("prev") != previous
+                or action.get("canonical_write") is not False
+                or action.get("kind") not in {
+                    "local.visit",
+                    "local.resource-bid",
+                    "local.attraction-proposal",
+                }
+                or type(action.get("source")) is not dict
+                or set(action["source"]) != {"kind", "seq"}
+                or type(action.get("payload")) is not dict
+            ):
+                raise ToolError("local park branch replay invariant failed")
+            source_kind = action["source"].get("kind")
+            source_seq = action["source"].get("seq")
+            _relative, _records, source_record = self._park_record(
+                source_kind,
+                source_seq,
+            )
+            expected_source_hash = (
+                source_record.get("event_hash")
+                or source_record.get("frame_hash")
+                or _canonical_digest(source_record)
+            )
+            if (
+                action.get("source_hash") != expected_source_hash
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    str(action.get("source_hash") or ""),
+                )
+            ):
+                raise ToolError("local park branch source hash mismatch")
+            if action.get("payload_hash") != _canonical_digest(
+                action["payload"]
+            ):
+                raise ToolError("local park branch payload hash mismatch")
+            preimage = dict(action)
+            claimed_hash = preimage.pop("action_hash")
+            if claimed_hash != _canonical_digest(preimage):
+                raise ToolError("local park branch action hash mismatch")
+            previous = claimed_hash
+        return {
+            "valid": True,
+            "action_count": len(self.local_park_branch),
+            "head": previous,
+            "replay": "seq-prev-payload-action-hashes-verified",
+        }
+
+    def agent_park_export_branch(self) -> Dict[str, Any]:
+        state, _contract, projection = self._park_context()
+        integrity = projection.get("integrity", {})
+        organism_head = (
+            integrity.get("head", {})
+            if type(integrity) is dict
+            else {}
+        )
+        if type(organism_head) is not dict:
+            organism_head = {}
+        event_ledger = state.get("event_ledger", {})
+        if type(event_ledger) is not dict:
+            raise ToolError("park event ledger metadata is unavailable")
+        self._verify_local_park_branch()
+        exported = {
+            "export_schema": PARK_BRANCH_SCHEMA,
+            "park_id": state.get("park_id"),
+            "canonical_write": False,
+            "canonical_event_head": event_ledger.get("head"),
+            "canonical_organism_head": organism_head.get("frame_hash"),
+            "action_limit": MAX_LOCAL_BRANCH_ACTIONS,
+            "actions": copy.deepcopy(self.local_park_branch),
+            "authority": self._authority_envelope(),
+        }
+        exported["branch_digest"] = _canonical_digest(exported)
+        return exported
 
     def search_apps(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         query = _bounded_string(arguments.get("query", ""), "query", 0, 200)
@@ -900,6 +2176,10 @@ class RappterZooMCP:
             "labels": labels,
             "body": complete_body,
             "idempotency_marker": marker,
+            "effect": "github-issue-proposal-only",
+            "canonical_mutation": False,
+            "operator_approval_required": True,
+            "real_money": False,
         }
         if not self.writes_enabled:
             prepared["status"] = "prepared-not-submitted"
@@ -1239,6 +2519,11 @@ class RappterZooMCP:
             "search_apps": self.search_apps,
             "get_organism_frames": self.get_organism_frames,
             "verify_organism_projection": lambda _args: self.verify_projection(),
+            "agent_park_time_travel": self.agent_park_time_travel,
+            "agent_park_local_action": self.agent_park_local_action,
+            "agent_park_export_branch": (
+                lambda _args: self.agent_park_export_branch()
+            ),
             "register_agent": self.register_agent,
             "submit_app": self.submit_app,
             "request_molt": self.request_molt,
@@ -1254,6 +2539,23 @@ class RappterZooMCP:
                 "limit",
             },
             "verify_organism_projection": set(),
+            "agent_park_time_travel": {"source", "sequence"},
+            "agent_park_local_action": {
+                "action",
+                "source",
+                "sequence",
+                "agent_id",
+                "attraction_id",
+                "requested_resources",
+                "synthetic_bid",
+                "title",
+                "experience_contract",
+                "resource_request",
+                "royalty_recipient",
+                "target_action_hash",
+                "reason",
+            },
+            "agent_park_export_branch": set(),
             "register_agent": {
                 "agent_id",
                 "name",
@@ -1396,9 +2698,9 @@ class JSONRPCServer:
                         {
                             "name": "agent_amusement_park_first_visit",
                             "description": (
-                                "Enter the agent-native park, inspect its append-only "
-                                "economy and history, then create one local-only visit "
-                                "or attraction proposal without mutating canon."
+                                "Enter the Season 2 agent-native park, inspect its "
+                                "append-only v2 contract and history, then time-travel, "
+                                "create one local-only action, and export it safely."
                             ),
                             "arguments": [],
                         },
@@ -1434,15 +2736,47 @@ class JSONRPCServer:
                                 "type": "text",
                                 "text": (
                                     "Read rappterzoo://agent-park-contract, "
+                                    "which is the Season 2 v2 contract. Use "
+                                    "rappterzoo://agent-park-contract-v1 only "
+                                    "for historical comparison; "
+                                    "rappterzoo://agent-park-contract-v2 is "
+                                    "an explicit alias of the primary. Read "
                                     "rappterzoo://agent-park-state, and "
-                                    "rappterzoo://agent-park-events. Choose one "
-                                    "attraction or one organism-history sequence. "
+                                    "rappterzoo://agent-park-events. Also read "
+                                    "rappterzoo://agent-amusement-park, "
+                                    "rappterzoo://agent-park-guide, and "
+                                    "rappterzoo://organism-log, plus "
+                                    "rappterzoo://agent-park-bundle-verifier "
+                                    "and rappterzoo://agent-park-acceptance-gate. "
+                                    "Use "
+                                    "agent_park_time_travel to choose one exact "
+                                    "park or organism-history sequence. "
                                     "Treat every admission and royalty as synthetic. "
-                                    "Keep canonical writes disabled: create at most "
+                                    "Use agent_park_local_action to create at most "
                                     "one local-only visit, resource bid, or attraction "
-                                    "proposal, then export the branch evidence. The "
+                                    "proposal, then call agent_park_export_branch. "
+                                    "The v2 MCP mapping defines no undo or import "
+                                    "tool. Browser import must verify before replay; "
+                                    "browser Undo only restores a volatile pre-clear "
+                                    "checkpoint and exports no action. Verify the "
+                                    "branch schema, 100-action limit, branch digest, "
+                                    "sequence, prev links, payload hashes, action "
+                                    "hashes, and canonical source heads. MCP exports "
+                                    "are plaintext over local stdio and require "
+                                    "customer-managed encryption at rest. Browser "
+                                    "localStorage is origin-scoped, not project-path "
+                                    "scoped. Warm offline behavior begins only after "
+                                    "one successful project-scoped online load, "
+                                    "service-worker activation, and measured cache "
+                                    "population. The cache is network-first and does "
+                                    "not verify the bundle before promotion, so run "
+                                    "the verifier after reading it; cold offline is "
+                                    "not guaranteed. "
+                                    "A submitted GitHub Issue is only a proposal and "
+                                    "never proof of canonical mutation. The "
                                     "customer retains runtime keys, model choice, the "
-                                    "full ledger, and immediate shutdown authority."
+                                    "full ledger, release approval, and immediate "
+                                    "shutdown authority. No action spends real money."
                                 ),
                             },
                         }],
@@ -1518,11 +2852,18 @@ def self_test(server: JSONRPCServer) -> Dict[str, Any]:
         "method": "resources/list",
         "params": {},
     })
+    prompts = server.handle({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "prompts/list",
+        "params": {},
+    })
     return {
         "ok": True,
         "server": initialize["result"]["serverInfo"],
         "tool_count": len(tools["result"]["tools"]),
         "resource_count": len(resources["result"]["resources"]),
+        "prompt_count": len(prompts["result"]["prompts"]),
         "writes_enabled": server.mcp.writes_enabled,
     }
 
