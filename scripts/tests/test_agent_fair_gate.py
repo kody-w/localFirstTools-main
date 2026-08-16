@@ -4,6 +4,7 @@ import copy
 import json
 import re
 import shutil
+import subprocess
 import sys
 import uuid
 from contextlib import contextmanager
@@ -57,6 +58,123 @@ def core_paths():
     ]
 
 
+def rewind_to_prepared_phase(root):
+    ledger_path = root / gate.ORGANISM_LEDGER_RELATIVE
+    raw_lines = [
+        line
+        for line in ledger_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    frames = [json.loads(line) for line in raw_lines]
+    release_indexes = [
+        index
+        for index, frame in enumerate(frames)
+        if (
+            frame.get("payload", {}).get("event")
+            == "agent-worlds-fair-release"
+            or str(
+                frame.get("payload", {}).get("event_id", "")
+            ).startswith(gate.RELEASE_EVENT_PREFIX)
+        )
+    ]
+    if release_indexes:
+        cutoff = release_indexes[0]
+        frames = frames[:cutoff]
+        ledger_path.write_text(
+            "".join(line + "\n" for line in raw_lines[:cutoff]),
+            encoding="utf-8",
+        )
+        projection_path = root / gate.ORGANISM_PROJECTION_RELATIVE
+        if projection_path.is_file():
+            gate.organism_ledger.write_projection(frames, projection_path)
+
+    index_path = root / gate.SYNDICATION_INDEX_RELATIVE
+    snapshot_path = root / gate.SYNDICATION_SNAPSHOT_RELATIVE
+    if index_path.is_file() and snapshot_path.is_file():
+        index = gate._json(index_path)
+        entries = index["deltas"]
+        deltas = [
+            gate._json(
+                root / "apps/syndication" / entry["path"]
+            )
+            for entry in entries
+        ]
+        cutoff = next(
+            (
+                offset
+                for offset, delta in enumerate(deltas)
+                if any(
+                    type(frame) is dict
+                    and (
+                        frame.get("payload", {}).get("event")
+                        == "agent-worlds-fair-release"
+                        or str(
+                            frame.get("payload", {}).get("event_id", "")
+                        ).startswith(gate.RELEASE_EVENT_PREFIX)
+                    )
+                    for frame in delta.get("changes", {}).get(
+                        "frame_appends",
+                        [],
+                    )
+                )
+            ),
+            len(deltas),
+        )
+        for entry in entries[cutoff:]:
+            (root / "apps/syndication" / entry["path"]).unlink()
+        entries = entries[:cutoff]
+        deltas = deltas[:cutoff]
+        replay = gate.build_syndication.replay_immutable_deltas(deltas)
+        latest = entries[-1]
+        head = {
+            "path": latest["path"],
+            "sequence": latest["sequence"],
+            "sha256": latest["sha256"],
+            "url": latest["url"],
+        }
+        index["deltas"] = entries
+        index["delta_count"] = len(entries)
+        index["head"] = head
+        index["cursor"]["head_seq"] = latest["sequence"]
+        index["next_frame_challenge_seed"] = latest["block"][
+            "next_frame_challenge_seed"
+        ]
+        index_path.write_text(
+            json.dumps(index, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        snapshot = gate._json(snapshot_path)
+        snapshot.update({
+            "apps": replay["apps"],
+            "data_objects": replay["data_objects"],
+            "data_tombstones": replay["data_tombstones"],
+            "frames": replay["frames"],
+            "head": head,
+            "tombstones": replay["tombstones"],
+            "counts": {
+                "active_apps": len(replay["apps"]),
+                "attention_data_objects": len(replay["data_objects"]),
+                "data_tombstones": len(replay["data_tombstones"]),
+                "frames": len(replay["frames"]),
+                "tombstones": len(replay["tombstones"]),
+            },
+            "checkpoint": {
+                "delta_sha256": latest["sha256"],
+                "next_frame_challenge_seed": latest["block"][
+                    "next_frame_challenge_seed"
+                ],
+                "since_seq": latest["sequence"],
+            },
+        })
+        snapshot_path.write_text(
+            json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+            + "\n",
+            encoding="utf-8",
+        )
+
+    assert gate.resolve_release_phase(root) == "prepared"
+
+
 def next_organism_utc(root):
     frames = gate.organism_ledger.read_frames(
         root / gate.ORGANISM_LEDGER_RELATIVE
@@ -70,16 +188,21 @@ def next_organism_utc(root):
     ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def set_release_environment(monkeypatch):
+def set_release_environment(monkeypatch, release_utc):
+    release_epoch = int(
+        datetime.fromisoformat(
+            release_utc.replace("Z", "+00:00")
+        ).timestamp()
+    )
     evidence = {
         "actor": "fair-gate-test",
         "attestation_sha256": "1" * 64,
         "aud": gate.OIDC_AUDIENCE,
         "environment": gate.OIDC_ENVIRONMENT,
         "event_name": gate.OIDC_EVENT_NAME,
-        "exp": 2_000_000_300,
+        "exp": release_epoch + 300,
         "iss": gate.OIDC_ISSUER,
-        "nbf": 1_999_999_990,
+        "nbf": release_epoch - 10,
         "ref": gate.OIDC_REF,
         "repository": gate.OIDC_REPOSITORY,
         "run_id": "123456",
@@ -93,14 +216,631 @@ def set_release_environment(monkeypatch):
     return evidence
 
 
-def test_prepared_static_inventory_passes_without_release_artifacts():
-    results = gate.run_static_checks(ROOT)
+def browser_fixture_paths():
+    return [
+        gate.APP_RELATIVE,
+        gate.SERVICE_WORKER_RELATIVE,
+        "apps/agent-fair",
+        gate.ORGANISM_PROJECTION_RELATIVE,
+        "node_modules",
+    ]
+
+
+SERVICE_WORKER_PROBE = r"""
+const { chromium } = require("playwright");
+const target = process.argv[1];
+const probe = process.argv[2];
+const cacheName = "agent-worlds-fair-v4-buzzsaw-20260816";
+const oldCacheName = "agent-worlds-fair-v3-release-20260816";
+const foreignCacheName = "unrelated-rappterzoo-cache-probe";
+let browser;
+
+async function waitFair(page) {
+  await page.waitForFunction(
+    () => window.__AGENT_FAIR_TEST__
+      && typeof window.__AGENT_FAIR_TEST__.ready === "function",
+    null,
+    { timeout: 15000 }
+  );
+  await page.evaluate(() => window.__AGENT_FAIR_TEST__.ready());
+}
+
+async function requestStatus(page) {
+  return page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const worker = navigator.serviceWorker.controller
+      || registration.active
+      || registration.waiting;
+    if (!worker) throw new Error("active worker unavailable");
+    return new Promise((resolve, reject) => {
+      const channel = new MessageChannel();
+      const timer = setTimeout(
+        () => reject(new Error("cache status timeout")),
+        5000
+      );
+      channel.port1.onmessage = (event) => {
+        clearTimeout(timer);
+        resolve(event.data);
+      };
+      worker.postMessage(
+        { type: "agent-fair-cache-status" },
+        [channel.port2]
+      );
+    });
+  });
+}
+
+async function inspectInstalledCache(page) {
+  return page.evaluate(async (names) => {
+    const expectedUrls = [
+      "/apps/3d-immersive/agent-worlds-fair.html",
+      "/apps/3d-immersive/agent-worlds-fair-sw.js",
+      "/apps/agent-fair/fair-state.json",
+      "/apps/agent-fair/events.jsonl",
+      "/apps/agent-fair/agent-contract.json",
+      "/apps/agent-fair/district.json",
+      "/apps/organism-frames.json"
+    ].map((path) => location.origin + path);
+    const keys = await caches.keys();
+    const cache = await caches.open(names.current);
+    const requests = await cache.keys();
+    const urls = requests.map((request) => request.url);
+    const digests = [];
+    for (const request of requests) {
+      const response = await cache.match(request);
+      const expected = response.headers.get(
+        "X-Agent-Fair-Cache-SHA256"
+      );
+      const bytes = await response.clone().arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const actual = Array.from(
+        new Uint8Array(digest),
+        (value) => value.toString(16).padStart(2, "0")
+      ).join("");
+      digests.push({ url: request.url, expected, actual });
+    }
+    const beforeUnknown = [...urls].sort();
+    const unknown = await fetch("./agent-worlds-fair-missing-probe.txt");
+    const afterUnknown = (await cache.keys())
+      .map((request) => request.url)
+      .sort();
+    const optionalUrl = location.origin + "/apps/organism-frames.json";
+    const optionalResponse = await cache.match(optionalUrl);
+    await cache.delete(optionalUrl);
+    const optionalMissing = await new Promise((resolve, reject) => {
+      const registrationPromise = navigator.serviceWorker.ready;
+      registrationPromise.then((registration) => {
+        const worker = navigator.serviceWorker.controller
+          || registration.active
+          || registration.waiting;
+        const channel = new MessageChannel();
+        const timer = setTimeout(
+          () => reject(new Error("optional status timeout")),
+          5000
+        );
+        channel.port1.onmessage = (event) => {
+          clearTimeout(timer);
+          resolve(event.data);
+        };
+        worker.postMessage(
+          { type: "agent-fair-cache-status" },
+          [channel.port2]
+        );
+      }, reject);
+    });
+    await cache.put(optionalUrl, optionalResponse);
+    const workerUrl = (
+      location.origin
+      + "/apps/3d-immersive/agent-worlds-fair-sw.js"
+    );
+    await cache.put(
+      workerUrl,
+      new Response("corrupt", {
+        status: 200,
+        headers: { "Content-Type": "text/javascript" }
+      })
+    );
+    const corrupt = await new Promise((resolve, reject) => {
+      navigator.serviceWorker.ready.then((registration) => {
+        const worker = navigator.serviceWorker.controller
+          || registration.active
+          || registration.waiting;
+        const channel = new MessageChannel();
+        const timer = setTimeout(
+          () => reject(new Error("corrupt status timeout")),
+          5000
+        );
+        channel.port1.onmessage = (event) => {
+          clearTimeout(timer);
+          resolve(event.data);
+        };
+        worker.postMessage(
+          { type: "agent-fair-cache-status" },
+          [channel.port2]
+        );
+      }, reject);
+    });
+    return {
+      cacheKeys: keys,
+      cacheUrls: urls,
+      expectedUrls,
+      digests,
+      unknownStatus: unknown.status,
+      unknownCacheUnchanged: (
+        JSON.stringify(beforeUnknown) === JSON.stringify(afterUnknown)
+      ),
+      optionalMissing,
+      corrupt,
+      corruptStillCached: Boolean(await cache.match(workerUrl))
+    };
+  }, {
+    current: cacheName,
+    old: oldCacheName,
+    foreign: foreignCacheName
+  });
+}
+
+(async () => {
+  browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(probe, { waitUntil: "domcontentloaded" });
+  await page.evaluate(async ([oldName, foreignName]) => {
+    await caches.open(oldName);
+    await caches.open(foreignName);
+  }, [oldCacheName, foreignCacheName]);
+  await page.goto(target, {
+    waitUntil: "domcontentloaded",
+    timeout: 15000
+  });
+  await waitFair(page);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload({
+    waitUntil: "domcontentloaded",
+    timeout: 15000
+  });
+  await waitFair(page);
+  const status = await requestStatus(page);
+  const cache = await inspectInstalledCache(page);
+  await context.close();
+
+  const coldContext = await browser.newContext();
+  const coldPage = await coldContext.newPage();
+  await coldPage.goto(probe, { waitUntil: "domcontentloaded" });
+  const coldBefore = await coldPage.evaluate(async () => ({
+    caches: await caches.keys(),
+    registrations: (
+      await navigator.serviceWorker.getRegistrations()
+    ).length
+  }));
+  await coldContext.setOffline(true);
+  let coldNavigationFailed = false;
+  try {
+    await coldPage.goto(target, {
+      waitUntil: "domcontentloaded",
+      timeout: 10000
+    });
+  } catch (_) {
+    coldNavigationFailed = true;
+  }
+  await coldContext.close();
+
+  const ownKeys = cache.cacheKeys.filter(
+    (key) => key.startsWith("agent-worlds-fair-")
+  );
+  const results = {
+    cacheVersionExact: (
+      ownKeys.length === 1 && ownKeys[0] === cacheName
+    ),
+    exactAssetCoverage: (
+      cache.cacheUrls.length === 7
+      && [...cache.cacheUrls].sort().join("\n")
+        === [...cache.expectedUrls].sort().join("\n")
+    ),
+    cacheReady: (
+      status.ready === true
+      && status.missingRequired.length === 0
+      && status.missingOptional.length === 0
+      && status.unexpected.length === 0
+    ),
+    oldOwnCacheRemoved: !cache.cacheKeys.includes(oldCacheName),
+    foreignCachePreserved: cache.cacheKeys.includes(foreignCacheName),
+    cacheDigestsValid: (
+      cache.digests.length === 7
+      && cache.digests.every(
+        (value) => /^[0-9a-f]{64}$/.test(value.expected || "")
+          && value.expected === value.actual
+      )
+    ),
+    unknownRequestPassesThrough: (
+      cache.unknownStatus === 404 && cache.unknownCacheUnchanged
+    ),
+    optionalLossRejected: (
+      cache.optionalMissing.ready === false
+      && cache.optionalMissing.missingOptional.length === 1
+    ),
+    corruptEntryRejected: (
+      cache.corrupt.ready === false
+      && cache.corrupt.invalidRequired.includes(
+        new URL(
+          "/apps/3d-immersive/agent-worlds-fair-sw.js",
+          target
+        ).href
+      )
+      && cache.corruptStillCached === false
+    ),
+    coldOfflineTruthful: (
+      coldBefore.caches.length === 0
+      && coldBefore.registrations === 0
+      && coldNavigationFailed
+    )
+  };
+  await browser.close();
+  console.log(JSON.stringify({ results, status, cache, coldBefore }));
+})().catch(async (error) => {
+  try {
+    if (browser) await browser.close();
+  } catch (_) {}
+  console.error(error.stack || error.message);
+  process.exit(1);
+});
+"""
+
+
+SERVICE_WORKER_UPDATE_PROBE = r"""
+const { chromium } = require("playwright");
+const { createHash } = require("crypto");
+const fs = require("fs");
+const target = process.argv[1];
+const htmlPath = process.argv[2];
+const workerPath = process.argv[3];
+const cacheName = "agent-worlds-fair-v4-buzzsaw-20260816";
+const legacyCacheName = "agent-worlds-fair-v3-release-20260816";
+const currentHtml = fs.readFileSync(htmlPath, "utf8");
+const currentWorker = fs.readFileSync(workerPath, "utf8");
+const markerName = "agent-fair-shell-revision";
+let browser;
+
+function variant(label) {
+  if (currentHtml.includes('name="' + markerName + '"')) {
+    throw new Error("source HTML already contains the test revision marker");
+  }
+  return currentHtml.replace(
+    "</head>",
+    '<meta name="' + markerName + '" content="' + label + '">\n</head>'
+  );
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function writeRevision(path, value, seconds) {
+  fs.writeFileSync(path, value);
+  fs.utimesSync(path, seconds, seconds);
+}
+
+async function waitFair(page) {
+  await page.waitForFunction(
+    () => window.__AGENT_FAIR_TEST__
+      && typeof window.__AGENT_FAIR_TEST__.ready === "function",
+    null,
+    { timeout: 20000 }
+  );
+  await page.evaluate(() => window.__AGENT_FAIR_TEST__.ready());
+}
+
+async function revision(page) {
+  return page.evaluate(
+    (name) => document.querySelector(
+      'meta[name="' + name + '"]'
+    )?.content || "",
+    markerName
+  );
+}
+
+async function cacheEvidence(page) {
+  return page.evaluate(async (name) => {
+    const expectedUrls = [
+      "/apps/3d-immersive/agent-worlds-fair.html",
+      "/apps/3d-immersive/agent-worlds-fair-sw.js",
+      "/apps/agent-fair/fair-state.json",
+      "/apps/agent-fair/events.jsonl",
+      "/apps/agent-fair/agent-contract.json",
+      "/apps/agent-fair/district.json",
+      "/apps/organism-frames.json"
+    ].map((path) => location.origin + path);
+    const keys = await caches.keys();
+    const cache = await caches.open(name);
+    const requests = await cache.keys();
+    const htmlUrl = (
+      location.origin
+      + "/apps/3d-immersive/agent-worlds-fair.html"
+    );
+    const response = await cache.match(htmlUrl);
+    const text = await response.clone().text();
+    const bytes = new TextEncoder().encode(text);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const bodyHash = Array.from(
+      new Uint8Array(digest),
+      (value) => value.toString(16).padStart(2, "0")
+    ).join("");
+    return {
+      bodyHash,
+      digestHeader: response.headers.get(
+        "X-Agent-Fair-Cache-SHA256"
+      ),
+      keys,
+      revision: new DOMParser().parseFromString(
+        text,
+        "text/html"
+      ).querySelector(
+        'meta[name="agent-fair-shell-revision"]'
+      )?.content || "",
+      urls: requests.map((request) => request.url),
+      expectedUrls
+    };
+  }, cacheName);
+}
+
+async function updateRegistration(page) {
+  return page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const previous = registration?.active;
+    if (!registration || !previous) {
+      throw new Error("legacy active worker is unavailable");
+    }
+    await registration.update();
+    const next = registration.installing || registration.waiting;
+    if (!next || next === previous) {
+      throw new Error("updated worker was not discovered");
+    }
+    if (next.state !== "activated") {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("updated worker activation timed out")),
+          15000
+        );
+        next.addEventListener("statechange", () => {
+          if (next.state === "activated") {
+            clearTimeout(timeout);
+            resolve();
+          } else if (next.state === "redundant") {
+            clearTimeout(timeout);
+            reject(new Error("updated worker became redundant"));
+          }
+        });
+      });
+    }
+    return {
+      previous: previous.scriptURL,
+      updated: registration.active?.scriptURL || ""
+    };
+  });
+}
+
+const legacyWorker = `
+"use strict";
+const CACHE_NAME = "${legacyCacheName}";
+const HTML_URL = "./agent-worlds-fair.html";
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.add(HTML_URL))
+      .then(() => self.skipWaiting())
+  );
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "agent-fair-cache-status") return;
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.keys();
+      event.ports[0]?.postMessage({
+        type: "agent-fair-cache-status",
+        cacheName: CACHE_NAME,
+        cached: cached.map((request) => request.url),
+        missingRequired: [],
+        ready: false
+      });
+    })
+  );
+});
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.pathname.endsWith("/agent-worlds-fair.html")) {
+    event.respondWith(
+      caches.match(event.request, { ignoreSearch: true })
+        .then((cached) => cached || fetch(event.request))
+    );
+  }
+});
+`;
+
+(async () => {
+  const oldHtml = variant("old-shell");
+  const updatedHtml = variant("updated-shell");
+  const futureHtml = variant("future-shell");
+  const baseTime = Math.floor(Date.now() / 1000) + 2;
+  writeRevision(htmlPath, oldHtml, baseTime);
+  writeRevision(workerPath, legacyWorker, baseTime);
+
+  browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(target, {
+    waitUntil: "domcontentloaded",
+    timeout: 20000
+  });
+  await waitFair(page);
+  await page.reload({
+    waitUntil: "domcontentloaded",
+    timeout: 20000
+  });
+  await waitFair(page);
+  const legacyRevision = await revision(page);
+
+  writeRevision(htmlPath, updatedHtml, baseTime + 2);
+  writeRevision(workerPath, currentWorker, baseTime + 2);
+  const registration = await updateRegistration(page);
+  const updatedCache = await cacheEvidence(page);
+
+  await context.setOffline(true);
+  await page.reload({
+    waitUntil: "domcontentloaded",
+    timeout: 20000
+  });
+  await waitFair(page);
+  const updatedOfflineRevision = await revision(page);
+
+  await context.setOffline(false);
+  writeRevision(htmlPath, futureHtml, baseTime + 4);
+  await page.reload({
+    waitUntil: "domcontentloaded",
+    timeout: 20000
+  });
+  await waitFair(page);
+  const futureOnlineRevision = await revision(page);
+  await page.waitForFunction(
+    async ([name, expected]) => {
+      const cache = await caches.open(name);
+      const response = await cache.match(
+        location.origin
+        + "/apps/3d-immersive/agent-worlds-fair.html"
+      );
+      return response && (await response.clone().text()).includes(expected);
+    },
+    [cacheName, 'content="future-shell"'],
+    { timeout: 10000 }
+  );
+  const futureCache = await cacheEvidence(page);
+
+  await context.setOffline(true);
+  await page.reload({
+    waitUntil: "domcontentloaded",
+    timeout: 20000
+  });
+  await waitFair(page);
+  const futureOfflineRevision = await revision(page);
+
+  const sorted = (values) => [...values].sort().join("\n");
+  const results = {
+    legacyShellWasControlled: legacyRevision === "old-shell",
+    cacheVersionMigrated: (
+      updatedCache.keys.length === 1
+      && updatedCache.keys[0] === cacheName
+    ),
+    updateInstalledChangedWorker: (
+      registration.previous === registration.updated
+      && sha256(legacyWorker) !== sha256(currentWorker)
+    ),
+    updateRepopulatedExactAssets: (
+      updatedCache.urls.length === 7
+      && sorted(updatedCache.urls) === sorted(updatedCache.expectedUrls)
+    ),
+    updateReplacedShellBytes: (
+      updatedCache.revision === "updated-shell"
+      && updatedCache.bodyHash === sha256(updatedHtml)
+      && updatedCache.digestHeader === updatedCache.bodyHash
+    ),
+    updatedShellWorksOffline: (
+      updatedOfflineRevision === "updated-shell"
+    ),
+    htmlOnlyReloadRefreshesShell: (
+      futureOnlineRevision === "future-shell"
+      && futureCache.revision === "future-shell"
+      && futureCache.bodyHash === sha256(futureHtml)
+      && futureCache.digestHeader === futureCache.bodyHash
+    ),
+    htmlOnlyRefreshWorksOffline: (
+      futureOfflineRevision === "future-shell"
+    )
+  };
+  await browser.close();
+  console.log(JSON.stringify({
+    results,
+    hashes: {
+      currentHtml: sha256(currentHtml),
+      currentWorker: sha256(currentWorker),
+      updatedHtml: sha256(updatedHtml),
+      futureHtml: sha256(futureHtml)
+    }
+  }));
+})().catch(async (error) => {
+  try {
+    if (browser) await browser.close();
+  } catch (_) {}
+  console.error(error.stack || error.message);
+  process.exitCode = 1;
+}).finally(() => {
+  fs.writeFileSync(htmlPath, currentHtml);
+  fs.writeFileSync(workerPath, currentWorker);
+});
+"""
+
+
+def service_worker_probe(root):
+    node = shutil.which("node")
+    assert node is not None, "node is required for service-worker measurement"
+    package = root / "node_modules/playwright/package.json"
+    assert package.is_file(), "repository Playwright is required"
+    probe_path = root / "probe.html"
+    probe_path.write_text("<!doctype html><title>probe</title>", encoding="utf-8")
+    with gate._serve(root) as base_url:
+        process = subprocess.run(
+            [
+                node,
+                "-e",
+                SERVICE_WORKER_PROBE,
+                base_url + gate.APP_RELATIVE.as_posix(),
+                base_url + "probe.html",
+            ],
+            cwd=str(root),
+            text=True,
+            capture_output=True,
+            timeout=90,
+            check=False,
+        )
+    assert process.returncode == 0, process.stderr
+    return json.loads(process.stdout)["results"]
+
+
+def service_worker_update_probe(root):
+    node = shutil.which("node")
+    assert node is not None, "node is required for service-worker measurement"
+    package = root / "node_modules/playwright/package.json"
+    assert package.is_file(), "repository Playwright is required"
+    with gate._serve(root) as base_url:
+        process = subprocess.run(
+            [
+                node,
+                "-e",
+                SERVICE_WORKER_UPDATE_PROBE,
+                base_url + gate.APP_RELATIVE.as_posix(),
+                str(root / gate.APP_RELATIVE),
+                str(root / gate.SERVICE_WORKER_RELATIVE),
+            ],
+            cwd=str(root),
+            text=True,
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    assert process.returncode == 0, process.stderr
+    return json.loads(process.stdout)
+
+
+def test_static_inventory_passes_for_resolved_release_phase():
+    phase = gate.resolve_release_phase(ROOT)
+    results = gate.run_static_checks(ROOT, phase)
     assert len(results) == len(gate.STATIC_CHECKS)
     assert [result.name for result in results] == [
         name for name, _check in gate.STATIC_CHECKS
     ]
     assert len({result.name for result in results}) == len(results)
-    assert gate.resolve_release_phase(ROOT) == "prepared"
     assert all(result.passed for result in results), [
         (result.name, result.detail)
         for result in results
@@ -254,6 +994,120 @@ def test_app_security_mutations_turn_red(mutation, check_name):
         assert result.passed is False
 
 
+def test_service_worker_runtime_state_invariants():
+    with fixture_root(browser_fixture_paths()) as root:
+        results = service_worker_probe(root)
+    assert all(results.values()), [
+        name for name, passed in results.items() if not passed
+    ]
+
+
+def test_same_cache_version_refreshes_changed_shell_bytes():
+    with fixture_root(browser_fixture_paths()) as root:
+        evidence = service_worker_update_probe(root)
+    assert all(evidence["results"].values()), [
+        name
+        for name, passed in evidence["results"].items()
+        if not passed
+    ]
+    assert all(
+        re.fullmatch(r"[0-9a-f]{64}", value)
+        for value in evidence["hashes"].values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "invariant"),
+    [
+        (
+            "key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME",
+            "false",
+            "oldOwnCacheRemoved",
+        ),
+        (
+            "key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME",
+            "key !== CACHE_NAME",
+            "foreignCachePreserved",
+        ),
+        (
+            (
+                "if (!expected || !/^[0-9a-f]{64}$/.test(expected)) "
+                "return false;"
+            ),
+            (
+                "if (!expected || !/^[0-9a-f]{64}$/.test(expected)) "
+                "return true;"
+            ),
+            "corruptEntryRejected",
+        ),
+        (
+            (
+                "&& optional.every((url) => "
+                "cachedUrls.has(url) && !invalid.has(url))"
+            ),
+            "&& true",
+            "optionalLossRejected",
+        ),
+        (
+            "if (!APP_SHELL_URLS.has(requestUrl)) return;",
+            "if (!APP_SHELL_URLS.has(requestUrl)) {}",
+            "unknownRequestPassesThrough",
+        ),
+    ],
+)
+def test_service_worker_runtime_mutations_turn_red(
+    old,
+    new,
+    invariant,
+):
+    with fixture_root(browser_fixture_paths()) as root:
+        path = root / gate.SERVICE_WORKER_RELATIVE
+        text = path.read_text(encoding="utf-8")
+        assert old in text
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        results = service_worker_probe(root)
+    assert results[invariant] is False
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "check_name"),
+    [
+        (
+            '"agent-worlds-fair-v4-buzzsaw-20260816"',
+            '"agent-worlds-fair-v0-mutation"',
+            "browser.service-worker-cache",
+        ),
+        (
+            '  "../agent-fair/district.json"\n',
+            "",
+            "browser.service-worker-cache",
+        ),
+        (
+            "await cache.addAll(APP_SHELL);",
+            'throw new Error("storage denied");',
+            "browser.service-worker-cache",
+        ),
+        (
+            'if (cached) return withProvenance(cached, "cache");',
+            "if (cached) return unavailableResponse(unavailableMessage);",
+            "browser.warm-offline-reload",
+        ),
+    ],
+)
+def test_service_worker_browser_gate_mutations_turn_red(
+    old,
+    new,
+    check_name,
+):
+    with fixture_root(browser_fixture_paths()) as root:
+        path = root / gate.SERVICE_WORKER_RELATIVE
+        text = path.read_text(encoding="utf-8")
+        assert old in text
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        results = result_map(gate.run_browser_checks(root, "released"))
+    assert results[check_name].passed is False
+
+
 def test_release_phase_rejects_local_spoof_and_requires_workflow(monkeypatch):
     paths = core_paths() + [
         ".github/workflows/agent-fair-release.yml",
@@ -262,6 +1116,7 @@ def test_release_phase_rejects_local_spoof_and_requires_workflow(monkeypatch):
         "apps/manifest.json",
     ]
     with fixture_root(paths) as root:
+        rewind_to_prepared_phase(root)
         prepared = gate._run_check(
             "organism.fair-release",
             lambda: gate._check_organism_release(root, "prepared"),
@@ -308,12 +1163,13 @@ def test_release_phase_rejects_local_spoof_and_requires_workflow(monkeypatch):
         assert workflow_result.passed is False
         workflow.write_text(original_workflow, encoding="utf-8")
 
-        set_release_environment(monkeypatch)
+        release_utc = next_organism_utc(root)
+        set_release_environment(monkeypatch, release_utc)
         gate.fair_builder.apply_release(
             gate.EXPECTED_BUNDLE_DIGEST,
             gate.EXPECTED_DISTRICT_DIGEST,
             root=root,
-            utc=next_organism_utc(root),
+            utc=release_utc,
         )
         assert gate.resolve_release_phase(root) == "released"
         released = gate._run_check(
@@ -353,6 +1209,7 @@ def test_prepared_phase_rejects_candidate_and_profile_spoofs():
         "apps/syndication",
     ]
     with fixture_root(paths) as root:
+        rewind_to_prepared_phase(root)
         organism = gate._run_check(
             "organism.fair-release",
             lambda: gate._check_organism_release(root, "prepared"),
@@ -585,7 +1442,7 @@ def test_release_artifact_after_pr_turns_red():
             "      - apps/agent-fair/**\n",
         ),
         (
-            '          test "$HEAD_SHA" = "$GITHUB_SHA"\n',
+            "      - name: Reject untrusted branch dispatch\n",
             "",
         ),
     ],
@@ -943,6 +1800,13 @@ def test_repository_protection_api_verification(monkeypatch):
                     ]
                 }
             )
+        if request.full_url.endswith("/actions/permissions/workflow"):
+            return Response(
+                {
+                    "default_workflow_permissions": "write",
+                    "can_approve_pull_request_reviews": False,
+                }
+            )
         return Response(
             {
                 "required_pull_request_reviews": {},
@@ -979,6 +1843,13 @@ def test_repository_protection_api_verification(monkeypatch):
                     ],
                 }
             )
+        if request.full_url.endswith("/actions/permissions/workflow"):
+            return Response(
+                {
+                    "default_workflow_permissions": "write",
+                    "can_approve_pull_request_reviews": False,
+                }
+            )
         return Response(
             {
                 "required_pull_request_reviews": None,
@@ -1007,6 +1878,13 @@ def test_repository_protection_api_verification(monkeypatch):
                     "protection_rules": [],
                 }
             )
+        if request.full_url.endswith("/actions/permissions/workflow"):
+            return Response(
+                {
+                    "default_workflow_permissions": "write",
+                    "can_approve_pull_request_reviews": False,
+                }
+            )
         return Response(
             {
                 "required_pull_request_reviews": {},
@@ -1030,6 +1908,52 @@ def test_repository_protection_api_verification(monkeypatch):
     )
     assert reviewer.passed is False
     assert "required reviewer" in reviewer.detail
+
+    def actions_can_approve(request, timeout=8):
+        del timeout
+        if "/environments/" in request.full_url:
+            return Response(
+                {
+                    "name": "agent-fair-production",
+                    "protection_rules": [
+                        {
+                            "type": "required_reviewers",
+                            "reviewers": [{"type": "User"}],
+                        }
+                    ],
+                }
+            )
+        if request.full_url.endswith("/actions/permissions/workflow"):
+            return Response(
+                {
+                    "default_workflow_permissions": "write",
+                    "can_approve_pull_request_reviews": True,
+                }
+            )
+        return Response(
+            {
+                "required_pull_request_reviews": {},
+                "required_status_checks": {
+                    "contexts": [
+                        "moonshot-gate",
+                        "agent-fair-release-attestation",
+                    ],
+                    "checks": [],
+                },
+            }
+        )
+
+    monkeypatch.setattr(
+        gate.urllib.request,
+        "urlopen",
+        actions_can_approve,
+    )
+    approvals = gate._run_check(
+        "release.repository-protection",
+        lambda: gate._check_repository_protection(ROOT),
+    )
+    assert approvals.passed is False
+    assert "Actions pull request approvals" in approvals.detail
 
     def offline(*_args, **_kwargs):
         raise gate.urllib.error.URLError("offline")
@@ -1116,6 +2040,7 @@ def test_released_phase_validates_static_and_browser_authority(
         "node_modules",
     ]
     with fixture_root(paths) as root:
+        rewind_to_prepared_phase(root)
         manifest_path = root / "apps/manifest.json"
         manifest = gate._json(manifest_path)
         category_name, category = next(
@@ -1144,12 +2069,13 @@ def test_released_phase_validates_static_and_browser_authority(
             encoding="utf-8",
         )
 
-        set_release_environment(monkeypatch)
+        release_utc = next_organism_utc(root)
+        set_release_environment(monkeypatch, release_utc)
         gate.fair_builder.apply_release(
             gate.EXPECTED_BUNDLE_DIGEST,
             gate.EXPECTED_DISTRICT_DIGEST,
             root=root,
-            utc=next_organism_utc(root),
+            utc=release_utc,
         )
         gate.build_syndication.build(
             root,
@@ -1322,8 +2248,9 @@ def test_released_phase_validates_static_and_browser_authority(
         app_path = root / gate.APP_RELATIVE
         app = app_path.read_text(encoding="utf-8")
         truthful_copy = re.search(
-            r"browser validated (?:bounded|exact) approval evidence "
-            r"and frame binding, not the signature",
+            r"browser validated (?:bounded|exact) approval evidence, "
+            r"the OIDC validity window at release time, and frame binding"
+            r"(?:—|, )not the signature",
             app,
             re.IGNORECASE,
         )
@@ -1583,8 +2510,14 @@ def test_cli_json_reports_exact_counts(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     static_count = len(gate.STATIC_CHECKS)
     browser_count = len(gate.BROWSER_CHECK_NAMES)
+    phase = gate.resolve_release_phase(ROOT)
     assert payload["gate"] == "agent-worlds-fair"
-    assert payload["release_phase"] == "prepared"
+    assert payload["release_phase"] == phase
+    assert payload["release_provenance"] == (
+        "prepared-no-release"
+        if phase == "prepared"
+        else "structural-only-local"
+    )
     assert (
         payload["release_candidate_digest"]
         == gate.EXPECTED_RELEASE_CANDIDATE_DIGEST
@@ -1671,7 +2604,15 @@ def test_optional_github_repository_protection(monkeypatch):
             ],
         },
     }
-    responses = iter([valid_environment, valid_protection])
+    valid_workflow_permissions = {
+        "default_workflow_permissions": "write",
+        "can_approve_pull_request_reviews": False,
+    }
+    responses = iter([
+        valid_environment,
+        valid_protection,
+        valid_workflow_permissions,
+    ])
     monkeypatch.setattr(
         gate,
         "_github_api_json",
@@ -1686,6 +2627,7 @@ def test_optional_github_repository_protection(monkeypatch):
     responses = iter([
         {"name": "agent-fair-production", "protection_rules": []},
         valid_protection,
+        valid_workflow_permissions,
     ])
     monkeypatch.setattr(
         gate,
@@ -1704,6 +2646,7 @@ def test_optional_github_repository_protection(monkeypatch):
             "required_pull_request_reviews": None,
             "required_status_checks": {"contexts": ["unrelated"]},
         },
+        valid_workflow_permissions,
     ])
     monkeypatch.setattr(
         gate,
@@ -1726,6 +2669,7 @@ def test_optional_github_repository_protection(monkeypatch):
                 "contexts": ["moonshot-gate"],
             },
         },
+        valid_workflow_permissions,
     ])
     monkeypatch.setattr(
         gate,

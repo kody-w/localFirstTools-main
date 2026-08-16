@@ -43,17 +43,39 @@ jobs:
       HEAD_REF: ${{ github.event.pull_request.head.ref || inputs.head_ref }}
 
     steps:
-      - name: Bind explicit dispatch to the checked commit
+      - name: Reject untrusted branch dispatch
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != 'main'
+        shell: bash
+        run: exit 1
+
+      - name: Bind trusted main dispatch to pull request inputs
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
-          test "$HEAD_SHA" = "$GITHUB_SHA"
-          test "$HEAD_REF" = "$GITHUB_REF_NAME"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$BASE_SHA" = "$GITHUB_SHA"
+          test "$HEAD_REF" != "main"
+
+      - name: Publish pending release attestation status
+        id: release_status
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STATUS_CONTEXT: agent-fair-release-attestation
+        shell: bash
+        run: |
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state=pending \
+            -f context="$STATUS_CONTEXT" \
+            -f description="OIDC release attestation is running" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Check out exact pull request head
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ env.HEAD_SHA }}
 
       - name: Set up Python
@@ -241,14 +263,22 @@ jobs:
           PY
 
       - name: Publish explicit release attestation status
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && steps.release_status.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
         shell: bash
         run: |
+          state=failure
+          description="OIDC release attestation failed"
+          if test "$JOB_STATUS" = "success"; then
+            state=success
+            description="OIDC release attestation passed"
+          fi
           gh api --method POST \
             "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
-            -f state=success \
+            -f state="$state" \
             -f context=agent-fair-release-attestation \
-            -f description="OIDC release attestation passed" \
+            -f description="$description" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          test "$state" = "success"

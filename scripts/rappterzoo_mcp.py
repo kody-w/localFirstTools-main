@@ -27,13 +27,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 SERVER_NAME = "rappterzoo"
-SERVER_VERSION = "2.5.0"
+SERVER_VERSION = "2.6.0"
 PROTOCOL_VERSION = "2024-11-05"
 DEFAULT_BASE_URL = "https://kody-w.github.io/localFirstTools-main/"
 DEFAULT_REPOSITORY = "kody-w/localFirstTools-main"
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESOURCE_BYTES = 5 * 1024 * 1024
-MAX_WRITE_COUNT = 10
+MAX_REGISTRATION_WRITES = 1
+MAX_CONTRIBUTION_WRITES = 1
+MAX_WRITE_COUNT = MAX_REGISTRATION_WRITES + MAX_CONTRIBUTION_WRITES
 MAX_APP_BYTES = 500 * 1024
 MAX_COMPRESSED_ISSUE_BYTES = 45 * 1024
 MAX_LOCAL_BRANCH_ACTIONS = 100
@@ -164,6 +166,29 @@ FAIR_EXPECTED_DISTRICT_DIGEST = (
 FAIR_EXPECTED_BUNDLE_DIGEST = (
     "04aa93502f81e81a9f345ab0d4bbe4621703688893f6dc5a5faa8e3b171640d3"
 )
+FAIR_RELEASE_CANDIDATE_SCHEMA = (
+    "rappterzoo-agent-worlds-fair-release-candidate/1"
+)
+FAIR_RELEASE_CANDIDATE_HASH_DOMAIN = (
+    b"rappterzoo/agent-worlds-fair-release-candidate/1\n"
+)
+FAIR_RELEASE_VERIFIER_COMMAND = "python3 scripts/agent_world_fair.py verify"
+FAIR_RELEASE_VERIFIER_VERSION = "agent-world-fair-release/3"
+FAIR_RELEASE_EVENT = "agent-worlds-fair-release"
+FAIR_RELEASE_FRAME_SCHEMA = "rappterzoo-organism-frame/1"
+FAIR_RELEASE_DELTA_SEQUENCE = 14
+FAIR_RELEASE_DELTA_SHA256 = (
+    "41d6bd920a2863ba0b1d2ed330ccd564fdd0382eec88b41d0c591ea4af7cf903"
+)
+FAIR_RELEASE_RESOURCE_TYPES = {
+    "agent-contract",
+    "district",
+    "event-ledger",
+    "state",
+}
+SYNDICATION_PROFILE = "rappterzoo-syndication-profile/10"
+FRAME_PAYLOAD_HASH_DOMAIN = b"rapp/1:particle\n"
+FRAME_HASH_DOMAIN = b"rapp/1:wave\n"
 FAIR_EVENT_KEYS = {
     "event_hash",
     "fair_id",
@@ -265,6 +290,10 @@ RESOURCE_MAP = {
         "apps/agent-fair/district.json",
         "application/json",
     ),
+    "rappterzoo://agent-fair-release-candidate": (
+        "apps/agent-fair/release-candidate.json",
+        "application/json",
+    ),
     "rappterzoo://agent-worlds-fair": (
         "apps/3d-immersive/agent-worlds-fair.html",
         "text/html",
@@ -317,6 +346,15 @@ RESOURCE_MAP = {
         "application/json",
     ),
 }
+VIRTUAL_RESOURCE_MAP = {
+    "rappterzoo://agent-fair-release-state": {
+        "description": (
+            "Verified current Agent World's Fair publication state, release "
+            "candidate, approval frame, and atomic profile-10 delta evidence"
+        ),
+        "mimeType": "application/json",
+    },
+}
 PARK_RESOURCE_URIS = {
     "rappterzoo://agent-amusement-park",
     "rappterzoo://agent-park-acceptance-gate",
@@ -333,6 +371,8 @@ FAIR_RESOURCE_URIS = {
     "rappterzoo://agent-fair-district",
     "rappterzoo://agent-fair-events",
     "rappterzoo://agent-fair-guide",
+    "rappterzoo://agent-fair-release-candidate",
+    "rappterzoo://agent-fair-release-state",
     "rappterzoo://agent-fair-state",
     "rappterzoo://agent-worlds-fair",
 }
@@ -790,7 +830,12 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                         "pattern": FAIR_ATTRACTION_ID_RE.pattern,
                     },
                     "title": {"type": "string", "maxLength": 100},
-                    "category": {"type": "string", "maxLength": 50},
+                    "category": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 50,
+                        "pattern": "^[a-z0-9][a-z0-9_-]{1,49}$",
+                    },
                     "visitor_promise": {
                         "type": "string",
                         "maxLength": 500,
@@ -849,9 +894,9 @@ def _tool_definitions() -> List[Dict[str, Any]]:
             "name": "agent_fair_export_branch",
             "description": (
                 "Export the verified in-memory fair proposal branch as "
-                "rappterzoo-agent-fair-branch-export/1 with source heads, "
-                "hash-linked actions, customer authority, and no canonical "
-                "write or import side effect."
+                "rappterzoo-agent-fair-branch-export/1 with source "
+                "heads, hash-linked actions, customer authority, and no "
+                "canonical write or import side effect."
             ),
             "inputSchema": {
                 "type": "object",
@@ -881,6 +926,7 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                         "type": "string",
                         "format": "uri",
                         "maxLength": 500,
+                        "pattern": "^https://",
                     },
                     "public_key": {
                         "type": "object",
@@ -892,11 +938,13 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                                 "type": "string",
                                 "minLength": 20,
                                 "maxLength": 100,
+                                "pattern": BASE64URL_RE.pattern,
                             },
                             "y": {
                                 "type": "string",
                                 "minLength": 20,
                                 "maxLength": 100,
+                                "pattern": BASE64URL_RE.pattern,
                             },
                         },
                         "required": ["kty", "crv", "x", "y"],
@@ -905,6 +953,7 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                         "type": "string",
                         "minLength": 8,
                         "maxLength": 80,
+                        "pattern": IDEMPOTENCY_RE.pattern,
                     },
                 },
                 "required": ["agent_id", "name"],
@@ -934,10 +983,12 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                     "complexity": {
                         "type": "string",
                         "enum": sorted(ALLOWED_COMPLEXITY),
+                        "default": "intermediate",
                     },
                     "type": {
                         "type": "string",
                         "enum": sorted(ALLOWED_APP_TYPES),
+                        "default": "interactive",
                     },
                     "html_content": {
                         "type": "string",
@@ -953,6 +1004,7 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                         "type": "string",
                         "minLength": 8,
                         "maxLength": 80,
+                        "pattern": IDEMPOTENCY_RE.pattern,
                     },
                 },
                 "required": ["title", "category", "html_content"],
@@ -965,7 +1017,12 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "app_file": {"type": "string", "maxLength": 120},
+                    "app_file": {
+                        "type": "string",
+                        "minLength": 6,
+                        "maxLength": 120,
+                        "pattern": APP_FILE_RE.pattern,
+                    },
                     "improvement_vector": {
                         "type": "string",
                         "enum": sorted(ALLOWED_MOLT_VECTORS),
@@ -977,6 +1034,7 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                         "type": "string",
                         "minLength": 8,
                         "maxLength": 80,
+                        "pattern": IDEMPOTENCY_RE.pattern,
                     },
                 },
                 "required": ["app_file"],
@@ -989,7 +1047,12 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "app_file": {"type": "string", "maxLength": 120},
+                    "app_file": {
+                        "type": "string",
+                        "minLength": 6,
+                        "maxLength": 120,
+                        "pattern": APP_FILE_RE.pattern,
+                    },
                     "text": {"type": "string", "maxLength": 1000},
                     "rating": {
                         "type": "integer",
@@ -1001,6 +1064,7 @@ def _tool_definitions() -> List[Dict[str, Any]]:
                         "type": "string",
                         "minLength": 8,
                         "maxLength": 80,
+                        "pattern": IDEMPOTENCY_RE.pattern,
                     },
                 },
                 "required": ["app_file", "text", "agent_id"],
@@ -1022,6 +1086,9 @@ class RappterZooMCP:
         self.writes_enabled = bool(writes_enabled)
         self.runner = runner
         self.write_count = 0
+        self.registration_write_count = 0
+        self.contribution_write_count = 0
+        self.submitted_idempotency: Dict[str, Dict[str, str]] = {}
         self.local_park_branch: List[Dict[str, Any]] = []
         self.local_fair_branch: List[Dict[str, Any]] = []
 
@@ -1062,11 +1129,19 @@ class RappterZooMCP:
                 ),
                 "mimeType": mime_type,
             })
+        for uri, metadata in VIRTUAL_RESOURCE_MAP.items():
+            result.append({
+                "uri": uri,
+                "name": uri.split("://", 1)[1],
+                "description": metadata["description"],
+                "mimeType": metadata["mimeType"],
+            })
         return result
 
     def read_resource(self, uri: str) -> Dict[str, Any]:
-        if uri not in RESOURCE_MAP:
+        if uri not in RESOURCE_MAP and uri not in VIRTUAL_RESOURCE_MAP:
             raise MCPProtocolError(-32602, "unknown resource URI")
+        fair_context = None
         if uri in PARK_RESOURCE_URIS:
             try:
                 self._park_context()
@@ -1078,13 +1153,47 @@ class RappterZooMCP:
                 ) from error
         if uri in FAIR_RESOURCE_URIS:
             try:
-                self._fair_context()
+                fair_context = self._fair_context()
             except ToolError as error:
                 raise MCPProtocolError(
                     -32002,
                     "fair integrity verification failed",
                     {"uri": uri, "reason": str(error)},
                 ) from error
+        if uri == "rappterzoo://agent-fair-release-state":
+            try:
+                value = self._fair_release_state(fair_context)
+            except ToolError as error:
+                raise MCPProtocolError(
+                    -32002,
+                    "fair release-state verification failed",
+                    {"uri": uri, "reason": str(error)},
+                ) from error
+            return {
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": _json_text(value),
+                }]
+            }
+        if uri == "rappterzoo://agent-fair-release-candidate":
+            try:
+                candidate = self._verified_fair_release_candidate(
+                    fair_context
+                )
+            except ToolError as error:
+                raise MCPProtocolError(
+                    -32002,
+                    "fair release-candidate verification failed",
+                    {"uri": uri, "reason": str(error)},
+                ) from error
+            return {
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": _json_text(candidate),
+                }]
+            }
         relative, mime_type = RESOURCE_MAP[uri]
         try:
             text = self.source.read_text(relative)
@@ -1157,6 +1266,10 @@ class RappterZooMCP:
                 "session_limit": MAX_WRITE_COUNT,
                 "used": self.write_count,
                 "remaining": MAX_WRITE_COUNT - self.write_count,
+                "registration_limit": MAX_REGISTRATION_WRITES,
+                "registrations_used": self.registration_write_count,
+                "contribution_limit": MAX_CONTRIBUTION_WRITES,
+                "contributions_used": self.contribution_write_count,
             },
             "catalog": {
                 "total_apps": sum(category_counts.values()),
@@ -1208,6 +1321,11 @@ class RappterZooMCP:
                 "event_ledger": "rappterzoo://agent-fair-events",
                 "first_entry_prompt": "agent_worlds_fair_first_entry",
                 "guide": "rappterzoo://agent-fair-guide",
+                "release_candidate": (
+                    "rappterzoo://agent-fair-release-candidate"
+                ),
+                "release_state": "rappterzoo://agent-fair-release-state",
+                "bundle_status": fair["state"].get("status"),
                 "state": "rappterzoo://agent-fair-state",
                 "submit_attraction_tool": "agent_fair_submit_attraction",
                 "cast_vote_tool": "agent_fair_cast_vote",
@@ -1872,6 +1990,8 @@ class RappterZooMCP:
             or state.get("visibility") != "public-metadata"
             or contract.get("visibility") != "public-metadata"
             or district.get("visibility") != "public-metadata"
+            or state.get("status")
+            != "release-ready-awaiting-customer-approval"
             or attraction_contract.get("attractions_per_submission") != 1
             or attraction_contract.get("resource_maximums")
             != FAIR_RESOURCE_MAXIMUMS
@@ -1879,7 +1999,8 @@ class RappterZooMCP:
             or local_proposals.get("action_limit")
             != MAX_FAIR_BRANCH_ACTIONS
             or local_proposals.get("action_schema") != FAIR_ACTION_SCHEMA
-            or local_proposals.get("export_schema") != FAIR_BRANCH_SCHEMA
+            or local_proposals.get("export_schema")
+            != FAIR_BRANCH_SCHEMA
             or local_proposals.get("canonical_mutation") is not False
             or set(contract.get("mcp_mappings", {})) != {
                 "agent_fair_submit_attraction",
@@ -1911,9 +2032,12 @@ class RappterZooMCP:
             or state_controls.get(
                 "customer_approval_required_for_organism_release"
             ) is not True
+            or state_controls.get("release_performed") is not False
             or state_controls.get("customer_shutdown") is not True
             or state_controls.get("vendor_shutdown") is not False
             or assembly.get("direct_canonical_write") is not False
+            or assembly.get("status")
+            != "release-ready-awaiting-customer-approval"
             or assembly.get(
                 "customer_approval_required_for_organism_release"
             ) is not True
@@ -2247,6 +2371,566 @@ class RappterZooMCP:
                 "fair_district_digest": district_digest,
                 "fair_bundle_digest": bundle_digest,
                 "organism_head": organism_head,
+            },
+        }
+
+    @staticmethod
+    def _expected_fair_release_payload(
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        heads = context["heads"]
+        state = context["state"]
+        district = context["district"]
+        candidate_placeholder = "$candidate_digest"
+        approval_keys = [
+            "actor",
+            "attestation_sha256",
+            "aud",
+            "environment",
+            "event_name",
+            "exp",
+            "iss",
+            "nbf",
+            "ref",
+            "repository",
+            "run_id",
+            "workflow_ref",
+        ]
+        return {
+            "app_file": "agent-worlds-fair.html",
+            "approval_basis": "verified-github-actions-oidc-attestation",
+            "approval_evidence": {
+                "exact_keys": approval_keys,
+                "fixed_claims": {
+                    "aud": "rappterzoo-agent-fair-release",
+                    "environment": "agent-fair-production",
+                    "event_name": "workflow_dispatch",
+                    "iss": "https://token.actions.githubusercontent.com",
+                    "ref": "refs/heads/main",
+                    "repository": DEFAULT_REPOSITORY,
+                    "workflow_ref": (
+                        "kody-w/localFirstTools-main/.github/workflows/"
+                        "agent-fair-release.yml@refs/heads/main"
+                    ),
+                },
+                "variable_claims": {
+                    "actor": "nonempty-string",
+                    "attestation_sha256": "lowercase-sha256",
+                    "exp": "future-integer",
+                    "nbf": "not-future-integer-at-approval",
+                    "run_id": "decimal-string",
+                },
+            },
+            "assurance": "unsigned-structural-unverified",
+            "customer_approved": True,
+            "display_name": "Agent World's Fair",
+            "district_digest": heads["fair_district_digest"],
+            "event": FAIR_RELEASE_EVENT,
+            "event_id": "{}:{}:{}".format(
+                FAIR_RELEASE_EVENT,
+                heads["fair_bundle_digest"],
+                heads["fair_district_digest"],
+            ),
+            "fair_bundle_digest": heads["fair_bundle_digest"],
+            "fair_event_head": heads["fair_event_head"],
+            "organism": FAIR_DISTRICT_ID,
+            "organism_type": "agent-worlds-fair-district",
+            "release_candidate_digest": candidate_placeholder,
+            "schema": FAIR_RELEASE_FRAME_SCHEMA,
+            "visibility": "public-metadata",
+            "winner_submission_ids": copy.deepcopy(state["winners"]),
+        }
+
+    def _verified_fair_release_candidate(
+        self,
+        context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if type(context) is not dict:
+            raise ToolError("verified fair context is required")
+        candidate = self.source.read_json(
+            "apps/agent-fair/release-candidate.json"
+        )
+        if type(candidate) is not dict:
+            raise ToolError("fair release candidate must be an object")
+        expected = {
+            "app": "apps/3d-immersive/agent-worlds-fair.html",
+            "approval_required": True,
+            "bundle_digest": context["heads"]["fair_bundle_digest"],
+            "candidate_digest_domain": (
+                FAIR_RELEASE_CANDIDATE_HASH_DOMAIN.decode("ascii")
+            ),
+            "candidate_digest_preimage": (
+                "candidate digest domain bytes || canonical_bytes(candidate "
+                "with candidate_digest omitted)"
+            ),
+            "district_digest": context["heads"]["fair_district_digest"],
+            "district_id": FAIR_DISTRICT_ID,
+            "event_count": len(context["events"]),
+            "event_head": context["heads"]["fair_event_head"],
+            "expected_frame_payload": self._expected_fair_release_payload(
+                context
+            ),
+            "fair_id": FAIR_ID,
+            "schema": FAIR_RELEASE_CANDIDATE_SCHEMA,
+            "verifier": {
+                "command": FAIR_RELEASE_VERIFIER_COMMAND,
+                "version": FAIR_RELEASE_VERIFIER_VERSION,
+            },
+        }
+        expected["candidate_digest"] = _park_digest(
+            FAIR_RELEASE_CANDIDATE_HASH_DOMAIN,
+            expected,
+        )
+        submitted = copy.deepcopy(candidate)
+        claimed_digest = submitted.pop("candidate_digest", None)
+        if (
+            claimed_digest != _park_digest(
+                FAIR_RELEASE_CANDIDATE_HASH_DOMAIN,
+                submitted,
+            )
+            or candidate != expected
+        ):
+            raise ToolError(
+                "fair release candidate does not match the verified bundle"
+            )
+        return candidate
+
+    @staticmethod
+    def _verify_release_approval_evidence(
+        evidence: Any,
+        requirement: Dict[str, Any],
+    ) -> None:
+        exact_keys = requirement.get("exact_keys", [])
+        fixed_claims = requirement.get("fixed_claims", {})
+        if (
+            type(evidence) is not dict
+            or type(exact_keys) is not list
+            or set(evidence) != set(exact_keys)
+            or type(fixed_claims) is not dict
+            or any(
+                evidence.get(name) != value
+                for name, value in fixed_claims.items()
+            )
+            or type(evidence.get("actor")) is not str
+            or not evidence["actor"]
+            or evidence["actor"].strip() != evidence["actor"]
+            or type(evidence.get("run_id")) is not str
+            or not evidence["run_id"].isdigit()
+            or evidence["run_id"].startswith("0")
+            or type(evidence.get("exp")) is not int
+            or type(evidence.get("nbf")) is not int
+            or evidence["exp"] <= evidence["nbf"]
+            or not re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(evidence.get("attestation_sha256") or ""),
+            )
+            or evidence.get("attestation_sha256") == "0" * 64
+        ):
+            raise ToolError("fair release approval evidence is invalid")
+
+    def _verified_fair_release_frame(
+        self,
+        context: Dict[str, Any],
+        candidate: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        matches = [
+            frame
+            for frame in self._read_jsonl("apps/organism-frames.jsonl")
+            if frame.get("payload", {}).get("event") == FAIR_RELEASE_EVENT
+            and frame.get("payload", {}).get("release_candidate_digest")
+            == candidate["candidate_digest"]
+        ]
+        if len(matches) != 1:
+            raise ToolError(
+                "fair release evidence must contain one matching frame"
+            )
+        frame = matches[0]
+        expected_keys = {
+            "frame_hash",
+            "kind",
+            "payload",
+            "payload_hash",
+            "prev",
+            "prev_wave",
+            "seq",
+            "sig",
+            "spec",
+            "stream_id",
+            "utc",
+        }
+        if (
+            set(frame) != expected_keys
+            or frame.get("spec") != "rapp/1"
+            or frame.get("stream_id") != "net:rappterzoo"
+            or frame.get("kind") != "zoo.observation"
+            or type(frame.get("seq")) is not int
+            or frame.get("sig") is not None
+            or type(frame.get("payload")) is not dict
+        ):
+            raise ToolError("fair release frame structure is invalid")
+        payload = frame["payload"]
+        expected_payload = copy.deepcopy(candidate["expected_frame_payload"])
+        requirement = expected_payload["approval_evidence"]
+        expected_payload["approval_evidence"] = payload.get(
+            "approval_evidence"
+        )
+        expected_payload["release_candidate_digest"] = candidate[
+            "candidate_digest"
+        ]
+        self._verify_release_approval_evidence(
+            payload.get("approval_evidence"),
+            requirement,
+        )
+        try:
+            approved_at = int(
+                datetime.strptime(
+                    frame["utc"],
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                ).replace(tzinfo=timezone.utc).timestamp()
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ToolError("fair release frame UTC is invalid") from error
+        evidence = payload["approval_evidence"]
+        if not evidence["nbf"] <= approved_at < evidence["exp"]:
+            raise ToolError(
+                "fair release frame falls outside the OIDC approval window"
+            )
+        if payload != expected_payload:
+            raise ToolError("fair release frame conflicts with the candidate")
+        if frame.get("payload_hash") != _park_digest(
+            FRAME_PAYLOAD_HASH_DOMAIN,
+            payload,
+        ):
+            raise ToolError("fair release frame payload hash mismatch")
+        wave = {
+            key: value
+            for key, value in frame.items()
+            if key not in {"frame_hash", "sig"}
+        }
+        if frame.get("frame_hash") != _park_digest(
+            FRAME_HASH_DOMAIN,
+            wave,
+        ):
+            raise ToolError("fair release frame hash mismatch")
+        return frame
+
+    def _verified_fair_release_delta(
+        self,
+        context: Dict[str, Any],
+        release_frame: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        index = self.source.read_json("apps/syndication/index.json")
+        if (
+            type(index) is not dict
+            or index.get("profile") != SYNDICATION_PROFILE
+            or type(index.get("deltas")) is not list
+        ):
+            raise ToolError("syndication index is not profile 10")
+        expected_descriptor_hashes = {
+            "agent-contract": hashlib.sha256(self.source.read_bytes(
+                "apps/agent-fair/agent-contract.json"
+            )).hexdigest(),
+            "district": hashlib.sha256(self.source.read_bytes(
+                "apps/agent-fair/district.json"
+            )).hexdigest(),
+            "event-ledger": hashlib.sha256(self.source.read_bytes(
+                "apps/agent-fair/events.jsonl"
+            )).hexdigest(),
+            "state": hashlib.sha256(self.source.read_bytes(
+                "apps/agent-fair/fair-state.json"
+            )).hexdigest(),
+        }
+        entries = index["deltas"]
+        if (
+            not entries
+            or len(entries) > 10000
+            or index.get("delta_count") != len(entries)
+        ):
+            raise ToolError(
+                "syndication index has an invalid release verification bound"
+            )
+        previous_delta = None
+        for sequence, item in enumerate(entries):
+            if (
+                type(item) is not dict
+                or item.get("sequence") != sequence
+                or item.get("previous_delta") != previous_delta
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    str(item.get("sha256") or ""),
+                )
+                or item.get("path")
+                != "deltas/{}.json".format(item.get("sha256"))
+                or item.get("url")
+                != urllib.parse.urljoin(
+                    DEFAULT_BASE_URL,
+                    "apps/syndication/{}".format(item.get("path")),
+                )
+            ):
+                raise ToolError(
+                    "syndication index release ancestry is invalid"
+                )
+            previous_delta = item["sha256"]
+        if index.get("head") != {
+            key: entries[-1].get(key)
+            for key in ("path", "sequence", "sha256", "url")
+        }:
+            raise ToolError("syndication index head is invalid")
+        release_entries = [
+            entry
+            for entry in entries
+            if type(entry) is dict
+            and entry.get("sequence") == FAIR_RELEASE_DELTA_SEQUENCE
+        ]
+        if len(release_entries) != 1:
+            raise ToolError(
+                "profile-10 history lacks the pinned fair release delta"
+            )
+        entry = release_entries[0]
+        if entry.get("sha256") != FAIR_RELEASE_DELTA_SHA256:
+            raise ToolError("pinned fair release delta digest changed")
+        found = None
+        release_descriptors = None
+        for entry in release_entries:
+            if (
+                type(entry) is not dict
+                or entry.get("profile") != SYNDICATION_PROFILE
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    str(entry.get("sha256") or ""),
+                )
+                or entry.get("path")
+                != "deltas/{}.json".format(entry.get("sha256"))
+                or type(entry.get("size")) is not int
+            ):
+                continue
+            relative = "apps/syndication/{}".format(entry["path"])
+            raw = self.source.read_bytes(relative)
+            if (
+                len(raw) != entry["size"]
+                or hashlib.sha256(raw).hexdigest() != entry["sha256"]
+            ):
+                raise ToolError("fair release delta bytes do not match index")
+            try:
+                delta = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ToolError("fair release delta is invalid JSON") from error
+            if _canonical_bytes(delta) + b"\n" != raw:
+                raise ToolError("fair release delta is not canonical JSON")
+            changes = delta.get("changes", {})
+            if (
+                type(changes) is not dict
+                or type(changes.get("frame_appends")) is not list
+                or type(changes.get("data_upserts")) is not list
+                or type(changes.get("data_tombstones")) is not list
+            ):
+                raise ToolError("fair release delta changes are malformed")
+            frame_appends = changes["frame_appends"]
+            if not any(
+                frame.get("frame_hash") == release_frame["frame_hash"]
+                for frame in frame_appends
+                if type(frame) is dict
+            ):
+                continue
+            if (
+                delta.get("profile") != SYNDICATION_PROFILE
+                or delta.get("schema") != "rappterzoo-syndication-delta/1"
+                or delta.get("sequence") != entry["sequence"]
+                or delta.get("previous_delta") != entry["previous_delta"]
+                or frame_appends.count(release_frame) != 1
+                or sum(
+                    frame.get("payload", {}).get("event")
+                    == FAIR_RELEASE_EVENT
+                    for frame in frame_appends
+                    if type(frame) is dict
+                )
+                != 1
+            ):
+                raise ToolError("fair release frame is not atomic profile 10")
+            fair_upserts = [
+                descriptor
+                for descriptor in changes.get("data_upserts", [])
+                if type(descriptor) is dict
+                and descriptor.get("kind") == "agent-worlds-fair-object"
+            ]
+            resource_hashes = {
+                descriptor.get("metadata", {}).get("resource_type"):
+                descriptor.get("sha256")
+                for descriptor in fair_upserts
+                if type(descriptor.get("metadata")) is dict
+            }
+            fair_tombstones = [
+                tombstone
+                for tombstone in changes.get("data_tombstones", [])
+                if type(tombstone) is dict
+                and tombstone.get("descriptor", {}).get("kind")
+                == "agent-worlds-fair-object"
+            ]
+            if (
+                len(fair_upserts) != len(FAIR_RELEASE_RESOURCE_TYPES)
+                or set(resource_hashes) != FAIR_RELEASE_RESOURCE_TYPES
+                or resource_hashes != expected_descriptor_hashes
+                or fair_tombstones
+            ):
+                raise ToolError(
+                    "fair release delta lacks the four exact bundle resources"
+                )
+            release_descriptors = fair_upserts
+            found = (entry, delta)
+            break
+        if found is None:
+            raise ToolError(
+                "pinned profile-10 delta lacks the verified fair release"
+            )
+
+        snapshot_metadata = index.get("snapshot", {})
+        snapshot_raw = self.source.read_bytes(
+            "apps/syndication/snapshot.json"
+        )
+        if (
+            type(snapshot_metadata) is not dict
+            or snapshot_metadata.get("path") != "snapshot.json"
+            or snapshot_metadata.get("url")
+            != urllib.parse.urljoin(
+                DEFAULT_BASE_URL,
+                "apps/syndication/snapshot.json",
+            )
+            or snapshot_metadata.get("size") != len(snapshot_raw)
+            or snapshot_metadata.get("sha256")
+            != hashlib.sha256(snapshot_raw).hexdigest()
+        ):
+            raise ToolError("profile-10 snapshot does not match its index")
+        try:
+            snapshot = json.loads(snapshot_raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ToolError("profile-10 snapshot is invalid JSON") from error
+        if _canonical_bytes(snapshot) + b"\n" != snapshot_raw:
+            raise ToolError("profile-10 snapshot is not canonical JSON")
+        snapshot_objects = snapshot.get("data_objects", [])
+        snapshot_apps = snapshot.get("apps", [])
+        snapshot_frames = snapshot.get("frames", [])
+        snapshot_checkpoint = snapshot.get("checkpoint", {})
+        if (
+            type(snapshot_objects) is not list
+            or type(snapshot_apps) is not list
+            or type(snapshot_frames) is not list
+            or type(snapshot_checkpoint) is not dict
+        ):
+            raise ToolError("profile-10 snapshot structure is invalid")
+        fair_snapshot_objects = [
+            descriptor
+            for descriptor in snapshot_objects
+            if type(descriptor) is dict
+            and descriptor.get("kind") == "agent-worlds-fair-object"
+        ]
+        snapshot_hashes = {
+            descriptor.get("metadata", {}).get("resource_type"):
+            descriptor.get("sha256")
+            for descriptor in fair_snapshot_objects
+            if type(descriptor.get("metadata")) is dict
+        }
+        if (
+            snapshot.get("profile") != SYNDICATION_PROFILE
+            or snapshot.get("head") != index["head"]
+            or snapshot_checkpoint.get("delta_sha256")
+            != index["head"]["sha256"]
+            or snapshot_checkpoint.get("since_seq")
+            != index["head"]["sequence"]
+            or len(fair_snapshot_objects)
+            != len(FAIR_RELEASE_RESOURCE_TYPES)
+            or fair_snapshot_objects != release_descriptors
+            or snapshot_hashes != expected_descriptor_hashes
+            or sum(
+                frame == release_frame
+                for frame in snapshot_frames
+                if type(frame) is dict
+            )
+            != 1
+            or any(
+                descriptor.get("path")
+                == "apps/agent-fair/release-candidate.json"
+                for descriptor in snapshot_objects + snapshot_apps
+                if type(descriptor) is dict
+            )
+        ):
+            raise ToolError("profile-10 fair snapshot boundary is invalid")
+        return found
+
+    def _fair_release_state(
+        self,
+        context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if type(context) is not dict:
+            raise ToolError("verified fair context is required")
+        candidate = self._verified_fair_release_candidate(context)
+        release_frame = self._verified_fair_release_frame(
+            context,
+            candidate,
+        )
+        entry, delta = self._verified_fair_release_delta(
+            context,
+            release_frame,
+        )
+        payload = release_frame["payload"]
+        evidence = payload["approval_evidence"]
+        return {
+            "schema": "rappterzoo-agent-worlds-fair-release-state/1",
+            "fair_id": FAIR_ID,
+            "district_id": FAIR_DISTRICT_ID,
+            "status": "released",
+            "prepared_bundle_status": context["state"].get("status"),
+            "bundle": copy.deepcopy(context["heads"]),
+            "release_candidate": {
+                "uri": "rappterzoo://agent-fair-release-candidate",
+                "url": urllib.parse.urljoin(
+                    self.source.base_url,
+                    "apps/agent-fair/release-candidate.json",
+                ),
+                "candidate_digest": candidate["candidate_digest"],
+                "approval_required": candidate["approval_required"],
+                "verified": True,
+                "profile10_replica_included": False,
+            },
+            "release": {
+                "customer_approved": payload["customer_approved"],
+                "approval_basis": payload["approval_basis"],
+                "approval_evidence": {
+                    "attestation_sha256": evidence["attestation_sha256"],
+                    "iss": evidence["iss"],
+                    "repository": evidence["repository"],
+                    "run_id": evidence["run_id"],
+                    "workflow_ref": evidence["workflow_ref"],
+                },
+                "frame": {
+                    "seq": release_frame["seq"],
+                    "utc": release_frame["utc"],
+                    "frame_hash": release_frame["frame_hash"],
+                    "event_id": payload["event_id"],
+                },
+            },
+            "syndication": {
+                "profile": SYNDICATION_PROFILE,
+                "index": urllib.parse.urljoin(
+                    self.source.base_url,
+                    "apps/syndication/index.json",
+                ),
+                "release_delta": entry.get("url") or urllib.parse.urljoin(
+                    self.source.base_url,
+                    "apps/syndication/{}".format(entry["path"]),
+                ),
+                "release_delta_sequence": delta["sequence"],
+                "release_delta_sha256": entry["sha256"],
+                "atomic_resource_types": sorted(
+                    FAIR_RELEASE_RESOURCE_TYPES
+                ),
+            },
+            "authority": {
+                "canonical_mutation_by_mcp": False,
+                "release_evidence": (
+                    "customer-approved OIDC-bound organism frame plus "
+                    "atomic profile-10 delta"
+                ),
+                "structural_assurance": "unsigned-structural-unverified",
             },
         }
 
@@ -3443,9 +4127,18 @@ class RappterZooMCP:
         ).hexdigest()
         return "<!-- rappterzoo-mcp:{} -->".format(digest)
 
-    def _existing_issue(self, marker: str) -> Optional[str]:
+    def _existing_issue(
+        self,
+        marker: str,
+    ) -> Optional[Dict[str, str]]:
         if not self.writes_enabled or shutil.which("gh") is None:
             return None
+        match = re.fullmatch(
+            r"<!-- rappterzoo-mcp:([0-9a-f]{64}) -->",
+            marker,
+        )
+        if match is None:
+            raise ToolError("idempotency marker is malformed")
         result = self.runner(
             [
                 "gh",
@@ -3455,6 +4148,8 @@ class RappterZooMCP:
                 self.repository,
                 "--state",
                 "all",
+                "--search",
+                "{} in:body".format(match.group(1)),
                 "--limit",
                 "100",
                 "--json",
@@ -3472,9 +4167,22 @@ class RappterZooMCP:
             issues = json.loads(result.stdout)
         except json.JSONDecodeError as error:
             raise ToolError("gh returned invalid issue JSON") from error
+        if type(issues) is not list:
+            raise ToolError("gh returned invalid issue JSON")
         for issue in issues:
-            if marker in str(issue.get("body", "")):
-                return issue.get("url")
+            if (
+                type(issue) is dict
+                and marker in str(issue.get("body", ""))
+                and type(issue.get("url")) is str
+            ):
+                return {
+                    "body": str(issue.get("body", "")),
+                    "url": _https_url(
+                        issue["url"],
+                        "existing GitHub issue URL",
+                        allow_empty=False,
+                    ),
+                }
         return None
 
     def _contribute(
@@ -3486,7 +4194,27 @@ class RappterZooMCP:
         arguments: Dict[str, Any],
     ) -> Dict[str, Any]:
         marker = self._idempotency_marker(tool_name, arguments)
-        complete_body = marker + "\n\n" + body.rstrip() + "\n"
+        request_material = {
+            key: value
+            for key, value in arguments.items()
+            if key != "idempotency_key"
+        }
+        request_digest = _canonical_digest({
+            "repository": self.repository,
+            "tool": tool_name,
+            "arguments": request_material,
+        })
+        request_marker = (
+            "<!-- rappterzoo-mcp-request:{} -->".format(request_digest)
+        )
+        complete_body = (
+            marker
+            + "\n"
+            + request_marker
+            + "\n\n"
+            + body.rstrip()
+            + "\n"
+        )
         prepared = {
             "write_enabled": self.writes_enabled,
             "repository": self.repository,
@@ -3494,23 +4222,69 @@ class RappterZooMCP:
             "labels": labels,
             "body": complete_body,
             "idempotency_marker": marker,
+            "request_digest": request_digest,
             "effect": "github-issue-proposal-only",
             "canonical_mutation": False,
             "operator_approval_required": True,
             "real_money": False,
+            "write_window": {
+                "registration_limit": MAX_REGISTRATION_WRITES,
+                "contribution_limit": MAX_CONTRIBUTION_WRITES,
+            },
         }
         if not self.writes_enabled:
             prepared["status"] = "prepared-not-submitted"
             prepared["enable_with"] = "RAPPTERZOO_MCP_WRITES=1"
             return prepared
+        cached = self.submitted_idempotency.get(marker)
+        if cached is not None:
+            if cached["request_digest"] != request_digest:
+                raise ToolError(
+                    "idempotency_key was already used with different arguments"
+                )
+            prepared["status"] = "idempotent-replay"
+            prepared["url"] = cached["url"]
+            return prepared
+        if (
+            tool_name == "register_agent"
+            and self.registration_write_count >= MAX_REGISTRATION_WRITES
+        ):
+            raise ToolError(
+                "MCP registration limit reached for this write window"
+            )
+        if (
+            tool_name != "register_agent"
+            and self.contribution_write_count >= MAX_CONTRIBUTION_WRITES
+        ):
+            raise ToolError(
+                "MCP contribution limit reached for this write window"
+            )
         if self.write_count >= MAX_WRITE_COUNT:
             raise ToolError("MCP write limit reached for this server session")
         if shutil.which("gh") is None:
             raise ToolError("gh CLI is required for contribution writes")
         existing = self._existing_issue(marker)
         if existing:
+            prior_request = re.search(
+                r"<!-- rappterzoo-mcp-request:([0-9a-f]{64}) -->",
+                existing["body"],
+            )
+            if prior_request is None:
+                raise ToolError(
+                    "existing idempotency marker lacks request digest"
+                )
+            if (
+                prior_request.group(1) != request_digest
+            ):
+                raise ToolError(
+                    "idempotency_key was already used with different arguments"
+                )
+            self.submitted_idempotency[marker] = {
+                "request_digest": request_digest,
+                "url": existing["url"],
+            }
             prepared["status"] = "idempotent-replay"
-            prepared["url"] = existing
+            prepared["url"] = existing["url"]
             return prepared
         command = [
             "gh",
@@ -3535,9 +4309,22 @@ class RappterZooMCP:
             raise ToolError(
                 result.stderr.strip() or "GitHub issue creation failed"
             )
+        created_url = _https_url(
+            result.stdout.strip(),
+            "created GitHub issue URL",
+            allow_empty=False,
+        )
         self.write_count += 1
+        if tool_name == "register_agent":
+            self.registration_write_count += 1
+        else:
+            self.contribution_write_count += 1
         prepared["status"] = "submitted"
-        prepared["url"] = result.stdout.strip()
+        prepared["url"] = created_url
+        self.submitted_idempotency[marker] = {
+            "request_digest": request_digest,
+            "url": prepared["url"],
+        }
         return prepared
 
     def register_agent(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -3877,8 +4664,6 @@ class RappterZooMCP:
                 "experience_contract",
                 "resource_request",
                 "royalty_recipient",
-                "target_action_hash",
-                "reason",
             },
             "agent_park_export_branch": set(),
             "agent_fair_submit_attraction": {
@@ -4048,8 +4833,9 @@ class JSONRPCServer:
                         {
                             "name": "agent_worlds_fair_first_entry",
                             "description": (
-                                "Enter the verified Agent World's Fair, read "
-                                "its contract and district, submit at most one "
+                                "Enter the released Agent World's Fair, verify "
+                                "its contract, district, frame, and profile-10 "
+                                "delta, then submit at most one "
                                 "bounded attraction per agent, cast synthetic "
                                 "votes by submission digest, and export a "
                                 "customer-reviewed local proposal branch."
@@ -4072,9 +4858,12 @@ class JSONRPCServer:
                                     "rappterzoo://heartbeat. Verify the organism "
                                     "projection. Identify one evidence-backed gap. "
                                     "Keep writes disabled until operator approval. "
-                                    "Register with an idempotency key, make at most "
-                                    "one bounded contribution, then re-read the "
-                                    "affected resource before claiming success."
+                                    "A write-enabled server permits at most one "
+                                    "registration plus one contribution. Register "
+                                    "with an idempotency key, make at most one "
+                                    "bounded contribution with a different key, "
+                                    "then re-read the affected resource before "
+                                    "claiming success."
                                 ),
                             },
                         }],
@@ -4145,6 +4934,8 @@ class JSONRPCServer:
                                     "rappterzoo://agent-fair-state, "
                                     "rappterzoo://agent-fair-events, "
                                     "rappterzoo://agent-fair-district, "
+                                    "rappterzoo://agent-fair-release-candidate, "
+                                    "rappterzoo://agent-fair-release-state, "
                                     "rappterzoo://agent-worlds-fair, and "
                                     "rappterzoo://agent-fair-guide. Every fair "
                                     "tool and resource read fails closed unless "
@@ -4152,6 +4943,12 @@ class JSONRPCServer:
                                     "district bundle recomputes to the published "
                                     "event, district, bundle, park-anchor, and "
                                     "organism-anchor hashes. Use "
+                                    "release-state, not the prepared fair-state "
+                                    "status alone, to determine publication: the "
+                                    "candidate is approval input and is excluded "
+                                    "from the profile-10 replica; the verified "
+                                    "customer-approved frame and atomic four-object "
+                                    "delta establish release. Use "
                                     "agent_fair_submit_attraction for at most one "
                                     "attraction per agent ID with compute <= 32, "
                                     "energy <= 24, and attention <= 20. Declare "
@@ -4167,10 +4964,13 @@ class JSONRPCServer:
                                     "hashes. The MCP branch is in-memory and has "
                                     "a 50-action limit. MCP has no import tool. "
                                     "A browser import may replace only local "
-                                    "review state after verifying a browser-native "
-                                    "export. The current MCP export is not directly "
-                                    "browser-import compatible because the closed "
-                                    "envelopes and hash profiles differ. Neither "
+                                    "review state after verifying its browser-native "
+                                    "rappterzoo-agent-fair-branch-export/1 export. "
+                                    "The MCP export is not directly browser-import "
+                                    "compatible because the closed envelopes and "
+                                    "hash profiles differ despite the shared "
+                                    "historical schema identifier. "
+                                    "Neither "
                                     "path assembles canon. Canonical assembly is "
                                     "project-scoped, customer-reviewed, and "
                                     "requires a separate explicit approval."

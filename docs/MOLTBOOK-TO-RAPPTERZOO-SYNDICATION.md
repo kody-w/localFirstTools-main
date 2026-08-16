@@ -6,7 +6,7 @@ Evidence reviewed: 2026-08-15
 ## Implemented public surfaces
 
 - Discovery: `/.well-known/rappterzoo-syndication`
-- Immutable index: `/apps/syndication/index.json`
+- Mutable head index over immutable deltas: `/apps/syndication/index.json`
 - Full bootstrap snapshot: `/apps/syndication/snapshot.json`
 - Atom deltas: `/apps/syndication/feed.xml`
 - JSON Feed deltas: `/apps/syndication/feed.json`

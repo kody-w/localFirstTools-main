@@ -83,10 +83,11 @@ TEST_RSA_E = 65537
 TEST_RSA_KID = "agent-fair-test-key"
 
 
-def _rehash_events(events):
+def _rehash_events(events, reset_sequence=True):
     previous = None
     for index, event in enumerate(events):
-        event["seq"] = index
+        if reset_sequence:
+            event["seq"] = index
         event["prev"] = previous
         event["payload_hash"] = fair._canonical_digest(
             fair.PAYLOAD_HASH_DOMAIN,
@@ -276,6 +277,35 @@ def test_contract_bounds_mcp_mapping_and_customer_boundary():
     }
 
 
+def test_screening_rejects_malformed_and_undeclared_proposal_fields():
+    malformed = fair._screen_submissions(["not-a-json-object"])
+    assert malformed["accepted_submission_ids"] == []
+    assert malformed["results"] == [
+        {
+            "accepted": False,
+            "reasons": ["submission-object-required"],
+            "submission_id": None,
+        }
+    ]
+
+    submission = copy.deepcopy(fair._submissions()[0])
+    attraction = submission["attractions"][0]
+    attraction["novelty"] = "maximal"
+    attraction["resource_request"]["real_money"] = 1
+    projected = copy.deepcopy(submission)
+    projected.pop("submission_digest")
+    submission["submission_digest"] = fair._canonical_digest(
+        fair.SUBMISSION_HASH_DOMAIN,
+        projected,
+    )
+    screened = fair._screen_submissions([submission])
+    assert screened["accepted_submission_ids"] == []
+    assert screened["results"][0]["reasons"] == [
+        "attraction-novelty-range",
+        "resource-key-set",
+    ]
+
+
 def test_deterministic_votes_and_integer_basis_point_scoring():
     state, events, _contract, _district = fair.build_bundle(ROOT)
     voting_events = [
@@ -317,6 +347,37 @@ def test_deterministic_votes_and_integer_basis_point_scoring():
     rebuilt = fair.build_bundle(ROOT)
     assert rebuilt[0]["voting"] == state["voting"]
     assert rebuilt[0]["rankings"] == state["rankings"]
+
+
+def test_true_score_tie_and_budget_remainder_are_deterministic():
+    allocations = fair._allocate_budget(421, [{}, {}, {}, {}])
+    assert allocations == [169, 126, 84, 42]
+    assert sum(allocations) == 421
+
+    submissions = []
+    for suffix in ("zeta", "alpha"):
+        submission = copy.deepcopy(fair._submissions()[0])
+        submission["submission_id"] = "submission.{}".format(suffix)
+        submission["agent"]["identity_id"] = "agent.{}".format(suffix)
+        submission["attractions"][0]["id"] = "attraction.{}".format(suffix)
+        submissions.append(submission)
+    totals = {
+        submission["submission_id"]: {
+            "admissions": 100,
+            "satisfaction_points": 9000,
+        }
+        for submission in submissions
+    }
+    rankings = fair._evaluate(
+        submissions,
+        [{"attraction_totals": totals}],
+    )
+    assert [ranking["submission_id"] for ranking in rankings] == [
+        "submission.alpha",
+        "submission.zeta",
+    ]
+    assert rankings[0]["score_bps"] == rankings[1]["score_bps"]
+    assert rankings[0]["admissions"] == rankings[1]["admissions"]
 
 
 def test_constrained_selection_skips_higher_ranked_proposals():
@@ -426,6 +487,21 @@ def test_event_chain_exact_keys_hashes_and_strict_utc():
     assert all("sig" not in event and "signature" not in event for event in events)
 
 
+def test_event_sequence_rejects_boolean_alias_after_resealing():
+    _state, events, _contract, _district = fair.build_bundle(ROOT)
+    events[1]["seq"] = True
+    _rehash_events(events, reset_sequence=False)
+    with pytest.raises(fair.FairError, match="metadata mismatch"):
+        fair.verify_events(events)
+
+
+def test_strict_json_loader_rejects_duplicate_keys(scratch_dir):
+    path = scratch_dir / "duplicate.json"
+    path.write_bytes(b'{"same":1,"same":1}')
+    with pytest.raises(fair.FairError, match="duplicate JSON keys"):
+        fair._load_json(path)
+
+
 def test_bundle_contract_district_and_file_digests_are_exact():
     state, events, contract, district = fair.build_bundle(ROOT)
     assert state["integrity"]["bundle_digest"] == EXPECTED_BUNDLE_DIGEST
@@ -494,6 +570,51 @@ def test_verifier_rejects_event_mutation_and_resealed_vote_mutation():
             resealed,
             rebound_contract,
             rebound_district,
+            ROOT,
+        )
+
+
+def test_verifier_rejects_resealed_event_flow_and_submission_shape():
+    state, events, contract, district = fair.build_bundle(ROOT)
+    wrong_flow = copy.deepcopy(events)
+    wrong_flow[14]["kind"] = "fair.unexpected-screening"
+    _rehash_events(wrong_flow)
+    wrong_flow_state = copy.deepcopy(state)
+    wrong_flow_contract = copy.deepcopy(contract)
+    wrong_flow_district = copy.deepcopy(district)
+    _rebind_bundle(
+        wrong_flow_state,
+        wrong_flow,
+        wrong_flow_contract,
+        wrong_flow_district,
+    )
+    with pytest.raises(fair.FairError, match="event kind flow"):
+        fair.verify_bundle(
+            wrong_flow_state,
+            wrong_flow,
+            wrong_flow_contract,
+            wrong_flow_district,
+            ROOT,
+        )
+
+    malformed = copy.deepcopy(events)
+    malformed[2]["payload"] = {"submission": "not-an-object"}
+    _rehash_events(malformed)
+    malformed_state = copy.deepcopy(state)
+    malformed_contract = copy.deepcopy(contract)
+    malformed_district = copy.deepcopy(district)
+    _rebind_bundle(
+        malformed_state,
+        malformed,
+        malformed_contract,
+        malformed_district,
+    )
+    with pytest.raises(fair.FairError, match="payload is malformed"):
+        fair.verify_bundle(
+            malformed_state,
+            malformed,
+            malformed_contract,
+            malformed_district,
             ROOT,
         )
 
@@ -669,6 +790,26 @@ def _base64url(value):
 def _base64url_integer(value):
     size = (value.bit_length() + 7) // 8
     return _base64url(value.to_bytes(size, "big"))
+
+
+def _noncanonical_base64url_alias(value):
+    alphabet = (
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789-_"
+    )
+    padding = "=" * ((4 - len(value) % 4) % 4)
+    decoded = base64.urlsafe_b64decode(value + padding)
+    for character in alphabet:
+        candidate = value[:-1] + character
+        if candidate == value:
+            continue
+        candidate_padding = "=" * ((4 - len(candidate) % 4) % 4)
+        if base64.urlsafe_b64decode(
+            candidate + candidate_padding
+        ) == decoded:
+            return candidate
+    raise AssertionError("test value has no noncanonical base64url alias")
 
 
 def _valid_oidc_claims(now=None, **updates):
@@ -899,6 +1040,22 @@ def test_release_candidate_is_deterministic_and_exactly_bound(scratch_dir):
     )
 
 
+def test_release_candidate_rejects_duplicate_manifest_registration(
+    scratch_dir,
+):
+    root = _prepared_release_root(scratch_dir)
+    manifest_path = root / "apps" / "manifest.json"
+    manifest = fair._load_json(manifest_path)
+    registration = fair._manifest_registration(manifest)
+    manifest["categories"]["3d_immersive"]["apps"].append(registration)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(fair.FairError, match="registered exactly once"):
+        fair.verify_release_candidate_file(root)
+
+
 def test_release_workflow_uses_oidc_branch_and_pull_request_only():
     source = Path(fair.__file__).read_text(encoding="utf-8")
     text = (
@@ -1006,6 +1163,48 @@ def test_public_oidc_verifier_is_deterministic_and_network_free():
     }
 
 
+def test_oidc_rejects_noncanonical_base64url_signature_alias():
+    now = 2_000_000_000
+    token = _signed_jwt(_valid_oidc_claims(now=now))
+    first, second, signature = token.split(".")
+    alias = _noncanonical_base64url_alias(signature)
+    padding = "=" * ((4 - len(signature) % 4) % 4)
+    alias_padding = "=" * ((4 - len(alias) % 4) % 4)
+    assert base64.urlsafe_b64decode(signature + padding) == (
+        base64.urlsafe_b64decode(alias + alias_padding)
+    )
+    with pytest.raises(fair.FairError, match="canonical base64url"):
+        fair.verify_github_oidc_token(
+            "{}.{}.{}".format(first, second, alias),
+            _test_jwks(),
+            now,
+        )
+
+
+def test_oidc_rejects_non_json_numeric_constants():
+    now = 2_000_000_000
+    claims = _valid_oidc_claims(
+        now=now,
+        non_json_number=float("nan"),
+    )
+    with pytest.raises(fair.FairError, match="non-finite JSON number"):
+        fair.verify_github_oidc_token(
+            _signed_jwt(claims),
+            _test_jwks(),
+            now,
+        )
+
+
+def test_oidc_rejects_nonobject_jwks_and_boolean_time_alias():
+    token = _signed_jwt(
+        _valid_oidc_claims(now=1, nbf=0, exp=2)
+    )
+    with pytest.raises(fair.FairError, match="JWKS"):
+        fair.verify_github_oidc_token(token, [], 1)
+    with pytest.raises(fair.FairError, match="time must be an integer"):
+        fair.verify_github_oidc_token(token, _test_jwks(), True)
+
+
 @pytest.mark.parametrize(
     ("token", "jwks", "message"),
     [
@@ -1060,6 +1259,7 @@ def test_oidc_rejects_forged_jwt_header_kid_and_signature(
         ("environment", "unprotected", "environment"),
         ("actor", "", "actor/run_id"),
         ("run_id", "run-123", "actor/run_id"),
+        ("run_id", "0123", "actor/run_id"),
         ("exp", None, "exp/nbf"),
         ("nbf", None, "exp/nbf"),
     ],
@@ -1155,6 +1355,28 @@ def test_valid_oidc_apply_records_bounded_evidence(
     assert len(calls) == 2
     assert "canonical_write" not in frame["payload"]
     assert "direct_canonical_write" not in frame["payload"]
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"attestation_sha256": "0" * 64}, "attestation digest"),
+        ({"run_id": "0123"}, "variable claims"),
+    ],
+)
+def test_release_frame_rejects_noncanonical_approval_evidence(
+    updates,
+    message,
+):
+    state, events, _contract, district = fair.build_bundle(ROOT)
+    candidate = fair.build_release_candidate(state, events, district)
+    evidence = {
+        **_valid_oidc_claims(now=2_000_000_000),
+        "attestation_sha256": "a" * 64,
+    }
+    evidence.update(updates)
+    with pytest.raises(fair.FairError, match=message):
+        fair._render_release_frame_payload(candidate, evidence)
 
 
 def test_valid_oidc_apply_release_is_idempotent(

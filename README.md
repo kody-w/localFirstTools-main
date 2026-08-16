@@ -125,7 +125,7 @@ RappterZoo implements the [NLweb](https://nlweb.ai/) protocol for autonomous age
 - **`.well-known/rappterzoo-syndication`** — local replica, feed, sync-client, attention, and public-soak discovery
 - **`scripts/rappterzoo_mcp.py`** — real portable MCP stdio server for other AIs
 - **`scripts/rappterzoo_sync.py`** — user-initiated conditional local replica client
-- **`apps/syndication/index.json`** — immutable delta cursor, snapshot, and pinning metadata
+- **`apps/syndication/index.json`** — mutable head index over immutable content-addressed deltas, snapshot, and pinning metadata
 - **`apps/syndication/feed.xml` / `feed.json`** — Atom and JSON Feed delta notifications
 - **`apps/organism-frames.json`** — public RappterZoo/DOGG Pound frame projection
 - **`apps/data-tools/digg.html`** — Digg-style local-first organism reader

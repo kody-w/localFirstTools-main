@@ -2916,6 +2916,7 @@ def _validate_agent_fair_release_frame(
         or evidence["actor"].strip() != evidence["actor"]
         or type(evidence.get("run_id")) is not str
         or not evidence["run_id"].isdigit()
+        or evidence["run_id"].startswith("0")
         or type(evidence.get("exp")) is not int
         or type(evidence.get("nbf")) is not int
         or evidence["exp"] <= evidence["nbf"]
