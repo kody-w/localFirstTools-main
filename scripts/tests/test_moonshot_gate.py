@@ -813,6 +813,11 @@ def test_expanded_sync_safety_mutations_turn_red(mutation):
         if mutation == "tamper-accept":
             _replace(
                 path,
+                'if len(data) != entry["size"]:',
+                "if False:",
+            )
+            _replace(
+                path,
                 'if sha256_bytes(data) != entry["sha256"]:',
                 "if False:",
             )

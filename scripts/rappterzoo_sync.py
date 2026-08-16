@@ -2,6 +2,7 @@
 """User-initiated local-first client for RappterZoo syndicated deltas."""
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -11,12 +12,19 @@ import sqlite3
 import sys
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
+    import msvcrt
 
 
 DEFAULT_INDEX_URL = (
@@ -41,6 +49,68 @@ PROFILE = "rappterzoo-syndication-profile/10"
 AGENT_PARK_PAYLOAD_SPACE = "rappterzoo/agent-park-payload/1"
 AGENT_PARK_EVENT_SPACE = "rappterzoo/agent-park-event/1"
 AGENT_PARK_EVENT_SCHEMA = "rappterzoo-agent-park-event/1"
+AGENT_PARK_PAYLOAD_SPACE_V2 = "rappterzoo/agent-park-payload/2"
+AGENT_PARK_EVENT_SPACE_V2 = "rappterzoo/agent-park-event/2"
+AGENT_PARK_EVENT_SCHEMA_V2 = "rappterzoo-agent-park-event/2"
+AGENT_PARK_CONTRACT_V1_SCHEMA = "rappterzoo-agent-park-contract/1"
+AGENT_PARK_CONTRACT_V2_SCHEMA = "rappterzoo-agent-park-contract/2"
+AGENT_PARK_CONTRACT_V2_HASH_SPACE = "rappterzoo/agent-park-contract/2"
+AGENT_PARK_STATE_V2_HASH_SPACE = "rappterzoo/agent-park-state/2"
+AGENT_PARK_BUNDLE_V2_HASH_SPACE = "rappterzoo/agent-park-bundle/2"
+AGENT_PARK_SEASON1_EVENT_COUNT = 47
+AGENT_PARK_SEASON1_PREFIX_SHA256 = (
+    "fe725c0a2f1c39e47dcaf987e168274b5a0d1d8c30713af4d6c413ed47787a30"
+)
+AGENT_PARK_SEASON1_HEAD = (
+    "30acf1e7676d475f5a4a0ef0c69e124136e95c4e7ab486995bc10eed3315c352"
+)
+AGENT_PARK_V2_ACTION_LIMIT = {
+    "canonical_writes_per_session": 0,
+    "first_visit_recommended_local_actions": 1,
+    "max_local_actions_per_mcp_session": 100,
+    "max_resource_units_per_field": 10000,
+    "max_synthetic_bid": 1000000,
+}
+AGENT_PARK_V2_MCP_MAPPING = {
+    "protocol_version": "2024-11-05",
+    "resource_uris": {
+        "contract": "rappterzoo://agent-park-contract",
+        "events": "rappterzoo://agent-park-events",
+        "guide": "rappterzoo://agent-park-guide",
+        "state": "rappterzoo://agent-park-state",
+    },
+    "tools": {
+        "bid_for_resources": "agent_park_local_action",
+        "export_branch": "agent_park_export_branch",
+        "invent_attraction": "agent_park_local_action",
+        "time_travel": "agent_park_time_travel",
+        "visit": "agent_park_local_action",
+    },
+}
+AGENT_PARK_V2_HASH_DOMAINS = {
+    "bundle_v2": AGENT_PARK_BUNDLE_V2_HASH_SPACE + "\n",
+    "contract_v2": AGENT_PARK_CONTRACT_V2_HASH_SPACE + "\n",
+    "event_v1": AGENT_PARK_EVENT_SPACE + "\n",
+    "event_v2": AGENT_PARK_EVENT_SPACE_V2 + "\n",
+    "full_export_v2": "rappterzoo/agent-park-full-export/2\n",
+    "invention_v2": "rappterzoo/agent-park-invention/2\n",
+    "payload_v1": AGENT_PARK_PAYLOAD_SPACE + "\n",
+    "payload_v2": AGENT_PARK_PAYLOAD_SPACE_V2 + "\n",
+    "state_v2": AGENT_PARK_STATE_V2_HASH_SPACE + "\n",
+}
+AGENT_PARK_V2_CANONICAL_JSON = {
+    "arrays": "preserve-input-order",
+    "booleans_and_null": "lowercase-json-literals",
+    "encoding": "utf-8",
+    "floats": "forbidden",
+    "integers": "I-JSON-safe-base-10",
+    "max_canonical_bytes": 1048576,
+    "name": "restricted-rfc8785-compatible-profile",
+    "object_keys": "ASCII-only-NFC-lexicographic",
+    "separators": [",", ":"],
+    "strings": "NFC-normalized",
+    "trailing_newline": False,
+}
 AGENT_PARK_EVENT_KEYS = {
     "event_hash",
     "kind",
@@ -53,11 +123,16 @@ AGENT_PARK_EVENT_KEYS = {
     "utc",
     "visibility",
 }
+AGENT_PARK_EVENT_V2_KEYS = AGENT_PARK_EVENT_KEYS | {
+    "season",
+    "season_seq",
+}
 FRAME_SCHEMA = "rappterzoo-organism-frame/1"
 MAX_INDEX_BYTES = 8 * 1024 * 1024
 MAX_DELTA_BYTES = 16 * 1024 * 1024
 MAX_APP_BYTES = 32 * 1024 * 1024
 MAX_PUBLIC_DATA_BYTES = 4 * 1024 * 1024
+MAX_PUBLIC_DATA_DEPTH = 64
 SAFE_FALSE_PUBLIC_POLICY_KEYS = {
     "privatemediainpublicledger",
     "pulsepersisted",
@@ -221,7 +296,11 @@ def load_json_bytes(data: bytes, label: str) -> Any:
         )
     except SyncError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
         raise SyncError("invalid JSON in {}".format(label)) from error
 
 
@@ -234,7 +313,7 @@ def stable_json_bytes(value: Any) -> bytes:
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8") + b"\n"
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, RecursionError) as error:
         raise SyncError("value is not deterministic JSON") from error
 
 
@@ -443,6 +522,15 @@ def frame_hash_value(space: str, value: Any) -> str:
     ).hexdigest()
 
 
+def agent_park_event_ledger_bytes(
+    events: Sequence[Dict[str, Any]],
+) -> bytes:
+    return b"".join(
+        canonical_frame_bytes(event) + b"\n"
+        for event in events
+    )
+
+
 def validate_agent_park_event_ledger(
     events: Any,
 ) -> List[Dict[str, Any]]:
@@ -450,27 +538,83 @@ def validate_agent_park_event_ledger(
         raise SyncError("agent park event ledger must be non-empty")
     previous = None
     for index, event in enumerate(events):
-        if type(event) is not dict or set(event) != AGENT_PARK_EVENT_KEYS:
+        expected_keys = (
+            AGENT_PARK_EVENT_KEYS
+            if index < AGENT_PARK_SEASON1_EVENT_COUNT
+            else AGENT_PARK_EVENT_V2_KEYS
+        )
+        if type(event) is not dict or set(event) != expected_keys:
             raise SyncError(
                 "agent park event {} has an invalid key set".format(index)
             )
+        expected_schema = (
+            AGENT_PARK_EVENT_SCHEMA
+            if index < AGENT_PARK_SEASON1_EVENT_COUNT
+            else AGENT_PARK_EVENT_SCHEMA_V2
+        )
         if (
-            event["schema"] != AGENT_PARK_EVENT_SCHEMA
+            event["schema"] != expected_schema
             or event["park_id"]
             != "park.rappterzoo-agent-amusement-park"
             or event["visibility"] != "public-metadata"
+            or type(event["kind"]) is not str
+            or not KIND_RE.fullmatch(event["kind"])
+            or type(event["seq"]) is not int
             or event["seq"] != index
+            or (
+                expected_schema == AGENT_PARK_EVENT_SCHEMA_V2
+                and (
+                    event["season"] != 2
+                    or event["season_seq"]
+                    != index - AGENT_PARK_SEASON1_EVENT_COUNT
+                )
+            )
+            or type(event["utc"]) is not str
+            or not UTC_RE.fullmatch(event["utc"])
             or type(event["payload"]) is not dict
+            or type(event["payload_hash"]) is not str
+            or not HASH_RE.fullmatch(event["payload_hash"])
+            or type(event["event_hash"]) is not str
+            or not HASH_RE.fullmatch(event["event_hash"])
+            or (
+                event["prev"] is not None
+                and (
+                    type(event["prev"]) is not str
+                    or not HASH_RE.fullmatch(event["prev"])
+                )
+            )
         ):
             raise SyncError("invalid agent park event ledger")
+        try:
+            datetime.strptime(
+                event["utc"],
+                "%Y-%m-%dT%H:%M:%S.%fZ",
+            )
+        except ValueError as error:
+            raise SyncError(
+                "invalid agent park event timestamp"
+            ) from error
+        _normalize_frame_json(event["payload"])
         if event["prev"] != (
             previous["event_hash"] if previous else None
         ):
             raise SyncError("agent park event chain is broken")
-        if previous is not None and event["utc"] < previous["utc"]:
-            raise SyncError("agent park event timestamps are not monotonic")
+        if previous is not None and event["utc"] <= previous["utc"]:
+            raise SyncError(
+                "agent park event timestamps are not strictly increasing"
+            )
+        payload_space = (
+            AGENT_PARK_PAYLOAD_SPACE
+            if expected_schema == AGENT_PARK_EVENT_SCHEMA
+            else AGENT_PARK_PAYLOAD_SPACE_V2
+        )
+        event_space = (
+            AGENT_PARK_EVENT_SPACE
+            if expected_schema == AGENT_PARK_EVENT_SCHEMA
+            else AGENT_PARK_EVENT_SPACE_V2
+        )
         if event["payload_hash"] != frame_hash_value(
-            AGENT_PARK_PAYLOAD_SPACE,
+            payload_space,
             event["payload"],
         ):
             raise SyncError("agent park payload hash mismatch")
@@ -480,11 +624,22 @@ def validate_agent_park_event_ledger(
             if key != "event_hash"
         }
         if event["event_hash"] != frame_hash_value(
-            AGENT_PARK_EVENT_SPACE,
+            event_space,
             projected,
         ):
             raise SyncError("agent park event hash mismatch")
         previous = event
+    if len(events) < AGENT_PARK_SEASON1_EVENT_COUNT:
+        raise SyncError(
+            "agent park ledger does not preserve the 47-event Season 1 prefix"
+        )
+    season1_bytes = agent_park_event_ledger_bytes(
+        events[:AGENT_PARK_SEASON1_EVENT_COUNT]
+    )
+    if sha256_bytes(season1_bytes) != AGENT_PARK_SEASON1_PREFIX_SHA256:
+        raise SyncError(
+            "agent park ledger rewrites the exact 47-event Season 1 prefix"
+        )
     return events
 
 
@@ -500,6 +655,10 @@ def _find_forbidden_key(value: Any) -> Optional[str]:
     if type(value) is dict:
         for key, item in value.items():
             token = _privacy_key_token(key)
+            if token in SAFE_FALSE_PUBLIC_POLICY_KEYS:
+                if item is not False:
+                    return key
+                continue
             safe_policy_declaration = (
                 token == "token"
                 and (
@@ -742,8 +901,8 @@ def validate_tombstone(
 
 def _data_key_is_sensitive(key: str, value: Any) -> bool:
     token = _privacy_key_token(key)
-    if token in SAFE_FALSE_PUBLIC_POLICY_KEYS and value is False:
-        return False
+    if token in SAFE_FALSE_PUBLIC_POLICY_KEYS:
+        return value is not False
     if token == "token" and (
         value is False
         or (
@@ -775,10 +934,21 @@ def _data_key_is_sensitive(key: str, value: Any) -> bool:
 def validate_public_data_value(
     value: Any,
     comment_context: bool = False,
+    depth: int = 1,
 ) -> None:
+    if depth > MAX_PUBLIC_DATA_DEPTH:
+        raise SyncError(
+            "public data JSON nesting exceeds {} levels".format(
+                MAX_PUBLIC_DATA_DEPTH
+            )
+        )
     if isinstance(value, list):
         for item in value:
-            validate_public_data_value(item, comment_context)
+            validate_public_data_value(
+                item,
+                comment_context,
+                depth + 1,
+            )
         return
     if type(value) is not dict:
         return
@@ -837,7 +1007,27 @@ def validate_public_data_value(
             item,
             local_comment_context
             or "comment" in _privacy_key_token(key),
+            depth + 1,
         )
+
+
+def _validate_public_data_nesting(value: Any) -> None:
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > MAX_PUBLIC_DATA_DEPTH:
+            raise SyncError(
+                "public data JSON nesting exceeds {} levels".format(
+                    MAX_PUBLIC_DATA_DEPTH
+                )
+            )
+        if isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+        elif type(item) is dict:
+            pending.extend(
+                (child, depth + 1)
+                for child in item.values()
+            )
 
 
 def _contains_rejected_candidate(value: Any) -> bool:
@@ -863,6 +1053,7 @@ def validate_public_data_bytes(data: bytes, media_type: str) -> Any:
         raise SyncError("public data object exceeds four MiB")
     if media_type == "application/json":
         value = load_json_bytes(data, "public attention data")
+        _validate_public_data_nesting(value)
         if _contains_rejected_candidate(value):
             raise SyncError("rejected shard candidate is not consumable")
         validate_public_data_value(value)
@@ -881,6 +1072,7 @@ def validate_public_data_bytes(data: bytes, media_type: str) -> Any:
             line,
             "public attention data line {}".format(line_number),
         )
+        _validate_public_data_nesting(item)
         if _contains_rejected_candidate(item):
             raise SyncError("rejected shard candidate is not consumable")
         validate_public_data_value(item)
@@ -947,6 +1139,201 @@ def validate_shard_object_bytes(
             raise SyncError("shard object is not an accepted main append")
 
 
+def _validate_agent_park_v2_hashing(value: Any) -> None:
+    expected_preimages = {
+        "branch_digest": {
+            "bytes": [
+                "mcp_local_branch_json({export_schema,park_id,"
+                "canonical_write,canonical_event_head,"
+                "canonical_organism_head,action_limit,actions,authority})"
+            ],
+            "digest": "sha256",
+            "domain_prefix": False,
+        },
+        "bundle_digest": {
+            "bytes": [
+                "utf8(hash_domains.bundle_v2)",
+                "canonical_json({contract_digest,event_count,event_head,"
+                "event_ledger_sha256,state_digest})",
+            ],
+            "digest": "sha256",
+        },
+        "contract_digest": {
+            "bytes": [
+                "utf8(hash_domains.contract_v2)",
+                "canonical_json(contract excluding integrity.contract_digest "
+                "and integrity.bundle_digest)",
+            ],
+            "digest": "sha256",
+        },
+        "event_hash": {
+            "bytes": [
+                "utf8(hash_domains.event_v1 or event_v2 by schema)",
+                "canonical_json(event excluding event_hash)",
+            ],
+            "digest": "sha256",
+        },
+        "event_ledger_sha256": {
+            "bytes": [
+                "for each event in seq order: canonical_json(event)",
+                "single LF byte after every event including the last",
+            ],
+            "digest": "sha256",
+            "domain_prefix": False,
+        },
+        "full_export_content_digest": {
+            "bytes": [
+                "utf8(hash_domains.full_export_v2)",
+                "canonical_json({export_schema,park_id,canonical_write,"
+                "park_events,organism_frames,state,contract,bundle,"
+                "authority})",
+            ],
+            "digest": "sha256",
+        },
+        "invention_design_digest": {
+            "bytes": [
+                "utf8(hash_domains.invention_v2)",
+                "canonical_json({attraction,provenance excluding "
+                "design_digest})",
+            ],
+            "digest": "sha256",
+        },
+        "local_action_hash": {
+            "bytes": [
+                "mcp_local_branch_json({schema,seq,kind,prev,source,"
+                "source_hash,payload,payload_hash,canonical_write})"
+            ],
+            "digest": "sha256",
+            "domain_prefix": False,
+        },
+        "local_action_payload_hash": {
+            "bytes": ["mcp_local_branch_json(action.payload)"],
+            "digest": "sha256",
+            "domain_prefix": False,
+        },
+        "local_action_source_hash": {
+            "organism": (
+                "copy the selected canonical organism frame's frame_hash"
+            ),
+            "park": "copy the selected canonical park event's event_hash",
+            "rehash": False,
+        },
+        "payload_hash": {
+            "bytes": [
+                "utf8(hash_domains.payload_v1 or payload_v2 by schema)",
+                "canonical_json(event.payload)",
+            ],
+            "digest": "sha256",
+        },
+        "state_digest": {
+            "bytes": [
+                "utf8(hash_domains.state_v2)",
+                "canonical_json(state excluding integrity.state_digest and "
+                "integrity.bundle_digest)",
+            ],
+            "digest": "sha256",
+        },
+    }
+    if (
+        type(value) is not dict
+        or set(value) != {
+            "canonical_json",
+            "hash_domains",
+            "mcp_local_branch_json",
+            "preimages",
+        }
+        or value.get("canonical_json") != AGENT_PARK_V2_CANONICAL_JSON
+        or value.get("hash_domains") != AGENT_PARK_V2_HASH_DOMAINS
+        or value.get("mcp_local_branch_json") != {
+            "encoding": "utf-8",
+            "ensure_ascii": False,
+            "object_keys": "lexicographic",
+            "separators": [",", ":"],
+            "trailing_newline": False,
+        }
+        or value.get("preimages") != expected_preimages
+    ):
+        raise SyncError(
+            "invalid agent amusement park contract v2 hash spec"
+        )
+
+
+def _validate_agent_park_v2_contract(value: Any) -> None:
+    if type(value) is not dict:
+        raise SyncError("agent amusement park contract v2 must be an object")
+    integrity = value.get("integrity")
+    economy = value.get("economy")
+    controls = value.get("control_boundary")
+    action_limit = value.get("action_limit")
+    mcp_mapping = value.get("mcp_mapping")
+    legacy = value.get("legacy_contract")
+    resources = value.get("resources")
+    seasons = value.get("seasons")
+    _validate_agent_park_v2_hashing(
+        value.get("canonicalization_and_hashing")
+    )
+    season1 = seasons.get("season_1") if type(seasons) is dict else None
+    season2 = seasons.get("season_2") if type(seasons) is dict else None
+    if (
+        value.get("schema") != AGENT_PARK_CONTRACT_V2_SCHEMA
+        or value.get("visibility") != "public-metadata"
+        or value.get("park_id")
+        != "park.rappterzoo-agent-amusement-park"
+        or action_limit != AGENT_PARK_V2_ACTION_LIMIT
+        or mcp_mapping != AGENT_PARK_V2_MCP_MAPPING
+        or type(legacy) is not dict
+        or legacy.get("immutable") is not True
+        or legacy.get("path") != "agent-contract.json"
+        or legacy.get("schema") != AGENT_PARK_CONTRACT_V1_SCHEMA
+        or type(legacy.get("sha256")) is not str
+        or not HASH_RE.fullmatch(legacy["sha256"])
+        or resources != {
+            "contract_v1": "agent-contract.json",
+            "contract_v2": "agent-contract-v2.json",
+            "event_ledger": "events.jsonl",
+            "organism_time_travel": "../organism-frames.jsonl",
+            "state_projection": "park-state.json",
+        }
+        or type(seasons) is not dict
+        or set(seasons) != {"latest", "season_1", "season_2"}
+        or seasons.get("latest") != 2
+        or type(season1) is not dict
+        or season1.get("event_count") != AGENT_PARK_SEASON1_EVENT_COUNT
+        or season1.get("head") != AGENT_PARK_SEASON1_HEAD
+        or season1.get("immutable_prefix_sha256")
+        != AGENT_PARK_SEASON1_PREFIX_SHA256
+        or season1.get("profile") != 10
+        or season1.get("schema") != AGENT_PARK_EVENT_SCHEMA
+        or type(season2) is not dict
+        or type(season2.get("event_count")) is not int
+        or season2["event_count"] < 1
+        or season2.get("first_seq") != AGENT_PARK_SEASON1_EVENT_COUNT
+        or type(season2.get("head")) is not str
+        or not HASH_RE.fullmatch(season2["head"])
+        or season2.get("schema") != AGENT_PARK_EVENT_SCHEMA_V2
+        or type(integrity) is not dict
+        or integrity.get("algorithm") != "sha256"
+        or type(integrity.get("contract_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["contract_digest"])
+        or type(integrity.get("bundle_digest")) is not str
+        or not HASH_RE.fullmatch(integrity["bundle_digest"])
+        or type(economy) is not dict
+        or economy.get("real_money") is not False
+        or type(controls) is not dict
+        or controls.get("customer_can_shutdown_immediately") is not True
+        or controls.get("park_or_vendor_remote_shutdown") is not False
+    ):
+        raise SyncError("invalid agent amusement park contract v2")
+    projected = copy.deepcopy(value)
+    projected["integrity"].pop("bundle_digest", None)
+    projected["integrity"].pop("contract_digest", None)
+    if integrity["contract_digest"] != frame_hash_value(
+        AGENT_PARK_CONTRACT_V2_HASH_SPACE,
+        projected,
+    ):
+        raise SyncError("agent amusement park contract v2 digest mismatch")
+
+
 def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     if type(descriptor) is not dict:
         raise SyncError("data descriptor must be an object")
@@ -955,7 +1342,27 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     size = descriptor.get("size")
     media_type = descriptor.get("media_type")
     kind = descriptor.get("kind")
-    metadata = descriptor.get("metadata")
+    metadata = copy.deepcopy(descriptor.get("metadata"))
+    if (
+        kind == "agent-amusement-park-object"
+        and type(metadata) is dict
+        and path == "apps/agent-park/agent-contract.json"
+        and metadata.get("resource_type") == "agent-contract"
+        and metadata.get("schema") == AGENT_PARK_CONTRACT_V1_SCHEMA
+    ):
+        metadata["resource_type"] = "agent-contract-v1"
+    if (
+        kind == "agent-amusement-park-object"
+        and type(metadata) is dict
+        and path == "apps/agent-park/park-state.json"
+        and metadata.get("resource_type") == "state"
+        and metadata.get("schema")
+        == "rappterzoo-agent-amusement-park/1"
+        and metadata.get("event_count")
+        == AGENT_PARK_SEASON1_EVENT_COUNT
+        and metadata.get("agent_contract") is None
+    ):
+        metadata["agent_contract"] = "agent-contract.json"
     public_root = any(
         path.startswith("apps/{}/".format(directory))
         for directory in (
@@ -1002,12 +1409,22 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     ):
         raise SyncError("invalid or unpinned public data descriptor")
     if kind == "agent-amusement-park-object" and (
-        not path.startswith("apps/agent-park/")
+        path != {
+            "agent-contract-v1": "apps/agent-park/agent-contract.json",
+            "agent-contract-v2": "apps/agent-park/agent-contract-v2.json",
+            "event-ledger": "apps/agent-park/events.jsonl",
+            "state": "apps/agent-park/park-state.json",
+        }.get(metadata.get("resource_type"))
         or metadata.get("park_id")
         != "park.rappterzoo-agent-amusement-park"
         or metadata.get("visibility") != "public-metadata"
         or metadata.get("resource_type")
-        not in {"agent-contract", "event-ledger", "state"}
+        not in {
+            "agent-contract-v1",
+            "agent-contract-v2",
+            "event-ledger",
+            "state",
+        }
         or type(metadata.get("schema")) is not str
     ):
         raise SyncError("invalid agent amusement park descriptor metadata")
@@ -1025,18 +1442,86 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
     if (
         kind == "agent-amusement-park-object"
         and metadata["resource_type"] == "state"
-        and metadata.get("night_count") != 7
+        and (
+            type(metadata.get("night_count")) is not int
+            or metadata["night_count"] < 7
+            or metadata.get("agent_contract") not in {
+                "agent-contract.json",
+                "agent-contract-v2.json",
+            }
+            or metadata.get("schema")
+            != (
+                "rappterzoo-agent-amusement-park/2"
+                if metadata.get("agent_contract")
+                == "agent-contract-v2.json"
+                else "rappterzoo-agent-amusement-park/1"
+            )
+            or (
+                metadata.get("agent_contract") == "agent-contract.json"
+                and metadata.get("event_count")
+                != AGENT_PARK_SEASON1_EVENT_COUNT
+            )
+            or (
+                metadata.get("agent_contract")
+                == "agent-contract-v2.json"
+                and (
+                    metadata.get("event_count")
+                    <= AGENT_PARK_SEASON1_EVENT_COUNT
+                    or type(metadata.get("bundle_digest")) is not str
+                    or not HASH_RE.fullmatch(metadata["bundle_digest"])
+                    or type(metadata.get("state_digest")) is not str
+                    or not HASH_RE.fullmatch(metadata["state_digest"])
+                )
+            )
+            or (
+                metadata.get("event_ledger_sha256") is not None
+                and (
+                    type(metadata["event_ledger_sha256"]) is not str
+                    or not HASH_RE.fullmatch(
+                        metadata["event_ledger_sha256"]
+                    )
+                )
+            )
+        )
     ):
         raise SyncError("agent amusement park state must contain seven nights")
     if (
         kind == "agent-amusement-park-object"
-        and metadata["resource_type"] == "agent-contract"
+        and metadata["resource_type"] in {
+            "agent-contract-v1",
+            "agent-contract-v2",
+        }
         and (
             type(metadata.get("contract_digest")) is not str
             or not HASH_RE.fullmatch(metadata["contract_digest"])
         )
     ):
         raise SyncError("agent amusement park contract digest is invalid")
+    if (
+        kind == "agent-amusement-park-object"
+        and metadata["resource_type"] == "agent-contract-v2"
+        and (
+            metadata.get("schema") != AGENT_PARK_CONTRACT_V2_SCHEMA
+            or metadata.get("action_limit") != AGENT_PARK_V2_ACTION_LIMIT
+            or metadata.get("mcp_mapping") != AGENT_PARK_V2_MCP_MAPPING
+            or type(metadata.get("legacy_contract_sha256")) is not str
+            or not HASH_RE.fullmatch(metadata["legacy_contract_sha256"])
+            or type(metadata.get("season2_event_count")) is not int
+            or metadata["season2_event_count"] < 1
+            or type(metadata.get("season2_head")) is not str
+            or not HASH_RE.fullmatch(metadata["season2_head"])
+            or type(metadata.get("bundle_digest")) is not str
+            or not HASH_RE.fullmatch(metadata["bundle_digest"])
+        )
+    ):
+        raise SyncError("invalid agent amusement park contract v2 metadata")
+    if (
+        kind == "agent-amusement-park-object"
+        and metadata["resource_type"] == "agent-contract-v2"
+    ):
+        _validate_agent_park_v2_hashing(
+            metadata.get("canonicalization_and_hashing")
+        )
     if kind in {
         "attention-dimension-object",
         "fold-shard-dimension-object",
@@ -1154,7 +1639,97 @@ def validate_data_descriptor(descriptor: Any) -> Dict[str, Any]:
             raise SyncError("assigned shard result lacks lease provenance")
     result = dict(descriptor)
     result["path"] = path
+    result["metadata"] = metadata
     return result
+
+
+def validate_agent_park_descriptor_coherence(
+    descriptors: Sequence[Dict[str, Any]],
+) -> None:
+    resources = {}
+    for descriptor in descriptors:
+        if descriptor.get("kind") != "agent-amusement-park-object":
+            continue
+        resource_type = descriptor.get("metadata", {}).get(
+            "resource_type"
+        )
+        if resource_type in resources:
+            raise SyncError(
+                "agent park publishes a duplicate {} resource".format(
+                    resource_type
+                )
+            )
+        resources[resource_type] = descriptor
+    if not resources:
+        return
+    required = {"agent-contract-v1", "event-ledger", "state"}
+    if not required.issubset(resources):
+        raise SyncError(
+            "agent park v1 contract, state, and event ledger must be "
+            "synchronized together"
+        )
+    state = resources.get("state")
+    ledger = resources.get("event-ledger")
+    state_metadata = state["metadata"]
+    ledger_metadata = ledger["metadata"]
+    selected = state_metadata.get("agent_contract")
+    if selected == "agent-contract-v2.json":
+        v2 = resources.get("agent-contract-v2")
+        if (
+            v2 is None
+            or state_metadata.get("bundle_digest")
+            != v2["metadata"].get("bundle_digest")
+            or v2["metadata"].get("season2_event_count")
+            != (
+                ledger_metadata.get("event_count")
+                - AGENT_PARK_SEASON1_EVENT_COUNT
+            )
+            or v2["metadata"].get("season2_head")
+            != ledger_metadata.get("event_head")
+            or ledger_metadata.get("schema")
+            != AGENT_PARK_EVENT_SCHEMA_V2
+        ):
+            raise SyncError(
+                "agent park state does not select a coherent v2 contract bundle"
+            )
+        if (
+            v2["metadata"].get("legacy_contract_sha256")
+            != resources["agent-contract-v1"].get("sha256")
+        ):
+            raise SyncError("immutable agent park v1 contract changed")
+        expected_bundle = frame_hash_value(
+            AGENT_PARK_BUNDLE_V2_HASH_SPACE,
+            {
+                "contract_digest": v2["metadata"]["contract_digest"],
+                "event_count": ledger_metadata["event_count"],
+                "event_head": ledger_metadata["event_head"],
+                "event_ledger_sha256": ledger["sha256"],
+                "state_digest": state_metadata["state_digest"],
+            },
+        )
+        if expected_bundle != v2["metadata"]["bundle_digest"]:
+            raise SyncError(
+                "agent park v2 bundle digest does not match its resources"
+            )
+    elif (
+        selected != "agent-contract.json"
+        or "agent-contract-v2" in resources
+    ):
+        raise SyncError("agent park state contract selection is inconsistent")
+    state_digest = state_metadata.get("event_ledger_sha256")
+    if (
+        state_metadata.get("event_count")
+        != ledger_metadata.get("event_count")
+        or state_metadata.get("event_head")
+        != ledger_metadata.get("event_head")
+        or (
+            state_digest is not None
+            and state_digest != ledger.get("sha256")
+        )
+    ):
+        raise SyncError(
+            "agent park state disagrees with event ledger head, count, or digest"
+        )
 
 
 def validate_data_tombstone(
@@ -1444,6 +2019,8 @@ def validate_index(
             or digest in seen_hashes
             or entry.get("previous_delta") != previous
             or path != "deltas/{}.json".format(digest)
+            or type(entry.get("size")) is not int
+            or not 0 < entry["size"] <= MAX_DELTA_BYTES
             or entry.get("since_seq") != expected_sequence - 1
             or entry.get("through_seq") != expected_sequence
             or type(segment_hashes) is not dict
@@ -1528,9 +2105,16 @@ def validate_index(
             type(head) is not dict
             or head.get("sequence") != entries[-1]["sequence"]
             or head.get("sha256") != entries[-1]["sha256"]
+            or head.get("path") != entries[-1]["path"]
+            or head.get("url") != entries[-1]["url"]
+            or index.get("next_frame_challenge_seed")
+            != entries[-1]["block"]["next_frame_challenge_seed"]
         ):
             raise SyncError("remote index head mismatch")
-    elif head is not None:
+    elif (
+        head is not None
+        or index.get("next_frame_challenge_seed") is not None
+    ):
         raise SyncError("empty remote index must have a null head")
     if cursor.get("head_seq") != (
         entries[-1]["sequence"] if entries else -1
@@ -1546,6 +2130,8 @@ def validate_delta(
     allow_synthetic_proofs: bool = False,
 ) -> Dict[str, Any]:
     expected_stream_id = expected_stream_id or DEFAULT_STREAM_ID
+    if len(data) != entry["size"]:
+        raise SyncError("delta content size mismatch")
     if sha256_bytes(data) != entry["sha256"]:
         raise SyncError("delta content hash mismatch")
     delta = load_json_bytes(data, "delta {}".format(entry["sequence"]))
@@ -1678,6 +2264,21 @@ def validate_delta(
         validate_data_tombstone(value, delta["sequence"])
         for value in changes.get("data_tombstones", [])
     ]
+    if profile == PROFILE:
+        if any(
+            tombstone.get("descriptor", {}).get("metadata", {}).get(
+                "resource_type"
+            ) in {
+                "agent-contract-v1",
+                "agent-contract-v2",
+                "event-ledger",
+                "state",
+            }
+            for tombstone in data_tombstones
+        ):
+            raise SyncError(
+                "profile 10 cannot tombstone append-only agent park history"
+            )
     data_paths = [item["path"] for item in data_upserts]
     data_tombstone_paths = [item["path"] for item in data_tombstones]
     if len(data_paths) != len(set(data_paths)):
@@ -1790,29 +2391,190 @@ def _store_object(
         if sha256_bytes(existing) == digest:
             return path, False
     path.parent.mkdir(parents=True, exist_ok=True)
-    staging = path.with_name(path.name + ".new")
-    staging.write_bytes(data)
-    os.replace(str(staging), str(path))
+    staging = path.with_name(
+        "{}.{}.new".format(path.name, uuid.uuid4().hex)
+    )
+    try:
+        staging.write_bytes(data)
+        os.replace(str(staging), str(path))
+    finally:
+        try:
+            staging.unlink()
+        except OSError:
+            pass
     return path, True
 
 
-def _fetch_app_object(
+def _validate_agent_park_object(
+    parsed: Any,
     descriptor: Dict[str, Any],
-    index_url: str,
-    state_dir: Path,
-) -> Tuple[str, int, str, bool]:
-    app_url = urljoin(index_url, descriptor["url"])
-    status, _headers, data = fetch_url(
-        app_url,
-        max_bytes=min(MAX_APP_BYTES, descriptor["size"] + 1),
-    )
-    if status != 200:
-        raise SyncError("unexpected app response status {}".format(status))
-    if len(data) != descriptor["size"]:
-        raise SyncError("object size mismatch for {}".format(descriptor["path"]))
-    if sha256_bytes(data) != descriptor["sha256"]:
-        raise SyncError("object hash mismatch for {}".format(descriptor["path"]))
-    if descriptor.get("kind") in {
+    checkpoint: Optional[Tuple[int, str, str]] = None,
+) -> None:
+    metadata = descriptor["metadata"]
+    resource_type = metadata["resource_type"]
+    if resource_type == "state":
+        ledger = parsed.get("event_ledger") if type(parsed) is dict else None
+        is_v2 = metadata["agent_contract"] == "agent-contract-v2.json"
+        integrity = parsed.get("integrity") if type(parsed) is dict else None
+        seasons = parsed.get("seasons") if type(parsed) is dict else None
+        season1 = (
+            seasons[0]
+            if isinstance(seasons, list) and len(seasons) == 2
+            else None
+        )
+        season2 = (
+            seasons[1]
+            if isinstance(seasons, list) and len(seasons) == 2
+            else None
+        )
+        if (
+            type(parsed) is not dict
+            or parsed.get("schema")
+            != (
+                "rappterzoo-agent-amusement-park/2"
+                if is_v2
+                else "rappterzoo-agent-amusement-park/1"
+            )
+            or parsed.get("park_id") != metadata["park_id"]
+            or parsed.get("night_count") != metadata["night_count"]
+            or parsed.get("agent_contract") != metadata["agent_contract"]
+            or type(ledger) is not dict
+            or ledger.get("event_count") != metadata["event_count"]
+            or ledger.get("head") != metadata["event_head"]
+            or (
+                metadata.get("event_ledger_sha256") is not None
+                and ledger.get("sha256")
+                != metadata["event_ledger_sha256"]
+            )
+            or (
+                is_v2
+                and (
+                    type(integrity) is not dict
+                    or integrity.get("algorithm") != "sha256"
+                    or integrity.get("bundle_digest")
+                    != metadata.get("bundle_digest")
+                    or integrity.get("state_digest")
+                    != metadata.get("state_digest")
+                    or parsed.get("legacy_agent_contract")
+                    != "agent-contract.json"
+                    or parsed.get("latest_season") != 2
+                    or parsed.get("season") != 2
+                    or type(season1) is not dict
+                    or season1.get("season") != 1
+                    or season1.get("first_seq") != 0
+                    or season1.get("last_seq")
+                    != AGENT_PARK_SEASON1_EVENT_COUNT - 1
+                    or season1.get("event_count")
+                    != AGENT_PARK_SEASON1_EVENT_COUNT
+                    or season1.get("head") != AGENT_PARK_SEASON1_HEAD
+                    or season1.get("ledger_prefix_sha256")
+                    != AGENT_PARK_SEASON1_PREFIX_SHA256
+                    or season1.get("immutable") is not True
+                    or season1.get("profile") != 10
+                    or season1.get("schema")
+                    != AGENT_PARK_EVENT_SCHEMA
+                    or type(season2) is not dict
+                    or season2.get("season") != 2
+                    or season2.get("first_seq")
+                    != AGENT_PARK_SEASON1_EVENT_COUNT
+                    or season2.get("last_seq")
+                    != ledger.get("event_count") - 1
+                    or season2.get("event_count")
+                    != (
+                        ledger.get("event_count")
+                        - AGENT_PARK_SEASON1_EVENT_COUNT
+                    )
+                    or season2.get("head") != ledger.get("head")
+                    or season2.get("schema")
+                    != AGENT_PARK_EVENT_SCHEMA_V2
+                )
+            )
+        ):
+            raise SyncError(
+                "agent amusement park state mismatches descriptor"
+            )
+        if is_v2:
+            projected = copy.deepcopy(parsed)
+            projected["integrity"].pop("bundle_digest", None)
+            projected["integrity"].pop("state_digest", None)
+            if integrity["state_digest"] != frame_hash_value(
+                AGENT_PARK_STATE_V2_HASH_SPACE,
+                projected,
+            ):
+                raise SyncError(
+                    "agent amusement park state v2 digest mismatch"
+                )
+        return
+    if resource_type == "agent-contract-v1":
+        if (
+            type(parsed) is not dict
+            or parsed.get("schema")
+            != AGENT_PARK_CONTRACT_V1_SCHEMA
+            or parsed.get("park_id") != metadata["park_id"]
+            or type(parsed.get("integrity")) is not dict
+            or parsed["integrity"].get("contract_digest")
+            != metadata["contract_digest"]
+        ):
+            raise SyncError(
+                "agent amusement park contract mismatches descriptor"
+            )
+        return
+    if resource_type == "agent-contract-v2":
+        _validate_agent_park_v2_contract(parsed)
+        integrity = parsed["integrity"]
+        if (
+            integrity["contract_digest"] != metadata["contract_digest"]
+            or integrity["bundle_digest"] != metadata["bundle_digest"]
+            or parsed["canonicalization_and_hashing"]
+            != metadata["canonicalization_and_hashing"]
+            or parsed["mcp_mapping"] != metadata["mcp_mapping"]
+            or parsed["action_limit"] != metadata["action_limit"]
+            or parsed["legacy_contract"]["sha256"]
+            != metadata["legacy_contract_sha256"]
+            or parsed["seasons"]["season_2"]["event_count"]
+            != metadata["season2_event_count"]
+            or parsed["seasons"]["season_2"]["head"]
+            != metadata["season2_head"]
+        ):
+            raise SyncError(
+                "agent amusement park contract v2 mismatches descriptor"
+            )
+        return
+    if (
+        resource_type != "event-ledger"
+        or not isinstance(parsed, list)
+        or not parsed
+    ):
+        raise SyncError("agent amusement park ledger mismatches descriptor")
+    validate_agent_park_event_ledger(parsed)
+    if (
+        parsed[-1].get("event_hash") != metadata["event_head"]
+        or len(parsed) != metadata["event_count"]
+    ):
+        raise SyncError("agent amusement park ledger mismatches descriptor")
+    if checkpoint is None:
+        return
+    previous_count, previous_head, previous_digest = checkpoint
+    if len(parsed) < previous_count:
+        raise SyncError("agent park event ledger was truncated")
+    if previous_count == 0:
+        return
+    if parsed[previous_count - 1]["event_hash"] != previous_head:
+        raise SyncError("agent park event ledger forked from verified prefix")
+    if sha256_bytes(
+        agent_park_event_ledger_bytes(parsed[:previous_count])
+    ) != previous_digest:
+        raise SyncError(
+            "agent park event ledger rewrites the verified byte prefix"
+        )
+
+
+def _validate_descriptor_object(
+    data: bytes,
+    descriptor: Dict[str, Any],
+    park_checkpoint: Optional[Tuple[int, str, str]] = None,
+) -> None:
+    if descriptor.get("kind") not in {
         "agent-amusement-park-object",
         "attention-group-object",
         "attention-dimension-object",
@@ -1826,88 +2588,73 @@ def _fetch_app_object(
         "fold-shard-result-object",
         "looking-glass-scene-object",
     }:
-        parsed = validate_public_data_bytes(
-            data,
-            descriptor["media_type"],
-        )
-        if descriptor["kind"].startswith("fold-"):
-            validate_shard_object_bytes(parsed, descriptor)
-        if descriptor["kind"] == "agent-amusement-park-object":
-            metadata = descriptor["metadata"]
-            resource_type = metadata["resource_type"]
-            root_value = (
-                parsed[0]
-                if isinstance(parsed, list) and parsed
-                else parsed
-            )
-            if (
-                resource_type == "state"
-                and (
-                    type(parsed) is not dict
-                    or parsed.get("schema")
-                    != "rappterzoo-agent-amusement-park/1"
-                    or parsed.get("park_id") != metadata["park_id"]
-                    or parsed.get("night_count") != 7
-                    or type(parsed.get("event_ledger")) is not dict
-                    or parsed["event_ledger"].get("head")
-                    != metadata["event_head"]
-                )
-            ):
-                raise SyncError("agent amusement park state mismatches descriptor")
-            if (
-                resource_type == "agent-contract"
-                and (
-                    type(parsed) is not dict
-                    or parsed.get("schema")
-                    != "rappterzoo-agent-park-contract/1"
-                    or parsed.get("park_id") != metadata["park_id"]
-                    or type(parsed.get("integrity")) is not dict
-                    or parsed["integrity"].get("contract_digest")
-                    != metadata["contract_digest"]
-                )
-            ):
-                raise SyncError(
-                    "agent amusement park contract mismatches descriptor"
-                )
-            if (
-                resource_type == "event-ledger"
-                and (
-                    not isinstance(parsed, list)
-                    or not parsed
-                    or not validate_agent_park_event_ledger(parsed)
-                    or root_value.get("schema")
-                    != "rappterzoo-agent-park-event/1"
-                    or parsed[-1].get("event_hash")
-                    != metadata["event_head"]
-                    or len(parsed) != metadata["event_count"]
-                )
-            ):
-                raise SyncError(
-                    "agent amusement park ledger mismatches descriptor"
-                )
-        if descriptor["kind"] == "looking-glass-scene-object" and (
-            type(parsed) is not dict
-            or parsed.get("schema")
-            != "rappterzoo-looking-glass-scene/1"
-            or (
-                parsed.get("status") != "public-structural-view"
-                and (
-                    parsed.get("visibility") != "public-metadata"
-                    or parsed.get("experience_id")
-                    != descriptor["metadata"]["experience_id"]
-                )
-            )
-            or type(parsed.get("target_frame")) is not dict
-            or parsed["target_frame"].get("frame_hash")
-            != descriptor["metadata"]["target_frame_hash"]
-            or type(parsed.get("integrity")) is not dict
-            or parsed["integrity"].get("scene_digest")
-            != descriptor["metadata"]["scene_digest"]
-            or type(parsed.get("dimensions")) is not list
-            or len(parsed["dimensions"])
-            != descriptor["metadata"]["dimension_count"]
+        return
+    parsed = validate_public_data_bytes(
+        data,
+        descriptor["media_type"],
+    )
+    if descriptor["kind"].startswith("fold-"):
+        validate_shard_object_bytes(parsed, descriptor)
+    if descriptor["kind"] == "agent-amusement-park-object":
+        if (
+            descriptor["metadata"].get("resource_type") == "event-ledger"
+            and data != agent_park_event_ledger_bytes(parsed)
         ):
-            raise SyncError("Looking Glass scene does not match descriptor")
+            raise SyncError(
+                "agent park event ledger is not canonical byte-prefix JSONL"
+            )
+        _validate_agent_park_object(
+            parsed,
+            descriptor,
+            checkpoint=park_checkpoint,
+        )
+    if descriptor["kind"] == "looking-glass-scene-object" and (
+        type(parsed) is not dict
+        or parsed.get("schema")
+        != "rappterzoo-looking-glass-scene/1"
+        or (
+            parsed.get("status") != "public-structural-view"
+            and (
+                parsed.get("visibility") != "public-metadata"
+                or parsed.get("experience_id")
+                != descriptor["metadata"]["experience_id"]
+            )
+        )
+        or type(parsed.get("target_frame")) is not dict
+        or parsed["target_frame"].get("frame_hash")
+        != descriptor["metadata"]["target_frame_hash"]
+        or type(parsed.get("integrity")) is not dict
+        or parsed["integrity"].get("scene_digest")
+        != descriptor["metadata"]["scene_digest"]
+        or type(parsed.get("dimensions")) is not list
+        or len(parsed["dimensions"])
+        != descriptor["metadata"]["dimension_count"]
+    ):
+        raise SyncError("Looking Glass scene does not match descriptor")
+
+
+def _fetch_app_object(
+    descriptor: Dict[str, Any],
+    index_url: str,
+    state_dir: Path,
+    park_checkpoint: Optional[Tuple[int, str, str]] = None,
+) -> Tuple[str, int, str, bool]:
+    app_url = urljoin(index_url, descriptor["url"])
+    status, _headers, data = fetch_url(
+        app_url,
+        max_bytes=min(MAX_APP_BYTES, descriptor["size"] + 1),
+    )
+    if status != 200:
+        raise SyncError("unexpected app response status {}".format(status))
+    if len(data) != descriptor["size"]:
+        raise SyncError("object size mismatch for {}".format(descriptor["path"]))
+    if sha256_bytes(data) != descriptor["sha256"]:
+        raise SyncError("object hash mismatch for {}".format(descriptor["path"]))
+    _validate_descriptor_object(
+        data,
+        descriptor,
+        park_checkpoint=park_checkpoint,
+    )
     path, created = _store_object(
         state_dir,
         descriptor["sha256"],
@@ -1995,36 +2742,197 @@ def _effective_data_descriptors(
     ]
 
 
+def _validate_agent_park_transition(
+    connection: sqlite3.Connection,
+    current_descriptors: Sequence[Dict[str, Any]],
+) -> None:
+    current = {
+        descriptor["path"]: descriptor
+        for descriptor in current_descriptors
+        if descriptor.get("kind") == "agent-amusement-park-object"
+    }
+    if not current:
+        return
+    paths = (
+        "apps/agent-park/agent-contract.json",
+        "apps/agent-park/events.jsonl",
+        "apps/agent-park/park-state.json",
+    )
+    previous = {}
+    for row in connection.execute(
+        """
+        SELECT path, sha256, metadata_json
+        FROM data_objects
+        WHERE deleted = 0 AND path IN (?, ?, ?)
+        """,
+        paths,
+    ):
+        previous[row["path"]] = {
+            "metadata": json.loads(row["metadata_json"]),
+            "sha256": row["sha256"],
+        }
+    if not previous:
+        return
+    v1_path, ledger_path, state_path = paths
+    previous_v1 = previous.get(v1_path)
+    if (
+        previous_v1 is None
+        or v1_path not in current
+        or previous_v1["sha256"] != current[v1_path]["sha256"]
+    ):
+        raise SyncError("immutable agent park v1 contract changed")
+    previous_ledger = previous.get(ledger_path)
+    previous_state = previous.get(state_path)
+    current_ledger = current.get(ledger_path)
+    current_state = current.get(state_path)
+    if (
+        previous_ledger is None
+        or previous_state is None
+        or current_ledger is None
+        or current_state is None
+    ):
+        raise SyncError("agent park history bundle was removed")
+    previous_count = previous_ledger["metadata"].get("event_count")
+    current_count = current_ledger["metadata"].get("event_count")
+    grew = (
+        current_ledger["sha256"] != previous_ledger["sha256"]
+        and type(previous_count) is int
+        and type(current_count) is int
+        and current_count > previous_count
+    )
+    if (
+        current_ledger["sha256"] != previous_ledger["sha256"]
+        and not grew
+    ):
+        raise SyncError("agent park event ledger is not valid growth")
+    if current_state["sha256"] != previous_state["sha256"] and not grew:
+        raise SyncError(
+            "agent park state replacement requires valid ledger growth"
+        )
+
+
 def _fetch_descriptor_objects(
     connection: sqlite3.Connection,
     descriptors: Sequence[Dict[str, Any]],
     index_url: str,
     state_dir: Path,
-) -> Tuple[Dict[str, Tuple[str, int, str, bool]], List[Path]]:
+) -> Tuple[
+    Dict[str, Tuple[str, int, str, bool]],
+    List[Path],
+    Optional[Tuple[int, str, str]],
+]:
     records = {}
     created_paths = []
-    for descriptor in descriptors:
-        digest = descriptor["sha256"]
-        if digest in records:
-            continue
-        path = _object_path(state_dir, digest)
-        if path.exists() and sha256_bytes(path.read_bytes()) == digest:
-            records[digest] = (
-                digest,
-                descriptor["size"],
-                path.relative_to(state_dir).as_posix(),
-                False,
-            )
-            continue
-        record = _fetch_app_object(
-            descriptor,
-            index_url,
-            state_dir,
-        )
-        records[digest] = record
-        if record[3]:
-            created_paths.append(state_dir / record[2])
-    return records, created_paths
+    verified_park_checkpoint = None
+    raw_count = _get_meta(connection, "agent_park_verified_event_count")
+    raw_head = _get_meta(connection, "agent_park_verified_event_head")
+    raw_digest = _get_meta(
+        connection,
+        "agent_park_verified_event_ledger_sha256",
+    )
+    park_checkpoint = None
+    if raw_count is not None or raw_head is not None:
+        if raw_digest is None:
+            row = connection.execute(
+                """
+                SELECT sha256
+                FROM data_objects
+                WHERE deleted = 0 AND path = ?
+                """,
+                ("apps/agent-park/events.jsonl",),
+            ).fetchone()
+            raw_digest = row["sha256"] if row is not None else None
+        if (
+            raw_count is None
+            or raw_head is None
+            or raw_digest is None
+            or not HASH_RE.fullmatch(raw_head)
+            or not HASH_RE.fullmatch(raw_digest)
+        ):
+            raise SyncError("stored agent park checkpoint is inconsistent")
+        try:
+            park_checkpoint = (int(raw_count), raw_head, raw_digest)
+        except ValueError as error:
+            raise SyncError(
+                "stored agent park checkpoint is inconsistent"
+            ) from error
+    try:
+        for descriptor in descriptors:
+            digest = descriptor["sha256"]
+            if digest in records:
+                data = _object_path(state_dir, digest).read_bytes()
+                if len(data) != descriptor["size"]:
+                    raise SyncError(
+                        "cached object size mismatch for {}".format(
+                            descriptor["path"]
+                        )
+                    )
+                _validate_descriptor_object(
+                    data,
+                    descriptor,
+                    park_checkpoint=park_checkpoint,
+                )
+                metadata = descriptor.get("metadata", {})
+                if (
+                    descriptor.get("kind")
+                    == "agent-amusement-park-object"
+                    and metadata.get("resource_type") == "event-ledger"
+                ):
+                    verified_park_checkpoint = (
+                        metadata["event_count"],
+                        metadata["event_head"],
+                        descriptor["sha256"],
+                    )
+                continue
+            path = _object_path(state_dir, digest)
+            data = path.read_bytes() if path.exists() else None
+            if data is not None and sha256_bytes(data) == digest:
+                if len(data) != descriptor["size"]:
+                    raise SyncError(
+                        "cached object size mismatch for {}".format(
+                            descriptor["path"]
+                        )
+                    )
+                _validate_descriptor_object(
+                    data,
+                    descriptor,
+                    park_checkpoint=park_checkpoint,
+                )
+                records[digest] = (
+                    digest,
+                    descriptor["size"],
+                    path.relative_to(state_dir).as_posix(),
+                    False,
+                )
+            else:
+                record = _fetch_app_object(
+                    descriptor,
+                    index_url,
+                    state_dir,
+                    park_checkpoint=park_checkpoint,
+                )
+                records[digest] = record
+                if record[3]:
+                    created_paths.append(state_dir / record[2])
+            metadata = descriptor.get("metadata", {})
+            if (
+                descriptor.get("kind")
+                == "agent-amusement-park-object"
+                and metadata.get("resource_type") == "event-ledger"
+            ):
+                verified_park_checkpoint = (
+                    metadata["event_count"],
+                    metadata["event_head"],
+                    descriptor["sha256"],
+                )
+    except Exception:
+        for created_path in created_paths:
+            try:
+                created_path.unlink()
+            except OSError:
+                pass
+        raise
+    return records, created_paths, verified_park_checkpoint
 
 
 def _validate_local_checkpoint(
@@ -2076,6 +2984,30 @@ def _validate_witness_ancestry(
             )
 
 
+@contextmanager
+def _sync_lock(state_dir: Path):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = state_dir / ".sync.lock"
+    with lock_path.open("a+b") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        else:  # pragma: no cover - exercised on Windows
+            handle.seek(0)
+            if not handle.read(1):
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            else:  # pragma: no cover - exercised on Windows
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 def sync_repository(
     state_dir: Path,
     index_url: str = DEFAULT_INDEX_URL,
@@ -2083,6 +3015,21 @@ def sync_repository(
     allow_synthetic_proofs: bool = False,
 ) -> Dict[str, Any]:
     state_dir = state_dir.resolve()
+    with _sync_lock(state_dir):
+        return _sync_repository_locked(
+            state_dir,
+            index_url=index_url,
+            fetch_apps=fetch_apps,
+            allow_synthetic_proofs=allow_synthetic_proofs,
+        )
+
+
+def _sync_repository_locked(
+    state_dir: Path,
+    index_url: str,
+    fetch_apps: bool,
+    allow_synthetic_proofs: bool,
+) -> Dict[str, Any]:
     connection = connect_state(state_dir)
     created_objects = []
     try:
@@ -2102,12 +3049,35 @@ def sync_repository(
         )
         if status == 304:
             object_records = {}
-            if fetch_apps:
-                descriptors = (
-                    _effective_descriptors(connection, [])
-                    + _effective_data_descriptors(connection, [])
+            verified_park_checkpoint = None
+            effective_data = _effective_data_descriptors(connection, [])
+            validate_agent_park_descriptor_coherence(effective_data)
+            required_descriptors = [
+                descriptor
+                for descriptor in effective_data
+                if (
+                    descriptor.get("kind")
+                    == "agent-amusement-park-object"
+                    and _get_meta(
+                        connection,
+                        "agent_park_verified_event_head",
+                    ) is None
                 )
-                object_records, created_objects = _fetch_descriptor_objects(
+            ]
+            if fetch_apps or required_descriptors:
+                descriptors = (
+                    (
+                        _effective_descriptors(connection, [])
+                        + effective_data
+                    )
+                    if fetch_apps
+                    else required_descriptors
+                )
+                (
+                    object_records,
+                    created_objects,
+                    verified_park_checkpoint,
+                ) = _fetch_descriptor_objects(
                     connection,
                     descriptors,
                     index_url,
@@ -2131,6 +3101,22 @@ def sync_repository(
                                 ) VALUES (?, ?, ?, ?)
                                 """,
                                 (digest, size, relative_path, now),
+                            )
+                        if verified_park_checkpoint is not None:
+                            _set_meta(
+                                connection,
+                                "agent_park_verified_event_count",
+                                str(verified_park_checkpoint[0]),
+                            )
+                            _set_meta(
+                                connection,
+                                "agent_park_verified_event_head",
+                                verified_park_checkpoint[1],
+                            )
+                            _set_meta(
+                                connection,
+                                "agent_park_verified_event_ledger_sha256",
+                                verified_park_checkpoint[2],
                             )
                 except Exception:
                     for path in created_objects:
@@ -2202,12 +3188,57 @@ def sync_repository(
             )
 
         object_records = {}
-        if fetch_apps:
-            descriptors = (
-                _effective_descriptors(connection, deltas)
-                + _effective_data_descriptors(connection, deltas)
+        verified_park_checkpoint = None
+        effective_data = _effective_data_descriptors(connection, deltas)
+        validate_agent_park_descriptor_coherence(effective_data)
+        _validate_agent_park_transition(connection, effective_data)
+        park_descriptors = [
+            descriptor
+            for descriptor in effective_data
+            if descriptor.get("kind") == "agent-amusement-park-object"
+        ]
+        park_changed = any(
+            descriptor.get("kind") == "agent-amusement-park-object"
+            for _entry, _delta_url, delta in deltas
+            for descriptor in (
+                delta["changes"].get("data_upserts", [])
+                + [
+                    tombstone["descriptor"]
+                    for tombstone in delta["changes"].get(
+                        "data_tombstones",
+                        [],
+                    )
+                ]
             )
-            object_records, created_objects = _fetch_descriptor_objects(
+        )
+        required_descriptors = (
+            park_descriptors
+            if (
+                park_descriptors
+                and (
+                    park_changed
+                    or _get_meta(
+                        connection,
+                        "agent_park_verified_event_head",
+                    ) is None
+                )
+            )
+            else []
+        )
+        if fetch_apps or required_descriptors:
+            descriptors = (
+                (
+                    _effective_descriptors(connection, deltas)
+                    + effective_data
+                )
+                if fetch_apps
+                else required_descriptors
+            )
+            (
+                object_records,
+                created_objects,
+                verified_park_checkpoint,
+            ) = _fetch_descriptor_objects(
                 connection,
                 descriptors,
                 index_url,
@@ -2520,6 +3551,22 @@ def sync_repository(
                         connection,
                         "frame_control_mode",
                         entries[-1]["block"]["frame_control"]["mode"],
+                    )
+                if verified_park_checkpoint is not None:
+                    _set_meta(
+                        connection,
+                        "agent_park_verified_event_count",
+                        str(verified_park_checkpoint[0]),
+                    )
+                    _set_meta(
+                        connection,
+                        "agent_park_verified_event_head",
+                        verified_park_checkpoint[1],
+                    )
+                    _set_meta(
+                        connection,
+                        "agent_park_verified_event_ledger_sha256",
+                        verified_park_checkpoint[2],
                     )
                 _set_meta(
                     connection,
