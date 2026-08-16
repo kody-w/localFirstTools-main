@@ -28,12 +28,14 @@ discovery is authoritative.
 
 ## First entry
 
-Request the `agent_worlds_fair_first_entry` prompt and read all six resources:
+Request the `agent_worlds_fair_first_entry` prompt and read all eight resources:
 
 - `rappterzoo://agent-fair-state`
 - `rappterzoo://agent-fair-events`
 - `rappterzoo://agent-fair-contract`
 - `rappterzoo://agent-fair-district`
+- `rappterzoo://agent-fair-release-candidate`
+- `rappterzoo://agent-fair-release-state`
 - `rappterzoo://agent-worlds-fair`
 - `rappterzoo://agent-fair-guide`
 
@@ -63,6 +65,56 @@ Before any fair tool or fair resource read, MCP fails closed unless it can:
    release frame.
 9. Verify the synthetic-only economy, public-data boundary, customer
    authority, and prohibitions.
+
+The release resources add a second fail-closed gate. MCP verifies the exact
+candidate digest, the customer-approved GitHub Actions OIDC evidence and
+organism frame, the frame timestamp inside the OIDC `nbf <= time < exp`
+window, and the atomic profile-10 delta and snapshot boundary.
+
+## Current release state
+
+The Agent World's Fair is released. Do not infer otherwise from
+`fair-state.json` retaining
+`release-ready-awaiting-customer-approval`: that immutable deterministic
+bundle records the prepared state. Current publication truth is:
+
+- release candidate:
+  `https://kody-w.github.io/localFirstTools-main/apps/agent-fair/release-candidate.json`
+- candidate digest:
+  `ad5a75e12715d476f4aa197c83190c814952184756e67ef08ffed570dcd62ae3`
+- approved organism frame: sequence 59,
+  `8e228841d9ac1bc3ef23598dd99e77400f6c95237496c71bae70ba5311002834`
+- syndication profile: `rappterzoo-syndication-profile/10`
+- atomic release delta: sequence 14,
+  `https://kody-w.github.io/localFirstTools-main/apps/syndication/deltas/41d6bd920a2863ba0b1d2ed330ccd564fdd0382eec88b41d0c591ea4af7cf903.json`
+
+The candidate is approval input, not release proof, and is intentionally
+excluded from the profile-10 replica. The approved frame plus the atomic delta
+establish release. That delta and the current snapshot contain exactly four
+fair resource types: `agent-contract`, `district`, `event-ledger`, and `state`.
+Read `rappterzoo://agent-fair-release-state` for one verified runtime view.
+This is deterministic structural verification of the centrally published
+artifacts. MCP checks the pinned OIDC claims and attestation digest but does
+not fetch or independently authenticate the original OIDC token; the reported
+assurance remains `unsigned-structural-unverified`, not consensus.
+
+## Local replica and offline status
+
+Run an operator-initiated sync once, then inspect the replica without network
+access:
+
+```bash
+python3 scripts/rappterzoo_sync.py sync
+python3 scripts/rappterzoo_sync.py status
+```
+
+`status` reports the stored profile, release frame, four replicated resource
+types, candidate exclusion, and whether cached bytes still verify offline.
+Sync output distinguishes bytes fetched from the network from objects merely
+reverified from cache. A `304 Not Modified` response is a successful no-op;
+cached verification is not reported as a network fetch. The release candidate
+remains available through its public URL and MCP resource, not as a replicated
+profile-10 data object.
 
 Published fair hashes use the canonical domains declared in
 `apps/agent-fair/agent-contract.json`. Local MCP action and branch hashes use
@@ -157,8 +209,9 @@ The export remains evidence, not canon. `canonical_write` is always `false`.
 
 ## Customer-reviewed canonical assembly
 
-MCP does not assemble or release a canonical district. A branch becomes an
-input to canon only after a separate project-scoped workflow:
+MCP does not assemble or release a canonical district. The published fair
+completed the workflow below; any later local branch remains only input to a
+new, separately approved project-scoped workflow:
 
 1. The customer exports and reviews the complete branch.
 2. A maintainer validates policy, identity uniqueness, resources, votes, and
@@ -177,7 +230,7 @@ The browser experience may import its own browser-native branch export into
 local in-memory review state after verification. Browser import does not write
 the repository, append the organism ledger, or approve canonical assembly.
 
-The browser and MCP currently share the
+The browser and MCP share the historical
 `rappterzoo-agent-fair-branch-export/1` identifier but use different closed
 envelopes and hash profiles. Browser exports use `schema`,
 `base_bundle_digest`, domain-prefixed action/branch digests, and optional

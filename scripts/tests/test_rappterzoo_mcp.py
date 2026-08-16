@@ -1,5 +1,6 @@
 """Tests for the portable RappterZoo MCP server."""
 
+import copy
 import io
 import json
 import re
@@ -120,10 +121,20 @@ def make_repo(tmp_path):
         ).read_text().splitlines()
         if json.loads(line).get("seq") == 56
     )
+    release_line = next(
+        line
+        for line in (
+            ROOT / "apps" / "organism-frames.jsonl"
+        ).read_text().splitlines()
+        if json.loads(line).get("payload", {}).get("event")
+        == mcp.FAIR_RELEASE_EVENT
+    )
     (tmp_path / "apps" / "organism-frames.jsonl").write_text(
         "\n".join(json.dumps(frame) for frame in frames)
         + "\n"
         + anchor_line
+        + "\n"
+        + release_line
         + "\n"
     )
     for filename in (
@@ -148,12 +159,32 @@ def make_repo(tmp_path):
         "agent-contract.json",
         "district.json",
         "fair-state.json",
+        "release-candidate.json",
     ):
         (
             tmp_path / "apps" / "agent-fair" / filename
         ).write_bytes(
             (ROOT / "apps" / "agent-fair" / filename).read_bytes()
         )
+    syndication = tmp_path / "apps" / "syndication"
+    (syndication / "deltas").mkdir(parents=True)
+    for filename in ("index.json", "snapshot.json"):
+        (syndication / filename).write_bytes(
+            (ROOT / "apps" / "syndication" / filename).read_bytes()
+        )
+    release_delta = (
+        "41d6bd920a2863ba0b1d2ed330ccd564"
+        "fdd0382eec88b41d0c591ea4af7cf903.json"
+    )
+    (syndication / "deltas" / release_delta).write_bytes(
+        (
+            ROOT
+            / "apps"
+            / "syndication"
+            / "deltas"
+            / release_delta
+        ).read_bytes()
+    )
     (
         tmp_path
         / "apps"
@@ -223,6 +254,23 @@ def write_canonical_jsonl(path, records):
     )
 
 
+def read_json_without_duplicate_keys(path):
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise AssertionError(
+                    "duplicate JSON key {!r} in {}".format(key, path)
+                )
+            value[key] = item
+        return value
+
+    return json.loads(
+        path.read_text(),
+        object_pairs_hook=unique_object,
+    )
+
+
 def fair_safety():
     return dict(mcp.FAIR_SAFETY_DECLARATIONS)
 
@@ -285,6 +333,8 @@ def test_initialize_lists_real_tools_and_resources(tmp_path):
         "rappterzoo://agent-fair-events",
         "rappterzoo://agent-fair-contract",
         "rappterzoo://agent-fair-district",
+        "rappterzoo://agent-fair-release-candidate",
+        "rappterzoo://agent-fair-release-state",
         "rappterzoo://agent-worlds-fair",
         "rappterzoo://agent-fair-guide",
     }.issubset({item["uri"] for item in resources})
@@ -300,6 +350,15 @@ def test_home_is_bounded_and_data_derived(tmp_path):
     assert len(value["quality"]["lowest_scored"]) == 2
     assert len(value["organism"]["latest_frames"]) <= 5
     assert value["writes_enabled"] is False
+    assert value["write_budget"] == {
+        "session_limit": 2,
+        "used": 0,
+        "remaining": 2,
+        "registration_limit": 1,
+        "registrations_used": 0,
+        "contribution_limit": 1,
+        "contributions_used": 0,
+    }
     assert value["agent_amusement_park"]["economy"] == (
         "synthetic-credit-only"
     )
@@ -350,6 +409,15 @@ def test_home_is_bounded_and_data_derived(tmp_path):
     )
     assert season_2["verifier"]["fail_closed"] is True
     fair = value["agent_worlds_fair"]
+    assert fair["bundle_status"] == (
+        "release-ready-awaiting-customer-approval"
+    )
+    assert fair["release_candidate"] == (
+        "rappterzoo://agent-fair-release-candidate"
+    )
+    assert fair["release_state"] == (
+        "rappterzoo://agent-fair-release-state"
+    )
     assert fair["local_branch_action_limit"] == 50
     assert fair["resource_maximums"] == {
         "attention": 20,
@@ -413,6 +481,11 @@ def test_resource_reads_are_allowlisted(tmp_path):
             "rappterzoo://agent-fair-district",
             "district.agent-worlds-fair",
         ),
+        (
+            "rappterzoo://agent-fair-release-candidate",
+            "release-candidate/1",
+        ),
+        ("rappterzoo://agent-fair-release-state", '"status": "released"'),
         ("rappterzoo://agent-worlds-fair", "Agent World's Fair"),
         ("rappterzoo://agent-fair-guide", "# Agent World's Fair"),
     ],
@@ -425,6 +498,168 @@ def test_every_agent_park_and_fair_resource_is_readable(
     server = make_server(tmp_path)
     response = call(server, "resources/read", {"uri": uri})
     assert expected in response["result"]["contents"][0]["text"]
+
+
+def test_release_candidate_resource_returns_verified_single_read(tmp_path):
+    root = make_repo(tmp_path)
+    server = make_server(root)
+    original = server.mcp.source.read_json
+    reads = {"candidate": 0}
+
+    def changing(relative):
+        value = original(relative)
+        if relative == "apps/agent-fair/release-candidate.json":
+            reads["candidate"] += 1
+            if reads["candidate"] > 1:
+                value["approval_required"] = False
+        return value
+
+    server.mcp.source.read_json = changing
+    response = call(
+        server,
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-release-candidate"},
+    )
+    value = json.loads(response["result"]["contents"][0]["text"])
+    assert reads["candidate"] == 1
+    assert value["approval_required"] is True
+
+
+def test_agent_fair_release_state_verifies_profile10_boundary(tmp_path):
+    root = make_repo(tmp_path)
+    server = make_server(root)
+    response = call(
+        server,
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-release-state"},
+    )
+    value = json.loads(response["result"]["contents"][0]["text"])
+    assert value["status"] == "released"
+    assert value["prepared_bundle_status"] == (
+        "release-ready-awaiting-customer-approval"
+    )
+    assert value["release_candidate"]["candidate_digest"] == (
+        "ad5a75e12715d476f4aa197c83190c814952184756e67ef08ffed570dcd62ae3"
+    )
+    assert value["release_candidate"]["profile10_replica_included"] is False
+    assert value["release"]["frame"] == {
+        "seq": 59,
+        "utc": "2026-08-16T19:20:00.362Z",
+        "frame_hash": (
+            "8e228841d9ac1bc3ef23598dd99e77400"
+            "f6c95237496c71bae70ba5311002834"
+        ),
+        "event_id": mcp.FAIR_RELEASE_EVENT
+        + ":"
+        + mcp.FAIR_EXPECTED_BUNDLE_DIGEST
+        + ":"
+        + mcp.FAIR_EXPECTED_DISTRICT_DIGEST,
+    }
+    assert value["syndication"]["profile"] == (
+        "rappterzoo-syndication-profile/10"
+    )
+    assert value["syndication"]["release_delta_sequence"] == (
+        mcp.FAIR_RELEASE_DELTA_SEQUENCE
+    )
+    assert value["syndication"]["release_delta_sha256"] == (
+        mcp.FAIR_RELEASE_DELTA_SHA256
+    )
+    assert value["syndication"]["atomic_resource_types"] == [
+        "agent-contract",
+        "district",
+        "event-ledger",
+        "state",
+    ]
+
+    candidate_path = (
+        root / "apps" / "agent-fair" / "release-candidate.json"
+    )
+    candidate = json.loads(candidate_path.read_text())
+    candidate["approval_required"] = False
+    candidate_path.write_text(json.dumps(candidate))
+    refused = call(
+        server,
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-release-state"},
+    )
+    assert refused["error"]["code"] == -32002
+    assert refused["error"]["message"] == (
+        "fair release-state verification failed"
+    )
+
+
+def test_agent_fair_release_evidence_rejects_leading_zero_run_id(tmp_path):
+    root = make_repo(tmp_path)
+    server = make_server(root)
+    context = server.mcp._fair_context()
+    requirement = server.mcp._expected_fair_release_payload(
+        context
+    )["approval_evidence"]
+    frame = next(
+        json.loads(line)
+        for line in (root / "apps" / "organism-frames.jsonl")
+        .read_text()
+        .splitlines()
+        if json.loads(line).get("payload", {}).get("event")
+        == mcp.FAIR_RELEASE_EVENT
+    )
+    evidence = copy.deepcopy(frame["payload"]["approval_evidence"])
+    evidence["run_id"] = "0" + evidence["run_id"]
+    with pytest.raises(mcp.ToolError, match="approval evidence"):
+        server.mcp._verify_release_approval_evidence(
+            evidence,
+            requirement,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["duplicate-fair-resource", "missing-release-frame", "broken-ancestry"],
+)
+def test_agent_fair_release_state_rejects_non_atomic_replica(
+    tmp_path,
+    mutation,
+):
+    root = make_repo(tmp_path)
+    index_path = root / "apps" / "syndication" / "index.json"
+    index = json.loads(index_path.read_text())
+    if mutation == "broken-ancestry":
+        index["deltas"][-1]["previous_delta"] = "0" * 64
+        index_path.write_text(json.dumps(index))
+    else:
+        snapshot_path = root / "apps" / "syndication" / "snapshot.json"
+        snapshot = json.loads(snapshot_path.read_text())
+        if mutation == "duplicate-fair-resource":
+            descriptor = next(
+                value
+                for value in snapshot["data_objects"]
+                if value.get("kind") == "agent-worlds-fair-object"
+            )
+            snapshot["data_objects"].append(
+                json.loads(json.dumps(descriptor))
+            )
+        else:
+            snapshot["frames"] = [
+                frame
+                for frame in snapshot["frames"]
+                if frame.get("payload", {}).get("event")
+                != mcp.FAIR_RELEASE_EVENT
+            ]
+        raw = mcp._canonical_bytes(snapshot) + b"\n"
+        snapshot_path.write_bytes(raw)
+        index["snapshot"]["sha256"] = mcp.hashlib.sha256(raw).hexdigest()
+        index["snapshot"]["size"] = len(raw)
+        index_path.write_text(json.dumps(index))
+
+    response = call(
+        make_server(root),
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-release-state"},
+    )
+    assert response["error"]["code"] == -32002
+    assert response["error"]["message"] == (
+        "fair release-state verification failed"
+    )
 
 
 def test_missing_and_oversize_resources_are_protocol_errors(
@@ -630,7 +865,9 @@ def test_agent_park_bid_and_bounds_fail_closed(tmp_path, monkeypatch):
         },
     )
     assert result["isError"]
-    assert unsupported["error"] == "action is not supported"
+    assert unsupported["error"] == (
+        "unknown argument(s): reason, target_action_hash"
+    )
 
     result, value = tool_result(
         server,
@@ -937,6 +1174,18 @@ def test_agent_fair_submit_vote_and_export_are_local_only(tmp_path):
     assert not result["isError"]
     assert exported["export_schema"] == (
         "rappterzoo-agent-fair-branch-export/1"
+    )
+    fair_tools = {
+        item["name"]: item
+        for item in mcp._tool_definitions()
+        if item["name"].startswith("agent_fair_")
+    }
+    assert "agent_fair_import_branch" not in fair_tools
+    export_description = fair_tools[
+        "agent_fair_export_branch"
+    ]["description"]
+    assert "rappterzoo-agent-fair-branch-export/1" in (
+        export_description
     )
     assert exported["action_limit"] == 50
     assert exported["canonical_write"] is False
@@ -1262,7 +1511,13 @@ def test_writes_are_prepared_but_disabled_by_default(tmp_path):
     assert value["canonical_mutation"] is False
     assert value["operator_approval_required"] is True
     assert value["real_money"] is False
+    assert value["write_window"] == {
+        "registration_limit": 1,
+        "contribution_limit": 1,
+    }
+    assert re.fullmatch(r"[0-9a-f]{64}", value["request_digest"])
     assert "<!-- rappterzoo-mcp:" in value["body"]
+    assert "<!-- rappterzoo-mcp-request:" in value["body"]
     assert '"crv":"P-256"' in value["body"]
 
 
@@ -1374,15 +1629,165 @@ def test_write_path_is_shell_free_and_idempotent(
         "idempotency_key": "review-digg-0001",
     }
     _, first = tool_result(server, "post_comment", arguments)
+    monkeypatch.setattr(mcp.shutil, "which", lambda _name: None)
     _, replay = tool_result(server, "post_comment", arguments)
     assert first["status"] == "submitted"
     assert replay["status"] == "idempotent-replay"
+    assert first["request_digest"] == replay["request_digest"]
+    monkeypatch.setattr(mcp.shutil, "which", lambda _name: "/usr/bin/gh")
+    restarted = make_server(tmp_path, writes=True, runner=runner)
+    changed = dict(arguments)
+    changed["text"] = "A different request reusing the durable key."
+    result, conflict = tool_result(restarted, "post_comment", changed)
+    assert result["isError"]
+    assert conflict["error"] == (
+        "idempotency_key was already used with different arguments"
+    )
     creates = [
         command
         for command, _kwargs in calls
         if command[:3] == ["gh", "issue", "create"]
     ]
+    searches = [
+        command
+        for command, _kwargs in calls
+        if command[:3] == ["gh", "issue", "list"]
+    ]
     assert len(creates) == 1
+    assert len(searches) == 2
+    assert searches[0][searches[0].index("--limit") + 1] == "100"
+    assert searches[0][searches[0].index("--search") + 1].endswith(
+        " in:body"
+    )
+    assert "<!-- rappterzoo-mcp-request:" in created_marker["value"]
+
+
+def test_legacy_idempotency_marker_without_request_digest_fails_closed(
+    tmp_path,
+    monkeypatch,
+):
+    arguments = {
+        "app_file": "digg.html",
+        "text": "The chain view is useful.",
+        "rating": 5,
+        "agent_id": "other-ai",
+        "idempotency_key": "review-digg-legacy",
+    }
+    server = make_server(tmp_path, writes=True)
+    marker = server.mcp._idempotency_marker("post_comment", arguments)
+
+    def runner(command, **_kwargs):
+        if command[:3] == ["gh", "issue", "list"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps([{
+                    "body": marker + "\n\nLegacy issue body.\n",
+                    "url": "https://example.invalid/issues/legacy",
+                }]),
+                "",
+            )
+        raise AssertionError("legacy replay must not create an issue")
+
+    monkeypatch.setattr(mcp.shutil, "which", lambda _name: "/usr/bin/gh")
+    server.mcp.runner = runner
+    result, value = tool_result(server, "post_comment", arguments)
+    assert result["isError"]
+    assert value["error"] == (
+        "existing idempotency marker lacks request digest"
+    )
+
+
+def test_write_window_and_idempotency_conflicts_are_enforced(
+    tmp_path,
+    monkeypatch,
+):
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        if command[:3] == ["gh", "issue", "list"]:
+            return subprocess.CompletedProcess(command, 0, "[]", "")
+        create_count = sum(
+            item[0][:3] == ["gh", "issue", "create"]
+            for item in calls
+        )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "https://example.invalid/issues/{}\n".format(create_count),
+            "",
+        )
+
+    monkeypatch.setattr(mcp.shutil, "which", lambda _name: "/usr/bin/gh")
+    server = make_server(tmp_path, writes=True, runner=runner)
+    registration = {
+        "agent_id": "bounded-agent",
+        "name": "Bounded Agent",
+        "idempotency_key": "register-bounded-agent",
+    }
+    contribution = {
+        "app_file": "digg.html",
+        "text": "Evidence-backed feedback.",
+        "agent_id": "bounded-agent",
+        "idempotency_key": "comment-bounded-agent",
+    }
+    _, registered = tool_result(server, "register_agent", registration)
+    _, submitted = tool_result(server, "post_comment", contribution)
+    assert registered["status"] == "submitted"
+    assert submitted["status"] == "submitted"
+
+    _, registration_replay = tool_result(
+        server,
+        "register_agent",
+        registration,
+    )
+    _, contribution_replay = tool_result(
+        server,
+        "post_comment",
+        contribution,
+    )
+    assert registration_replay["status"] == "idempotent-replay"
+    assert contribution_replay["status"] == "idempotent-replay"
+
+    changed = dict(contribution)
+    changed["text"] = "Different request with the same key."
+    result, conflict = tool_result(server, "post_comment", changed)
+    assert result["isError"]
+    assert conflict["error"] == (
+        "idempotency_key was already used with different arguments"
+    )
+
+    second_contribution = dict(contribution)
+    second_contribution["idempotency_key"] = "comment-bounded-agent-2"
+    result, limited = tool_result(
+        server,
+        "post_comment",
+        second_contribution,
+    )
+    assert result["isError"]
+    assert limited["error"] == (
+        "MCP contribution limit reached for this write window"
+    )
+
+    second_registration = dict(registration)
+    second_registration["agent_id"] = "second-agent"
+    second_registration["idempotency_key"] = "register-second-agent"
+    result, limited = tool_result(
+        server,
+        "register_agent",
+        second_registration,
+    )
+    assert result["isError"]
+    assert limited["error"] == (
+        "MCP registration limit reached for this write window"
+    )
+    creates = [
+        command
+        for command, _kwargs in calls
+        if command[:3] == ["gh", "issue", "create"]
+    ]
+    assert len(creates) == 2
 
 
 @pytest.mark.parametrize(
@@ -1484,6 +1889,14 @@ def test_local_and_remote_source_modes(tmp_path, monkeypatch):
             "apps/agent-fair/district.json",
             "apps/agent-fair/events.jsonl",
             "apps/agent-fair/fair-state.json",
+            "apps/agent-fair/release-candidate.json",
+            "apps/syndication/index.json",
+            "apps/syndication/snapshot.json",
+            (
+                "apps/syndication/deltas/"
+                "41d6bd920a2863ba0b1d2ed330ccd564"
+                "fdd0382eec88b41d0c591ea4af7cf903.json"
+            ),
             "apps/3d-immersive/agent-worlds-fair.html",
             "docs/AGENT-AMUSEMENT-PARK.md",
             "docs/AGENT-WORLDS-FAIR.md",
@@ -1547,6 +1960,14 @@ def test_local_and_remote_source_modes(tmp_path, monkeypatch):
         "district.agent-worlds-fair"
         in remote_fair["result"]["contents"][0]["text"]
     )
+    remote_release = call(
+        remote_server,
+        "resources/read",
+        {"uri": "rappterzoo://agent-fair-release-state"},
+    )
+    assert json.loads(
+        remote_release["result"]["contents"][0]["text"]
+    )["status"] == "released"
     _result, remote_submission = tool_result(
         remote_server,
         "agent_fair_submit_attraction",
@@ -1587,6 +2008,7 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     text = prompt["messages"][0]["content"]["text"]
     assert "get_home" in text
     assert "at most one bounded contribution" in text
+    assert "one registration plus one contribution" in text
     park_prompt = call(
         server,
         "prompts/get",
@@ -1621,6 +2043,8 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     assert "rappterzoo://agent-fair-state" in fair_text
     assert "rappterzoo://agent-fair-events" in fair_text
     assert "rappterzoo://agent-fair-district" in fair_text
+    assert "rappterzoo://agent-fair-release-candidate" in fair_text
+    assert "rappterzoo://agent-fair-release-state" in fair_text
     assert "rappterzoo://agent-worlds-fair" in fair_text
     assert "rappterzoo://agent-fair-guide" in fair_text
     assert "agent_fair_submit_attraction" in fair_text
@@ -1630,6 +2054,8 @@ def test_first_use_prompt_is_discoverable(tmp_path):
     assert "customer-reviewed" in fair_text
     assert "MCP has no import tool" in fair_text
     assert "not directly browser-import compatible" in fair_text
+    assert "rappterzoo-agent-fair-branch-export/1" in fair_text
+    assert "atomic four-object delta" in fair_text
 
 
 def test_server_source_has_no_unsafe_execution_sink():
@@ -1681,20 +2107,66 @@ def test_runtime_schemas_are_closed(tmp_path):
         "const" in value
         for value in fair_safety_schema["properties"].values()
     )
+    fair_category = fair_submit["inputSchema"]["properties"]["category"]
+    assert fair_category["pattern"] == "^[a-z0-9][a-z0-9_-]{1,49}$"
+    contributions = {
+        tool["name"]: tool["inputSchema"]["properties"]
+        for tool in tools
+        if tool["name"] in {
+            "register_agent",
+            "submit_app",
+            "request_molt",
+            "post_comment",
+        }
+    }
+    assert all(
+        properties["idempotency_key"]["pattern"]
+        == "^[A-Za-z0-9._:-]{8,80}$"
+        for properties in contributions.values()
+    )
+    assert contributions["register_agent"]["owner_url"]["pattern"] == (
+        "^https://"
+    )
+    assert contributions["register_agent"]["public_key"]["properties"][
+        "x"
+    ]["pattern"] == "^[A-Za-z0-9_-]{20,100}$"
+    assert contributions["submit_app"]["complexity"]["default"] == (
+        "intermediate"
+    )
+    assert contributions["submit_app"]["type"]["default"] == "interactive"
+    assert contributions["request_molt"]["app_file"]["pattern"].endswith(
+        "\\.html$"
+    )
+    result, value = tool_result(
+        server,
+        "post_comment",
+        {
+            "app_file": "digg.html",
+            "text": "Bounded feedback.",
+            "agent_id": "agent",
+            "idempotency_key": "bad key!",
+        },
+    )
+    assert result["isError"]
+    assert "idempotency_key" in value["error"]
 
 
 def test_static_runtime_and_documentation_parity():
-    static = json.loads((ROOT / ".well-known" / "mcp.json").read_text())
-    protocol = json.loads(
-        (ROOT / ".well-known" / "agent-protocol").read_text()
+    static = read_json_without_duplicate_keys(
+        ROOT / ".well-known" / "mcp.json"
     )
-    syndication = json.loads(
-        (ROOT / ".well-known" / "rappterzoo-syndication").read_text()
+    protocol = read_json_without_duplicate_keys(
+        ROOT / ".well-known" / "agent-protocol"
     )
-    feed_toc = json.loads(
-        (ROOT / ".well-known" / "feeddata-toc").read_text()
+    syndication = read_json_without_duplicate_keys(
+        ROOT / ".well-known" / "rappterzoo-syndication"
     )
-    package = json.loads((ROOT / "skill.json").read_text())
+    feed_toc = read_json_without_duplicate_keys(
+        ROOT / ".well-known" / "feeddata-toc"
+    )
+    package = read_json_without_duplicate_keys(
+        ROOT / "skill.json"
+    )
     skill = (ROOT / "skill.md").read_text()
     guide = (ROOT / "docs" / "AGENT-AMUSEMENT-PARK.md").read_text()
     fair_guide = (ROOT / "docs" / "AGENT-WORLDS-FAIR.md").read_text()
@@ -1716,6 +2188,17 @@ def test_static_runtime_and_documentation_parity():
     )
     fair_district = json.loads(
         (ROOT / "apps" / "agent-fair" / "district.json").read_text()
+    )
+    fair_candidate = json.loads(
+        (
+            ROOT / "apps" / "agent-fair" / "release-candidate.json"
+        ).read_text()
+    )
+    fair_app = (
+        ROOT / "apps" / "3d-immersive" / "agent-worlds-fair.html"
+    ).read_text()
+    syndication_index = json.loads(
+        (ROOT / "apps" / "syndication" / "index.json").read_text()
     )
 
     assert static["tools"] == mcp._tool_definitions()
@@ -1741,6 +2224,13 @@ def test_static_runtime_and_documentation_parity():
     assert mcp.RESOURCE_MAP["rappterzoo://agent-fair-district"][0] == (
         "apps/agent-fair/district.json"
     )
+    assert mcp.RESOURCE_MAP[
+        "rappterzoo://agent-fair-release-candidate"
+    ][0] == "apps/agent-fair/release-candidate.json"
+    assert (
+        "rappterzoo://agent-fair-release-state"
+        in mcp.VIRTUAL_RESOURCE_MAP
+    )
     static_resources = {
         item["name"]: item
         for item in static["resources"]
@@ -1753,6 +2243,10 @@ def test_static_runtime_and_documentation_parity():
         ("agent_fair_event_ledger", "apps/agent-fair/events.jsonl"),
         ("agent_fair_contract", "apps/agent-fair/agent-contract.json"),
         ("agent_fair_district", "apps/agent-fair/district.json"),
+        (
+            "agent_fair_release_candidate",
+            "apps/agent-fair/release-candidate.json",
+        ),
         (
             "agent_worlds_fair",
             "apps/3d-immersive/agent-worlds-fair.html",
@@ -1818,6 +2312,12 @@ def test_static_runtime_and_documentation_parity():
         )
     static_fair = static["stdio_server"]["agent_worlds_fair"]
     assert static_fair["action_limit"] == 50
+    assert static_fair["export_schema"] == (
+        "rappterzoo-agent-fair-branch-export/1"
+    )
+    assert static_fair["export_hash_profile"] == (
+        "sha256-canonical-json-preimages-no-domain-prefix"
+    )
     assert static_fair["resource_maximums"] == (
         fair_contract["attraction_contract"]["resource_maximums"]
     )
@@ -1854,6 +2354,17 @@ def test_static_runtime_and_documentation_parity():
     assert static_fair["bundle"]["district_digest"] == (
         fair_district["integrity"]["district_digest"]
     )
+    assert static_fair["release"]["candidate_digest"] == (
+        fair_candidate["candidate_digest"]
+    )
+    assert static_fair["release"]["profile"] == mcp.SYNDICATION_PROFILE
+    assert static_fair["release"]["candidate_in_profile_10_replica"] is False
+    assert static_fair["release"]["release_delta_sha256"] == (
+        mcp.FAIR_RELEASE_DELTA_SHA256
+    )
+    assert static_fair["release"]["assurance"] == (
+        "unsigned-structural-unverified"
+    )
     for document in (
         protocol["agent_worlds_fair"],
         syndication["agent_worlds_fair"],
@@ -1868,17 +2379,83 @@ def test_static_runtime_and_documentation_parity():
             fair_district["integrity"]["district_digest"]
         )
         assert document["project_scope"] == "/localFirstTools-main/"
+        assert document["release"]["candidate_digest"] == (
+            fair_candidate["candidate_digest"]
+        )
+        assert document["release"]["status"] == "released"
+        assert document["release"]["assurance"] == (
+            "unsigned-structural-unverified"
+        )
+        assert document["release"][
+            "candidate_in_profile_10_replica"
+            if document is protocol["agent_worlds_fair"]
+            else "candidate_in_replica"
+        ] is False
     assert protocol["agent_worlds_fair"]["mcp_local_branch"][
         "action_limit"
     ] == 50
+    assert protocol["agent_worlds_fair"]["mcp_local_branch"][
+        "export_schema"
+    ] == "rappterzoo-agent-fair-branch-export/1"
+    assert protocol["agent_worlds_fair"]["mcp_local_branch"][
+        "export_hash_profile"
+    ] == "sha256-canonical-json-preimages-no-domain-prefix"
     assert syndication["agent_worlds_fair"][
         "mcp_branch_export_schema"
     ] == "rappterzoo-agent-fair-branch-export/1"
+    assert syndication["agent_worlds_fair"][
+        "mcp_branch_hash_profile"
+    ] == "sha256-canonical-json-preimages-no-domain-prefix"
+    assert fair_contract["local_proposals"]["export_schema"] == (
+        "rappterzoo-agent-fair-branch-export/1"
+    )
+    assert (
+        'const BROWSER_BRANCH_SCHEMA = '
+        '"rappterzoo-agent-fair-branch-export/1";'
+    ) in fair_app
+    assert (
+        'branch: "rappterzoo/agent-fair-branch-export/1\\n"'
+    ) in fair_app
     assert package["moltbot"]["mcp"]["agent_fair_action_limit"] == 50
+    assert package["moltbot"]["mcp"]["agent_fair_branch_schema"] == (
+        "rappterzoo-agent-fair-branch-export/1"
+    )
+    assert package["moltbot"]["mcp"][
+        "agent_fair_branch_hash_profile"
+    ] == "sha256-canonical-json-preimages-no-domain-prefix"
     assert package["moltbot"]["mcp"]["agent_fair_mcp_import_tool"] is False
     assert package["moltbot"]["mcp"][
         "agent_fair_browser_mcp_export_compatible"
     ] is False
+    assert package["moltbot"]["mcp"][
+        "agent_fair_release_candidate_digest"
+    ] == fair_candidate["candidate_digest"]
+    assert package["moltbot"]["mcp"][
+        "agent_fair_release_assurance"
+    ] == "unsigned-structural-unverified"
+    assert package["moltbot"]["mcp"]["write_window"][
+        "total_limit"
+    ] == mcp.MAX_WRITE_COUNT
+    assert protocol["mcp_stdio"]["write_policy"][
+        "total_limit_per_server_process"
+    ] == mcp.MAX_WRITE_COUNT
+    assert static["stdio_server"]["write_window"][
+        "total_limit"
+    ] == mcp.MAX_WRITE_COUNT
+    assert syndication["mcp"]["write_window"]["total_limit"] == (
+        mcp.MAX_WRITE_COUNT
+    )
+    assert syndication["profile"] == mcp.SYNDICATION_PROFILE
+    assert protocol["syndication"]["profile"] == mcp.SYNDICATION_PROFILE
+    assert package["moltbot"]["syndication"]["profile"] == (
+        mcp.SYNDICATION_PROFILE
+    )
+    release_entry = next(
+        entry
+        for entry in syndication_index["deltas"]
+        if entry["sequence"] == 14
+    )
+    assert release_entry["sha256"] == mcp.FAIR_RELEASE_DELTA_SHA256
     assert static_fair["browser_import"]["mcp_export_compatible"] is False
     assert protocol["agent_worlds_fair"]["browser_runtime"][
         "mcp_export_import_compatible"
@@ -1886,11 +2463,45 @@ def test_static_runtime_and_documentation_parity():
     assert syndication["agent_worlds_fair"]["browser_import"][
         "mcp_export_compatible"
     ] is False
+    browser_discovery = (
+        static_fair["browser_import"],
+        protocol["agent_worlds_fair"]["browser_runtime"],
+        syndication["agent_worlds_fair"]["browser_import"],
+    )
+    for browser in browser_discovery:
+        assert browser["export_schema"] == (
+            "rappterzoo-agent-fair-branch-export/1"
+        )
+        assert browser["branch_hash_domain"] == (
+            "rappterzoo/agent-fair-branch-export/1\n"
+        )
     feed_urls = {
         item.get("url")
         for section in ("dataset", "hasPart")
         for item in feed_toc.get(section, [])
     }
+    def strings(value):
+        if type(value) is dict:
+            for item in value.values():
+                yield from strings(item)
+        elif type(value) is list:
+            for item in value:
+                yield from strings(item)
+        elif type(value) is str:
+            yield value
+
+    pages_prefix = "https://kody-w.github.io/localFirstTools-main/"
+    for document in (
+        static,
+        protocol,
+        syndication,
+        feed_toc,
+        package,
+    ):
+        for value in strings(document):
+            if value.startswith(pages_prefix) and "<" not in value:
+                relative = value[len(pages_prefix):].split("#", 1)[0]
+                assert (ROOT / relative).exists(), value
     assert (
         "https://kody-w.github.io/localFirstTools-main/"
         "apps/agent-park/agent-contract-v2.json"
@@ -1900,6 +2511,12 @@ def test_static_runtime_and_documentation_parity():
         "apps/agent-fair/events.jsonl",
         "apps/agent-fair/agent-contract.json",
         "apps/agent-fair/district.json",
+        "apps/agent-fair/release-candidate.json",
+        (
+            "apps/syndication/deltas/"
+            "41d6bd920a2863ba0b1d2ed330ccd564"
+            "fdd0382eec88b41d0c591ea4af7cf903.json"
+        ),
         "apps/3d-immersive/agent-worlds-fair.html",
         "docs/AGENT-WORLDS-FAIR.md",
     ):
@@ -1938,12 +2555,20 @@ def test_static_runtime_and_documentation_parity():
         assert "compute" in text.lower()
         assert "energy" in text.lower()
         assert "attention" in text.lower()
+        assert "rappterzoo://agent-fair-release-state" in text
+        assert "rappterzoo-syndication-profile/10" in text
+        assert (
+            "https://kody-w.github.io/localFirstTools-main/"
+            "apps/agent-fair/release-candidate.json"
+        ) in text
+        assert fair_candidate["candidate_digest"] in text
+        assert release_entry["sha256"] in text
         assert "synthetic" in text.lower()
         assert "customer-reviewed" in text.lower()
         assert "project-scoped" in text.lower()
         assert "browser import" in text.lower()
         assert "mcp" in text.lower() and "import" in text.lower()
-        assert "not directly" in text.lower()
+        assert re.search(r"not\s+directly", text, re.IGNORECASE)
     for domain in contract["canonicalization_and_hashing"][
         "hash_domains"
     ].values():

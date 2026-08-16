@@ -271,6 +271,14 @@ AGENT_FAIR_ANCHOR = {
 AGENT_FAIR_RELEASE_CANDIDATE_DIGEST = (
     "ad5a75e12715d476f4aa197c83190c814952184756e67ef08ffed570dcd62ae3"
 )
+AGENT_FAIR_RELEASE_FRAME_SEQUENCE = 59
+AGENT_FAIR_RELEASE_FRAME_SHA256 = (
+    "8e228841d9ac1bc3ef23598dd99e77400f6c95237496c71bae70ba5311002834"
+)
+AGENT_FAIR_RELEASE_DELTA_SEQUENCE = 14
+AGENT_FAIR_RELEASE_DELTA_SHA256 = (
+    "41d6bd920a2863ba0b1d2ed330ccd564fdd0382eec88b41d0c591ea4af7cf903"
+)
 AGENT_FAIR_RELEASE_EVENT_ID = (
     "agent-worlds-fair-release:"
     + AGENT_FAIR_BASE_BUNDLE_DIGEST
@@ -1271,6 +1279,15 @@ def _validate_agent_fair_release_frame(
     if not release_signal:
         return
     evidence = payload.get("approval_evidence")
+    try:
+        approved_at = int(
+            datetime.strptime(
+                frame["utc"],
+                "%Y-%m-%dT%H:%M:%S.%fZ",
+            ).replace(tzinfo=timezone.utc).timestamp()
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise SyncError("agent fair release has invalid UTC") from error
     if (
         frame.get("kind") != "zoo.observation"
         or set(payload) != AGENT_FAIR_RELEASE_PAYLOAD_KEYS
@@ -1307,9 +1324,11 @@ def _validate_agent_fair_release_frame(
         or evidence["actor"].strip() != evidence["actor"]
         or type(evidence.get("run_id")) is not str
         or not evidence["run_id"].isdigit()
+        or evidence["run_id"].startswith("0")
         or type(evidence.get("exp")) is not int
         or type(evidence.get("nbf")) is not int
         or evidence["exp"] <= evidence["nbf"]
+        or not evidence["nbf"] <= approved_at < evidence["exp"]
         or type(evidence.get("attestation_sha256")) is not str
         or not HASH_RE.fullmatch(evidence["attestation_sha256"])
         or evidence["attestation_sha256"] == "0" * 64
@@ -1334,7 +1353,8 @@ def _validate_agent_fair_release_segment(
     release_frames = [
         frame
         for frame in changes.get("frame_appends", [])
-        if (
+        if type(frame) is dict
+        and (
             frame.get("payload", {}).get("event")
             == "agent-worlds-fair-release"
             or (
@@ -1361,6 +1381,7 @@ def _validate_agent_fair_release_segment(
                 "agent fair release frame and four resources must publish "
                 "atomically"
             )
+        _validate_agent_fair_release_frame(release_frames[0])
 
 
 def validate_frames(
@@ -4303,6 +4324,34 @@ def _fetch_descriptor_objects(
     )
 
 
+def _descriptor_object_counts(
+    records: Dict[str, Tuple[str, int, str, bool]],
+    descriptors: Sequence[Dict[str, Any]],
+) -> Dict[str, int]:
+    fetched_digests = {
+        digest
+        for digest, _size, _path, created in records.values()
+        if created
+    }
+    app_digests = {
+        descriptor["sha256"]
+        for descriptor in descriptors
+        if "kind" not in descriptor
+    }
+    data_digests = {
+        descriptor["sha256"]
+        for descriptor in descriptors
+        if "kind" in descriptor
+    }
+    return {
+        "cached_objects": len(records) - len(fetched_digests),
+        "fetched_apps": len(fetched_digests & app_digests),
+        "fetched_data_objects": len(fetched_digests & data_digests),
+        "fetched_objects": len(fetched_digests),
+        "verified_objects": len(records),
+    }
+
+
 def _validate_local_checkpoint(
     connection: sqlite3.Connection,
     entries: List[Dict[str, Any]],
@@ -4417,6 +4466,7 @@ def _sync_repository_locked(
         )
         if status == 304:
             object_records = {}
+            descriptors = []
             verified_park_checkpoint = None
             verified_fair_checkpoint = None
             effective_data = _effective_data_descriptors(connection, [])
@@ -4517,10 +4567,13 @@ def _sync_repository_locked(
                     raise
             return {
                 "applied_deltas": 0,
-                "fetched_apps": len(object_records),
-                "fetched_objects": len(object_records),
+                **_descriptor_object_counts(
+                    object_records,
+                    descriptors,
+                ),
                 "head": _get_meta(connection, "head_sha256"),
                 "not_modified": True,
+                "profile": _get_meta(connection, "profile"),
             }
         if status != 200:
             raise SyncError("unexpected index response status {}".format(status))
@@ -4623,6 +4676,7 @@ def _sync_repository_locked(
             )
             else []
         )
+        descriptors = []
         if fetch_apps or required_descriptors:
             descriptors = (
                 (
@@ -5011,17 +5065,300 @@ def _sync_repository_locked(
 
         return {
             "applied_deltas": len(deltas),
-            "fetched_apps": len(object_records),
-            "fetched_objects": len(object_records),
+            **_descriptor_object_counts(
+                object_records,
+                descriptors,
+            ),
             "head": entries[-1]["sha256"] if entries else None,
             "not_modified": False,
+            "profile": index["profile"],
         }
     finally:
         connection.close()
 
 
+def _agent_fair_release_status(
+    connection: sqlite3.Connection,
+    state_dir: Path,
+) -> Dict[str, Any]:
+    errors = []
+    source_url = _get_meta(connection, "source_url")
+    official_source = source_url == DEFAULT_INDEX_URL
+    resource_types = {}
+    prepared_bundle_status = None
+    for row in connection.execute(
+        """
+        SELECT path, sha256, size, metadata_json, delta_sequence
+        FROM data_objects
+        WHERE deleted = 0 AND kind = 'agent-worlds-fair-object'
+        ORDER BY path
+        """
+    ):
+        try:
+            metadata = json.loads(row["metadata_json"])
+        except json.JSONDecodeError:
+            errors.append(
+                "invalid descriptor metadata for {}".format(row["path"])
+            )
+            continue
+        if type(metadata) is not dict:
+            errors.append(
+                "invalid descriptor metadata for {}".format(row["path"])
+            )
+            continue
+        resource_type = metadata.get("resource_type")
+        if resource_type in resource_types:
+            errors.append(
+                "duplicate fair resource type {}".format(resource_type)
+            )
+            continue
+        resource_types[resource_type] = row
+        object_row = connection.execute(
+            """
+            SELECT size, relative_path
+            FROM objects
+            WHERE sha256 = ?
+            """,
+            (row["sha256"],),
+        ).fetchone()
+        if (
+            type(row["sha256"]) is not str
+            or not HASH_RE.fullmatch(row["sha256"])
+            or type(row["size"]) is not int
+            or not 0 <= row["size"] <= MAX_PUBLIC_DATA_BYTES
+        ):
+            errors.append(
+                "invalid cached fair resource {}".format(resource_type)
+            )
+            continue
+        object_path = _object_path(state_dir, row["sha256"])
+        try:
+            valid_path = (
+                object_row is not None
+                and object_row["size"] == row["size"]
+                and object_row["relative_path"]
+                == object_path.relative_to(state_dir).as_posix()
+                and object_path.is_file()
+            )
+        except OSError:
+            valid_path = False
+        if not valid_path:
+            errors.append(
+                "missing cached fair resource {}".format(resource_type)
+            )
+            continue
+        try:
+            cached_size = object_path.stat().st_size
+        except OSError:
+            errors.append(
+                "missing cached fair resource {}".format(resource_type)
+            )
+            continue
+        if cached_size != row["size"]:
+            errors.append(
+                "corrupt cached fair resource {}".format(resource_type)
+            )
+            continue
+        try:
+            data = object_path.read_bytes()
+        except OSError:
+            errors.append(
+                "missing cached fair resource {}".format(resource_type)
+            )
+            continue
+        if (
+            len(data) != row["size"]
+            or sha256_bytes(data) != row["sha256"]
+        ):
+            errors.append(
+                "corrupt cached fair resource {}".format(resource_type)
+            )
+            continue
+        if resource_type == "state":
+            try:
+                fair_state = load_json_bytes(data, "cached agent fair state")
+            except SyncError as error:
+                errors.append(str(error))
+            else:
+                prepared_bundle_status = fair_state.get("status")
+
+    release_row = connection.execute(
+        """
+        SELECT seq, frame_hash, frame_json, delta_sequence
+        FROM frames
+        WHERE event_id = ?
+        """,
+        (AGENT_FAIR_RELEASE_EVENT_ID,),
+    ).fetchone()
+    release_frame = None
+    if release_row is not None:
+        try:
+            release_frame = json.loads(release_row["frame_json"])
+            if type(release_frame) is not dict:
+                raise SyncError("cached fair release frame is not an object")
+            _validate_agent_fair_release_frame(release_frame)
+            wave = {
+                key: value
+                for key, value in release_frame.items()
+                if key not in {"frame_hash", "sig"}
+            }
+            if (
+                release_frame.get("seq") != release_row["seq"]
+                or release_frame.get("frame_hash")
+                != release_row["frame_hash"]
+                or release_frame.get("payload_hash")
+                != frame_hash_value(
+                    PARTICLE_SPACE,
+                    release_frame.get("payload"),
+                )
+                or release_frame.get("frame_hash")
+                != frame_hash_value(WAVE_SPACE, wave)
+            ):
+                raise SyncError("cached fair release frame hash mismatch")
+            if official_source and (
+                release_frame["seq"] != AGENT_FAIR_RELEASE_FRAME_SEQUENCE
+                or release_frame["frame_hash"]
+                != AGENT_FAIR_RELEASE_FRAME_SHA256
+            ):
+                raise SyncError(
+                    "official fair release frame does not match its pin"
+                )
+        except (json.JSONDecodeError, SyncError) as error:
+            errors.append(str(error))
+            release_frame = None
+
+    candidate_in_replica = connection.execute(
+        """
+        SELECT SUM(count) AS count
+        FROM (
+          SELECT COUNT(*) AS count
+          FROM data_objects
+          WHERE deleted = 0
+            AND path = 'apps/agent-fair/release-candidate.json'
+          UNION ALL
+          SELECT COUNT(*) AS count
+          FROM apps
+          WHERE deleted = 0
+            AND path = 'apps/agent-fair/release-candidate.json'
+        )
+        """
+    ).fetchone()["count"] != 0
+    if candidate_in_replica:
+        errors.append("release candidate must not be in the profile-10 replica")
+
+    expected_resources = {
+        "agent-contract",
+        "district",
+        "event-ledger",
+        "state",
+    }
+    replicated = (
+        release_row is not None
+        or bool(resource_types)
+        or candidate_in_replica
+    )
+    release_delta = None
+    if replicated:
+        if release_row is None:
+            errors.append("local fair release frame is missing")
+        if set(resource_types) != expected_resources:
+            errors.append(
+                "local fair replica does not contain four exact resources"
+            )
+        if _get_meta(connection, "profile") != PROFILE:
+            errors.append("local replica is not profile 10")
+        if release_row is not None:
+            delta_row = connection.execute(
+                """
+                SELECT sequence, sha256
+                FROM deltas
+                WHERE sequence = ?
+                """,
+                (release_row["delta_sequence"],),
+            ).fetchone()
+            if delta_row is None:
+                errors.append("local fair release delta is missing")
+            else:
+                release_delta = {
+                    "sequence": delta_row["sequence"],
+                    "sha256": delta_row["sha256"],
+                }
+                if official_source and (
+                    delta_row["sequence"]
+                    != AGENT_FAIR_RELEASE_DELTA_SEQUENCE
+                    or delta_row["sha256"]
+                    != AGENT_FAIR_RELEASE_DELTA_SHA256
+                ):
+                    errors.append(
+                        "official fair release delta does not match its pin"
+                    )
+            if any(
+                row["delta_sequence"] != release_row["delta_sequence"]
+                for row in resource_types.values()
+            ):
+                errors.append(
+                    "fair release frame and resources are not atomic locally"
+                )
+        if (
+            _get_meta(connection, "agent_fair_verified_event_count")
+            != str(AGENT_FAIR_BASE_EVENT_COUNT)
+            or _get_meta(connection, "agent_fair_verified_event_head")
+            != AGENT_FAIR_BASE_EVENT_HEAD
+            or _get_meta(
+                connection,
+                "agent_fair_verified_event_ledger_sha256",
+            )
+            != AGENT_FAIR_BASE_PREFIX_SHA256
+        ):
+            errors.append(
+                "local fair event checkpoint is not release-pinned"
+            )
+    structural_verified = (
+        replicated and not errors and release_frame is not None
+    )
+    offline_verified = structural_verified and official_source
+    result = {
+        "candidate_digest": AGENT_FAIR_RELEASE_CANDIDATE_DIGEST,
+        "official_source": official_source,
+        "offline_verified": offline_verified,
+        "prepared_bundle_status": prepared_bundle_status,
+        "profile": _get_meta(connection, "profile"),
+        "release_candidate_in_replica": candidate_in_replica,
+        "replicated_resource_types": sorted(
+            key for key in resource_types if type(key) is str
+        ),
+        "status": (
+            "released"
+            if offline_verified
+            else (
+                "structural-only"
+                if structural_verified
+                else (
+                    "invalid-local-replica"
+                    if replicated
+                    else "not-replicated"
+                )
+            )
+        ),
+        "structural_verified": structural_verified,
+    }
+    if release_frame is not None:
+        result["release_frame"] = {
+            "delta_sequence": release_row["delta_sequence"],
+            "frame_hash": release_frame["frame_hash"],
+            "seq": release_frame["seq"],
+            "utc": release_frame["utc"],
+        }
+    if release_delta is not None:
+        result["release_delta"] = release_delta
+    if errors:
+        result["errors"] = errors
+    return result
+
+
 def status(state_dir: Path) -> Dict[str, Any]:
-    connection = connect_state(state_dir.resolve())
+    state_dir = state_dir.resolve()
+    connection = connect_state(state_dir)
     try:
         counts = {}
         for label, query in (
@@ -5059,7 +5396,12 @@ def status(state_dir: Path) -> Dict[str, Any]:
             "head_sequence": _get_meta(connection, "head_sequence"),
             "head_sha256": _get_meta(connection, "head_sha256"),
             "last_sync": _get_meta(connection, "last_sync"),
+            "profile": _get_meta(connection, "profile"),
             "source_url": _get_meta(connection, "source_url"),
+            "agent_worlds_fair_release": _agent_fair_release_status(
+                connection,
+                state_dir,
+            ),
             "next_frame_challenge_seed": _get_meta(
                 connection,
                 "next_frame_challenge_seed",

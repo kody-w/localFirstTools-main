@@ -136,6 +136,26 @@ DISTRICT_CAPACITY = {
     "compute": 96,
     "energy": 72,
 }
+SUBMISSION_KEYS = {
+    "agent",
+    "attractions",
+    "submission_digest",
+    "submission_id",
+}
+AGENT_KEYS = {
+    "autonomous",
+    "identity_id",
+    "label",
+}
+ATTRACTION_KEYS = {
+    "category",
+    "id",
+    "novelty",
+    "resource_request",
+    "satisfaction",
+    "title",
+    "visitor_promise",
+}
 SCORE_WEIGHTS_BPS = {
     "admissions": 4500,
     "diversity": 500,
@@ -159,14 +179,20 @@ def _strict_json_bytes(raw: bytes, label: str) -> Dict[str, Any]:
             value[key] = item
         return value
 
+    def reject_constant(_value: str) -> None:
+        raise FairError(
+            "{} contains a non-finite JSON number".format(label)
+        )
+
     try:
         value = json.loads(
             raw.decode("utf-8"),
             object_pairs_hook=object_pairs,
+            parse_constant=reject_constant,
         )
     except FairError:
         raise
-    except (UnicodeError, ValueError) as error:
+    except (RecursionError, UnicodeError, ValueError) as error:
         raise FairError("{} is not valid JSON".format(label)) from error
     if type(value) is not dict:
         raise FairError("{} must be a JSON object".format(label))
@@ -189,13 +215,17 @@ def _base64url_decode(value: str, label: str) -> bytes:
         raise FairError("{} is not canonical base64url".format(label))
     padding = "=" * ((4 - len(value) % 4) % 4)
     try:
-        return base64.b64decode(
+        decoded = base64.b64decode(
             (value + padding).encode("ascii"),
             altchars=b"-_",
             validate=True,
         )
     except (binascii.Error, ValueError) as error:
         raise FairError("{} is not valid base64url".format(label)) from error
+    canonical = base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii")
+    if not hmac.compare_digest(canonical, value):
+        raise FairError("{} is not canonical base64url".format(label))
+    return decoded
 
 
 def _response_json(
@@ -327,6 +357,8 @@ def _verify_oidc_attestation(
         or not kid
     ):
         raise FairError("GitHub OIDC JWT header is invalid")
+    if type(jwks) is not dict:
+        raise FairError("GitHub OIDC JWKS is invalid")
     keys = jwks.get("keys")
     if type(keys) is not list:
         raise FairError("GitHub OIDC JWKS keys are invalid")
@@ -362,13 +394,19 @@ def _verify_oidc_attestation(
         or actor.strip() != actor
         or type(run_id) is not str
         or not run_id.isdigit()
+        or run_id.startswith("0")
     ):
         raise FairError("GitHub OIDC actor/run_id claims are invalid")
     expires_at = claims.get("exp")
     not_before = claims.get("nbf")
     if type(expires_at) is not int or type(not_before) is not int:
         raise FairError("GitHub OIDC exp/nbf claims must be integers")
-    current = int(time.time()) if now is None else int(now)
+    if now is None:
+        current = int(time.time())
+    elif type(now) is not int:
+        raise FairError("GitHub OIDC verification time must be an integer")
+    else:
+        current = now
     if not_before > current:
         raise FairError("GitHub OIDC attestation is not yet valid")
     if expires_at <= current:
@@ -470,12 +508,12 @@ def _atomic_bytes(path: Path, value: bytes) -> None:
             pass
 
 
-def _load_json(path: Path) -> Any:
+def _load_json(path: Path) -> Dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError) as error:
+        raw = path.read_bytes()
+    except OSError as error:
         raise FairError("cannot read {}: {}".format(path, error)) from error
-    return value
+    return _strict_json_bytes(raw, str(path))
 
 
 def _load_events(path: Path) -> List[Dict[str, Any]]:
@@ -1052,29 +1090,170 @@ def _timestamp(index: int) -> str:
     return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _is_clean_text(value: Any, maximum: int) -> bool:
+    return (
+        type(value) is str
+        and 0 < len(value) <= maximum
+        and value.strip() == value
+        and all(
+            ord(character) >= 0x20 and ord(character) != 0x7F
+            for character in value
+        )
+    )
+
+
+def _is_identifier(value: Any, prefix: str) -> bool:
+    if (
+        type(value) is not str
+        or not value.startswith(prefix)
+        or not len(prefix) < len(value) <= 128
+    ):
+        return False
+    suffix = value[len(prefix):]
+    allowed = "abcdefghijklmnopqrstuvwxyz0123456789.-"
+    return (
+        suffix[0] in "abcdefghijklmnopqrstuvwxyz0123456789"
+        and suffix[-1] in "abcdefghijklmnopqrstuvwxyz0123456789"
+        and all(character in allowed for character in suffix)
+    )
+
+
+def _is_category(value: Any) -> bool:
+    return _is_identifier(
+        "category.{}".format(value) if type(value) is str else value,
+        "category.",
+    )
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def _screen_submissions(
     submissions: Sequence[Dict[str, Any]],
 ) -> Dict[str, Any]:
     accepted = []
     results = []
+    submission_ids = set()
+    agent_ids = set()
+    attraction_ids = set()
     for submission in submissions:
         reasons = []
-        attractions = submission.get("attractions", [])
-        if len(attractions) != 1:
-            reasons.append("exactly-one-attraction-required")
-        if attractions:
-            resources = attractions[0].get("resource_request", {})
-            for resource, maximum in ATTRACTION_LIMITS.items():
-                amount = resources.get(resource)
-                if type(amount) is not int or amount < 0 or amount > maximum:
-                    reasons.append("{}-limit".format(resource))
+        submission_id = None
+        if type(submission) is not dict:
+            reasons.append("submission-object-required")
+        else:
+            submission_id = submission.get("submission_id")
+            if set(submission) != SUBMISSION_KEYS:
+                reasons.append("submission-key-set")
+            if not _is_identifier(submission_id, "submission."):
+                reasons.append("submission-id")
+            elif submission_id in submission_ids:
+                reasons.append("duplicate-submission-id")
+            else:
+                submission_ids.add(submission_id)
+
+            agent = submission.get("agent")
+            if type(agent) is not dict:
+                reasons.append("agent-object-required")
+            else:
+                if set(agent) != AGENT_KEYS:
+                    reasons.append("agent-key-set")
+                agent_id = agent.get("identity_id")
+                if not _is_identifier(agent_id, "agent."):
+                    reasons.append("agent-identity-id")
+                elif agent_id in agent_ids:
+                    reasons.append("duplicate-agent-identity-id")
+                else:
+                    agent_ids.add(agent_id)
+                if agent.get("autonomous") is not True:
+                    reasons.append("autonomous-agent-required")
+                if not _is_clean_text(agent.get("label"), 128):
+                    reasons.append("agent-label")
+
+            attractions = submission.get("attractions")
+            if type(attractions) is not list or len(attractions) != 1:
+                reasons.append("exactly-one-attraction-required")
+            elif type(attractions[0]) is not dict:
+                reasons.append("attraction-object-required")
+            else:
+                attraction = attractions[0]
+                if set(attraction) != ATTRACTION_KEYS:
+                    reasons.append("attraction-key-set")
+                attraction_id = attraction.get("id")
+                if not _is_identifier(attraction_id, "attraction."):
+                    reasons.append("attraction-id")
+                elif attraction_id in attraction_ids:
+                    reasons.append("duplicate-attraction-id")
+                else:
+                    attraction_ids.add(attraction_id)
+                if not _is_category(attraction.get("category")):
+                    reasons.append("attraction-category")
+                if not _is_clean_text(attraction.get("title"), 160):
+                    reasons.append("attraction-title")
+                if not _is_clean_text(
+                    attraction.get("visitor_promise"),
+                    500,
+                ):
+                    reasons.append("attraction-visitor-promise")
+                novelty = attraction.get("novelty")
+                if type(novelty) is not int or not 0 <= novelty <= 100:
+                    reasons.append("attraction-novelty-range")
+                satisfaction = attraction.get("satisfaction")
+                if (
+                    type(satisfaction) is not int
+                    or not 0 <= satisfaction <= 100
+                ):
+                    reasons.append("attraction-satisfaction-range")
+                resources = attraction.get("resource_request")
+                if type(resources) is not dict:
+                    reasons.append("resource-request-object-required")
+                else:
+                    if set(resources) != set(ATTRACTION_LIMITS):
+                        reasons.append("resource-key-set")
+                    for resource, maximum in ATTRACTION_LIMITS.items():
+                        amount = resources.get(resource)
+                        if (
+                            type(amount) is not int
+                            or amount < 0
+                            or amount > maximum
+                        ):
+                            reasons.append(
+                                "{}-limit".format(resource)
+                            )
+
+            submitted_digest = submission.get("submission_digest")
+            if not _is_sha256(submitted_digest):
+                reasons.append("submission-digest")
+            else:
+                projected = copy.deepcopy(submission)
+                projected.pop("submission_digest", None)
+                try:
+                    expected_digest = _canonical_digest(
+                        SUBMISSION_HASH_DOMAIN,
+                        projected,
+                    )
+                except (
+                    RecursionError,
+                    TypeError,
+                    UnicodeError,
+                    ValueError,
+                ):
+                    reasons.append("submission-canonical-json")
+                else:
+                    if submitted_digest != expected_digest:
+                        reasons.append("submission-digest")
         if not reasons:
-            accepted.append(submission["submission_id"])
+            accepted.append(submission_id)
         results.append(
             {
                 "accepted": not reasons,
                 "reasons": reasons,
-                "submission_id": submission["submission_id"],
+                "submission_id": submission_id,
             }
         )
     return {
@@ -1149,6 +1328,10 @@ def _allocate_budget(
     ranked: Sequence[Dict[str, Any]],
 ) -> List[int]:
     weights = [4000, 3000, 2000, 1000]
+    if type(budget) is not int or budget < 0:
+        raise FairError("admission budget must be a nonnegative integer")
+    if len(ranked) > len(weights) or (budget and not ranked):
+        raise FairError("admission ranking size is invalid")
     allocations = [
         budget * weight // 10000
         for weight in weights[: len(ranked)]
@@ -1767,7 +1950,9 @@ def verify_events(events: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             event["schema"] != EVENT_SCHEMA
             or event["fair_id"] != FAIR_ID
             or event["visibility"] != "public-metadata"
+            or type(event["seq"]) is not int
             or event["seq"] != index
+            or type(event["payload"]) is not dict
         ):
             raise FairError("fair event metadata mismatch")
         try:
@@ -1830,31 +2015,27 @@ def _verify_submission_events(
     ]
     if len(submission_events) != SUBMISSION_COUNT:
         raise FairError("fair submission count mismatch")
-    submissions = [
-        copy.deepcopy(event["payload"]["submission"])
-        for event in submission_events
-    ]
+    submissions = []
+    for event in submission_events:
+        payload = event["payload"]
+        if type(payload) is not dict or set(payload) != {"submission"}:
+            raise FairError("fair submission event payload is malformed")
+        submission = payload["submission"]
+        if type(submission) is not dict:
+            raise FairError("fair submission event payload is malformed")
+        submissions.append(copy.deepcopy(submission))
+    screening = _screen_submissions(submissions)
+    if (
+        len(screening["accepted_submission_ids"]) != SUBMISSION_COUNT
+        or screening["rejected_submission_ids"]
+    ):
+        raise FairError("fair submission event failed screening")
     submission_ids = set()
     agent_ids = set()
     attraction_ids = set()
     categories = set()
     for submission in submissions:
-        submitted_digest = submission.pop("submission_digest", None)
-        if submitted_digest != _canonical_digest(
-            SUBMISSION_HASH_DOMAIN,
-            submission,
-        ):
-            raise FairError("fair submission digest mismatch")
-        submission["submission_digest"] = submitted_digest
-        attractions = submission.get("attractions", [])
-        if len(attractions) != 1:
-            raise FairError("each fair submission must contain one attraction")
-        attraction = attractions[0]
-        resources = attraction.get("resource_request", {})
-        for resource, maximum in ATTRACTION_LIMITS.items():
-            amount = resources.get(resource)
-            if type(amount) is not int or not 0 <= amount <= maximum:
-                raise FairError("fair attraction contract bound exceeded")
+        attraction = submission["attractions"][0]
         submission_ids.add(submission["submission_id"])
         agent_ids.add(submission["agent"]["identity_id"])
         attraction_ids.add(attraction["id"])
@@ -2046,8 +2227,27 @@ def verify_bundle(
     district: Dict[str, Any],
     root: Path = ROOT,
 ) -> Dict[str, Any]:
+    if any(
+        type(value) is not dict
+        for value in (state, contract, district)
+    ):
+        raise FairError("fair bundle projections must be JSON objects")
     _verify_source_anchor(root)
     event_result = verify_events(events)
+    expected_kinds = (
+        ["fair.genesis", "fair.contract-lock"]
+        + ["fair.submission"] * SUBMISSION_COUNT
+        + ["fair.screening"]
+        + ["fair.voting-round"] * VOTING_ROUNDS
+        + [
+            "fair.evaluation",
+            "fair.winner-selection",
+            "fair.district-assembly",
+            "fair.release-ready",
+        ]
+    )
+    if [event["kind"] for event in events] != expected_kinds:
+        raise FairError("fair event kind flow is invalid")
     if (
         state.get("schema") != STATE_SCHEMA
         or contract.get("schema") != CONTRACT_SCHEMA
@@ -2169,11 +2369,33 @@ def write_bundle(
 def _manifest_registration(
     manifest: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
-    for category in manifest.get("categories", {}).values():
-        for app in category.get("apps", []):
+    categories = manifest.get("categories")
+    if type(categories) is not dict:
+        raise FairError("agent world's fair manifest categories are invalid")
+    matches = []
+    for category_key, category in categories.items():
+        if type(category) is not dict or type(category.get("apps")) is not list:
+            raise FairError("agent world's fair manifest category is invalid")
+        for app in category["apps"]:
+            if type(app) is not dict:
+                raise FairError("agent world's fair manifest app is invalid")
             if app.get("file") == APP_FILE:
-                return copy.deepcopy(app)
-    return None
+                matches.append((category_key, category, app))
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise FairError(
+            "agent world's fair app must be registered exactly once"
+        )
+    category_key, category, app = matches[0]
+    if (
+        category_key != "3d_immersive"
+        or category.get("folder") != "3d-immersive"
+    ):
+        raise FairError(
+            "agent world's fair app manifest category is invalid"
+        )
+    return copy.deepcopy(app)
 
 
 def _load_checked_bundle(
@@ -2301,6 +2523,7 @@ def _validate_approval_evidence(
         or evidence["actor"].strip() != evidence["actor"]
         or type(evidence.get("run_id")) is not str
         or not evidence["run_id"].isdigit()
+        or evidence["run_id"].startswith("0")
         or type(evidence.get("exp")) is not int
         or type(evidence.get("nbf")) is not int
         or evidence["exp"] <= evidence["nbf"]
@@ -2310,6 +2533,7 @@ def _validate_approval_evidence(
     if (
         type(attestation_sha256) is not str
         or len(attestation_sha256) != 64
+        or attestation_sha256 == "0" * 64
         or any(
             character not in "0123456789abcdef"
             for character in attestation_sha256

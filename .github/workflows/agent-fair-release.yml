@@ -155,13 +155,15 @@ jobs:
           --output "${RUNNER_TEMP}/agent-fair-release-attestation.json"
 
       - name: Upload deterministic release attestation
+        id: attestation_artifact
         if: steps.commit.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: agent-fair-release-attestation-${{ github.run_id }}
           path: ${{ runner.temp }}/agent-fair-release-attestation.json
           if-no-files-found: error
-          retention-days: 30
+          overwrite: true
+          retention-days: 90
 
       - name: Create or update release pull request
         if: steps.commit.outputs.has_changes == 'true'
@@ -175,14 +177,36 @@ jobs:
           attestation_sha="$(
             python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['RUNNER_TEMP'], 'agent-fair-release-attestation.json')))['attestation_sha256'])"
           )"
+          release_event_id="$(
+            python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['RUNNER_TEMP'], 'agent-fair-release-attestation.json')))['release_event_id'])"
+          )"
+          release_frame_hash="$(
+            python3 -c "import json,os; print(json.load(open(os.path.join(os.environ['RUNNER_TEMP'], 'agent-fair-release-attestation.json')))['release_frame_hash'])"
+          )"
+          base_sha="${{ github.sha }}"
+          head_sha="$(git rev-parse HEAD)"
+          ledger_url="${{ github.server_url }}/${{ github.repository }}/blob/${head_sha}/apps/organism-frames.jsonl"
+          projection_url="${{ github.server_url }}/${{ github.repository }}/blob/${head_sha}/apps/organism-frames.json"
+          candidate_url="${{ github.server_url }}/${{ github.repository }}/blob/${head_sha}/apps/agent-fair/release-candidate.json"
+          verifier_url="${{ github.server_url }}/${{ github.repository }}/blob/${base_sha}/scripts/verify_agent_fair_release_attestation.py"
+          artifact_url="${{ steps.attestation_artifact.outputs.artifact-url }}"
+          artifact_digest="${{ steps.attestation_artifact.outputs.artifact-digest }}"
           body="Proposes the Agent World's Fair public release frame.
 
           - Candidate: \`$candidate_digest\`
           - Bundle: \`${{ inputs.bundle_digest }}\`
           - District: \`${{ inputs.district_digest }}\`
+          - Release event ID: \`$release_event_id\`
+          - Release frame SHA-256: \`$release_frame_hash\`
           - OIDC attestation SHA-256: \`$attestation_sha\`
           - Artifact: \`agent-fair-release-attestation-${{ github.run_id }}\`
+          - Attestation artifact (90-day retention): [download]($artifact_url)
+          - Artifact archive SHA-256: \`$artifact_digest\`
           - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - Permanent release ledger: [commit-pinned JSONL]($ledger_url)
+          - Permanent bounded projection: [commit-pinned JSON]($projection_url)
+          - Permanent release candidate: [commit-pinned JSON]($candidate_url)
+          - Trusted base verifier: [commit-pinned Python]($verifier_url)
 
           The frame remains sig:null and structural-unverified. GitHub OIDC proves the protected workflow context; main branch protection and PR review remain the final publication authority."
           number="$(
@@ -206,6 +230,7 @@ jobs:
           fi
 
       - name: Dispatch required release pull request checks
+        if: steps.commit.outputs.has_changes == 'true'
         shell: bash
         run: |
           number="$(
@@ -217,11 +242,18 @@ jobs:
               --jq '.[0].number // empty'
           )"
           test -n "$number"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "${{ github.sha }}"
           base_sha="$(git rev-parse origin/main)"
           head_sha="$(git rev-parse HEAD)"
-          gh workflow run moonshot-gate.yml --ref "$RELEASE_BRANCH"
+          gh workflow run moonshot-gate.yml \
+            --ref main \
+            -f pr_number="$number" \
+            -f base_sha="$base_sha" \
+            -f head_sha="$head_sha" \
+            -f head_ref="$RELEASE_BRANCH"
           gh workflow run agent-fair-release-attestation.yml \
-            --ref "$RELEASE_BRANCH" \
+            --ref main \
             -f pr_number="$number" \
             -f base_sha="$base_sha" \
             -f head_sha="$head_sha" \

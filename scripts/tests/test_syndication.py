@@ -83,9 +83,9 @@ def make_fair_release_frame(previous):
                 "aud": "rappterzoo-agent-fair-release",
                 "environment": "agent-fair-production",
                 "event_name": "workflow_dispatch",
-                "exp": 2000000000,
+                "exp": 1786840000,
                 "iss": "https://token.actions.githubusercontent.com",
-                "nbf": 1900000000,
+                "nbf": 1786750000,
                 "ref": "refs/heads/main",
                 "repository": "kody-w/localFirstTools-main",
                 "run_id": "123456789",
@@ -1225,14 +1225,23 @@ def test_agent_worlds_fair_prepared_then_released_delta_is_atomic(tmp_path):
             state_dir,
             server.index_url,
         )
+        prepared_status = sync_client.status(state_dir)
 
         release = release_agent_fair(root)
         released_result = build_served(root, server)
         released_delta = read_json(delta_path_for_sequence(root, 1))
+        released_index = read_json(
+            root / "apps" / "syndication" / "index.json"
+        )
         released_sync = sync_client.sync_repository(
             state_dir,
             server.index_url,
         )
+        cached_sync = sync_client.sync_repository(
+            state_dir,
+            server.index_url,
+        )
+    offline_status = sync_client.status(state_dir)
 
     assert prepared_result["delta_created"] is True
     assert prepared_delta["changes"]["app_upserts"]
@@ -1252,6 +1261,13 @@ def test_agent_worlds_fair_prepared_then_released_delta_is_atomic(tmp_path):
         if item["kind"] == "agent-worlds-fair-object"
     ]
     assert prepared_sync["fetched_objects"] == 0
+    assert prepared_status["profile"] == builder.PROFILE
+    assert prepared_status["agent_worlds_fair_release"]["status"] == (
+        "not-replicated"
+    )
+    assert prepared_status["agent_worlds_fair_release"][
+        "offline_verified"
+    ] is False
 
     fair_upserts = [
         item
@@ -1271,11 +1287,65 @@ def test_agent_worlds_fair_prepared_then_released_delta_is_atomic(tmp_path):
     assert fair_frames == [release]
     assert released_sync["applied_deltas"] == 1
     assert released_sync["fetched_objects"] == 4
+    assert released_sync["cached_objects"] == 0
+    assert released_sync["verified_objects"] == 4
+    assert released_sync["profile"] == builder.PROFILE
+    assert cached_sync["not_modified"] is True
+    assert cached_sync["fetched_objects"] == 0
+    assert cached_sync["cached_objects"] == 4
+    assert cached_sync["verified_objects"] == 4
     assert len([
         item
         for item in sync_client.list_data_objects(state_dir)
         if item["kind"] == "agent-worlds-fair-object"
     ]) == 4
+    release_status = offline_status["agent_worlds_fair_release"]
+    assert offline_status["profile"] == builder.PROFILE
+    assert release_status["status"] == "structural-only"
+    assert release_status["official_source"] is False
+    assert release_status["structural_verified"] is True
+    assert release_status["offline_verified"] is False
+    assert release_status["prepared_bundle_status"] == (
+        "release-ready-awaiting-customer-approval"
+    )
+    assert release_status["candidate_digest"] == (
+        builder.AGENT_FAIR_RELEASE_CANDIDATE_DIGEST
+    )
+    assert release_status["release_candidate_in_replica"] is False
+    assert release_status["replicated_resource_types"] == [
+        "agent-contract",
+        "district",
+        "event-ledger",
+        "state",
+    ]
+    assert release_status["release_frame"]["frame_hash"] == (
+        release["frame_hash"]
+    )
+    assert release_status["release_delta"] == {
+        "sequence": 1,
+        "sha256": released_index["deltas"][1]["sha256"],
+    }
+
+    connection = sync_client.connect_state(state_dir)
+    try:
+        sync_client._set_meta(
+            connection,
+            "source_url",
+            sync_client.DEFAULT_INDEX_URL,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    forged_official = sync_client.status(state_dir)[
+        "agent_worlds_fair_release"
+    ]
+    assert forged_official["official_source"] is True
+    assert forged_official["offline_verified"] is False
+    assert forged_official["status"] == "invalid-local-replica"
+    assert any(
+        "does not match its pin" in error
+        for error in forged_official["errors"]
+    )
 
 
 def test_agent_worlds_fair_invalid_release_blocks_prepared_build(tmp_path):
@@ -1330,6 +1400,45 @@ def test_sync_rejects_non_atomic_agent_worlds_fair_release(
     )
 
     with pytest.raises(sync_client.SyncError, match="atomically"):
+        sync_client.validate_delta(
+            delta_bytes,
+            entry,
+            builder.STREAM_ID,
+        )
+
+
+def test_sync_rejects_release_outside_oidc_window(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    builder.build(root, "https://example.test/zoo/")
+    release_agent_fair(root)
+    builder.build(root, "https://example.test/zoo/")
+    delta = read_json(delta_path_for_sequence(root, 1))
+    release = next(
+        frame
+        for frame in delta["changes"]["frame_appends"]
+        if frame["payload"].get("event") == "agent-worlds-fair-release"
+    )
+    evidence = release["payload"]["approval_evidence"]
+    evidence["nbf"] = evidence["exp"] - 1
+    rehash_frame(release)
+    delta["segments"] = builder.segment_metadata(delta["changes"])
+    delta["frame_control"] = builder.frame_control_metadata(
+        delta["changes"],
+        delta["proof_of_fold"],
+    )
+    delta_bytes = builder.stable_json_bytes(delta)
+    digest = hashlib.sha256(delta_bytes).hexdigest()
+    entry = builder._delta_entry(
+        delta,
+        digest,
+        delta_bytes,
+        "https://example.test/zoo/",
+    )
+    with pytest.raises(
+        sync_client.SyncError,
+        match="OIDC approval evidence",
+    ):
         sync_client.validate_delta(
             delta_bytes,
             entry,
@@ -1393,6 +1502,31 @@ def test_agent_worlds_fair_fixture_roundtrip_and_overlay(tmp_path):
         if item["path"] == "apps/agent-fair/fair-state.json"
     )
     assert overlaid["overlayed"] is True
+
+
+def test_agent_worlds_fair_offline_status_detects_cache_corruption(tmp_path):
+    root, _manifest, _frames = make_repo(tmp_path)
+    copy_agent_fair(root)
+    release_agent_fair(root)
+    state_dir = tmp_path / "state"
+    with serving(root) as server:
+        build_served(root, server)
+        sync_client.sync_repository(state_dir, server.index_url)
+
+    state = next(
+        item
+        for item in sync_client.list_data_objects(state_dir)
+        if item["kind"] == "agent-worlds-fair-object"
+        and item["metadata"]["resource_type"] == "state"
+    )
+    sync_client._object_path(
+        state_dir,
+        state["sha256"],
+    ).write_bytes(b"corrupt")
+    release = sync_client.status(state_dir)["agent_worlds_fair_release"]
+    assert release["status"] == "invalid-local-replica"
+    assert release["offline_verified"] is False
+    assert "corrupt cached fair resource state" in release["errors"]
 
 
 @pytest.mark.parametrize(
@@ -1605,6 +1739,17 @@ def test_agent_worlds_fair_conditional_repair_and_rollback(tmp_path):
 
     after_failure = sync_client.status(state_dir)
     assert repaired["not_modified"] is True
+    assert repaired["fetched_objects"] == 1
+    assert repaired["fetched_data_objects"] == 1
+    assert repaired["cached_objects"] == 3
+    assert repaired["verified_objects"] == 4
+    assert repaired["profile"] == builder.PROFILE
+    assert after_failure["agent_worlds_fair_release"][
+        "structural_verified"
+    ] is True
+    assert after_failure["agent_worlds_fair_release"][
+        "offline_verified"
+    ] is False
     assert after_failure["head_sha256"] == before_failure["head_sha256"]
     assert after_failure["deltas"] == before_failure["deltas"]
     index_requests = [
@@ -1739,6 +1884,7 @@ def test_agent_worlds_fair_release_frame_requires_oidc_authority():
         "candidate",
         "missing-claim",
         "fixed-claim",
+        "leading-zero-run-id",
         "time-range",
         "attestation",
         "extra-key",
@@ -1754,6 +1900,8 @@ def test_agent_worlds_fair_release_authority_mutations_fail(mutation):
         evidence.pop("actor")
     elif mutation == "fixed-claim":
         evidence["repository"] = "fork/example"
+    elif mutation == "leading-zero-run-id":
+        evidence["run_id"] = "0123456789"
     elif mutation == "time-range":
         evidence["exp"] = evidence["nbf"]
     elif mutation == "attestation":
@@ -2072,7 +2220,9 @@ def test_agent_park_v2_sync_304_cache_repair_and_rollback(tmp_path):
     after_failure = sync_client.status(state_dir)
     assert initial["deltas"] == 1
     assert migrated["applied_deltas"] == 1
-    assert migrated["fetched_objects"] == 4
+    assert migrated["fetched_objects"] == 3
+    assert migrated["cached_objects"] == 1
+    assert migrated["verified_objects"] == 4
     assert repaired["not_modified"] is True
     assert repaired_v2_sha256 == v2["sha256"]
     assert after_failure["head_sha256"] == before_failure["head_sha256"]

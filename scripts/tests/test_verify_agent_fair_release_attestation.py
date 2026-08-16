@@ -153,6 +153,26 @@ def _copy_release_tree(root):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    ledger_path = root / "apps" / "organism-frames.jsonl"
+    projection_path = root / "apps" / "organism-frames.json"
+    frames = organism_ledger.read_frames(ledger_path)
+    for index, frame in enumerate(frames):
+        payload = frame.get("payload", {})
+        if (
+            payload.get("event") == "agent-worlds-fair-release"
+            or str(payload.get("event_id", "")).startswith(
+                verifier.RELEASE_EVENT_PREFIX
+            )
+        ):
+            frames = frames[:index]
+            break
+    ledger_path.write_bytes(
+        b"".join(
+            organism_ledger.canonical_bytes(frame) + b"\n"
+            for frame in frames
+        )
+    )
+    organism_ledger.write_projection(frames, projection_path)
 
 
 def _release_utc(root):
@@ -344,13 +364,20 @@ def _api_values(case, branch="release/agent-fair-123456789"):
     run_id = branch.rsplit("-", 1)[-1]
     return {
         "/repos/{}/pulls/17".format(repository): {
-            "base": {"ref": "main", "sha": case["base_sha"]},
+            "base": {
+                "ref": "main",
+                "repo": {"full_name": repository},
+                "sha": case["base_sha"],
+            },
             "head": {
                 "ref": branch,
                 "repo": {"full_name": repository},
                 "sha": case["head_sha"],
             },
+            "merged": False,
+            "merged_at": None,
             "number": 17,
+            "state": "open",
         },
         "/repos/{}/actions/runs/{}".format(repository, run_id): {
             "actor": {"login": "customer-operator"},
@@ -371,19 +398,30 @@ def _api_values(case, branch="release/agent-fair-123456789"):
                     "expired": False,
                     "id": 9001,
                     "name": verifier.ARTIFACT_PREFIX + run_id,
+                    "size_in_bytes": 1024,
+                    "workflow_run": {
+                        "head_branch": "main",
+                        "head_sha": case["base_sha"],
+                        "id": int(run_id),
+                    },
                 }
             ],
         },
     }
 
 
-def _verify(case, api):
+def _verify(
+    case,
+    api,
+    head_ref="release/agent-fair-123456789",
+):
     return verifier.verify_pull_request_release(
         case["root"],
         fair.OIDC_REPOSITORY,
         17,
         case["base_sha"],
         case["head_sha"],
+        head_ref=head_ref,
         api=api,
         wait_seconds=10,
         poll_seconds=5,
@@ -508,6 +546,10 @@ def test_release_branch_requires_fair_frame(scratch_dir, relative):
         "wrong-run-id",
         "wrong-run-base",
         "wrong-pr-head",
+        "wrong-pr-head-ref",
+        "wrong-base-repository",
+        "closed-pr",
+        "merged-pr",
         "forged-evidence",
         "wrong-schema",
         "extra-field",
@@ -517,6 +559,9 @@ def test_release_branch_requires_fair_frame(scratch_dir, relative):
         "wrong-frame-hash",
         "wrong-candidate",
         "extra-archive-file",
+        "duplicate-expired-artifact",
+        "wrong-artifact-run",
+        "wrong-artifact-base",
     ],
 )
 def test_all_provenance_mutations_fail(scratch_dir, mutation):
@@ -574,6 +619,19 @@ def test_all_provenance_mutations_fail(scratch_dir, mutation):
         values["/repos/{}/pulls/17".format(repository)]["head"][
             "sha"
         ] = case["base_sha"]
+    elif mutation == "wrong-pr-head-ref":
+        pass
+    elif mutation == "wrong-base-repository":
+        values["/repos/{}/pulls/17".format(repository)]["base"][
+            "repo"
+        ]["full_name"] = "attacker/fork"
+    elif mutation == "closed-pr":
+        values["/repos/{}/pulls/17".format(repository)]["state"] = "closed"
+    elif mutation == "merged-pr":
+        values["/repos/{}/pulls/17".format(repository)]["merged"] = True
+        values["/repos/{}/pulls/17".format(repository)][
+            "merged_at"
+        ] = "2026-08-16T19:23:19Z"
     elif mutation == "forged-evidence":
         artifact["approval_evidence"]["actor"] = "attacker"
     elif mutation == "wrong-schema":
@@ -590,11 +648,34 @@ def test_all_provenance_mutations_fail(scratch_dir, mutation):
         artifact["release_frame_hash"] = "0" * 64
     elif mutation == "wrong-candidate":
         artifact["candidate_digest"] = "0" * 64
+    elif mutation == "duplicate-expired-artifact":
+        duplicate = copy.deepcopy(
+            values[artifacts_path]["artifacts"][0]
+        )
+        duplicate["expired"] = True
+        duplicate["id"] = 9002
+        values[artifacts_path]["artifacts"].append(duplicate)
+    elif mutation == "wrong-artifact-run":
+        values[artifacts_path]["artifacts"][0]["workflow_run"][
+            "id"
+        ] = 42
+    elif mutation == "wrong-artifact-base":
+        values[artifacts_path]["artifacts"][0]["workflow_run"][
+            "head_sha"
+        ] = "0" * 40
     else:
         extra = True
     api = FakeApi(values, _artifact_zip(artifact, extra=extra))
     with pytest.raises(verifier.AttestationError):
-        _verify(case, api)
+        _verify(
+            case,
+            api,
+            head_ref=(
+                "release/agent-fair-000"
+                if mutation == "wrong-pr-head-ref"
+                else branch
+            ),
+        )
 
 
 def test_run_wait_is_bounded_and_requires_success(scratch_dir):
@@ -606,7 +687,9 @@ def test_run_wait_is_bounded_and_requires_success(scratch_dir):
     pending = copy.deepcopy(values[run_path])
     pending["status"] = "in_progress"
     pending["conclusion"] = None
-    values[run_path] = [pending, pending, values[run_path]]
+    requested = copy.deepcopy(pending)
+    requested["status"] = "requested"
+    values[run_path] = [requested, pending, values[run_path]]
     api = FakeApi(values, _artifact_zip(case["attestation"]))
     assert _verify(case, api)["status"] == "verified"
     assert sum(
@@ -827,7 +910,40 @@ def test_workflows_and_codeowners_close_provenance_path():
     ).read_text(encoding="utf-8")
     owners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
     assert "actions/upload-artifact@v4" in release
+    assert "id: attestation_artifact" in release
     assert "agent-fair-release-attestation-${{ github.run_id }}" in release
+    assert "overwrite: true" in release
+    assert (
+        "${{ steps.attestation_artifact.outputs.artifact-url }}"
+        in release
+    )
+    assert (
+        "${{ steps.attestation_artifact.outputs.artifact-digest }}"
+        in release
+    )
+    assert (
+        "/blob/${head_sha}/apps/organism-frames.jsonl"
+        in release
+    )
+    assert (
+        "/blob/${head_sha}/apps/organism-frames.json"
+        in release
+    )
+    assert (
+        "/blob/${head_sha}/apps/agent-fair/release-candidate.json"
+        in release
+    )
+    assert (
+        "/blob/${base_sha}/scripts/"
+        "verify_agent_fair_release_attestation.py"
+        in release
+    )
+    assert "Permanent release ledger" in release
+    assert "Permanent bounded projection" in release
+    assert "Permanent release candidate" in release
+    assert "Trusted base verifier" in release
+    assert "Release event ID" in release
+    assert "Release frame SHA-256" in release
     assert release.index("Push release branch") < release.index(
         "Generate bounded release attestation"
     )
@@ -841,6 +957,28 @@ def test_workflows_and_codeowners_close_provenance_path():
     assert "Dispatch required release pull request checks" in release
     assert "gh workflow run moonshot-gate.yml" in release
     assert "gh workflow run agent-fair-release-attestation.yml" in release
+    assert release.count('--ref main') >= 2
+    dispatch = release.split(
+        "- name: Dispatch required release pull request checks",
+        1,
+    )[1]
+    assert '--ref "$RELEASE_BRANCH"' not in dispatch
+    assert "git fetch origin main" in dispatch
+    assert (
+        'test "$(git rev-parse origin/main)" = "${{ github.sha }}"'
+        in dispatch
+    )
+    assert (
+        "if: steps.commit.outputs.has_changes == 'true'"
+        in dispatch.split("shell:", 1)[0]
+    )
+    for input_name in (
+        'pr_number="$number"',
+        'base_sha="$base_sha"',
+        'head_sha="$head_sha"',
+        'head_ref="$RELEASE_BRANCH"',
+    ):
+        assert release.count(input_name) >= 2
     assert "actions: write" in release
     assert not re.search(
         r"git\s+push[^\n]*(?:HEAD:main|refs/heads/main|origin\s+main)",
@@ -851,18 +989,54 @@ def test_workflows_and_codeowners_close_provenance_path():
     assert "workflow_dispatch:" in attestation
     for input_name in ("pr_number:", "base_sha:", "head_sha:", "head_ref:"):
         assert input_name in attestation
-    assert 'test "$HEAD_SHA" = "$GITHUB_SHA"' in attestation
-    assert 'test "$HEAD_REF" = "$GITHUB_REF_NAME"' in attestation
+    assert "Reject untrusted branch dispatch" in attestation
+    assert "github.ref_name != 'main'" in attestation
+    assert "run: exit 1" in attestation
     assert "agent-fair-release-attestation:" in attestation
     assert "actions: read" in attestation
     assert "pull-requests: read" in attestation
     assert "statuses: write" in attestation
     assert "Publish explicit release attestation status" in attestation
+    assert "Publish pending release attestation status" in attestation
+    assert "${{ job.status }}" in attestation
+    for marker in (
+        "-f state=pending",
+        "state=failure",
+        '-f state="$state"',
+        'test "$state" = "success"',
+    ):
+        assert marker in attestation
     assert 'statuses/${HEAD_SHA}' in attestation
     assert "context=agent-fair-release-attestation" in attestation
+    assert "persist-credentials: false" in attestation
+    assert "Bind trusted main dispatch to pull request inputs" in attestation
+    assert 'test "$BASE_SHA" = "$GITHUB_SHA"' in attestation
+    assert 'test "$GITHUB_REF" = "refs/heads/main"' in attestation
+    for input_name in ("pr_number:", "base_sha:", "head_sha:", "head_ref:"):
+        assert input_name in moonshot
+    assert "actions: read" in moonshot
+    assert "pull-requests: read" in moonshot
+    assert "Bind release dispatch to trusted main" in moonshot
+    assert "Verify exact attested release pull request" in moonshot
+    assert "verify-pr" in moonshot
+    assert '--head-ref "${HEAD_REF}"' in moonshot
+    assert (
+        '${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py'
+        in moonshot
+    )
+    assert "Publish pending released Moonshot status" in moonshot
+    assert "${{ job.status }}" in moonshot
+    for marker in (
+        "-f state=pending",
+        "state=failure",
+        '-f state="$state"',
+        'test "$state" = "success"',
+    ):
+        assert marker in moonshot
+    assert "persist-credentials: false" in moonshot
     assert "statuses: write" in moonshot
     assert "Publish explicit released Moonshot status" in moonshot
-    assert 'statuses/${GITHUB_SHA}' in moonshot
+    assert 'statuses/${HEAD_SHA}' in moonshot
     assert "context=moonshot-gate" in moonshot
     assert "contents: read" in attestation
     assert "--head-ref" in attestation

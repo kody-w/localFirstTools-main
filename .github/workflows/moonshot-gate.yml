@@ -3,13 +3,32 @@ name: Moonshot Gate
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to verify
+        required: true
+        type: string
+      base_sha:
+        description: Trusted pull request base SHA
+        required: true
+        type: string
+      head_sha:
+        description: Exact release pull request head SHA
+        required: true
+        type: string
+      head_ref:
+        description: Exact release pull request head branch
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
   statuses: write
 
 concurrency:
-  group: moonshot-gate-${{ github.event.pull_request.number || github.run_id }}
+  group: moonshot-gate-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -17,18 +36,74 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      AGENT_FAIR_RELEASE_PR: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'release/agent-fair-') }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref || inputs.head_ref }}
+      AGENT_FAIR_RELEASE_PR: ${{ github.event_name == 'workflow_dispatch' && (startsWith(inputs.head_ref, 'release/agent-fair-') || startsWith(github.ref_name, 'release/agent-fair-')) }}
 
     steps:
+      - name: Bind release dispatch to trusted main
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$BASE_SHA" = "$GITHUB_SHA"
+          test "$HEAD_REF" != "main"
+
+      - name: Publish pending released Moonshot status
+        id: moonshot_status
+        if: env.AGENT_FAIR_RELEASE_PR == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STATUS_CONTEXT: moonshot-gate
+        shell: bash
+        run: |
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state=pending \
+            -f context="$STATUS_CONTEXT" \
+            -f description="Released-phase Moonshot gate is running" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && env.HEAD_SHA || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Materialize trusted release verifier
+        if: env.AGENT_FAIR_RELEASE_PR == 'true'
+        shell: bash
+        run: |
+          trusted="${RUNNER_TEMP}/agent-fair-release-verifier"
+          mkdir -p "$trusted"
+          git cat-file -e "${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py"
+          git show "${BASE_SHA}:scripts/verify_agent_fair_release_attestation.py" > "$trusted/verify_agent_fair_release_attestation.py"
+          git show "${BASE_SHA}:scripts/agent_world_fair.py" > "$trusted/agent_world_fair.py"
+          git show "${BASE_SHA}:scripts/organism_ledger.py" > "$trusted/organism_ledger.py"
+
+      - name: Verify exact attested release pull request
+        if: env.AGENT_FAIR_RELEASE_PR == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3
+          "${RUNNER_TEMP}/agent-fair-release-verifier/verify_agent_fair_release_attestation.py"
+          verify-pr
+          --root "${GITHUB_WORKSPACE}"
+          --repository "${{ github.repository }}"
+          --pr-number "${PR_NUMBER}"
+          --base-sha "${BASE_SHA}"
+          --head-sha "${HEAD_SHA}"
+          --head-ref "${HEAD_REF}"
+          --wait-seconds 300
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -129,14 +204,24 @@ jobs:
           apps/3d-immersive/organism-observatory.html
 
       - name: Publish explicit released Moonshot status
-        if: env.AGENT_FAIR_RELEASE_PR == 'true'
+        if: always() && env.AGENT_FAIR_RELEASE_PR == 'true' && steps.moonshot_status.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
         shell: bash
         run: |
+          # Pull-request jobs bind to GITHUB_SHA; trusted dispatches bind the
+          # required status to HEAD_SHA instead of statuses/${GITHUB_SHA}.
+          state=failure
+          description="Released-phase Moonshot gate failed"
+          if test "$JOB_STATUS" = "success"; then
+            state=success
+            description="Released-phase Moonshot gate passed"
+          fi
           gh api --method POST \
-            "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -f state=success \
+            "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state="$state" \
             -f context=moonshot-gate \
-            -f description="Released-phase Moonshot gate passed" \
+            -f description="$description" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          test "$state" = "success"

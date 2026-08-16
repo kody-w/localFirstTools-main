@@ -474,7 +474,8 @@ def verify_release_attestation(
         and attestation["actor"]
         and attestation["actor"].strip() == attestation["actor"]
         and type(attestation["run_id"]) is str
-        and attestation["run_id"].isdigit(),
+        and attestation["run_id"].isdigit()
+        and not attestation["run_id"].startswith("0"),
         "release attestation actor/run_id is invalid",
     )
     _require(
@@ -608,6 +609,7 @@ def _wait_for_run(
             return run
         _require(
             run.get("status") in {
+                "requested",
                 "queued",
                 "in_progress",
                 "pending",
@@ -652,7 +654,13 @@ def _artifact_from_zip(raw: bytes) -> Dict[str, Any]:
             value_raw = archive.read(files[0])
     except AttestationError:
         raise
-    except (OSError, ValueError, zipfile.BadZipFile) as error:
+    except (
+        NotImplementedError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as error:
         raise AttestationError("release artifact is not a valid ZIP") from error
     return _attestation_from_bytes(value_raw)
 
@@ -706,6 +714,10 @@ def verify_pull_request_release(
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> Dict[str, Any]:
     repository_root = Path(root).resolve()
+    _require(
+        type(pr_number) is int and pr_number > 0,
+        "pull request number is invalid",
+    )
     base = _validate_sha(base_sha, "base_sha")
     head = _validate_sha(head_sha, "head_sha")
     changed_paths = _changed_paths(repository_root, base, head)
@@ -736,18 +748,31 @@ def verify_pull_request_release(
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
         client = GitHubApi(repository, token or "")
     pull = client.get_json(
-        "/repos/{}/pulls/{}".format(repository, int(pr_number))
+        "/repos/{}/pulls/{}".format(repository, pr_number)
     )
+    branch = pull.get("head", {}).get("ref")
     _require(
-        pull.get("number") == int(pr_number)
+        pull.get("number") == pr_number
+        and pull.get("state") == "open"
+        and pull.get("merged") is False
+        and pull.get("merged_at") is None
         and pull.get("base", {}).get("ref") == "main"
         and pull.get("base", {}).get("sha") == base
+        and pull.get("base", {}).get("repo", {}).get("full_name")
+        == repository
+        and (
+            head_ref is None
+            or (
+                type(head_ref) is str
+                and head_ref
+                and branch == head_ref
+            )
+        )
         and pull.get("head", {}).get("sha") == head
         and pull.get("head", {}).get("repo", {}).get("full_name")
         == repository,
         "GitHub pull request head/base identity mismatch",
     )
-    branch = pull.get("head", {}).get("ref")
     match = re.fullmatch(
         r"release/agent-fair-([1-9][0-9]*)",
         str(branch),
@@ -785,24 +810,36 @@ def verify_pull_request_release(
     )
     artifacts = listing.get("artifacts")
     _require(type(artifacts) is list, "GitHub artifact listing is invalid")
-    matches = [
+    named = [
         artifact
         for artifact in artifacts
         if (
             type(artifact) is dict
             and artifact.get("name") == artifact_name
-            and artifact.get("expired") is False
         )
     ]
     _require(
-        len(matches) == 1
-        and type(matches[0].get("id")) is int,
+        len(named) == 1,
         "exact release attestation artifact is missing",
+    )
+    artifact = named[0]
+    workflow_run = artifact.get("workflow_run")
+    _require(
+        artifact.get("expired") is False
+        and type(artifact.get("id")) is int
+        and artifact["id"] > 0
+        and type(artifact.get("size_in_bytes")) is int
+        and 0 < artifact["size_in_bytes"] <= ZIP_LIMIT
+        and type(workflow_run) is dict
+        and workflow_run.get("id") == int(run_id)
+        and workflow_run.get("head_branch") == "main"
+        and workflow_run.get("head_sha") == base,
+        "release attestation artifact provenance mismatch",
     )
     archive = client.get_bytes(
         "/repos/{}/actions/artifacts/{}/zip".format(
             repository,
-            matches[0]["id"],
+            artifact["id"],
         )
     )
     attestation = _artifact_from_zip(archive)

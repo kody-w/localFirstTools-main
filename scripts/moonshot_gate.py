@@ -2267,13 +2267,17 @@ def check_mcp_parity(root: Path) -> CheckResult:
                 for uri in static_resource_uris
             ):
                 uncovered_resources.append(runtime_uri)
+        uncovered_resources.extend(sorted(
+            set(module.VIRTUAL_RESOURCE_MAP) - static_resource_uris
+        ))
         runtime_resource_uris = {
             item.get("uri")
             for item in runtime["resources"]
             if isinstance(item, dict)
         }
         resources_ok = (
-            runtime_resource_uris == set(module.RESOURCE_MAP)
+            runtime_resource_uris
+            == set(module.RESOURCE_MAP) | set(module.VIRTUAL_RESOURCE_MAP)
             and not uncovered_resources
         )
         prompts_ok = static.get("prompts") == runtime["prompts"]

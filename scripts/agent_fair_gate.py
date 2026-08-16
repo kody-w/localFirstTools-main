@@ -514,7 +514,7 @@ def _check_service_worker_contract(root: Path) -> str:
     _require(path.is_file(), "Agent World's Fair service worker is missing")
     text = path.read_text(encoding="utf-8")
     markers = (
-        'const CACHE_NAME = "agent-worlds-fair-v3-release-20260816";',
+        'const CACHE_NAME = "agent-worlds-fair-v4-buzzsaw-20260816";',
         "const DATA_PATHS = [",
         "const OPTIONAL_DATA_PATHS = [",
         "const REQUIRED_PATHS = [",
@@ -526,7 +526,7 @@ def _check_service_worker_contract(root: Path) -> str:
         '"../agent-fair/agent-contract.json"',
         '"../agent-fair/district.json"',
         'url.origin !== self.location.origin',
-        "cache.addAll(REQUIRED_PATHS)",
+        "cache.addAll(APP_SHELL)",
         "fetch(request)",
         "caches.match(request,",
         '"X-Agent-Fair-Provenance"',
@@ -1116,13 +1116,29 @@ def _check_release_codeowners(root: Path) -> str:
         "apps/organism-frames.jsonl",
         "apps/syndication/current.json",
         "apps/agent-fair/fair-state.json",
+        "apps/3d-immersive/agent-worlds-fair.html",
+        "apps/3d-immersive/agent-worlds-fair-sw.js",
+        ".well-known/mcp.json",
         ".github/CODEOWNERS",
         ".github/workflows/agent-fair-release.yml",
         ".github/workflows/agent-fair-release-attestation.yml",
+        ".github/workflows/moonshot-gate.yml",
+        "docs/AGENT-WORLDS-FAIR.md",
         "scripts/agent_world_fair.py",
+        "scripts/agent_fair_gate.py",
+        "scripts/moonshot_gate.py",
+        "scripts/organism_ledger.py",
+        "scripts/runtime_verify.py",
+        "scripts/rappterzoo_mcp.py",
+        "scripts/rappterzoo_sync.py",
         "scripts/tests/test_agent_world_fair.py",
+        "scripts/tests/test_agent_fair_gate.py",
+        "scripts/tests/test_rappterzoo_mcp.py",
+        "scripts/tests/test_syndication.py",
         "scripts/tests/test_verify_agent_fair_release_attestation.py",
         "scripts/verify_agent_fair_release_attestation.py",
+        "skill.md",
+        "skill.json",
     )
     mismatches = {
         target: _codeowners_for(text, target)
@@ -1268,7 +1284,7 @@ def _check_release_artifact_workflow(root: Path) -> str:
         "name: agent-fair-release-attestation-${{ github.run_id }}",
         "path: ${{ runner.temp }}/agent-fair-release-attestation.json",
         "if-no-files-found: error",
-        "retention-days: 30",
+        "retention-days: 90",
         "Create or update release pull request",
         "['attestation_sha256']",
     )
@@ -1353,10 +1369,13 @@ def _check_pr_attestation_workflow(root: Path) -> str:
         "BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}",
         "HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.head_sha }}",
         "HEAD_REF: ${{ github.event.pull_request.head.ref || inputs.head_ref }}",
-        "Bind explicit dispatch to the checked commit",
+        "Reject untrusted branch dispatch",
         "if: github.event_name == 'workflow_dispatch'",
-        'test "$HEAD_SHA" = "$GITHUB_SHA"',
-        'test "$HEAD_REF" = "$GITHUB_REF_NAME"',
+        "github.ref_name != 'main'",
+        "run: exit 1",
+        "Bind trusted main dispatch to pull request inputs",
+        'test "$BASE_SHA" = "$GITHUB_SHA"',
+        'test "$GITHUB_REF" = "refs/heads/main"',
         "Detect trusted base verifier",
         "id: trusted",
         'git cat-file -e "${BASE_SHA}:scripts/'
@@ -1902,6 +1921,10 @@ def _check_repository_protection(root: Path) -> str:
             base + "/branches/main/protection",
             token,
         )
+        workflow_permissions = _github_api_json(
+            base + "/actions/permissions/workflow",
+            token,
+        )
     except urllib.error.URLError as error:
         if not isinstance(error, urllib.error.HTTPError):
             return (
@@ -1950,9 +1973,14 @@ def _check_repository_protection(root: Path) -> str:
         ),
         "main protection must require agent-fair-release-attestation status",
     )
+    _require(
+        workflow_permissions.get("can_approve_pull_request_reviews") is False,
+        "GitHub Actions pull request approvals must remain disabled",
+    )
     return (
         "GitHub API verified agent-fair-production reviewer and "
-        "main PR + moonshot + release attestation protection"
+        "main PR + moonshot + release attestation protection with "
+        "Actions approvals disabled"
     )
 
 
@@ -2932,7 +2960,9 @@ def _check_mcp_runtime(root: Path) -> str:
         }
         and submit_properties.get("category") == {
             "type": "string",
+            "minLength": 2,
             "maxLength": 50,
+            "pattern": "^[a-z0-9][a-z0-9_-]{1,49}$",
         }
         and submit_properties.get("visitor_promise") == {
             "type": "string",
@@ -3758,6 +3788,11 @@ async function probeSubmission(value) {
     && release.approvalBasis
       === "verified-github-actions-oidc-attestation"
     && completeOidcEvidence(release.approvalEvidence)
+    && typeof release.releaseUtc === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+      release.releaseUtc
+    )
+    && release.oidcFrameTimeBound === true
     && release.approvalActor === release.approvalEvidence.actor
     && String(release.approvalRunId)
       === String(release.approvalEvidence.run_id)
@@ -3772,10 +3807,18 @@ async function probeSubmission(value) {
     && /(?:server-side )?protected workflow (?:reported )?verified GitHub OIDC/i.test(
       initial.releaseCopyText
     )
-    && /browser validated (?:bounded|exact) approval evidence and frame binding/i.test(
+    && /browser validated (?:bounded|exact) approval evidence/i.test(
       initial.releaseCopyText
     )
+    && /OIDC validity window at release time/i.test(initial.releaseCopyText)
+    && /frame binding/i.test(initial.releaseCopyText)
     && /not the signature/i.test(initial.releaseCopyText)
+    && initial.releaseEvidenceText.includes(
+      "release_utc " + release.releaseUtc
+    )
+    && initial.releaseEvidenceText.includes(
+      "oidc_window_covers_release true"
+    )
     && initial.releaseEvidenceText.includes(
       "assurance unsigned-structural-unverified"
     )
@@ -3858,11 +3901,11 @@ async function probeSubmission(value) {
     record(
       "browser.service-worker-cache",
       cacheEvidence.keys.length === 1
-        && cacheEvidence.keys[0] === "agent-worlds-fair-v3-release-20260816"
+        && cacheEvidence.keys[0] === "agent-worlds-fair-v4-buzzsaw-20260816"
         && cacheEvidence.urls.length === 7
         && initial.cacheStatus?.type === "agent-fair-cache-status"
         && initial.cacheStatus?.cacheName
-          === "agent-worlds-fair-v3-release-20260816"
+          === "agent-worlds-fair-v4-buzzsaw-20260816"
         && initial.cacheStatus?.required?.length === 6
         && initial.cacheStatus?.optional?.length === 1
         && initial.cacheStatus?.missingRequired?.length === 0
