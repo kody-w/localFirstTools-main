@@ -2928,6 +2928,63 @@ def _validate_agent_fair_release_frame(
         )
 
 
+def _agent_fair_release_frames(
+    frames: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    return [
+        frame
+        for frame in frames
+        if frame.get("payload", {}).get("event")
+        == "agent-worlds-fair-release"
+        and frame.get("payload", {}).get("event_id")
+        == AGENT_FAIR_RELEASE_EVENT_ID
+    ]
+
+
+def validate_agent_fair_release_segment(
+    changes: Dict[str, Any],
+) -> None:
+    fair_upserts = [
+        descriptor
+        for descriptor in changes.get("data_upserts", [])
+        if descriptor.get("kind") == "agent-worlds-fair-object"
+    ]
+    resource_types = {
+        descriptor.get("metadata", {}).get("resource_type")
+        for descriptor in fair_upserts
+    }
+    release_frames = [
+        frame
+        for frame in changes.get("frame_appends", [])
+        if (
+            frame.get("payload", {}).get("event")
+            == "agent-worlds-fair-release"
+            or (
+                type(frame.get("payload", {}).get("event_id")) is str
+                and frame["payload"]["event_id"].startswith(
+                    "agent-worlds-fair-release:"
+                )
+            )
+            or frame.get("payload", {}).get("organism_type")
+            == "agent-worlds-fair-district"
+            or "release_candidate_digest" in frame.get("payload", {})
+            or "approval_evidence" in frame.get("payload", {})
+        )
+    ]
+    initial_publication = "agent-contract" in resource_types
+    if initial_publication or release_frames:
+        if (
+            len(fair_upserts) != 4
+            or resource_types
+            != {"agent-contract", "district", "event-ledger", "state"}
+            or len(release_frames) != 1
+        ):
+            raise SyndicationError(
+                "agent fair release frame and four resources must publish "
+                "atomically"
+            )
+
+
 def _agent_park_history_growth(
     root: Path,
     previous_data_map: Dict[str, Dict[str, Any]],
@@ -3944,14 +4001,26 @@ def build(
     if type(manifest) is not dict:
         raise SyndicationError("manifest root must be an object")
     current_apps = build_app_descriptors(root, manifest, base_url)
+    current_frames = read_ledger(ledger_path)
+    fair_release_frames = _agent_fair_release_frames(current_frames)
+    if len(fair_release_frames) > 1:
+        raise SyndicationError(
+            "agent fair release frame must occur exactly once"
+        )
     current_data = build_public_data_descriptors(
         root,
         base_url,
         synthetic_test_mode=synthetic_test_mode,
     )
-    validate_agent_fair_descriptor_coherence(current_data)
+    if not fair_release_frames:
+        current_data = [
+            descriptor
+            for descriptor in current_data
+            if descriptor.get("kind") != "agent-worlds-fair-object"
+        ]
+    else:
+        validate_agent_fair_descriptor_coherence(current_data)
     validate_agent_park_descriptor_coherence(current_data)
-    current_frames = read_ledger(ledger_path)
 
     snapshot_path = output_dir / "snapshot.json"
     previous_snapshot = (
@@ -4241,6 +4310,7 @@ def build(
             "data_upserts": data_upserts,
             "frame_appends": frame_appends,
         }
+        validate_agent_fair_release_segment(delta_changes)
         delta_proof = proof_of_fold_metadata(
             delta_changes,
             synthetic_test_mode=synthetic_test_mode,

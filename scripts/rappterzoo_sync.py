@@ -1319,6 +1319,50 @@ def _validate_agent_fair_release_frame(
         )
 
 
+def _validate_agent_fair_release_segment(
+    changes: Dict[str, Any],
+) -> None:
+    fair_upserts = [
+        descriptor
+        for descriptor in changes.get("data_upserts", [])
+        if descriptor.get("kind") == "agent-worlds-fair-object"
+    ]
+    resource_types = {
+        descriptor.get("metadata", {}).get("resource_type")
+        for descriptor in fair_upserts
+    }
+    release_frames = [
+        frame
+        for frame in changes.get("frame_appends", [])
+        if (
+            frame.get("payload", {}).get("event")
+            == "agent-worlds-fair-release"
+            or (
+                type(frame.get("payload", {}).get("event_id")) is str
+                and frame["payload"]["event_id"].startswith(
+                    "agent-worlds-fair-release:"
+                )
+            )
+            or frame.get("payload", {}).get("organism_type")
+            == "agent-worlds-fair-district"
+            or "release_candidate_digest" in frame.get("payload", {})
+            or "approval_evidence" in frame.get("payload", {})
+        )
+    ]
+    initial_publication = "agent-contract" in resource_types
+    if initial_publication or release_frames:
+        if (
+            len(fair_upserts) != 4
+            or resource_types
+            != {"agent-contract", "district", "event-ledger", "state"}
+            or len(release_frames) != 1
+        ):
+            raise SyncError(
+                "agent fair release frame and four resources must publish "
+                "atomically"
+            )
+
+
 def validate_frames(
     frames: Iterable[Dict[str, Any]],
     previous: Optional[Dict[str, Any]],
@@ -3429,6 +3473,7 @@ def validate_delta(
     }:
         changes["data_upserts"] = data_upserts
         changes["data_tombstones"] = data_tombstones
+    _validate_agent_fair_release_segment(changes)
     default_proof = {
         "acceptance": "centralized-publisher-assembler",
         "cycles": [],
