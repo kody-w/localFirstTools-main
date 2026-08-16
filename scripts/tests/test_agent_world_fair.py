@@ -917,6 +917,12 @@ def test_release_workflow_uses_oidc_branch_and_pull_request_only():
     assert "pull-requests: write" in text
     assert "repository_lock.py acquire" in text
     assert "repository_lock.py release" in text
+    assert "actions/setup-node@v4" in text
+    assert "npm ci --ignore-scripts --no-audit --no-fund" in text
+    assert "playwright install --with-deps chromium" in text
+    assert text.index("Install locked browser dependencies") < text.index(
+        "Run released-phase tests and gates"
+    )
     assert "agent_world_fair.py apply-release" in text
     assert "--customer-approved" not in text
     assert "--phase released" in text
