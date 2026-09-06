@@ -648,6 +648,21 @@ def test_worker_timeout_preserves_bounded_failure_observation(source, monkeypatc
     assert not (source["proposal"] / "check-work").exists()
 
 
+@pytest.mark.parametrize("action", ["preflight", "qualify"])
+def test_capability_worker_uses_implementation_local_scratch(source, monkeypatch, action):
+    (source["proposal"] / "capability").mkdir(parents=True)
+    expected = str(source["proposal"] / "capability/check-work")
+
+    def run(*args, **kwargs):
+        assert all(kwargs["env"][key] == expected for key in ("TMPDIR", "TMP", "TEMP"))
+        assert Path(expected).is_dir()
+        return SimpleNamespace(returncode=0, stdout=b'{"test_fixture":true}', stderr=b"")
+
+    monkeypatch.setattr(proposals.subprocess, "run", run)
+    assert proposals._worker(action, source["proposal"], source["proposal"] / "context.json") == {"test_fixture": True}
+    assert not Path(expected).exists()
+
+
 def test_late_verification_failure_never_writes_a_prepared_receipt(source):
     class FailingVerification(Fixture):
         def verify(self, proposal, context):
@@ -684,6 +699,8 @@ def package_shape(monkeypatch):
                       for name in artifacts],
     })
     monkeypatch.setattr(proposals, "MANIFEST_SHA256", proposals.digest(files[proposals.MANIFEST]))
+    monkeypatch.setattr(proposals, "PIN_SHA256", proposals.digest(files[proposals.PIN]))
+    monkeypatch.setattr(proposals, "REGISTRY_SHA256", proposals.digest(files["scripts/capability_registry.py"]))
     monkeypatch.setattr(proposals, "blob", lambda repo, base, name, **kwargs:
                         (files[name[len(proposals.PACKAGE) + 1:]], "100644"))
 
@@ -724,11 +741,43 @@ def test_external_reference_cannot_override_the_bundled_pin(package_shape, tmp_p
         proposals._package_inputs(Path("."), "a" * 40, reference)
 
 
+@pytest.mark.parametrize("changed", [proposals.PIN, "scripts/capability_registry.py"])
+def test_package_reference_and_registry_pins_cannot_be_redefined(package_shape, changed):
+    package_shape[changed] += b"\n"
+    with pytest.raises(proposals.ProposalError, match="pin.*differs|implementation differs"):
+        proposals._package_inputs(Path("."), "a" * 40, None)
+
+
+@pytest.mark.parametrize("extra", ["__pycache__", "capability_registry.pyc", "selectors.py"])
+def test_archived_import_guard_refuses_extra_modules_and_bytecode(package_shape, tmp_path, extra):
+    root = tmp_path / "capability"
+    for name, body in package_shape.items():
+        proposals.write_new(root / name, body)
+    proposals.verify_implementation_inputs(root)
+    if extra == "__pycache__":
+        (root / "scripts" / extra).mkdir()
+    else:
+        (root / "scripts" / extra).write_text("raise AssertionError('untrusted module')\n")
+    with pytest.raises(proposals.ProposalError, match="undeclared implementation modules"):
+        proposals.verify_implementation_inputs(root)
+
+
+def test_worker_rejects_unpinned_code_before_import(package_shape, tmp_path):
+    for name, body in package_shape.items():
+        proposals.write_new(tmp_path / "capability" / name, body)
+    (tmp_path / "capability/scripts/capability_registry.py").write_text(
+        "raise AssertionError('must never be executed')\n"
+    )
+    with pytest.raises(proposals.ProposalError, match="pinned registry implementation differs"):
+        capability_worker.capability(tmp_path, {}, "preflight")
+
+
 @pytest.mark.parametrize("location", ["vendor/rapp-1", "reference"])
 def test_worker_preflight_supports_bundled_and_legacy_reference_paths(tmp_path, monkeypatch, location):
     (tmp_path / "capability" / location).mkdir(parents=True)
     observed = []
     monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(proposals, "verify_implementation_inputs", lambda root: None)
     monkeypatch.setitem(sys.modules, "autocomplete_frames", SimpleNamespace(
         Reference=lambda path: observed.append(path) or SimpleNamespace(identity={"test_fixture": True}),
     ))

@@ -36,7 +36,10 @@ def candidate(proposal, request):
 
 
 def capability(proposal, request, action):
+    from molter_capabilities import verify_implementation_inputs
+
     root = proposal / "capability"
+    verify_implementation_inputs(root)
     sys.path.insert(0, str(root / "scripts"))
     import autocomplete_frames as frames
     import capability_contracts as contracts

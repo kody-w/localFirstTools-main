@@ -38,6 +38,8 @@ PACKAGE_SUPPORT = {
     "vendor/rapp-1/LICENSE", "vendor/rapp-1/SPEC.md", "vendor/rapp-1/rapp.py", "vendor/rapp-1/rapp_check.py",
 }
 MANIFEST_SHA256 = "e6f639a6d9c0625d3857f872e979e415b92dc4811902156d686ae8db885b3b45"
+PIN_SHA256 = "bcdd67fbb0c5b2a344c2fb8f1befebc4de95bf4184a2b796ebf296f631480a0e"
+REGISTRY_SHA256 = "d8a743a247d2706577aaa58b4caa01996ec549802850e8346a75b91c01371a37"
 RAPP_COMMIT = "eb50008011447f5e69372ac22a1755f0978d15ed"
 DEFAULT_OBJECTIVE = "Improve this app while preserving its existing features."
 MAX_APP_BYTES = 4 * 1024 * 1024
@@ -342,9 +344,7 @@ def _package_inputs(repo, base, rapp_ref):
     require(committed == names, "committed capability package has missing or undeclared files", "blocked")
     files = {name: blob(repo, base, PACKAGE + "/" + name)[0] for name in sorted(names)}
     require(sum(map(len, files.values())) <= MAX_CHANGE_BYTES, "capability package exceeds bound")
-    for item in manifest["artifacts"]:
-        require(digest(files[item["path"]]) == item["sha256"]
-                and len(files[item["path"]]) == item["bytes"], "pinned capability artifact differs")
+    _check_implementation_pins(files[MANIFEST], files[PIN], files["scripts/capability_registry.py"], files.__getitem__)
     pin = _json(files[PIN])
     require(pin["commit"] == RAPP_COMMIT
             and set(pin["files"]) == {"rapp.py", "rapp_check.py", "SPEC.md"}, "unexpected RAPP pin")
@@ -356,8 +356,34 @@ def _package_inputs(repo, base, rapp_ref):
     return files
 
 
+def _check_implementation_pins(manifest_raw, pin_raw, registry_raw, artifact_reader):
+    require(digest(manifest_raw) == MANIFEST_SHA256, "pinned source-capsule manifest differs")
+    require(digest(pin_raw) == PIN_SHA256, "canonical RAPP reference pin differs")
+    require(digest(registry_raw) == REGISTRY_SHA256, "pinned registry implementation differs")
+    manifest = _json(manifest_raw)
+    for item in manifest["artifacts"]:
+        body = artifact_reader(item["path"])
+        require(digest(body) == item["sha256"] and len(body) == item["bytes"], "pinned capability artifact differs")
+    return manifest
+
+
+def verify_implementation_inputs(root):
+    """Check code pins as data before an archived package can be imported."""
+    manifest = _check_implementation_pins(
+        read(root / MANIFEST), read(root / PIN), read(root / "scripts/capability_registry.py"),
+        lambda name: read(root / relative(name)),
+    )
+    scripts = {item["path"] for item in manifest["artifacts"] if item["path"].startswith("scripts/")}
+    scripts.add("scripts/capability_registry.py")
+    entries = list((root / "scripts").iterdir())
+    actual = {path.relative_to(root).as_posix() for path in entries}
+    require(scripts <= actual <= scripts | {"scripts/__init__.py"}
+            and all(path.is_file() and not path.is_symlink() for path in entries),
+            "undeclared implementation modules or bytecode cache")
+
+
 def _worker(action, proposal, context, timeout=TIMEOUT + 30):
-    work = proposal / "check-work"
+    work = (proposal if action == "candidate" else proposal / "capability") / "check-work"
     work.mkdir(mode=0o700)
     env = environment()
     env.update(TMPDIR=str(work), TMP=str(work), TEMP=str(work))
