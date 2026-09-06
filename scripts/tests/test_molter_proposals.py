@@ -183,7 +183,7 @@ def test_duplicate_verifies_then_is_a_real_noop(source):
 @pytest.mark.parametrize("name", [
     "proposal.patch", "candidate.bundle", "candidate-result.json", "request.json",
     "receipt.json", "fixture-evidence.json", "qualification-context.json",
-    "changes/apps/games/counter.html",
+    "changes/apps/games/counter.html", "candidate-input.html",
 ])
 def test_tampered_artifact_is_not_regenerated(source, name):
     fixture = Fixture()
@@ -460,6 +460,7 @@ def test_snapshot_mutation_is_rejected_without_canonical_writes(source):
 
 def test_precise_manifest_and_archive_deltas_are_preserved(source):
     def mutate(result, stage, request):
+        manifest_before = (stage / "apps/manifest.json").read_bytes()
         manifest = json.loads((stage / "apps/manifest.json").read_text())
         app = manifest["categories"]["games"]["apps"][0]
         app.update(generation=1, lastMolted="2026-09-06",
@@ -469,11 +470,53 @@ def test_precise_manifest_and_archive_deltas_are_preserved(source):
             "apps/archive/counter/v0.html": ORIGINAL,
             "apps/archive/counter/molt-log.json": '[{"status":"prepared"}]',
         })
+        result["evidence"]["base_sha256"] = {
+            request["app_path"]: result["input_sha256"],
+            "apps/manifest.json": proposals.digest(manifest_before),
+            "apps/archive/counter/v0.html": None,
+            "apps/archive/counter/molt-log.json": None,
+        }
 
     result = prepare(source, Fixture(mutate))
     assert result["status"] == "fixture_prepared", result
     receipt = json.loads((source["proposal"] / "receipt.json").read_text())
     assert len(receipt["changes"]) == 4
+
+
+@pytest.mark.parametrize("mismatch", ["missing_path", "wrong_hash", "wrong_absence", "extra_path", "wrong_type"])
+def test_candidate_base_evidence_must_match_exact_committed_destinations(source, mismatch):
+    def mutate(result, stage, request):
+        expected = {request["app_path"]: result["input_sha256"]}
+        if mismatch == "missing_path":
+            expected = {}
+        elif mismatch == "wrong_hash":
+            expected[request["app_path"]] = "0" * 64
+        elif mismatch == "wrong_absence":
+            expected[request["app_path"]] = None
+        elif mismatch == "extra_path":
+            expected["apps/community.json"] = None
+        else:
+            expected = []
+        result["evidence"]["base_sha256"] = expected
+
+    fixture = Fixture(mutate)
+    result = prepare(source, fixture)
+    assert result["status"] == "rejected"
+    assert "base expectations" in result["reason"]
+    assert fixture.qualifications == 0
+
+
+def test_preparation_cannot_replace_an_operator_reviewed_candidate(source):
+    def mutate(result, stage, request):
+        altered = IMPROVED.replace("Add", "Subtract")
+        result["changes"][request["app_path"]] = altered
+        result["output_sha256"] = proposals.digest(altered.encode())
+
+    fixture = Fixture(mutate)
+    result = prepare(source, fixture)
+    assert result["status"] == "rejected"
+    assert "operator-supplied candidate" in result["reason"]
+    assert fixture.qualifications == 0
 
 
 def test_unrelated_manifest_changes_are_rejected(source):

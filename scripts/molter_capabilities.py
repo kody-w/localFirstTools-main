@@ -475,6 +475,8 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
     require(strip_metadata(updated) != strip_metadata(original), "app change is metadata-only")
     require(result.get("input_sha256") == digest(original) and result.get("output_sha256") == digest(updated),
             "candidate app hash mismatch")
+    require(request["candidate_sha256"] is None or result["output_sha256"] == request["candidate_sha256"],
+            "prepared HTML differs from the operator-supplied candidate")
     model = result.get("model", {})
     require(type(model.get("invoked")) is bool and type(model.get("attempts")) is int
             and 0 <= model["attempts"] <= 1 and model["invoked"] == (model["attempts"] == 1)
@@ -496,6 +498,10 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
                     and len(new) == len(old) + 1 and isinstance(new[-1], dict), "archive log must be append-only")
         records.append({"path": name, "input_sha256": digest(previous) if previous is not None else None,
                         "output_sha256": digest(body), "bytes": len(body), "mode": mode or "100644"})
+    if "base_sha256" in result["evidence"]:
+        expected = {item["path"]: item["input_sha256"] for item in records}
+        require(result["evidence"]["base_sha256"] == expected,
+                "candidate base expectations differ from committed destinations")
     return bodies, records
 
 
@@ -569,6 +575,9 @@ def verify_proposal(proposal_dir, *, repo, base, repository, require_current_bas
                 for key in ("repository", "base_commit", "target", "app_path")),
             "receipt request projection differs")
     require(receipt.get("artifacts") == inventory(proposal), "proposal artifacts are missing, tampered or undeclared")
+    if request["candidate_sha256"] is not None:
+        require(digest(read(proposal / "candidate-input.html", MAX_APP_BYTES)) == request["candidate_sha256"],
+                "retained operator candidate differs from immutable request")
     require(receipt.get("delivery") == {"state": "not_submitted", "externally_submitted": False,
                                       "deployment_verified": False}
             and receipt.get("deployment_verified") is False, "adapter cannot attest submission or deployment")
