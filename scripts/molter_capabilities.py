@@ -3,8 +3,10 @@
 
 prepare/verify/status require --repo, --base and --repository. A prepared
 directory contains a complete patch, a base-prerequisite Git bundle, candidate
-checks, and a real replay-qualified source-capsule registry. Verification and
-duplicate requests inspect retained evidence without rerunning checks or models.
+checks, and a real replay-qualified source-capsule registry. Archived verification
+uses the historical commit, not current checkout content. --require-current-base
+additionally checks readiness. Neither verification nor a duplicate request reruns
+qualification checks or models.
 Unsigned hashes detect corruption, not coordinated forgery or human approval.
 """
 
@@ -139,6 +141,7 @@ def environment():
            if not key.startswith("GIT_") and key not in {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"}}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", GIT_NO_REPLACE_OBJECTS="1",
+               GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="file",
                PYTHONDONTWRITEBYTECODE="1", PYTHONNOUSERSITE="1")
     return env
 
@@ -175,7 +178,7 @@ def blob(repo, base, name, optional=False):
     return body, mode
 
 
-def bind_source(repo, base, repository):
+def bind_source(repo, base, repository, *, require_current=True):
     repo = absolute(repo)
     require(repo.is_dir(), "source repository is missing", "blocked")
     require(REPOSITORY.fullmatch(repository or "") and not repository.lower().endswith(".git"),
@@ -184,13 +187,14 @@ def bind_source(repo, base, repository):
     require(absolute(git(repo, "rev-parse", "--show-toplevel").decode().strip()) == repo,
             "--repo must be the source worktree root")
     commit = git(repo, "rev-parse", "--verify", base + "^{commit}").decode().strip()
-    require(git(repo, "rev-parse", "HEAD").decode().strip() == commit, "stale base: source HEAD differs")
-    dirty = git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all",
-                "--ignored=matching", "--ignore-submodules=none")
-    require(not dirty, "source must be clean and committed, including untracked and ignored files")
-    flags = git(repo, "ls-files", "-v", "-z").split(b"\0")
-    require(all(not item or item.startswith(b"H ") for item in flags),
-            "source index must not hide modifications with assume-unchanged or skip-worktree flags")
+    if require_current:
+        require(git(repo, "rev-parse", "HEAD").decode().strip() == commit, "stale base: source HEAD differs")
+        dirty = git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all",
+                    "--ignored=matching", "--ignore-submodules=none")
+        require(not dirty, "source must be clean and committed, including untracked and ignored files")
+        flags = git(repo, "ls-files", "-v", "-z").split(b"\0")
+        require(all(not item or item.startswith(b"H ") for item in flags),
+                "source index must not hide modifications with assume-unchanged or skip-worktree flags")
     return repo, commit, git(repo, "rev-parse", commit + "^{tree}").decode().strip()
 
 
@@ -269,17 +273,32 @@ def inventory(root):
     return sorted(result, key=lambda item: item["path"])
 
 
-def _summary(receipt, noop=False):
+def _summary(receipt, noop=False, readiness=False):
     return {key: receipt[key] for key in (
         "status", "reason", "request_id", "repository", "base_commit", "target", "app_path",
         "qualified", "qualification", "candidate_commit", "delivery", "deployment_verified",
     )} | {"noop": noop, "receipt": "receipt.json", "patch": receipt.get("patch"),
-         "bundle": receipt.get("bundle")}
+         "bundle": receipt.get("bundle"),
+         "base_readiness": {"checked": readiness, "matches_required_base": True if readiness else None}}
 
 
 def _adapter_identity():
     return {name: digest(read(Path(__file__).with_name(name)))
             for name in ("molter_capabilities.py", "molter_capability_worker.py")}
+
+
+def _verify_adapter_identity(proposal, repo, base, expected):
+    require(isinstance(expected, dict)
+            and set(expected) == {"molter_capabilities.py", "molter_capability_worker.py"},
+            "invalid producing-adapter identity")
+    for name, sha in expected.items():
+        saved = proposal / "adapter" / name
+        if saved.exists():
+            body = read(saved)
+        else:
+            # Older v1 artifacts can bind the producer through their original source commit.
+            body, _ = blob(repo, base, "scripts/" + name, optional=True)
+        require(body is not None and digest(body) == sha, "archived producing-adapter bytes differ")
 
 
 def _receipt(root, request, status, reason, validate=None, **extra):
@@ -511,9 +530,11 @@ def _cleanup_staging(proposal):
             shutil.rmtree(path)
 
 
-def verify_proposal(proposal_dir, *, repo, base, repository, _fixture=None, _pending_receipt=None):
-    """Read-only integrity verification. _fixture is an explicitly unqualified test seam."""
-    repo, commit, tree = bind_source(repo, base, repository)
+def verify_proposal(proposal_dir, *, repo, base, repository, require_current_base=False,
+                    _fixture=None, _pending_receipt=None):
+    """Verify archived proof; opt into current-base readiness without applying it."""
+    require(type(require_current_base) is bool, "readiness must be an explicit Boolean")
+    repo, commit, tree = bind_source(repo, base, repository, require_current=require_current_base)
     proposal = output_path(proposal_dir, repo)
     require(proposal.is_dir() and (proposal / "request.json").is_file()
             and (_pending_receipt is not None or (proposal / "receipt.json").is_file()),
@@ -530,7 +551,9 @@ def verify_proposal(proposal_dir, *, repo, base, repository, _fixture=None, _pen
         {key: value for key, value in receipt.items() if key != "integrity_sha256"})), "receipt integrity mismatch")
     require(request.get("base_commit") == commit and request.get("base_tree") == tree
             and request.get("repository") == repository.casefold(), "proposal source/base binding differs")
-    require(request.get("adapter") == _adapter_identity(), "adapter implementation differs from immutable request")
+    require(request.get("schema") == "molter-review-request/v1"
+            and receipt.get("schema") == "molter-review-proposal/v1", "unsupported proposal schema")
+    _verify_adapter_identity(proposal, repo, commit, request.get("adapter"))
     require(receipt.get("request_id") == digest(request_raw), "immutable request identity mismatch")
     require(all(receipt.get(key) == request.get(key)
                 for key in ("repository", "base_commit", "target", "app_path")),
@@ -553,7 +576,8 @@ def verify_proposal(proposal_dir, *, repo, base, repository, _fixture=None, _pen
                              for item in receipt["changes"]}
         _, records = validate_candidate(result, repo, request, manifest, key, app, original)
         require(records == receipt["changes"], "candidate path fingerprints differ")
-        git(repo, "apply", "--check", "--cached", str(proposal / "proposal.patch"))
+        if require_current_base:
+            git(repo, "apply", "--check", "--cached", str(proposal / "proposal.patch"))
         git(repo, "bundle", "verify", str(proposal / "candidate.bundle"))
         heads = git(repo, "bundle", "list-heads", str(proposal / "candidate.bundle")).decode().strip()
         require(heads == receipt["candidate_commit"] + " refs/heads/molter-proposal", "bundle candidate binding differs")
@@ -588,7 +612,7 @@ def verify_proposal(proposal_dir, *, repo, base, repository, _fixture=None, _pen
                         "bytes": app_record["bytes"], "text": result["changes"][app_path],
                     },
                     "selected-source capsule differs from complete proposal")
-    return _summary(receipt)
+    return _summary(receipt, readiness=require_current_base)
 
 
 def _verify_worker(proposal):
@@ -630,7 +654,8 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
         "fixture": _fixture.identity if _fixture is not None else None,
     }
     if proposal.exists():
-        existing = verify_proposal(proposal, repo=repo, base=commit, repository=repository, _fixture=_fixture)
+        existing = verify_proposal(proposal, repo=repo, base=commit, repository=repository,
+                                   require_current_base=True, _fixture=_fixture)
         require(existing["request_id"] == digest(json_bytes(request)), "proposal directory belongs to another request")
         return {**existing, "noop": True}
     if dry_run:
@@ -641,6 +666,10 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
         }
     proposal.mkdir(mode=0o700)
     write_new(proposal / "request.json", json_bytes(request))
+    for name, sha in request["adapter"].items():
+        body = read(Path(__file__).with_name(name))
+        require(digest(body) == sha, "adapter changed during request creation", "failed")
+        write_new(proposal / "adapter" / name, body)
     if supplied is not None:
         write_new(proposal / "candidate-input.html", supplied)
     try:
@@ -683,13 +712,13 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
             "local review candidate preserved; submission and deployment are not established",
             validate=lambda pending: verify_proposal(
                 proposal, repo=repo, base=commit, repository=repository,
-                _fixture=_fixture, _pending_receipt=pending,
+                require_current_base=True, _fixture=_fixture, _pending_receipt=pending,
             ),
             qualified=_fixture is None, qualification=qualification, changes=records,
             candidate_commit=candidate_commit, candidate_tree=candidate_tree,
             implementation_commit=implementation, patch="proposal.patch", bundle="candidate.bundle",
         )
-        return _summary(receipt)
+        return _summary(receipt, readiness=True)
     except Exception as exc:
         if (proposal / "receipt.json").exists():
             raise
@@ -720,6 +749,9 @@ def parser():
             child.add_argument("--objective", default=DEFAULT_OBJECTIVE)
             child.add_argument("--rapp-ref")
             child.add_argument("--dry-run", action="store_true")
+        else:
+            child.add_argument("--require-current-base", action="store_true",
+                               help="also require clean current HEAD and check patch application; never apply")
     return cli
 
 
@@ -734,7 +766,7 @@ def main(argv=None):
                     allow_model=args.allow_model, objective=args.objective, rapp_ref=args.rapp_ref, dry_run=args.dry_run,
                 )
             else:
-                result = verify_proposal(args.proposal, **kwargs)
+                result = verify_proposal(args.proposal, **kwargs, require_current_base=args.require_current_base)
         print(json.dumps(result, sort_keys=True, ensure_ascii=False))
         return 0 if result["status"] in {"prepared", "dry_run"} else 1
     except Exception as exc:

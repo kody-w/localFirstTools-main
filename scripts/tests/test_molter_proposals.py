@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -109,9 +110,9 @@ def prepare(source, fixture, **kwargs):
     return proposals.prepare_proposal(source["proposal"], **options)
 
 
-def verify(source, fixture):
+def verify(source, fixture, **options):
     return proposals.verify_proposal(source["proposal"], repo=source["repo"], base=source["base"],
-                                     repository=source["repository"], _fixture=fixture)
+                                     repository=source["repository"], _fixture=fixture, **options)
 
 
 def test_fixture_preparation_is_local_unqualified_and_complete(source, monkeypatch):
@@ -278,6 +279,94 @@ def test_stale_base_is_refused_and_preserves_prior_evidence(source):
     source["base"] = run_git(source["repo"], "rev-parse", "HEAD")
     with pytest.raises(proposals.ProposalError, match="source/base binding"):
         prepare(source, fixture)
+
+
+def test_archived_proof_uses_historical_commit_not_current_checkout(source, monkeypatch):
+    fixture = Fixture()
+    first = prepare(source, fixture)
+    (source["repo"] / "apps/games/counter.html").write_text("<html>New committed app</html>")
+    run_git(source["repo"], "add", "apps/games/counter.html")
+    run_git(source["repo"], "commit", "-qm", "advance current source")
+    (source["repo"] / "apps/games/counter.html").write_text("<html>Dirty current app</html>")
+    (source["repo"] / "untracked.py").write_text("not historical source")
+    before_source, before_proposal = snapshot(source["repo"]), snapshot(source["proposal"])
+    original_git = proposals.git
+
+    def read_only(repo, *args, **kwargs):
+        assert args[0] not in {"apply", "status", "ls-files", "add", "commit", "checkout"}
+        return original_git(repo, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(proposals, "git", read_only)
+        patch.setattr(proposals, "_adapter_identity", lambda: pytest.fail("current producer is not archived proof"))
+        result = verify(source, fixture)
+    assert result["candidate_commit"] == first["candidate_commit"]
+    assert result["base_readiness"] == {"checked": False, "matches_required_base": None}
+    assert snapshot(source["repo"]) == before_source
+    assert snapshot(source["proposal"]) == before_proposal
+    assert fixture.preparations == fixture.qualifications == 1
+    with pytest.raises(proposals.ProposalError, match="stale base"):
+        verify(source, fixture, require_current_base=True)
+    with pytest.raises(proposals.ProposalError, match="stale base"):
+        prepare(source, fixture)
+
+
+def test_readiness_requires_clean_current_base_but_archive_verification_does_not(source):
+    fixture = Fixture()
+    prepare(source, fixture)
+    ready = verify(source, fixture, require_current_base=True)
+    assert ready["base_readiness"] == {"checked": True, "matches_required_base": True}
+    (source["repo"] / "apps/games/counter.html").write_text(IMPROVED)
+    assert verify(source, fixture)["status"] == "fixture_prepared"
+    with pytest.raises(proposals.ProposalError, match="clean and committed"):
+        verify(source, fixture, require_current_base=True)
+
+
+def test_fresh_runner_reuses_portable_exact_request_cache_without_generation(source, tmp_path, monkeypatch):
+    first = prepare(source, Fixture())
+    fresh_repo = tmp_path / "fresh-checkout"
+    fresh_proposal = tmp_path / "restored-exact-key-cache"
+    fresh_candidate = tmp_path / "fresh-operator.html"
+    run_git(tmp_path, "clone", "-q", "--no-local", str(source["repo"]), str(fresh_repo))
+    shutil.copytree(source["proposal"], fresh_proposal)
+    shutil.copyfile(source["candidate"], fresh_candidate)
+    shutil.rmtree(source["repo"])
+    shutil.rmtree(source["proposal"])
+    source["candidate"].unlink()
+    source.update(repo=fresh_repo, proposal=fresh_proposal, candidate=fresh_candidate)
+    before_source, before_proposal = snapshot(fresh_repo), snapshot(fresh_proposal)
+    for name in ("_stage_source", "_stage_package", "_worker"):
+        monkeypatch.setattr(proposals, name, lambda *args, **kwargs: pytest.fail("restored cache must not regenerate"))
+    fresh_process_fixture = Fixture()
+    resumed = prepare(source, fresh_process_fixture)
+    assert resumed == {**first, "noop": True}
+    assert fresh_process_fixture.preparations == fresh_process_fixture.qualifications == 0
+    assert fresh_process_fixture.verifications == 1
+    assert snapshot(fresh_repo) == before_source
+    assert snapshot(fresh_proposal) == before_proposal
+
+
+def test_older_artifacts_can_bind_producer_through_historical_git_source(source, monkeypatch):
+    for name in ("molter_capabilities.py", "molter_capability_worker.py"):
+        (source["repo"] / "scripts" / name).write_bytes(Path(proposals.__file__).with_name(name).read_bytes())
+    run_git(source["repo"], "add", "scripts")
+    run_git(source["repo"], "commit", "-qm", "committed producing adapter")
+    source["base"] = run_git(source["repo"], "rev-parse", "HEAD")
+    fixture = Fixture()
+    prepare(source, fixture)
+    # Model the previous v1 layout, whose producer is committed but not separately exported.
+    shutil.rmtree(source["proposal"] / "adapter")
+    path = source["proposal"] / "receipt.json"
+    receipt = json.loads(path.read_text())
+    receipt["artifacts"] = proposals.inventory(source["proposal"])
+    receipt["integrity_sha256"] = proposals.digest(proposals.json_bytes(
+        {key: value for key, value in receipt.items() if key != "integrity_sha256"}))
+    path.write_bytes(proposals.json_bytes(receipt))
+    (source["repo"] / "scripts/molter_capabilities.py").write_text("# New unrelated current adapter\n")
+    run_git(source["repo"], "add", "scripts/molter_capabilities.py")
+    run_git(source["repo"], "commit", "-qm", "new adapter version")
+    monkeypatch.setattr(proposals, "_adapter_identity", lambda: pytest.fail("do not require current producer bytes"))
+    assert verify(source, fixture)["status"] == "fixture_prepared"
 
 
 @pytest.mark.parametrize("target", ["../counter.html", "/counter.html", "apps/games/counter.html", "x\\counter.html"])
