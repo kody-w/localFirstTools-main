@@ -708,6 +708,38 @@ def test_legacy_candidate_generation_size_and_manifest_refresh_conventions(sourc
         assert verify(source, fixture)["status"] == "fixture_prepared"
 
 
+@pytest.mark.parametrize("omitted", [None, "manifest", "log", "archive", "refresh"])
+def test_real_result_validation_requires_complete_history_deltas(source, omitted):
+    target, app_path, manifest, category, app, original = proposals.select_app(source["repo"], source["base"], "counter.html")
+    request = {"target": target, "app_path": app_path, "base_commit": source["base"],
+               "objective": proposals.DEFAULT_OBJECTIVE, "candidate_sha256": proposals.digest(IMPROVED.encode()),
+               "allow_model": False, "timeout_seconds": 180, "fixture": None}
+    # Shape-only boundary data: this test does not run or assert RAPP qualification.
+    result = Fixture().prepare(source["repo"], request, IMPROVED.encode())
+    updated = json.loads(json.dumps(manifest))
+    updated["categories"]["games"]["apps"][0].update(
+        generation=1, lastMolted="2026-09-06",
+        moltHistory=[{"gen": 1, "date": "2026-09-06", "size": len(IMPROVED)}],
+    )
+    if omitted != "refresh":
+        updated["meta"] = {"lastUpdated": "2026-09-06"}
+    result["changes"].update({
+        "apps/manifest.json": json.dumps(updated),
+        "apps/archive/counter/v1.html": ORIGINAL,
+        "apps/archive/counter/molt-log.json": '[{"generation":1}]',
+    })
+    path = {"manifest": "apps/manifest.json", "archive": "apps/archive/counter/v1.html",
+            "log": "apps/archive/counter/molt-log.json"}.get(omitted)
+    if path:
+        del result["changes"][path]
+    if omitted is not None:
+        with pytest.raises(proposals.ProposalError):
+            proposals.validate_candidate(result, source["repo"], request, manifest, category, app, original)
+    else:
+        _, records = proposals.validate_candidate(result, source["repo"], request, manifest, category, app, original)
+        assert len(records) == 4
+
+
 @pytest.mark.parametrize("mismatch", ["missing_path", "wrong_hash", "wrong_absence", "extra_path", "wrong_type"])
 def test_candidate_base_evidence_must_match_exact_committed_destinations(source, mismatch):
     def mutate(result, stage, request):

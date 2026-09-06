@@ -536,7 +536,7 @@ def _stage_package(proposal, files):
     return commit
 
 
-def _manifest_delta(before, after, category_key, target, new_size):
+def _manifest_delta(before, after, category_key, target, new_size, require_refresh=False):
     previous = next(app for app in before["categories"][category_key]["apps"] if app["file"] == target)
     updated = next(app for app in after["categories"][category_key]["apps"] if app["file"] == target)
     allowed = {"generation", "lastMolted", "moltHistory"}
@@ -553,7 +553,7 @@ def _manifest_delta(before, after, category_key, target, new_size):
     apps[apps.index(updated)] = previous
     refreshed = _json(json_bytes(before))
     refreshed.setdefault("meta", {})["lastUpdated"] = updated["lastMolted"]
-    require(restored == before or restored == refreshed, "unrelated manifest modifications")
+    require(restored == refreshed or (not require_refresh and restored == before), "unrelated manifest modifications")
 
 
 def validate_candidate(result, repo, request, manifest, category_key, app, original):
@@ -572,6 +572,12 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
     allowed = {request["app_path"], "apps/manifest.json",
                original_archive, archive + "molt-log.json"}
     require(set(changes) <= allowed, "candidate contains undeclared paths")
+    if request["fixture"] is None:
+        require({request["app_path"], "apps/manifest.json", archive + "molt-log.json"} <= set(changes),
+                "real prepared candidates require app, manifest, and audit-log changes")
+        if original_archive not in changes:
+            archived, _ = blob(repo, request["base_commit"], original_archive, optional=True)
+            require(archived == original, "required original archive is absent or conflicting")
     bodies = {}
     for name, text in changes.items():
         relative(name)
@@ -597,7 +603,7 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
         require(result["evidence"]["base_unchanged"] is True, "candidate base snapshot was not stable")
     if "apps/manifest.json" in bodies:
         _manifest_delta(manifest, _json(bodies["apps/manifest.json"]), category_key,
-                        request["target"], len(changes[request["app_path"]]))
+                        request["target"], len(changes[request["app_path"]]), require_refresh=request["fixture"] is None)
     records = []
     for name, body in sorted(bodies.items()):
         previous, mode = blob(repo, request["base_commit"], name, optional=True)
