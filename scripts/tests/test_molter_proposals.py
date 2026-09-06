@@ -1,10 +1,12 @@
 """Adapter contract tests; the explicit fixture is NOT RAPP qualification."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -178,6 +180,178 @@ def test_duplicate_verifies_then_is_a_real_noop(source):
     assert fixture.preparations == fixture.qualifications == 1
     assert snapshot(source["proposal"]) == before
     assert verify(source, fixture)["deployment_verified"] is False
+
+
+def test_concurrent_identical_preparation_admits_only_one_generator(source):
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowFixture(Fixture):
+        def prepare(self, stage, request, supplied):
+            result = super().prepare(stage, request, supplied)
+            entered.set()
+            assert release.wait(30), "test must release the admitted caller"
+            return result
+
+    admitted, competing = SlowFixture(), Fixture()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        running = pool.submit(prepare, source, admitted)
+        try:
+            assert entered.wait(30)
+            with pytest.raises(proposals.ProposalError, match="in progress") as error:
+                prepare(source, competing)
+            assert error.value.status == "blocked"
+            assert error.value.recovery["state"] == "in_progress"
+            assert error.value.recovery["automatic_retry"] is False
+            assert competing.preparations == competing.qualifications == 0
+        finally:
+            release.set()
+        result = running.result(timeout=30)
+    assert result["status"] == "fixture_prepared", result
+    assert admitted.preparations == admitted.qualifications == 1
+    assert prepare(source, competing)["noop"] is True
+    assert competing.preparations == competing.qualifications == 0
+
+
+def test_atomic_directory_admission_handles_simultaneous_creators(source, monkeypatch):
+    original_mkdir = Path.mkdir
+    barrier = threading.Barrier(2)
+
+    def race(path, *args, **kwargs):
+        if path == source["proposal"] and not kwargs.get("exist_ok") and not kwargs.get("parents"):
+            barrier.wait(timeout=30)
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", race)
+    fixtures = [Fixture(), Fixture()]
+
+    def run(fixture):
+        try:
+            return prepare(source, fixture)
+        except proposals.ProposalError as exc:
+            assert exc.status == "blocked"
+            return {"status": "blocked", "recovery": exc.recovery}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, fixtures))
+    assert sum(fixture.preparations for fixture in fixtures) == 1
+    assert sum(fixture.qualifications for fixture in fixtures) == 1
+    assert any(result["status"] == "fixture_prepared" for result in results)
+
+
+def test_interrupted_attempt_is_retained_and_never_automatically_regenerated(source):
+    class InterruptedFixture(Fixture):
+        def prepare(self, stage, request, supplied):
+            self.preparations += 1
+            raise KeyboardInterrupt("injected interruption")
+
+    interrupted = InterruptedFixture()
+    with pytest.raises(KeyboardInterrupt):
+        prepare(source, interrupted)
+    assert not (source["proposal"] / "receipt.json").exists()
+    assert not (source["proposal"] / "source").exists()
+    assert (source["proposal"] / "progress/candidate-started.json").is_file()
+    retained = snapshot(source["proposal"])
+    resumed = Fixture()
+    with pytest.raises(proposals.ProposalError, match="interrupted") as error:
+        prepare(source, resumed)
+    assert error.value.recovery == {
+        "state": "interrupted_or_incomplete", "automatic_retry": False, "evidence_preserved": True,
+        "exportable": False, "staging_retained": False,
+        "candidate_execution": "may_have_run", "next_step": "inspect retained evidence; do not rerun this directory",
+    }
+    assert snapshot(source["proposal"]) == retained
+    assert resumed.preparations == resumed.qualifications == 0
+
+
+def test_cli_reports_recovery_state_without_claiming_or_retrying_a_proposal(source, capsys):
+    class InterruptedFixture(Fixture):
+        def prepare(self, *args):
+            raise KeyboardInterrupt("injected interruption")
+
+    with pytest.raises(KeyboardInterrupt):
+        prepare(source, InterruptedFixture())
+    before = snapshot(source["proposal"])
+    code = proposals.main([
+        "status", str(source["proposal"]), "--repo", str(source["repo"]),
+        "--base", source["base"], "--repository", source["repository"],
+    ])
+    result = json.loads(capsys.readouterr().out)
+    assert code == 1 and result["status"] == "blocked"
+    assert result["qualified"] is False and result["deployment_verified"] is False
+    assert result["recovery"]["state"] == "interrupted_or_incomplete"
+    assert result["recovery"]["automatic_retry"] is False
+    assert result["recovery"]["exportable"] is False
+    assert snapshot(source["proposal"]) == before
+
+
+def test_process_death_releases_local_lock_but_never_restarts_generation(source):
+    code = """
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import molter_capabilities as proposals
+class Interrupted:
+    identity = 'unit-tests-not-rapp-v1'
+    def prepare(self, *args):
+        os._exit(23)
+proposals.prepare_proposal(
+    sys.argv[2], repo=sys.argv[3], base=sys.argv[4], repository='fixture/molter',
+    candidate_file=sys.argv[5], _fixture=Interrupted(),
+)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", code, str(Path(proposals.__file__).parent), str(source["proposal"]),
+         str(source["repo"]), source["base"], str(source["candidate"])],
+        env=proposals.environment(), capture_output=True, timeout=30,
+    )
+    assert completed.returncode == 23, completed.stderr
+    assert not proposals._attempt_active(source["proposal"])
+    before = snapshot(source["proposal"])
+    fixture = Fixture()
+    with pytest.raises(proposals.ProposalError, match="interrupted") as error:
+        prepare(source, fixture)
+    assert error.value.recovery["candidate_execution"] == "may_have_run"
+    assert error.value.recovery["staging_retained"] is True
+    assert error.value.recovery["exportable"] is False
+    assert fixture.preparations == fixture.qualifications == 0
+    assert snapshot(source["proposal"]) == before
+
+
+def test_artifact_write_publishes_complete_bytes_without_overwrite(tmp_path, monkeypatch):
+    path = tmp_path / "artifact.json"
+    link = proposals.os.link
+    observed = []
+
+    def publish(source, destination):
+        assert not Path(destination).exists()
+        observed.append(Path(source).read_bytes())
+        link(source, destination)
+
+    monkeypatch.setattr(proposals.os, "link", publish)
+    proposals.write_new(path, b'{"complete":true}\n')
+    assert observed == [b'{"complete":true}\n']
+    assert path.read_bytes() == observed[0]
+    monkeypatch.setattr(proposals.os, "link", link)
+    with pytest.raises(FileExistsError):
+        proposals.write_new(path, b"replacement")
+    assert path.read_bytes() == observed[0]
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_atomic_write_never_removes_a_preexisting_pending_file(tmp_path, monkeypatch):
+    pending = tmp_path / ".pending-occupied"
+    pending.write_bytes(b"preexisting evidence")
+    monkeypatch.setattr(proposals.uuid, "uuid4", lambda: SimpleNamespace(hex="occupied"))
+    with pytest.raises(FileExistsError):
+        proposals.write_new(tmp_path / "new.json", b"new work")
+    assert pending.read_bytes() == b"preexisting evidence"
+    assert not (tmp_path / "new.json").exists()
+
+
+def test_missing_proposal_does_not_claim_retained_evidence(source):
+    with pytest.raises(proposals.ProposalError) as error:
+        verify(source, Fixture())
+    assert error.value.recovery["evidence_preserved"] is False
+    assert not source["proposal"].exists()
 
 
 @pytest.mark.parametrize("name", [

@@ -11,7 +11,7 @@ Unsigned hashes detect corruption, not coordinated forgery or human approval.
 """
 
 import argparse
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from datetime import date
 import hashlib
 import json
@@ -22,6 +22,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import uuid
 
 sys.dont_write_bytecode = True
 
@@ -60,9 +61,10 @@ LIMITATIONS = [
 
 
 class ProposalError(ValueError):
-    def __init__(self, reason, status="rejected"):
+    def __init__(self, reason, status="rejected", *, recovery=None):
         super().__init__(reason)
         self.status = status
+        self.recovery = recovery
 
 
 def require(condition, reason, status="rejected"):
@@ -139,10 +141,89 @@ def write_new(path, body):
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     no_symlinks(path)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    with os.fdopen(os.open(path, flags, 0o600), "wb") as handle:
-        handle.write(body)
-        handle.flush()
-        os.fsync(handle.fileno())
+    pending = path.parent / (".pending-" + uuid.uuid4().hex)
+    created = False
+    try:
+        descriptor = os.open(pending, flags, 0o600)
+        created = True
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(pending, path)
+    finally:
+        if created:
+            pending.unlink(missing_ok=True)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+@contextmanager
+def _preparation_lock(proposal):
+    import fcntl
+
+    path = proposal / ".preparation.lock"
+    no_symlinks(path)
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        # This is a local advisory lock, never the repository's network writer-lock.
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _attempt_active(proposal):
+    import fcntl
+
+    path = proposal / ".preparation.lock"
+    no_symlinks(path)
+    if not path.exists():
+        return False
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        require(stat.S_ISREG(os.fstat(descriptor).st_mode), "unsafe preparation lock")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(descriptor)
+
+
+def _require_finished_attempt(proposal):
+    active = _attempt_active(proposal)
+    if not active and (proposal / "receipt.json").is_file():
+        return
+    state = "in_progress" if active else "interrupted_or_incomplete"
+    raise ProposalError(
+        "proposal preparation is in progress" if active else "proposal is incomplete or interrupted",
+        "blocked",
+        recovery={
+            "state": state, "automatic_retry": False,
+            "evidence_preserved": (proposal / "request.json").is_file(),
+            "exportable": False,
+            "staging_retained": (proposal / "source").exists() or (proposal / "capability/.git").exists(),
+            "candidate_execution": "may_have_run" if (proposal / "progress/candidate-started.json").exists()
+            else "not_started_or_unknown",
+            "next_step": "verify after the active owner finishes" if active
+            else "inspect retained evidence; do not rerun this directory",
+        },
+    )
+
+
+def _progress(proposal, request, event):
+    write_new(proposal / "progress" / (event + ".json"), json_bytes({
+        "schema": "molter-preparation-event/v1", "event": event,
+        "request_id": digest(json_bytes(request)),
+    }))
 
 
 def environment():
@@ -590,6 +671,8 @@ def verify_proposal(proposal_dir, *, repo, base, repository, require_current_bas
     require(type(require_current_base) is bool, "readiness must be an explicit Boolean")
     repo, commit, tree = bind_source(repo, base, repository, require_current=require_current_base)
     proposal = output_path(proposal_dir, repo)
+    if _pending_receipt is None:
+        _require_finished_attempt(proposal)
     require(proposal.is_dir() and (proposal / "request.json").is_file()
             and (_pending_receipt is not None or (proposal / "receipt.json").is_file()),
             "proposal is incomplete or interrupted", "failed")
@@ -710,19 +793,32 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
         "adapter": _adapter_identity(),
         "fixture": _fixture.identity if _fixture is not None else None,
     }
-    if proposal.exists():
+    def existing_result():
         existing = verify_proposal(proposal, repo=repo, base=commit, repository=repository,
                                    require_current_base=True, _fixture=_fixture)
         require(existing["request_id"] == digest(json_bytes(request)), "proposal directory belongs to another request")
         return {**existing, "noop": True}
+
+    if proposal.exists():
+        return existing_result()
     if dry_run:
         return {
             "status": "dry_run", "reason": "read-only plan; no generation, qualification or delivery",
             "request_id": digest(json_bytes(request)), "request": request, "qualified": False,
             "deployment_verified": False, "would_prepare": supplied is not None or allow_model,
         }
-    proposal.mkdir(mode=0o700)
+    try:
+        proposal.mkdir(mode=0o700)
+    except FileExistsError:
+        return existing_result()
+    with _preparation_lock(proposal):
+        return _prepare_owned(proposal, repo, commit, request, supplied, manifest, key, app, original, rapp_ref, _fixture)
+
+
+def _prepare_owned(proposal, repo, commit, request, supplied, manifest, key, app, original, rapp_ref, fixture):
+    target, app_path, repository = request["target"], request["app_path"], request["repository"]
     write_new(proposal / "request.json", json_bytes(request))
+    _progress(proposal, request, "request-accepted")
     for name, sha in request["adapter"].items():
         body = read(Path(__file__).with_name(name))
         require(digest(body) == sha, "adapter changed during request creation", "failed")
@@ -730,16 +826,17 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
     if supplied is not None:
         write_new(proposal / "candidate-input.html", supplied)
     try:
-        require(supplied is not None or allow_model, "candidate file or explicit --allow-model is required", "blocked")
-        files = _package_inputs(repo, commit, rapp_ref) if _fixture is None else None
+        require(supplied is not None or request["allow_model"], "candidate file or explicit --allow-model is required", "blocked")
+        files = _package_inputs(repo, commit, rapp_ref) if fixture is None else None
         implementation = _stage_package(proposal, files) if files is not None else None
         _stage_source(repo, commit, proposal / "source", app_path, target)
-        if _fixture is None:
+        if fixture is None:
             _worker("preflight", proposal, proposal / "request.json")
         before = git(proposal / "source", "status", "--porcelain=v1", "--untracked-files=all")
         require(not before, "capability preflight modified its source snapshot")
-        result = (_worker("candidate", proposal, proposal / "request.json") if _fixture is None
-                  else _fixture.prepare(proposal / "source", request, supplied))
+        _progress(proposal, request, "candidate-started")
+        result = (_worker("candidate", proposal, proposal / "request.json") if fixture is None
+                  else fixture.prepare(proposal / "source", request, supplied))
         after = git(proposal / "source", "status", "--porcelain=v1", "--untracked-files=all",
                     "--ignored=matching")
         require(before == after, "candidate preparation modified its source snapshot")
@@ -750,28 +847,31 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
             **{k: v for k, v in result.items() if k != "changes"},
             "change_paths": sorted(result["changes"]) if isinstance(result.get("changes"), dict) else None,
         }))
+        _progress(proposal, request, "candidate-returned")
         bodies, records = validate_candidate(result, repo, request, manifest, key, app, original)
         candidate_commit, candidate_tree = _make_patch(proposal, request, bodies, records)
         context = {**request, "request_id": digest(json_bytes(request)),
                    "candidate_commit": candidate_commit, "candidate_tree": candidate_tree,
                    "implementation_commit": implementation}
         write_new(proposal / "qualification-context.json", json_bytes(context))
+        _progress(proposal, request, "qualification-started")
         qualification = (_worker("qualify", proposal, proposal / "qualification-context.json", timeout=420)
-                         if _fixture is None else _fixture.qualify(proposal, context))
-        require(_fixture is not None or qualification.get("qualified") is True, "source qualification did not pass", "failed")
-        require(_fixture is None or (qualification.get("kind") == "test_fixture"
+                         if fixture is None else fixture.qualify(proposal, context))
+        require(fixture is not None or qualification.get("qualified") is True, "source qualification did not pass", "failed")
+        require(fixture is None or (qualification.get("kind") == "test_fixture"
                                      and qualification.get("qualified") is False),
                 "fixture evidence must never claim real qualification", "failed")
         bind_source(repo, commit, repository)
         _cleanup_staging(proposal)
+        _progress(proposal, request, "staging-removed")
         receipt = _receipt(
-            proposal, request, "prepared" if _fixture is None else "fixture_prepared",
+            proposal, request, "prepared" if fixture is None else "fixture_prepared",
             "local review candidate preserved; submission and deployment are not established",
             validate=lambda pending: verify_proposal(
                 proposal, repo=repo, base=commit, repository=repository,
-                require_current_base=True, _fixture=_fixture, _pending_receipt=pending,
+                require_current_base=True, _fixture=fixture, _pending_receipt=pending,
             ),
-            qualified=_fixture is None, qualification=qualification, changes=records,
+            qualified=fixture is None, qualification=qualification, changes=records,
             candidate_commit=candidate_commit, candidate_tree=candidate_tree,
             implementation_commit=implementation, patch="proposal.patch", bundle="candidate.bundle",
         )
@@ -783,6 +883,9 @@ def prepare_proposal(proposal_dir, *, repo, base, repository, target=None, candi
         status = exc.status if isinstance(exc, ProposalError) else "failed"
         receipt = _receipt(proposal, request, status, str(exc))
         return _summary(receipt)
+    except BaseException:
+        _cleanup_staging(proposal)
+        raise
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -829,6 +932,8 @@ def main(argv=None):
     except Exception as exc:
         result = {"status": exc.status if isinstance(exc, ProposalError) else "failed",
                   "reason": str(exc), "qualified": False, "deployment_verified": False}
+        if isinstance(exc, ProposalError) and exc.recovery is not None:
+            result["recovery"] = exc.recovery
         print(json.dumps(result, sort_keys=True))
         print("molter proposal: " + str(exc), file=sys.stderr)
         return 1
