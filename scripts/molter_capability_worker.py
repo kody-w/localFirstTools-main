@@ -46,7 +46,8 @@ def capability(proposal, request, action):
     manifest, revision = contracts.load_manifest(root / MANIFEST, root)
     contracts.require(revision == MANIFEST_SHA256, "source-capsule manifest pin mismatch")
     inventory, _ = registry.load_inventory(root, manifest_paths=[MANIFEST])
-    reference = frames.Reference(root / "reference")
+    reference_dir = "vendor/rapp-1" if (root / "vendor/rapp-1").exists() else "reference"
+    reference = frames.Reference(root / reference_dir)
     if action == "preflight":
         package.pack_sources(proposal / "source", request["base_commit"],
                              request["repository"], [request["app_path"]])
@@ -59,13 +60,14 @@ def capability(proposal, request, action):
         workflow="molter-review-proposal", path=[request["app_path"]],
     )
     options = dict(root=root, manifest_paths=[MANIFEST], store="evidence",
-                   rapp_dir=root / "reference")
+                   rapp_dir=root / reference_dir)
     if action == "qualify":
         qualification = package.qualify(args)
         contracts.require(qualification["outcome"] == "passed", "source qualification failed")
         frames.init_store(root / "evidence", "molter", "review-proposals", reference)
         artifacts = {CAPSULE, REPORT, PIN, "scripts/capability_registry.py"}
-        artifacts.update("reference/" + name for name in ("rapp.py", "rapp_check.py", "SPEC.md"))
+        artifacts.update(reference_dir + "/" + name for name in ("rapp.py", "rapp_check.py", "SPEC.md"))
+        artifacts.update(name for name in ("scripts/__init__.py", "tests/__init__.py") if (root / name).is_file())
         for info in inventory.values():
             artifacts.add(info["path"])
             artifacts.update(item["path"] for item in info["manifest"]["artifacts"])

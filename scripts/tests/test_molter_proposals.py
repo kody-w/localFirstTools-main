@@ -5,12 +5,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import autonomous_frame
+import molter_capability_worker as capability_worker
 import molter_capabilities as proposals
 
 
@@ -617,3 +619,85 @@ def test_late_verification_failure_never_writes_a_prepared_receipt(source):
     assert (source["proposal"] / "candidate.bundle").is_file()
     assert prepare(source, fixture)["noop"] is True
     assert fixture.preparations == fixture.qualifications == 1
+
+
+@pytest.fixture
+def package_shape(monkeypatch):
+    """A shape-only fixture, never executable qualification evidence."""
+    artifacts = [
+        "scripts/capability_package.py", "scripts/capability_contracts.py", "scripts/autocomplete_catalog.py",
+        "scripts/autocomplete_frames.py", "tests/test_capability_package.py", "tests/test_capability_contracts.py",
+    ]
+    files = {name: b"shape fixture\n" for name in
+             set(artifacts) | proposals.PACKAGE_SUPPORT | {"scripts/capability_registry.py"}}
+    files[proposals.PIN] = proposals.json_bytes({
+        "commit": proposals.RAPP_COMMIT,
+        "files": {name: proposals.digest(files[proposals.REFERENCE + "/" + name])
+                  for name in ("rapp.py", "rapp_check.py", "SPEC.md")},
+    })
+    files[proposals.MANIFEST] = proposals.json_bytes({
+        "id": "source-capsule", "version": "1.0.3", "reuses": [],
+        "artifacts": [{"path": name, "sha256": proposals.digest(files[name]), "bytes": len(files[name])}
+                      for name in artifacts],
+    })
+    monkeypatch.setattr(proposals, "MANIFEST_SHA256", proposals.digest(files[proposals.MANIFEST]))
+    monkeypatch.setattr(proposals, "blob", lambda repo, base, name, **kwargs:
+                        (files[name[len(proposals.PACKAGE) + 1:]], "100644"))
+
+    def listing(repo, *args, **kwargs):
+        assert args[:4] == ("ls-tree", "-r", "--name-only", "-z")
+        return b"\0".join((proposals.PACKAGE + "/" + name).encode() for name in files) + b"\0"
+
+    monkeypatch.setattr(proposals, "git", listing)
+    return files
+
+
+def test_complete_package_and_bundled_reference_are_preserved(package_shape):
+    copied = proposals._package_inputs(Path("."), "a" * 40, None)
+    assert copied == package_shape
+    assert len(copied) == 26
+    assert "vendor/rapp-1/LICENSE" in copied
+    assert "scripts/__init__.py" in copied and "tests/__init__.py" in copied
+
+
+@pytest.mark.parametrize("change", ["missing", "undeclared"])
+def test_package_inputs_refuse_partial_or_undeclared_bootstrap_files(package_shape, change):
+    if change == "missing":
+        del package_shape["scripts/__init__.py"]
+    else:
+        package_shape["sitecustomize.py"] = b"# Not part of the bounded package.\n"
+    with pytest.raises(proposals.ProposalError, match="missing or undeclared"):
+        proposals._package_inputs(Path("."), "a" * 40, None)
+
+
+def test_external_reference_cannot_override_the_bundled_pin(package_shape, tmp_path):
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    for name in ("rapp.py", "rapp_check.py", "SPEC.md"):
+        (reference / name).write_bytes(package_shape[proposals.REFERENCE + "/" + name])
+    assert proposals._package_inputs(Path("."), "a" * 40, reference) == package_shape
+    (reference / "rapp.py").write_bytes(b"different reference")
+    with pytest.raises(proposals.ProposalError, match="external RAPP reference differs"):
+        proposals._package_inputs(Path("."), "a" * 40, reference)
+
+
+@pytest.mark.parametrize("location", ["vendor/rapp-1", "reference"])
+def test_worker_preflight_supports_bundled_and_legacy_reference_paths(tmp_path, monkeypatch, location):
+    (tmp_path / "capability" / location).mkdir(parents=True)
+    observed = []
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setitem(sys.modules, "autocomplete_frames", SimpleNamespace(
+        Reference=lambda path: observed.append(path) or SimpleNamespace(identity={"test_fixture": True}),
+    ))
+    monkeypatch.setitem(sys.modules, "capability_contracts", SimpleNamespace(
+        load_manifest=lambda *args: ({}, capability_worker.MANIFEST_SHA256),
+        require=proposals.require,
+    ))
+    monkeypatch.setitem(sys.modules, "capability_registry", SimpleNamespace(load_inventory=lambda *args, **kwargs: ({}, {})))
+    monkeypatch.setitem(sys.modules, "capability_package", SimpleNamespace(pack_sources=lambda *args: observed.append(args)))
+    request = {"base_commit": "a" * 40, "repository": "fixture/molter", "app_path": "apps/fixture.html"}
+    result = capability_worker.capability(tmp_path, request, "preflight")
+    assert observed == [tmp_path / "capability" / location,
+                        (tmp_path / "source", "a" * 40, "fixture/molter", ["apps/fixture.html"])]
+    assert result["reference"] == {"test_fixture": True}
+    assert "qualified" not in result

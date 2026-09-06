@@ -30,6 +30,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "scripts/capabilities/source_capsule"
 MANIFEST = "landgrab/autocomplete/capabilities/manifests/source-capsule.json"
 PIN = "landgrab/autocomplete/rapp-reference.json"
+REFERENCE = "vendor/rapp-1"
+PACKAGE_SUPPORT = {
+    ".gitignore", "NOTICE", "README.md", "__init__.py", "__main__.py", "check_port.py",
+    "notices/localFirstTools-AGENTS.md", "scripts/__init__.py", "tests/__init__.py",
+    "tests/test_capability_registry.py", "tests/test_port.py", "upstream.json", "verify_vendor.py",
+    "vendor/rapp-1/LICENSE", "vendor/rapp-1/SPEC.md", "vendor/rapp-1/rapp.py", "vendor/rapp-1/rapp_check.py",
+}
 MANIFEST_SHA256 = "e6f639a6d9c0625d3857f872e979e415b92dc4811902156d686ae8db885b3b45"
 RAPP_COMMIT = "eb50008011447f5e69372ac22a1755f0978d15ed"
 DEFAULT_OBJECTIVE = "Improve this app while preserving its existing features."
@@ -326,9 +333,15 @@ def _package_inputs(repo, base, rapp_ref):
     manifest = _json(raw)
     require(manifest["id"] == "source-capsule" and manifest["version"] == "1.0.3"
             and not manifest["reuses"], "unexpected pinned capability contract")
-    names = {MANIFEST, PIN, "scripts/capability_registry.py"}
+    names = {MANIFEST, PIN, "scripts/capability_registry.py"} | PACKAGE_SUPPORT
     names.update(item["path"] for item in manifest["artifacts"])
+    committed = {
+        name.decode("utf-8")[len(PACKAGE) + 1:]
+        for name in git(repo, "ls-tree", "-r", "--name-only", "-z", base, "--", PACKAGE).split(b"\0") if name
+    }
+    require(committed == names, "committed capability package has missing or undeclared files", "blocked")
     files = {name: blob(repo, base, PACKAGE + "/" + name)[0] for name in sorted(names)}
+    require(sum(map(len, files.values())) <= MAX_CHANGE_BYTES, "capability package exceeds bound")
     for item in manifest["artifacts"]:
         require(digest(files[item["path"]]) == item["sha256"]
                 and len(files[item["path"]]) == item["bytes"], "pinned capability artifact differs")
@@ -336,13 +349,10 @@ def _package_inputs(repo, base, rapp_ref):
     require(pin["commit"] == RAPP_COMMIT
             and set(pin["files"]) == {"rapp.py", "rapp_check.py", "SPEC.md"}, "unexpected RAPP pin")
     for name, sha in pin["files"].items():
-        if rapp_ref is None:
-            body, _ = blob(repo, base, PACKAGE + "/reference/" + name, optional=True)
-            require(body is not None, "--rapp-ref is required; no bundled reference is available", "blocked")
-        else:
-            body = read(absolute(rapp_ref) / name)
+        body = files[REFERENCE + "/" + name]
         require(digest(body) == sha, "RAPP reference bytes differ from pin")
-        files["reference/" + name] = body
+        if rapp_ref is not None:
+            require(read(absolute(rapp_ref) / name) == body, "external RAPP reference differs from bundled pin")
     return files
 
 
