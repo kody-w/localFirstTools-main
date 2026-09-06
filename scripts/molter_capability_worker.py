@@ -5,6 +5,7 @@ import argparse
 from contextlib import redirect_stdout
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -64,6 +65,21 @@ def capability(proposal, request, action):
     )
     options = dict(root=root, manifest_paths=[MANIFEST], store="evidence",
                    rapp_dir=root / reference_dir)
+    if action == "replay":
+        raw_report = (root / REPORT).read_bytes()
+        report = contracts.load_json(root / REPORT)
+        argv = report["replay_argv"]
+        contracts.validate_source_replay(argv, package.ENTRYPOINT)
+        completed = subprocess.run(
+            argv, cwd=root, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=300, check=False,
+        )
+        contracts.require(completed.returncode == 0, "archived source transport replay failed")
+        contracts.require((root / REPORT).read_bytes() == raw_report,
+                          "replay modified the historical qualification report")
+        return {"replayed": True, "argv": argv, "report_unchanged": True,
+                "scope": "Fresh selected-source transport replay, not generation, approval or deployment."}
     if action == "qualify":
         qualification = package.qualify(args)
         contracts.require(qualification["outcome"] == "passed", "source qualification failed")
@@ -115,7 +131,7 @@ def capability(proposal, request, action):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("candidate", "preflight", "qualify", "verify"))
+    parser.add_argument("action", choices=("candidate", "preflight", "qualify", "verify", "replay"))
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--context", required=True)
     args = parser.parse_args(argv)

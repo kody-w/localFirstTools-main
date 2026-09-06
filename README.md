@@ -45,6 +45,21 @@ Drop HTML files in root and push. A GitHub Action automatically:
 
 Every app is one file. No CDNs, no npm, no tracking. Open in a browser and it works.
 
+## Mutation review loop
+
+The existing automation can prepare one changed app as a bounded review
+candidate instead of attempting to publish directly to protected `main`.
+It preserves a complete patch, a base-bound Git bundle, a replay-qualified
+selected-source capsule and a verifiable registry record. Prepared, approved
+and deployed remain separate states.
+
+The [mutation guide](docs/molter-capabilities/README.md) covers read-only
+planning, supplied-source or explicitly allowed model input, safe archive
+transport, historical replay, and operator review. It includes a real Cyber
+Timer pilot and failure cases. The older `molt`/`molter` command and data names
+remain compatible; no second scheduler or additional publication authority
+is introduced.
+
 ## Real MCP Server
 
 The hosted site is static, but a clone includes a real JSON-RPC MCP server at

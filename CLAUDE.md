@@ -71,7 +71,17 @@ creation, mutation, scoring, and direct repository workflows.
 
 ## Key Commands
 
+For the bounded mutation review path, use `autonomous_frame.py --prepare-proposal`
+rather than a new scheduler or a direct-main publisher.
+See `docs/molter-capabilities/README.md`. Preserve the pinned source-capsule
+bytes under `scripts/capabilities/source_capsule/`; never relabel fixtures or
+archived evidence as a fresh model run, approval or deployment.
+
 ```bash
+# Mutation acceptance and preserved-capability contracts
+python3 -B scripts/check_molter_capabilities.py
+python3 -B scripts/capabilities/source_capsule/check_port.py
+
 # Tests (pytest, all mocked, no network required)
 # pytest.ini defaults to `-m "not slow"` and ignores test_staleness.py — fast core suite by default.
 python3 -m pytest -v                                        # default fast suite
@@ -94,7 +104,7 @@ python3 scripts/generate_community.py [--push]
 python3 scripts/generate_broadcast.py [--frame N] [--push]
 python3 scripts/generate_broadcast_audio.py [--episode latest]
 
-# Molt (iteratively improve) an app via Copilot CLI
+# Mutate an app via Copilot CLI (legacy command name)
 python3 scripts/molt.py <filename>.html [--verbose] [--dry-run]
 python3 scripts/molt.py --category games_puzzles
 python3 scripts/molt.py --status

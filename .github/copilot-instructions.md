@@ -37,7 +37,16 @@ The platform hosts any self-contained browser application — not just games. Cu
 
 ## Key Commands
 
+The artifact-first mutation path remains part of `autonomous_frame.py`.
+Use `--prepare-proposal` with explicit base/repository and input authority;
+see `docs/molter-capabilities/README.md`. Do not add a second scheduler, weaken
+approval rules, modify pinned source-capsule bytes, or equate retained
+qualification with model execution, application usefulness or deployment.
+
 ```bash
+# Bounded mutation acceptance
+python3 -B scripts/check_molter_capabilities.py
+
 # Tests (pytest, all mocked, no network required)
 python3 -m pytest scripts/tests/ -v                         # all tests
 python3 -m pytest scripts/tests/test_molt.py -v             # single file

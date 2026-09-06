@@ -1,0 +1,109 @@
+name: Mutation Capability Contracts
+
+on:
+  pull_request:
+    paths:
+      - "scripts/capabilities/source_capsule/**"
+      - "scripts/molter_capabilities.py"
+      - "scripts/molter_capability_worker.py"
+      - "scripts/mutation_handoff.py"
+      - "scripts/check_molter_capabilities.py"
+      - "scripts/autonomous_frame.py"
+      - "scripts/molt.py"
+      - "scripts/copilot_utils.py"
+      - "scripts/tests/test_*molt*.py"
+      - "scripts/tests/test_mutation_handoff.py"
+      - "scripts/tests/test_mutation_workflow.py"
+      - "scripts/tests/test_copilot*.py"
+      - "scripts/tests/cyber-timer.mjs"
+      - "docs/molter-capabilities/**"
+      - ".github/workflows/autonomous-frame.yml"
+      - ".github/workflows/mutation-capabilities.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/capabilities/source_capsule/**"
+      - "scripts/molter_capabilities.py"
+      - "scripts/molter_capability_worker.py"
+      - "scripts/mutation_handoff.py"
+      - "scripts/check_molter_capabilities.py"
+      - "scripts/autonomous_frame.py"
+      - "scripts/molt.py"
+      - "scripts/copilot_utils.py"
+      - "scripts/tests/test_*molt*.py"
+      - "scripts/tests/test_mutation_handoff.py"
+      - "scripts/tests/test_mutation_workflow.py"
+      - "scripts/tests/test_copilot*.py"
+      - "scripts/tests/cyber-timer.mjs"
+      - "docs/molter-capabilities/**"
+      - ".github/workflows/autonomous-frame.yml"
+      - ".github/workflows/mutation-capabilities.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-capabilities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Restore existing test dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest==8.3.5
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify the pinned reusable capability
+        run: python3 -B scripts/capabilities/source_capsule/check_port.py
+      - name: Exercise all named mutation acceptance cases
+        run: python3 -B scripts/check_molter_capabilities.py
+      - name: Exercise failure boundaries and legacy behavior
+        run: |
+          python3 -m pytest -m '' -q \
+            scripts/tests/test_check_molter_capabilities.py \
+            scripts/tests/test_mutation_handoff.py \
+            scripts/tests/test_mutation_workflow.py \
+            scripts/tests/test_copilot_boundary.py \
+            scripts/tests/test_copilot_retry.py \
+            scripts/tests/test_molt_candidates.py \
+            scripts/tests/test_molt_contracts.py \
+            scripts/tests/test_molt.py \
+            scripts/tests/test_molter_proposals.py \
+            scripts/tests/test_autonomous_frame_organism.py
+      - name: Exercise the actual preserved browser output
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          if [ -z "$CHROME_BIN" ]; then
+            echo "::error::An installed Chromium browser is required."
+            exit 1
+          fi
+          python3 -B scripts/mutation_handoff.py unpack \
+            docs/molter-capabilities/pilot/proposal.tar "$RUNNER_TEMP/mutation-browser-pilot" \
+            --repo "$GITHUB_WORKSPACE" \
+            --base 27f08a6a0ea928ae678288becada60569d85a2b8 \
+            --repository kody-w/localFirstTools-main
+          mkdir -p "$RUNNER_TEMP/mutation-screenshots"
+          node scripts/tests/cyber-timer.mjs \
+            --file "$RUNNER_TEMP/mutation-browser-pilot/changes/apps/creative-tools/cyber-timer.html" \
+            --screenshot "$RUNNER_TEMP/mutation-screenshots/timer.png"
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-browser-evidence
+          path: ${{ runner.temp }}/mutation-screenshots
+          if-no-files-found: ignore
