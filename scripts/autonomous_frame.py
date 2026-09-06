@@ -543,7 +543,7 @@ def proposal_frame(argv):
     """Dispatch before any legacy frame side effects, including issue processing."""
     from molter_capabilities import DEFAULT_OBJECTIVE, JsonArgumentParser, main as proposal_main
 
-    parser = JsonArgumentParser(description="Prepare one artifact-only Molter review candidate.")
+    parser = JsonArgumentParser(description="Prepare one artifact-only mutation review candidate.")
     parser.add_argument("--prepare-proposal", required=True)
     parser.add_argument("--base", required=True)
     parser.add_argument("--repository", required=True)
@@ -561,7 +561,7 @@ def proposal_frame(argv):
     except ValueError as exc:
         print(json.dumps({"status": "blocked", "reason": str(exc), "qualified": False,
                           "deployment_verified": False}, sort_keys=True))
-        print("molter proposal: " + str(exc), file=sys.stderr)
+        print("mutation proposal: " + str(exc), file=sys.stderr)
         return 1
     command = ["prepare", args.prepare_proposal, "--repo", str(ROOT),
                "--base", args.base, "--repository", args.repository, "--objective", args.objective]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Internal, isolated worker for Molter's pinned local source-capsule adapter."""
+"""Internal, isolated worker for the mutation source-capsule adapter."""
 
 import argparse
 from contextlib import redirect_stdout
@@ -77,7 +77,7 @@ def capability(proposal, request, action):
         recorded, code = frames.record(argparse.Namespace(
             store=str(root / "evidence"), repo=str(root),
             run_id="proposal-" + request["request_id"][:32], worker="source-capsule",
-            phase="review", summary="Replay selected-source transport for a local Molter review proposal.",
+            phase="review", summary="Replay selected-source transport for a local mutation review proposal.",
             artifact=sorted(artifacts), check=[json.dumps(qualification["replay_argv"])],
             parent=[], check_timeout=300,
         ), reference)
@@ -129,7 +129,7 @@ def main(argv=None):
         print(json.dumps(result, sort_keys=True, ensure_ascii=False, allow_nan=False))
         return 0
     except Exception as exc:
-        print("molter worker: " + str(exc), file=sys.stderr)
+        print("mutation worker: " + str(exc), file=sys.stderr)
         return 1
 
 

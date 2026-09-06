@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare one immutable, base-bound Molter review handoff; never publish it.
+"""Prepare one immutable, base-bound mutation review handoff; never publish it.
 
 prepare/verify/status require --repo, --base and --repository. A prepared
 directory contains a complete patch, a base-prerequisite Git bundle, candidate
@@ -941,7 +941,7 @@ def main(argv=None):
         if isinstance(exc, ProposalError) and exc.recovery is not None:
             result["recovery"] = exc.recovery
         print(json.dumps(result, sort_keys=True))
-        print("molter proposal: " + str(exc), file=sys.stderr)
+        print("mutation proposal: " + str(exc), file=sys.stderr)
         return 1
 
 
