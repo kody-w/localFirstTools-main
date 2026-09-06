@@ -17,6 +17,30 @@ import molter_capabilities as proposals
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def arm_timeout_after_ready(monkeypatch, ready):
+    original = proposals.subprocess.Popen
+
+    def launch(*args, **kwargs):
+        process = original(*args, **kwargs)
+        communicate = process.communicate
+        armed = False
+
+        def after_startup(*args, **kwargs):
+            nonlocal armed
+            if not armed:
+                armed = True
+                deadline = time.monotonic() + 10
+                while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert ready.exists(), "The cancellation fixture must settle before its timeout is armed."
+            return communicate(*args, **kwargs)
+
+        process.communicate = after_startup
+        return process
+
+    monkeypatch.setattr(proposals.subprocess, "Popen", launch)
+
+
 def test_fifo_preparation_lock_fails_without_blocking(tmp_path):
     proposal = tmp_path / "proposal"
     proposal.mkdir()
@@ -74,7 +98,7 @@ def test_outer_worker_timeout_stops_inference_descendants(tmp_path):
     assert not (proposal / "check-work").exists()
 
 
-def test_nested_check_supervisor_unwinds_before_outer_timeout_returns(tmp_path):
+def test_nested_check_supervisor_unwinds_before_outer_timeout_returns(tmp_path, monkeypatch):
     ready, escaped = tmp_path / "ready", tmp_path / "escaped"
     child = (
         "import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text('ready'); "
@@ -84,13 +108,43 @@ def test_nested_check_supervisor_unwinds_before_outer_timeout_returns(tmp_path):
         "import os,sys; sys.path.insert(0,sys.argv[1]); "
         "import molter_capabilities as p; "
         "p.run_isolated([sys.executable,'-c',sys.argv[2],sys.argv[3],sys.argv[4]], "
-        "cwd=os.getcwd(), env=os.environ.copy(), timeout=8)"
+        "cwd=os.getcwd(), env=os.environ.copy(), timeout=8, shutdown_grace=p.CHECK_SHUTDOWN_SECONDS)"
     )
+    arm_timeout_after_ready(monkeypatch, ready)
     with pytest.raises(subprocess.TimeoutExpired):
         proposals.run_isolated(
             [sys.executable, "-B", "-c", parent, str(ROOT / "scripts"), child, str(ready), str(escaped)],
             cwd=tmp_path, env=proposals.environment(), timeout=0.7,
+            shutdown_grace=proposals.WORKER_SHUTDOWN_SECONDS,
         )
     assert ready.exists(), "The nested check must actually start."
     time.sleep(1.5)
     assert not escaped.exists()
+
+
+def test_nested_sigint_ignoring_child_is_reaped_before_outer_shutdown(tmp_path, monkeypatch):
+    assert proposals.WORKER_SHUTDOWN_SECONDS > proposals.CHECK_SHUTDOWN_SECONDS + proposals.REAP_SECONDS
+    assert proposals.WORKER_SHUTDOWN_SECONDS > 5  # The inference supervisor's own reap bound.
+    ready, escaped = tmp_path / "ready", tmp_path / "escaped"
+    child = (
+        "import pathlib,signal,sys,time; signal.signal(signal.SIGINT,signal.SIG_IGN); "
+        "pathlib.Path(sys.argv[1]).write_text('ready'); "
+        "time.sleep(7.2); pathlib.Path(sys.argv[2]).write_text('escaped')"
+    )
+    parent = (
+        "import os,sys; sys.path.insert(0,sys.argv[1]); "
+        "import molter_capabilities as p; "
+        "p.run_isolated([sys.executable,'-c',sys.argv[2],sys.argv[3],sys.argv[4]], "
+        "cwd=os.getcwd(), env=os.environ.copy(), timeout=10, shutdown_grace=p.CHECK_SHUTDOWN_SECONDS)"
+    )
+    arm_timeout_after_ready(monkeypatch, ready)
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        proposals.run_isolated(
+            [sys.executable, "-B", "-c", parent, str(ROOT / "scripts"), child, str(ready), str(escaped)],
+            cwd=tmp_path, env=proposals.environment(), timeout=0.7,
+            shutdown_grace=proposals.WORKER_SHUTDOWN_SECONDS,
+        )
+    assert ready.exists(), "The ignoring descendant must actually start."
+    time.sleep(max(0, 9 - (time.monotonic() - started)))
+    assert not escaped.exists(), "An inner shutdown grace outlived its outer supervisor."

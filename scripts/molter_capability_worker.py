@@ -71,9 +71,10 @@ def capability(proposal, request, action):
         report = contracts.load_json(root / REPORT)
         argv = report["replay_argv"]
         contracts.validate_source_replay(argv, package.ENTRYPOINT)
-        from molter_capabilities import run_isolated
+        from molter_capabilities import CHECK_SHUTDOWN_SECONDS, run_isolated
 
-        completed = run_isolated(argv, cwd=root, env=os.environ.copy(), timeout=300)
+        completed = run_isolated(argv, cwd=root, env=os.environ.copy(), timeout=300,
+                                 shutdown_grace=CHECK_SHUTDOWN_SECONDS)
         contracts.require(completed.returncode == 0, "archived source transport replay failed")
         contracts.require((root / REPORT).read_bytes() == raw_report,
                           "replay modified the historical qualification report")

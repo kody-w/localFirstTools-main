@@ -50,6 +50,10 @@ MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
 MAX_PROPOSAL_BYTES = 96 * 1024 * 1024
 MAX_ARTIFACTS = 256
 TIMEOUT = 180
+# The outer worker must outlive nested check cleanup and inference's five-second reap.
+WORKER_SHUTDOWN_SECONDS = 8
+CHECK_SHUTDOWN_SECONDS = 1
+REAP_SECONDS = 2
 REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 LIMITATIONS = [
     "Prepared is local review work, not submitted, accepted, merged, or deployed.",
@@ -472,17 +476,19 @@ def _signal_owned_group(process, value):
         pass
 
 
-def _cancel_worker(process):
+def _cancel_worker(process, shutdown_grace):
     # Python workers must unwind their own nested inference/check supervisors.
     _signal_owned_group(process, signal.SIGINT)
     try:
-        return process.communicate(timeout=5)
+        return process.communicate(timeout=shutdown_grace)
     except subprocess.TimeoutExpired:
         _signal_owned_group(process, signal.SIGKILL)
-        return process.communicate(timeout=5)
+        return process.communicate(timeout=REAP_SECONDS)
 
 
-def run_isolated(command, *, cwd, env, timeout):
+def run_isolated(command, *, cwd, env, timeout, shutdown_grace):
+    require(type(shutdown_grace) in {int, float} and 0 < shutdown_grace <= WORKER_SHUTDOWN_SECONDS,
+            "an explicit bounded shutdown grace is required")
     process = subprocess.Popen(
         command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
@@ -491,10 +497,10 @@ def run_isolated(command, *, cwd, env, timeout):
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
-            stdout, stderr = _cancel_worker(process)
+            stdout, stderr = _cancel_worker(process, shutdown_grace)
             raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from exc
         except BaseException:
-            _cancel_worker(process)
+            _cancel_worker(process, shutdown_grace)
             raise
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     finally:
@@ -502,7 +508,7 @@ def run_isolated(command, *, cwd, env, timeout):
         process.stdout.close()
         process.stderr.close()
         if process.poll() is None:
-            process.wait(timeout=5)
+            process.wait(timeout=REAP_SECONDS)
 
 
 def _worker(action, proposal, context, timeout=TIMEOUT + 30):
@@ -515,7 +521,7 @@ def _worker(action, proposal, context, timeout=TIMEOUT + 30):
             completed = run_isolated(
                 [sys.executable, "-B", str(Path(__file__).with_name("molter_capability_worker.py")),
                  action, "--proposal", str(proposal), "--context", str(context)],
-                cwd=proposal, env=env, timeout=timeout,
+                cwd=proposal, env=env, timeout=timeout, shutdown_grace=WORKER_SHUTDOWN_SECONDS,
             )
         except subprocess.TimeoutExpired as exc:
             _worker_observation(proposal, action, exc.stdout or b"", exc.stderr or b"", None, timeout)
@@ -806,7 +812,7 @@ def _verify_worker(proposal):
     completed = run_isolated(
         [sys.executable, "-B", str(Path(__file__).with_name("molter_capability_worker.py")),
          "verify", "--proposal", str(proposal), "--context", str(proposal / "qualification-context.json")],
-        cwd=proposal, env=environment(), timeout=60,
+        cwd=proposal, env=environment(), timeout=60, shutdown_grace=WORKER_SHUTDOWN_SECONDS,
     )
     require(completed.returncode == 0, "retained RAPP/registry verification failed: "
             + completed.stderr.decode("utf-8", errors="replace")[:400], "failed")

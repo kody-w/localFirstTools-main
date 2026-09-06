@@ -156,7 +156,12 @@ again.
 
 Managed worker timeouts first interrupt the worker so nested inference/check
 supervisors unwind before scratch removal; a bounded grace period precedes
-forced group termination. This is not a promise that an uncatchable OS kill
+forced group termination. Shutdown profiles are explicit: the outer worker's
+eight-second grace exceeds the nested check's one-second grace plus two-second
+reap bound, and also exceeds the inference supervisor's five-second reap bound.
+Equal nested grace periods are not safe: the outer supervisor could otherwise
+kill the inner one before it stops an interrupt-ignoring child.
+This is not a promise that an uncatchable OS kill
 can run cleanup. Recovery still reports retained staging as non-exportable.
 Lock inspection opens nonblocking and rejects FIFOs or other non-regular
 objects before attempting an advisory lock.
