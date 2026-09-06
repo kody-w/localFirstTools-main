@@ -690,17 +690,19 @@ async function storageDeniedContext(browser, viewport) {
     await mobile.goto(baseUrl, { waitUntil: "domcontentloaded", timeout });
     await waitForPosts(mobile);
     await dismissJoinOverlay(mobile);
-    const mobileTargets = await mobile.evaluate(() => {
+    const measureMobileTargets = () => {
       const selector = [
         ".sidebar-toggle",
         ".player-chip",
+        "#glass-gallery-root button",
+        ".glass-sidebar-link",
         ".sort-tab",
         ".vote-btn",
         ".post-footer button",
         ".post-footer a",
         ".sub-link"
       ].join(",");
-      return Array.from(document.querySelectorAll(selector)).map((node) => {
+      return Array.from(document.querySelectorAll(selector)).map((node, index) => {
         const rect = node.getBoundingClientRect();
         const style = getComputedStyle(node);
         const intersects = rect.right > 0 && rect.bottom > 0 &&
@@ -710,6 +712,7 @@ async function storageDeniedContext(browser, viewport) {
           Number(style.opacity || 1) > 0 &&
           intersects;
         return {
+          index,
           descriptor: [
             node.tagName,
             node.className,
@@ -721,13 +724,18 @@ async function storageDeniedContext(browser, viewport) {
           height: rect.height
         };
       }).filter((item) => item.visible);
-    });
+    };
+    const mobileTargets = await mobile.evaluate(measureMobileTargets);
+    // The introduction can put voting and app actions below the first viewport.
+    await mobile.locator("#feed .post").first().scrollIntoViewIfNeeded();
+    mobileTargets.push(...await mobile.evaluate(measureMobileTargets));
+    const targetCount = new Set(mobileTargets.map((item) => item.index)).size;
     const undersized = mobileTargets.filter(
       (item) => item.width < 44 || item.height < 44
     );
     result.galleryMobileTargets = {
-      pass: mobileTargets.length >= 5 && undersized.length === 0,
-      targetCount: mobileTargets.length,
+      pass: targetCount >= 5 && undersized.length === 0,
+      targetCount,
       undersized: undersized.slice(0, 20)
     };
     await mobileContext.close();

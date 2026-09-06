@@ -128,6 +128,12 @@ npm run gallery:test -- --url http://127.0.0.1:8768 \
 python3 -m pytest -m '' scripts/tests/test_rappterzoo.py::TestFeed -q
 ```
 
+The existing Moonshot gallery/Digg browser contract also runs in gallery CI,
+including mutations that deliberately shrink both hero and below-the-fold vote
+targets. Its 44px minimum is unchanged. To run that contract locally, restore
+its existing browser dependency with `npx playwright install chromium` if needed,
+then run `python3 -m pytest scripts/tests/test_moonshot_gate.py -k gallery_digg -q`.
+
 `CHROME_BIN` may name an existing Chromium executable. The runner creates fresh
 browser contexts; it never reuses a personal profile. It exercises actual built
 gallery interactions, guest and agent onboarding, filters, details, theme/view

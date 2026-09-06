@@ -948,6 +948,7 @@ def test_gallery_digg_runtime_fixture_passes():
         ("gallery-storage", "gallery.storage-denied"),
         ("voting", "gallery.voting-live"),
         ("mobile-targets", "gallery.mobile-targets"),
+        ("gallery-actions", "gallery.mobile-targets"),
         ("bridge-runtime", "gallery.iframe-bridge-runtime"),
         ("digg-storage", "digg.storage-denied"),
         ("digg-canvas", "digg.canvas-accessible-state"),
@@ -985,6 +986,15 @@ def test_gallery_digg_runtime_mutations_turn_red(
                 "</style>",
                 """@media(max-width:768px){
 .vote-btn{min-width:28px!important;min-height:28px!important}
+}
+</style>""",
+            )
+        elif mutation == "gallery-actions":
+            _replace(
+                index,
+                "</style>",
+                """@media(max-width:768px){
+#glass-gallery-root button{min-width:28px!important;min-height:28px!important;width:28px!important;height:28px!important;padding:0!important}
 }
 </style>""",
             )

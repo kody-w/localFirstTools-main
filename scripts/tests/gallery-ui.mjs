@@ -35,6 +35,10 @@ function noOverflow(geometry, width) {
 async function mobileNavigation(page) {
   const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
   const sidebar = page.locator("#sidebar")
+  for (const target of [toggle, page.locator("#player-chip"), page.locator("#feed .vote-btn").first()]) {
+    const box = await target.boundingBox()
+    assert(box && box.width >= 44 && box.height >= 44, `Touch target must be at least 44px: ${JSON.stringify(box)}`)
+  }
   for (const reducedMotion of ["reduce", "no-preference"]) {
     await page.emulateMedia({ reducedMotion })
     assert.equal(await sidebar.isVisible(), false)
