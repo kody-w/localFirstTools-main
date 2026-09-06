@@ -10,6 +10,7 @@ Usage:
     python3 scripts/autonomous_frame.py --verbose        # Detailed output
     python3 scripts/autonomous_frame.py --skip-create    # Skip game creation
     python3 scripts/autonomous_frame.py --skip-push      # Run everything but don't git push
+    python3 scripts/autonomous_frame.py --prepare-proposal DIR --base SHA --repository OWNER/REPO --candidate-file HTML
 """
 
 import json
@@ -20,6 +21,9 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+
+if any(arg == "--prepare-proposal" or arg.startswith("--prepare-proposal=") for arg in sys.argv[1:]):
+    sys.dont_write_bytecode = True
 
 from organism_ledger import append_molter_frame
 
@@ -245,6 +249,19 @@ def _molt_one(filename, score, gen):
     return filename, ok
 
 
+def select_molt_candidates(rankings, manifest, count):
+    """Use the same generation-first, score-second selection in both modes."""
+    app_gens = {
+        app["file"]: app.get("generation", 0)
+        for category in manifest.get("categories", {}).values()
+        for app in category.get("apps", [])
+    }
+    return sorted(
+        rankings.get("rankings", []),
+        key=lambda app: (app_gens.get(app["file"], 0), app.get("score", 0)),
+    )[:count]
+
+
 def html_molt(count):
     """Molt lowest-scoring HTML apps in parallel."""
     print(f"\n[HTML MOLT] Improving {count} weakest apps...")
@@ -254,7 +271,6 @@ def html_molt(count):
         print("  ⚠ No rankings available — skipping")
         return []
 
-    ranked = rankings.get("rankings", [])
     # Prioritize: unmolted first, then lowest score
     manifest = load_json(MANIFEST_FILE) or {"categories": {}}
     app_gens = {}
@@ -262,8 +278,7 @@ def html_molt(count):
         for app in cat.get("apps", []):
             app_gens[app["file"]] = app.get("generation", 0)
 
-    candidates = sorted(ranked, key=lambda r: (app_gens.get(r["file"], 0), r.get("score", 0)))
-    to_molt = candidates[:count]
+    to_molt = select_molt_candidates(rankings, manifest, count)
 
     if not to_molt:
         print("  No candidates to molt")
@@ -428,7 +443,10 @@ def publish(frame, actions_log):
 
     existing = [f for f in files_to_stage if Path(ROOT / f).exists() or f.endswith("/")]
 
-    subprocess.run(["git", "add"] + existing, cwd=ROOT, capture_output=True)
+    staged = subprocess.run(["git", "add"] + existing, cwd=ROOT, capture_output=True)
+    if staged.returncode != 0:
+        print("  ⚠ Git staging failed")
+        return False
 
     # Check if there's anything to commit
     result = subprocess.run(["git", "diff", "--cached", "--quiet"],
@@ -436,6 +454,9 @@ def publish(frame, actions_log):
     if result.returncode == 0:
         print("  Nothing to commit")
         return True
+    if result.returncode != 1:
+        print("  ⚠ Git staged-diff inspection failed")
+        return False
 
     summary_parts = []
     if actions_log.get("cleaned", 0):
@@ -454,7 +475,10 @@ def publish(frame, actions_log):
     summary = ", ".join(summary_parts) or "maintenance"
     msg = f"feat: Molter Engine frame {frame} — {summary}"
 
-    subprocess.run(["git", "commit", "-m", msg], cwd=ROOT, capture_output=True)
+    committed = subprocess.run(["git", "commit", "-m", msg], cwd=ROOT, capture_output=True)
+    if committed.returncode != 0:
+        print("  ⚠ Git commit failed")
+        return False
 
     if not SKIP_PUSH:
         result = subprocess.run(["git", "push"], cwd=ROOT, capture_output=True, text=True)
@@ -515,7 +539,47 @@ def log_frame(frame, obs, actions_log):
 
 # ── Main ──
 
-def main():
+def proposal_frame(argv):
+    """Dispatch before any legacy frame side effects, including issue processing."""
+    from molter_capabilities import DEFAULT_OBJECTIVE, JsonArgumentParser, main as proposal_main
+
+    parser = JsonArgumentParser(description="Prepare one artifact-only Molter review candidate.")
+    parser.add_argument("--prepare-proposal", required=True)
+    parser.add_argument("--base", required=True)
+    parser.add_argument("--repository", required=True)
+    parser.add_argument("--target")
+    parser.add_argument("--candidate-file")
+    parser.add_argument("--allow-model", action="store_true")
+    parser.add_argument("--objective", default=DEFAULT_OBJECTIVE)
+    parser.add_argument("--rapp-ref")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--skip-create", action="store_true")
+    parser.add_argument("--skip-push", action="store_true")
+    try:
+        args = parser.parse_args(argv)
+    except ValueError as exc:
+        print(json.dumps({"status": "blocked", "reason": str(exc), "qualified": False,
+                          "deployment_verified": False}, sort_keys=True))
+        print("molter proposal: " + str(exc), file=sys.stderr)
+        return 1
+    command = ["prepare", args.prepare_proposal, "--repo", str(ROOT),
+               "--base", args.base, "--repository", args.repository, "--objective", args.objective]
+    for flag, value in (("--target", args.target), ("--candidate-file", args.candidate_file),
+                        ("--rapp-ref", args.rapp_ref)):
+        if value is not None:
+            command.extend([flag, value])
+    if args.allow_model:
+        command.append("--allow-model")
+    if args.dry_run:
+        command.append("--dry-run")
+    return proposal_main(command)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if any(arg == "--prepare-proposal" or arg.startswith("--prepare-proposal=") for arg in argv):
+        return proposal_frame(argv)
     start = datetime.now()
     print("╔══════════════════════════════════════╗")
     print("║     RAPPTERZOO AUTONOMOUS FRAME      ║")
@@ -596,14 +660,13 @@ def main():
 
     # Phase 9: PUBLISH
     published = publish(frame, actions_log)
+    if not isinstance(published, bool):
+        raise RuntimeError("publish must return a Boolean result")
     if pending_issue_results.exists():
         if not published or SKIP_PUSH:
             pending_issue_results.unlink()
-            if not published:
-                raise RuntimeError(
-                    "frame publish failed; agent issues remain open"
-                )
-            print("  ⏭ Agent issues remain open because --skip-push was used")
+            if SKIP_PUSH and published:
+                print("  ⏭ Agent issues remain open because --skip-push was used")
         else:
             from process_agent_issues import finalize_issue_results
 
@@ -612,6 +675,8 @@ def main():
                 print("  ✓ Finalized {} agent issue(s) after push".format(
                     finalized
                 ))
+    if not published:
+        raise RuntimeError("frame publish failed; agent issues remain open")
 
     # Summary
     elapsed = (datetime.now() - start).total_seconds()
@@ -645,4 +710,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
