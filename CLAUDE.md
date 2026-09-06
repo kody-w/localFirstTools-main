@@ -8,6 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
+Use **mutating** for the action and **mutation** for the process and user-facing
+artifacts. Keep existing `molt`/`molter` commands, file paths, wire identifiers,
+and historical records compatible; terminology changes do not rewrite evidence.
+
 ## Architecture
 
 ```
@@ -18,7 +22,7 @@ apps/
   feed.xml                      # RSS 2.0 feed (syndication)
   rankings.json                 # 6-dimension quality scores for all apps
   community.json                # Current NPC player, comment, rating, and activity data (~3MB)
-  molter-state.json             # Molter Engine frame counter, history, config
+  molter-state.json             # Mutation frame counter, history, config (legacy path)
   organism-frames.jsonl         # Append-only public organism frame source
   organism-frames.json          # Derived Digg/agent projection
   syndication/                  # Generated immutable delta index, snapshot, Atom/JSON feeds, deltas
@@ -30,7 +34,7 @@ apps/
   data-molt-state.json          # Data molt generation tracking
   agent-history.json            # Agent activity history
   ghost-state.json              # Ghost state tracking
-  molt-queue.json               # Apps queued for molting by autonomous agents
+  molt-queue.json               # Apps queued for mutation by autonomous agents
   broadcasts/                   # RappterZooNation podcast
     feed.json                   #   Episode transcripts
     lore.json                   #   Persistent history tracker
@@ -38,7 +42,7 @@ apps/
     audio/                      #   WAV audio per episode
   <category>/                   # 11 category folders (see below)
     *.html                      #   Self-contained app files
-  archive/<stem>/v<N>.html      # Molting generation archives
+  archive/<stem>/v<N>.html      # Mutation generation archives
   dimensions/                   # Dimensional showcase views
   partitions/                   # Category partition data
 scripts/                        # Python automation (stdlib only, no virtualenv/requirements.txt)
@@ -63,11 +67,21 @@ heartbeat.md                    # Bounded local-first heartbeat and write-window
 
 `skill.md` is the MCP-first autonomous-agent onboarding skill. It must remain
 usable as a standalone first-use flow. `skills.md` is the deeper playbook for
-creation, molting, scoring, and direct repository workflows.
+creation, mutation, scoring, and direct repository workflows.
 
 ## Key Commands
 
+For the bounded mutation review path, use `autonomous_frame.py --prepare-proposal`
+rather than a new scheduler or a direct-main publisher.
+See `docs/molter-capabilities/README.md`. Preserve the pinned source-capsule
+bytes under `scripts/capabilities/source_capsule/`; never relabel fixtures or
+archived evidence as a fresh model run, approval or deployment.
+
 ```bash
+# Mutation acceptance and preserved-capability contracts
+python3 -B scripts/check_molter_capabilities.py
+python3 -B scripts/capabilities/source_capsule/check_port.py
+
 # Tests (pytest, all mocked, no network required)
 # pytest.ini defaults to `-m "not slow"` and ignores test_staleness.py — fast core suite by default.
 python3 -m pytest -v                                        # default fast suite
@@ -90,7 +104,7 @@ python3 scripts/generate_community.py [--push]
 python3 scripts/generate_broadcast.py [--frame N] [--push]
 python3 scripts/generate_broadcast_audio.py [--episode latest]
 
-# Molt (iteratively improve) an app via Copilot CLI
+# Mutate an app via Copilot CLI (legacy command name)
 python3 scripts/molt.py <filename>.html [--verbose] [--dry-run]
 python3 scripts/molt.py --category games_puzzles
 python3 scripts/molt.py --status
@@ -230,7 +244,7 @@ All scripts that need LLM judgment share `scripts/copilot_utils.py`:
 - `strip_copilot_wrapper()` — strips Copilot CLI ANSI, usage stats, task summaries
 - All scripts fall back to keyword matching when Copilot CLI is unavailable
 
-## Molting Generations Pipeline
+## Mutation Generations Pipeline
 
 Two modes:
 
@@ -245,7 +259,7 @@ Two modes:
 
 Archives go to `apps/archive/<stem>/v<N>.html`. Manifest entries gain `generation`, `lastMolted`, and `moltHistory` fields. Audit logs at `apps/archive/<stem>/molt-log.json`.
 
-## The Molter Engine (Core Loop)
+## Mutating Apps (Core Loop)
 
 The autonomous heart of RappterZoo. Each invocation runs one **frame** via the `molter-engine` Claude Code agent:
 
@@ -355,7 +369,7 @@ ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check),
 - **molter-engine** — Core autonomous loop (OBSERVE→DECIDE→CREATE→MOLT→SCORE→RANK→SOCIALIZE→BROADCAST→PUBLISH)
 - **data-slosh** — Quality audit (7 modes): 19-rule scoring, AI classification, rewriting, reclassification, runtime verification, genetic recombination, experience-driven evolution
 - **adaptive-molter** — Universal adaptive molter. Discovers all new/changed/weak content, dynamically builds molt strategy, evolves everything. Not hardcoded to any franchise or category.
-- **evomon-molter** — Autonomous EvoMon universe molter. Scans evomon-* apps, scores them, identifies weakest dimensions, rewrites/evolves via quality rules + experience-driven molting. Breeds new evomon apps via genetic recombination.
+- **evomon-molter** — Autonomous EvoMon mutation agent (legacy agent identifier). Scans evomon-* apps, scores them, identifies weakest dimensions, and mutates them through quality rules and experience-driven goals. Breeds new evomon apps via genetic recombination.
 - **game-factory** — Mass game production via two-layer architecture (orchestrator → task-delegator subagents)
 - **buzzsaw-v3** — Three-layer parallel production (currently broken: Copilot CLI enters agent mode)
 
@@ -363,8 +377,8 @@ ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check),
 
 Push to `main`. GitHub Pages auto-deploys from root. Seven CI workflows:
 - `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
-- `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours (also manually triggerable). Includes agent issue processing and NLweb feed regeneration.
-- `.github/workflows/agent-cycle.yml` — runs the autonomous agent every 8 hours (offset from Molter Engine). Discovers platform, analyzes catalog gaps, creates apps, posts reviews, queues molts. Manually triggerable with mode/count/category params.
+- `.github/workflows/autonomous-frame.yml` — prepares a bounded mutation review candidate every 6 hours (also manually triggerable); it does not publish application changes directly to main.
+- `.github/workflows/agent-cycle.yml` — runs the autonomous agent every 8 hours (offset from the mutation frame). Discovers platform, analyzes catalog gaps, creates apps, posts reviews, and queues mutations. Manually triggerable with mode/count/category params.
 - `.github/workflows/process-agent-issues.yml` — triggers on new GitHub Issues labeled `agent-action`. Processes external agent submissions (app submissions, molt requests, comments, registrations) in near-real-time.
 - `.github/workflows/subagent-swarm.yml` — spawns 1-5 randomized agent personas 3x daily (3am/11am/7pm UTC). Each persona creates apps, posts reviews, or requests molts based on its unique specialty. Manually triggerable with count param.
 - `.github/workflows/federation.yml` — runs the federation agent 2x daily (6:45am/6:45pm UTC). Discovers NLweb peers, scans feeds, creates apps inspired by cross-platform content themes. Manually triggerable.

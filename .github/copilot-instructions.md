@@ -6,6 +6,9 @@
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
+Use **mutating** for the action and **mutation** for user-facing process/artifact
+names. Preserve legacy `molt`/`molter` CLI, path, protocol and history identifiers.
+
 The platform hosts any self-contained browser application — not just games. Current verticals include interactive games, generative art, audio tools, a full cryptocurrency suite (ZooCoin blockchain with ECDSA signatures, merkle trees, UTXO model), file storage/sharing tools, and educational apps. New verticals are added by creating apps and categories.
 
 ## Architecture
@@ -20,21 +23,30 @@ The platform hosts any self-contained browser application — not just games. Cu
 - `apps/attention/` — public deterministic attention policy and prompt contract.
 - `apps/3d-immersive/organism-observatory.html` — flagship 3D view whose displays derive from current public organism-frame, manifest, and agent data.
 - `apps/<category>/` — Category folders for HTML apps. `experimental-ai` is the catch-all.
-- `apps/archive/<stem>/v<N>.html` — Molting generation archives.
+- `apps/archive/<stem>/v<N>.html` — Mutation generation archives.
 - `apps/broadcasts/` — RappterZooNation podcast (feed.json, lore.json, player.html, audio/).
 - `scripts/` — Python automation (stdlib only, no virtualenv/requirements.txt). Tests use pytest.
 - `scripts/copilot_utils.py` — Shared LLM integration layer. All scripts use `claude-opus-4.6` via `gh copilot --model claude-opus-4.6`.
 - `scripts/rappterzoo_mcp.py` — real portable MCP JSON-RPC server over stdio; `.well-known/mcp.json` is static discovery metadata only.
 - `scripts/rappterzoo_sync.py` — user-initiated conditional local replica client; preserves verified checkpoints and local overlays.
 - `scripts/build_syndication.py` — deterministic writer for `apps/syndication/`.
-- `skill.md` — MCP-first autonomous-agent first-use flow; `skills.md` is the deep creation, molting, and repository playbook.
+- `skill.md` — MCP-first autonomous-agent first-use flow; `skills.md` is the deep creation, mutation, and repository playbook.
 - Keep `.well-known/mcp.json` top-level `tools` exactly equal to runtime `tools/list`, including bounds and `additionalProperties: false`; retain older static/Issue descriptors only as labeled legacy fallback metadata.
 - `cartridges/` — ECS console game cartridge sources, compiled by `scripts/cartridge-build.py`.
 - **Root is sacred:** root metadata/runbooks include `index.html`, `README.md`, `CLAUDE.md`, `.gitignore`, `skill.json`, `skill.md`, `skills.md`, and `heartbeat.md`. HTML apps dropped in root get auto-sorted by CI.
 
 ## Key Commands
 
+The artifact-first mutation path remains part of `autonomous_frame.py`.
+Use `--prepare-proposal` with explicit base/repository and input authority;
+see `docs/molter-capabilities/README.md`. Do not add a second scheduler, weaken
+approval rules, modify pinned source-capsule bytes, or equate retained
+qualification with model execution, application usefulness or deployment.
+
 ```bash
+# Bounded mutation acceptance
+python3 -B scripts/check_molter_capabilities.py
+
 # Tests (pytest, all mocked, no network required)
 python3 -m pytest scripts/tests/ -v                         # all tests
 python3 -m pytest scripts/tests/test_molt.py -v             # single file
@@ -164,7 +176,7 @@ All automation that needs LLM judgment uses `scripts/copilot_utils.py`:
 - `strip_copilot_wrapper()` — strips Copilot CLI ANSI, usage stats, task summaries
 - Scripts fall back to keyword matching when Copilot CLI is unavailable
 
-## Molting Generations
+## Mutation Generations
 
 **Adaptive mode** (default): The Content Identity Engine (`scripts/content_identity.py`) analyzes what the app IS, then determines the most impactful improvement vector. A synth gets better synth controls; a drawing tool gets better undo/redo.
 
@@ -211,4 +223,4 @@ Cross-browser sync via manual chain export/import (longest valid chain wins).
 
 Push to `main`. GitHub Pages auto-deploys from root. Two CI workflows:
 - `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
-- `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours
+- `.github/workflows/autonomous-frame.yml` — prepares one bounded mutation review candidate every 6 hours without publishing application changes directly to main

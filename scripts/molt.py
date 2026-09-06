@@ -14,12 +14,15 @@ Usage:
   python3 scripts/molt.py --rollback memory-training-game 1   # Restore v1
 """
 
+import copy
 import hashlib
 import json
 import re
 import shutil
 import sys
+import tempfile
 from datetime import date
+from html.parser import HTMLParser
 from pathlib import Path
 
 # Import shared utilities
@@ -57,6 +60,12 @@ SCORE_DROP_THRESHOLD = 10  # auto-rollback if score drops more than this
 FEATURE_SCORE_DROP_THRESHOLD = 5  # rollback if drop>5 AND features missing
 COOLDOWN_MIN_GEN_FOR_THRESHOLD = 3  # after gen 3, apply "good enough" threshold
 GOOD_ENOUGH_SCORE = 70  # apps scoring this+ are skipped unless forced
+MAX_CANDIDATE_SIZE = int(MAX_INPUT_SIZE * SIZE_RATIO_MAX)
+MAX_OBJECTIVE_SIZE = 2_000
+MAX_CANDIDATE_TIMEOUT = 600
+MAX_MANIFEST_SIZE = 10_000_000
+MAX_MOLT_LOG_SIZE = 1_000_000
+SYNTAX_TIMEOUT = 10
 
 ARCHIVE_DIR = APPS_DIR / "archive"
 
@@ -381,12 +390,131 @@ _SKIP_SCRIPT_TYPES = {"x-shader/x-vertex", "x-shader/x-fragment", "importmap",
                       "application/json", "application/ld+json"}
 
 
-def _check_js_syntax(html):
+class _CandidateDocument(HTMLParser):
+    """Collect executable source without running it or resolving dependencies."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.opened = set()
+        self.closed = set()
+        self.viewport = False
+        self.scripts = []
+        self.errors = []
+        self.script_type = None
+        self.script = []
+
+    def handle_starttag(self, tag, attrs):
+        self.opened.add(tag)
+        if len(attrs) != len({name for name, _ in attrs}):
+            self.errors.append(f"Duplicate attributes on <{tag}>")
+        attrs = dict(attrs)
+        if tag == "meta" and (attrs.get("name") or "").lower() == "viewport":
+            self.viewport = bool(attrs.get("content"))
+        if tag == "script":
+            if "src" in attrs:
+                self.errors.append("External script dependency: script src is not inline")
+            self.script_type = (attrs.get("type") or "").lower().strip()
+            self.script = []
+        if tag == "link" and "stylesheet" in (attrs.get("rel") or "").lower().split():
+            self.errors.append("External stylesheet dependency: stylesheet is not inline")
+        for name, value in attrs.items():
+            if name.startswith("on") and value:
+                self.scripts.append(("handler", "(function(event){\n" + value + "\n})"))
+
+    def handle_startendtag(self, tag, attrs):
+        if tag == "script":
+            self.errors.append("Self-closing <script> cannot be syntax checked safely")
+        else:
+            super().handle_startendtag(tag, attrs)
+
+    def handle_data(self, data):
+        if self.script_type is not None:
+            self.script.append(data)
+
+    def handle_endtag(self, tag):
+        self.closed.add(tag)
+        if tag == "script" and self.script_type is not None:
+            code = "".join(self.script).strip()
+            script_type = self.script_type.split(";", 1)[0].strip()
+            if code and script_type in (
+                "", "module", "text/javascript", "application/javascript",
+                "text/ecmascript", "application/ecmascript",
+                "application/x-ecmascript", "application/x-javascript",
+                "text/x-ecmascript", "text/x-javascript", "text/jscript", "text/livescript",
+                "text/javascript1.0", "text/javascript1.1", "text/javascript1.2",
+                "text/javascript1.3", "text/javascript1.4", "text/javascript1.5",
+            ):
+                self.scripts.append((script_type, code))
+            self.script_type = None
+            self.script = []
+
+
+def _check_candidate_syntax(html, evidence):
+    import subprocess as _sp
+
+    document = _CandidateDocument()
+    document.feed(html)
+    document.close()
+    for tag in ("html", "head", "body"):
+        if tag not in document.opened or tag not in document.closed:
+            document.errors.append(f"Missing complete <{tag}> element")
+    if not document.viewport:
+        document.errors.append("Missing viewport metadata")
+    if document.script_type is not None:
+        document.errors.append("Unclosed <script> element")
+
+    evidence.update({
+        "status": "not_run",
+        "blocks": len(document.scripts),
+        "module_blocks": sum(kind == "module" for kind, _ in document.scripts),
+        "handler_blocks": sum(kind == "handler" for kind, _ in document.scripts),
+        "timeout_seconds": SYNTAX_TIMEOUT,
+    })
+    if document.errors:
+        return document.errors[0]
+    if not document.scripts:
+        evidence["status"] = "not_applicable"
+        return None
+
+    # Parse all blocks in one bounded subprocess; neither scripts nor handlers run.
+    check_js = (
+        "const vm=require('vm'),fs=require('fs');"
+        "try{for(const [kind,code] of JSON.parse(fs.readFileSync(0,'utf8'))){"
+        "if(kind==='module'){new vm.SourceTextModule(code)}"
+        "else{new vm.Script(code)}}}"
+        "catch(e){process.stderr.write(e.message);"
+        "process.exit(e instanceof SyntaxError ? 1 : 2)}"
+    )
+    cmd = ["node"]
+    if evidence["module_blocks"]:
+        cmd.append("--experimental-vm-modules")
+    cmd.extend(["-e", check_js])
+    try:
+        checked = _sp.run(
+            cmd, input=json.dumps(document.scripts), capture_output=True,
+            text=True, timeout=SYNTAX_TIMEOUT,
+        )
+    except (OSError, _sp.TimeoutExpired) as exc:
+        evidence["status"] = "unavailable"
+        return f"Required JavaScript syntax checker unavailable: {type(exc).__name__}"
+    if checked.returncode != 0:
+        evidence["status"] = "failed" if checked.returncode == 1 else "unavailable"
+        error = checked.stderr.strip().split("\n")[0] if checked.stderr.strip() else "Unknown"
+        return f"JavaScript syntax checker {evidence['status']}: {error}"
+    evidence["status"] = "passed"
+    return None
+
+
+def _check_js_syntax(html, *, required=False, evidence=None):
     """Run Node.js vm.Script on each <script> block to catch syntax errors.
 
     Returns None if all blocks parse OK, or an error string if any fail.
-    Skips shader scripts, importmap, JSON, and module scripts.
+    Legacy mode skips data/module scripts and tolerates unavailable Node.
+    required=True also checks modules/handlers and fails closed on unavailable Node.
     """
+    if required:
+        return _check_candidate_syntax(html, evidence if evidence is not None else {})
+
     import subprocess as _sp
 
     # Extract regular (non-module, non-special) script blocks
@@ -432,8 +560,8 @@ def _check_js_syntax(html):
     return None
 
 
-def validate_molt_output(html, original_size):
-    """Validate molted HTML output. Returns None if valid, error string if not."""
+def validate_molt_output(html, original_size, *, required_checks=False, syntax_evidence=None):
+    """Return None if valid, otherwise an error; required_checks fails closed."""
     if not html:
         return "Empty or None output"
 
@@ -445,7 +573,8 @@ def validate_molt_output(html, original_size):
         return "Missing <!DOCTYPE html>"
 
     # Check title
-    if not re.search(r"<title>.+?</title>", html, re.IGNORECASE | re.DOTALL):
+    title = re.search(r"<title>(.+?)</title>", html, re.IGNORECASE | re.DOTALL)
+    if not title or (required_checks and not title.group(1).strip()):
         return "Missing or empty <title>"
 
     # Check for external dependencies
@@ -462,7 +591,10 @@ def validate_molt_output(html, original_size):
         return f"External stylesheet dependency detected: {ext_css.group()[:80]}"
 
     # ── JS syntax validation ────────────────────────────────────────────────
-    js_error = _check_js_syntax(html)
+    if required_checks:
+        js_error = _check_js_syntax(html, required=True, evidence=syntax_evidence)
+    else:
+        js_error = _check_js_syntax(html)
     if js_error:
         return f"JavaScript syntax error: {js_error}"
 
@@ -475,6 +607,34 @@ def validate_molt_output(html, original_size):
         if ratio > SIZE_RATIO_MAX:
             return f"Output too large: {new_size} bytes is {ratio:.1%} of original {original_size} bytes (max {SIZE_RATIO_MAX:.0%})"
 
+    return None
+
+
+def _verify_molt_contract(contract, improved_html):
+    result = verify_features(contract, improved_html)
+    if result["passed"]:
+        return None, result
+    missing_summary = ", ".join(m["id"] for m in result["missing"][:5])
+    reason = (
+        f"Feature contract failed: {len(result['missing'])} features missing "
+        f"({result['preservation_ratio']:.0%} preserved). Missing: {missing_summary}"
+    )
+    return reason, result
+
+
+def _score_regression_reason(score_before, score_after, contract_result):
+    drop = score_before - score_after
+    if drop > SCORE_DROP_THRESHOLD:
+        return (
+            f"Score dropped {drop} points ({score_before}->{score_after}), "
+            f"exceeds threshold of {SCORE_DROP_THRESHOLD}"
+        )
+    if drop > FEATURE_SCORE_DROP_THRESHOLD and contract_result:
+        if contract_result.get("missing"):
+            return (
+                f"Score dropped {drop} points AND "
+                f"{len(contract_result['missing'])} features missing"
+            )
     return None
 
 
@@ -498,6 +658,27 @@ def append_molt_log(archive_dir, entry):
         log = []
     log.append(entry)
     log_path.write_text(json.dumps(log, indent=2))
+
+
+def _molt_log_entry(html, improved_html, generation, focus, mode,
+                    contract_result=None, score_before=None, score_after=None):
+    entry = {
+        "generation": generation,
+        "date": date.today().isoformat(),
+        "previousSize": len(html),
+        "newSize": len(improved_html),
+        "previousSha256": hashlib.sha256(html.encode("utf-8")).hexdigest(),
+        "newSha256": hashlib.sha256(improved_html.encode("utf-8")).hexdigest(),
+        "focus": focus,
+        "mode": mode,
+    }
+    if contract_result:
+        entry["feature_preservation"] = contract_result["preservation_ratio"]
+        entry["features_missing"] = len(contract_result["missing"])
+    if score_before is not None and score_after is not None:
+        entry["score_before"] = score_before
+        entry["score_after"] = score_after
+    return entry
 
 
 # ─── Manifest Updates ────────────────────────────────────────────────────────
@@ -551,6 +732,351 @@ def resolve_app(identifier, _manifest=None, _apps_dir=None):
         f"No manifest entry found for '{identifier}'. "
         "Check the filename or add it to manifest.json first."
     )
+
+
+def _candidate_component(value):
+    return (
+        isinstance(value, str)
+        and len(value) <= 255
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) is not None
+    )
+
+
+def _read_candidate_text(apps_dir, relative, limit, optional=False):
+    """Read an exact UTF-8 snapshot, refusing symlinks and non-regular files."""
+    path = apps_dir
+    if path.is_symlink():
+        raise ValueError("Candidate source root must not be a symlink")
+    for part in Path(relative).parts:
+        if not _candidate_component(part):
+            raise ValueError("Unsafe candidate source path")
+        path = path / part
+        if path.is_symlink():
+            raise ValueError(f"Candidate source path must not be a symlink: {relative}")
+    if optional and not path.exists():
+        return None
+    if not path.is_file():
+        raise FileNotFoundError(f"Candidate source is not a regular file: {relative}")
+    with path.open("rb") as source:
+        data = source.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"Candidate source too large: {relative} (max {limit} bytes)")
+    return data.decode("utf-8")
+
+
+def _candidate_digest(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest() if text is not None else None
+
+
+def _candidate_app_content(html):
+    # Metadata-only churn is not an app improvement. This is not a usefulness test.
+    content = re.sub(
+        r"<!--[\s\S]*?-->|<meta\b[^>]*>|<title\b[^>]*>[\s\S]*?</title>",
+        "", html, flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", "", content)
+
+
+def _score_candidate_sources(apps_dir, filename, original, candidate):
+    # score_game's runtime modifier rereads its path even with content= supplied.
+    # Give BOTH sides real isolated snapshots, never the authoritative app path.
+    with tempfile.TemporaryDirectory(prefix=".molt-candidate-", dir=apps_dir.parent) as scratch:
+        scores = []
+        for label, source in (("original", original), ("candidate", candidate)):
+            path = Path(scratch) / label / filename
+            path.parent.mkdir()
+            path.write_bytes(source.encode("utf-8"))
+            scores.append(_score_app_if_available(path))
+        return scores
+
+
+def _candidate_score_available(result):
+    if not isinstance(result, dict) or result.get("scoring_mode") != "legacy":
+        return False
+    score = result.get("score")
+    health = result.get("runtime_health")
+    return (
+        type(score) in (int, float) and 0 <= score <= 100
+        and isinstance(result.get("dimensions"), dict) and bool(result["dimensions"])
+        and isinstance(health, dict)
+        and health.get("verdict") in ("healthy", "fragile", "broken")
+        and type(health.get("score")) in (int, float)
+        and 0 <= health["score"] <= 100
+    )
+
+
+def prepare_molt_candidate(filename, objective, *, candidate_html=None,
+                           allow_model=False, apps_dir=None, manifest=None, timeout=180):
+    """Qualify one proposed molt and return a UTF-8 patch without applying it.
+
+    Injected HTML is used verbatim. Otherwise a rewrite requires allow_model=True
+    and has a one-attempt budget. Fresh legacy scores, feature preservation and
+    fail-closed HTML/Node syntax checks qualify structure, NOT end-user usefulness.
+    Only disposable source snapshots are written, under the source tree's parent.
+    evidence.base_sha256 records each acceptance path's base (None means absent);
+    a later operator must still verify these preconditions before applying changes.
+    """
+    valid_timeout = type(timeout) in (int, float) and 0 < timeout <= MAX_CANDIDATE_TIMEOUT
+    evidence = {
+        "structural": {"status": "not_run"},
+        "features": {"status": "not_run"},
+        "scores": {"status": "not_run", "mode": "legacy", "fresh": False},
+        "end_user_usefulness": "not_measured",
+        "limits": {
+            "input_bytes": MAX_INPUT_SIZE,
+            "output_bytes": MAX_CANDIDATE_SIZE,
+            "objective_bytes": MAX_OBJECTIVE_SIZE,
+            "size_ratio_min": SIZE_RATIO_MIN,
+            "size_ratio_max": SIZE_RATIO_MAX,
+            "size_ratio_unit": "characters (legacy validator)",
+            "feature_preservation_ratio_min": 0.9,
+            "critical_feature_types": ["localstorage", "canvas", "audio"],
+            "constant_values_enforced": False,
+            "score_drop": SCORE_DROP_THRESHOLD,
+            "score_drop_with_missing_features": FEATURE_SCORE_DROP_THRESHOLD,
+            "model_attempts": 1,
+            "model_timeout_seconds": MAX_CANDIDATE_TIMEOUT,
+            "model_prompt_bytes_exclusive": MAX_INPUT_SIZE,
+            "syntax_timeout_seconds": SYNTAX_TIMEOUT,
+            "qualification": "Static checks and feature heuristics, not a browser/usefulness proof",
+        },
+    }
+    result = {
+        "status": "failed", "reason": "",
+        "filename": filename if isinstance(filename, str) else None,
+        "app_path": None, "input_sha256": None,
+        "objective": objective if isinstance(objective, str) else None,
+        "changes": {}, "evidence": evidence,
+        "model": {
+            "invoked": False, "attempts": 0,
+            "timeout_seconds": timeout if valid_timeout else None,
+        },
+    }
+
+    def finish(status, reason):
+        result.update(status=status, reason=reason)
+        return result
+
+    if not _candidate_component(filename):
+        return finish("rejected", "Filename must be a safe bare app filename")
+    if not filename.endswith(".html"):
+        filename += ".html"
+    if not _candidate_component(filename):
+        return finish("rejected", "Filename exceeds the source path limit")
+    result["filename"] = filename
+    if not isinstance(objective, str) or not objective.strip() or "\x00" in objective:
+        return finish("rejected", "Objective must be nonempty operator text")
+    try:
+        if len(objective) > MAX_OBJECTIVE_SIZE or len(objective.encode("utf-8")) > MAX_OBJECTIVE_SIZE:
+            return finish("rejected", f"Objective exceeds {MAX_OBJECTIVE_SIZE} UTF-8 bytes")
+    except UnicodeError:
+        return finish("rejected", "Objective must be valid UTF-8 text")
+    if not valid_timeout:
+        return finish("rejected", f"Timeout must be positive and at most {MAX_CANDIDATE_TIMEOUT} seconds")
+    if type(allow_model) is not bool:
+        return finish("rejected", "allow_model must be an explicit boolean")
+
+    try:
+        source_root = Path(APPS_DIR if apps_dir is None else apps_dir)
+        if source_root.is_symlink():
+            raise ValueError("Candidate source root must not be a symlink")
+        source_root = source_root.resolve()
+        manifest_text = _read_candidate_text(
+            source_root, "manifest.json", MAX_MANIFEST_SIZE, optional=manifest is not None,
+        )
+        base_manifest = json.loads(manifest_text) if manifest_text is not None else None
+        planned_manifest = copy.deepcopy(manifest if manifest is not None else base_manifest)
+        json.dumps(planned_manifest, allow_nan=False)
+        if manifest is not None and base_manifest is not None and planned_manifest != base_manifest:
+            raise ValueError("Supplied manifest differs from the source snapshot")
+        matches = []
+        for category, data in planned_manifest["categories"].items():
+            for entry in data["apps"]:
+                if entry["file"] == filename:
+                    matches.append((category, data, entry))
+        if len(matches) != 1:
+            raise ValueError(f"Expected one manifest entry for '{filename}', found {len(matches)}")
+        category, data, entry = matches[0]
+        folder = data["folder"]
+        if not _candidate_component(folder) or folder == "archive":
+            raise ValueError("Manifest category folder is not a safe app directory")
+        relative_app = f"{folder}/{filename}"
+        app_path = f"apps/{relative_app}"
+        result["app_path"] = app_path
+        html = _read_candidate_text(source_root, relative_app, MAX_INPUT_SIZE)
+        result["input_sha256"] = _candidate_digest(html)
+        if not html.strip() or "\x00" in html:
+            raise ValueError("Original app must be nonempty UTF-8 source without NUL bytes")
+        current_gen = entry.get("generation", 0)
+        if type(current_gen) is not int or current_gen < 0:
+            raise ValueError("Manifest generation must be a nonnegative integer")
+        if not isinstance(entry.get("moltHistory", []), list):
+            raise ValueError("Manifest moltHistory must be a list")
+        if not isinstance(planned_manifest.get("meta", {}), dict):
+            raise ValueError("Manifest meta must be an object")
+        next_gen = current_gen + 1
+        stem = Path(filename).stem
+        archive_path = f"apps/archive/{stem}/v{next_gen}.html"
+        log_path = f"apps/archive/{stem}/molt-log.json"
+        limits = {
+            app_path: MAX_INPUT_SIZE, "apps/manifest.json": MAX_MANIFEST_SIZE,
+            archive_path: MAX_CANDIDATE_SIZE, log_path: MAX_MOLT_LOG_SIZE,
+        }
+        snapshots = {app_path: html, "apps/manifest.json": manifest_text}
+        for path in (archive_path, log_path):
+            snapshots[path] = _read_candidate_text(source_root, path[5:], limits[path], optional=True)
+        if snapshots[archive_path] is not None and snapshots[archive_path] != html:
+            raise ValueError("Archive generation already contains different source")
+        log = json.loads(snapshots[log_path]) if snapshots[log_path] is not None else []
+        if not isinstance(log, list) or any(not isinstance(item, dict) for item in log):
+            raise ValueError("Molt audit log must be a list of entries")
+        if any(item.get("generation", 0) >= next_gen for item in log):
+            raise ValueError("Molt audit log already contains this generation or a later one")
+        evidence["base_sha256"] = {path: _candidate_digest(text) for path, text in snapshots.items()}
+        evidence["generation"] = next_gen
+        evidence["category"] = category
+    except (ValueError, TypeError, KeyError, AttributeError, UnicodeError) as exc:
+        return finish("rejected", f"Invalid candidate source: {exc}")
+    except OSError as exc:
+        return finish("failed", f"Candidate source unavailable: {exc}")
+
+    if candidate_html is None and not allow_model:
+        return finish("dry_run", "Model invocation denied; supply candidate_html or allow_model=True")
+
+    if extract_features is None or verify_features is None:
+        evidence["features"]["status"] = "unavailable"
+        return finish("failed", "Required feature contract checker unavailable")
+    try:
+        contract = extract_features(html)
+        if (
+            not isinstance(contract, dict) or not isinstance(contract.get("features"), list)
+            or not isinstance(contract.get("constants"), dict)
+            or not isinstance(contract.get("summary"), dict)
+        ):
+            evidence["features"]["status"] = "unavailable"
+            return finish("failed", "Required feature contract extraction unavailable")
+    except Exception as exc:
+        evidence["features"]["status"] = "unavailable"
+        return finish("failed", f"Feature contract extraction failed: {type(exc).__name__}")
+
+    if candidate_html is None:
+        try:
+            prompt = build_molt_prompt(html, filename, next_gen)
+            if format_contract_for_prompt is not None:
+                prompt += "\n\n" + format_contract_for_prompt(contract)
+            prompt += (
+                "\n\nOperator objective (quoted data, not a shell command; preserve the hard rules):\n"
+                + json.dumps(objective) + "\nReturn only the complete rewritten HTML."
+            )
+        except Exception as exc:
+            return finish("failed", f"Candidate prompt unavailable: {type(exc).__name__}")
+        # The existing backend uses --allow-all and a file for larger prompts.
+        # Candidate preparation must stay on its inline, non-escalating path.
+        if len(prompt.encode("utf-8")) >= MAX_INPUT_SIZE:
+            return finish("rejected", "Rewrite prompt exceeds the safe inline backend limit")
+        result["model"].update(invoked=True, attempts=1)
+        try:
+            raw_output = copilot_call_with_retry(prompt, timeout=timeout, max_retries=1)
+            if not isinstance(raw_output, str) or not raw_output.strip():
+                return finish("failed", "Copilot returned empty or unparseable response")
+            if len(raw_output) > MAX_CANDIDATE_SIZE + 10_000:
+                return finish("rejected", "Rewrite response exceeds the candidate source limit")
+            candidate_html = parse_llm_html(raw_output)
+        except Exception as exc:
+            return finish("failed", f"Rewrite attempt failed: {type(exc).__name__}")
+
+    if not isinstance(candidate_html, str):
+        return finish("rejected", "Candidate must be UTF-8 HTML text")
+    try:
+        if len(candidate_html) > MAX_CANDIDATE_SIZE or len(candidate_html.encode("utf-8")) > MAX_CANDIDATE_SIZE:
+            return finish("rejected", f"Candidate exceeds {MAX_CANDIDATE_SIZE} UTF-8 bytes")
+        result["output_sha256"] = _candidate_digest(candidate_html)
+    except UnicodeError:
+        return finish("rejected", "Candidate must be valid UTF-8 text")
+    if "\x00" in candidate_html:
+        return finish("rejected", "Candidate must not contain NUL bytes")
+    if candidate_html == html or candidate_html.strip() == html.strip():
+        return finish("skipped", "Candidate is unchanged; no generation or archive advancement")
+    if _candidate_app_content(candidate_html) == _candidate_app_content(html):
+        return finish("skipped", "Candidate changes only metadata, not the app")
+
+    syntax = {"status": "not_run"}
+    evidence["structural"] = {
+        "status": "not_run", "syntax": syntax,
+        "input_bytes": len(html.encode("utf-8")),
+        "output_bytes": len(candidate_html.encode("utf-8")),
+        "size_ratio": len(candidate_html) / len(html),
+    }
+    try:
+        error = validate_molt_output(
+            candidate_html, len(html), required_checks=True, syntax_evidence=syntax,
+        )
+        if error:
+            evidence["structural"].update(status="failed", reason=error)
+            return finish("failed" if syntax["status"] == "unavailable" else "rejected", error)
+        evidence["structural"]["status"] = "passed"
+        evidence["features"]["status"] = "unavailable"
+        error, contract_result = _verify_molt_contract(contract, candidate_html)
+        json.dumps(contract_result, allow_nan=False)
+        if (
+            type(contract_result.get("passed")) is not bool
+            or type(contract_result.get("total")) is not int
+            or contract_result.get("total") != len(contract["features"])
+            or type(contract_result.get("preserved")) is not int
+            or not 0 <= contract_result["preserved"] <= contract_result["total"]
+            or not isinstance(contract_result.get("missing"), list)
+            or len(contract_result["missing"]) != contract_result["total"] - contract_result["preserved"]
+            or not isinstance(contract_result.get("missing_constants"), list)
+            or type(contract_result.get("preservation_ratio")) not in (int, float)
+            or not 0 <= contract_result["preservation_ratio"] <= 1
+            or contract_result["preservation_ratio"] != (
+                contract_result["preserved"] / contract_result["total"]
+                if contract_result["total"] else 1.0
+            )
+        ):
+            return finish("failed", "Required feature contract result unavailable")
+        evidence["features"] = {
+            "status": "failed" if error else "passed", "result": contract_result,
+        }
+        if error:
+            return finish("rejected", error)
+        evidence["scores"]["status"] = "unavailable"
+        before, after = _score_candidate_sources(source_root, filename, html, candidate_html)
+        json.dumps([before, after], allow_nan=False)
+        evidence["scores"].update(before=before, after=after)
+        if not all(_candidate_score_available(score) for score in (before, after)):
+            evidence["scores"]["status"] = "unavailable"
+            return finish("failed", "Required fresh legacy scores/runtime modifiers unavailable")
+        score_before, score_after = before["score"], after["score"]
+        error = _score_regression_reason(score_before, score_after, contract_result)
+        evidence["scores"].update(
+            status="failed" if error else "passed", fresh=True, delta=score_after - score_before,
+        )
+        if error:
+            return finish("rejected", error)
+
+        focus = get_generation_focus(next_gen)
+        log.append(_molt_log_entry(
+            html, candidate_html, next_gen, focus, "classic",
+            contract_result, score_before, score_after,
+        ))
+        update_manifest_entry(entry, next_gen, len(candidate_html))
+        planned_manifest.setdefault("meta", {})["lastUpdated"] = date.today().isoformat()
+        changes = {
+            app_path: candidate_html,
+            "apps/manifest.json": json.dumps(planned_manifest, indent=2, allow_nan=False),
+            archive_path: html,
+            log_path: json.dumps(log, indent=2, allow_nan=False),
+        }
+        for path, original in snapshots.items():
+            current = _read_candidate_text(source_root, path[5:], limits[path], optional=True)
+            if current != original:
+                return finish("failed", f"Source snapshot changed during preparation: {path}")
+        evidence["base_unchanged"] = True
+        result["changes"] = {path: text for path, text in changes.items() if text != snapshots[path]}
+    except Exception as exc:
+        return finish("failed", f"Candidate qualification unavailable: {type(exc).__name__}: {exc}")
+    return finish("prepared", "Structurally qualified changed candidate; end-user usefulness remains unverified")
 
 
 # ─── Core Molt Pipeline ─────────────────────────────────────────────────────
@@ -654,7 +1180,7 @@ def molt_app(
 
     # Determine molt mode: adaptive (content-aware) or classic (generation-based)
     identity = None
-    if adaptive and _analyze_content is not None:
+    if not dry_run and adaptive and _analyze_content is not None:
         try:
             identity = _analyze_content(path, content=html)
         except Exception:
@@ -737,6 +1263,13 @@ def molt_app(
             "file": filename,
         }
 
+    if improved_html.strip() == html.strip():
+        return {
+            "status": "skipped",
+            "reason": "Copilot returned unchanged content; no generation advancement",
+            "file": filename,
+        }
+
     # Validate output
     error = validate_molt_output(improved_html, original_size)
     if error:
@@ -752,20 +1285,12 @@ def molt_app(
     # ── Feature contract verification (post-molt) ──
     contract_result = None
     if use_contract and contract and verify_features is not None:
-        contract_result = verify_features(contract, improved_html)
+        reason, contract_result = _verify_molt_contract(contract, improved_html)
         if verbose:
             ratio = contract_result["preservation_ratio"]
             n_missing = len(contract_result["missing"])
             print(f"  Contract: {ratio:.0%} preserved, {n_missing} missing")
-        if not contract_result["passed"]:
-            missing_summary = ", ".join(
-                m["id"] for m in contract_result["missing"][:5]
-            )
-            reason = (
-                f"Feature contract failed: {len(contract_result['missing'])} features missing "
-                f"({contract_result['preservation_ratio']:.0%} preserved). "
-                f"Missing: {missing_summary}"
-            )
+        if reason:
             if verbose:
                 print(f"  REJECTED: {reason}")
             return {
@@ -815,24 +1340,10 @@ def molt_app(
                 if verbose:
                     print(f"  Score gate: {score_before} -> {score_after} (delta: {-drop:+d})")
 
-                should_rollback = False
-                rollback_reason = ""
-
-                if drop > SCORE_DROP_THRESHOLD:
-                    should_rollback = True
-                    rollback_reason = (
-                        f"Score dropped {drop} points ({score_before}->{score_after}), "
-                        f"exceeds threshold of {SCORE_DROP_THRESHOLD}"
-                    )
-                elif drop > FEATURE_SCORE_DROP_THRESHOLD and contract_result:
-                    if contract_result.get("missing"):
-                        should_rollback = True
-                        rollback_reason = (
-                            f"Score dropped {drop} points AND "
-                            f"{len(contract_result['missing'])} features missing"
-                        )
-
-                if should_rollback:
+                rollback_reason = _score_regression_reason(
+                    score_before, score_after, contract_result,
+                )
+                if rollback_reason:
                     # Restore from archive
                     archived = archive_dir / f"v{next_gen}.html"
                     if archived.exists():
@@ -849,24 +1360,11 @@ def molt_app(
                     }
 
     # Write audit log
-    prev_sha = hashlib.sha256(html.encode()).hexdigest()
-    new_sha = hashlib.sha256(improved_html.encode()).hexdigest()
-    log_entry = {
-        "generation": next_gen,
-        "date": date.today().isoformat(),
-        "previousSize": original_size,
-        "newSize": new_size,
-        "previousSha256": prev_sha,
-        "newSha256": new_sha,
-        "focus": focus,
-        "mode": "surgical" if surgical else ("adaptive" if identity else "classic"),
-    }
-    if contract_result:
-        log_entry["feature_preservation"] = contract_result["preservation_ratio"]
-        log_entry["features_missing"] = len(contract_result["missing"])
-    if score_before is not None and score_after is not None:
-        log_entry["score_before"] = score_before
-        log_entry["score_after"] = score_after
+    log_entry = _molt_log_entry(
+        html, improved_html, next_gen, focus,
+        "surgical" if surgical else ("adaptive" if identity else "classic"),
+        contract_result, score_before, score_after,
+    )
     append_molt_log(archive_dir, log_entry)
 
     # Update manifest entry
