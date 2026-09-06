@@ -657,6 +657,25 @@ def test_precise_manifest_and_archive_deltas_are_preserved(source):
     assert len(receipt["changes"]) == 4
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_archive_and_candidate_preserve_legacy_whitespace_and_line_endings(source, newline):
+    original = (ORIGINAL.rstrip("\n") + "  \n\n").replace("\n", newline)
+    improved = (IMPROVED.rstrip("\n") + "  \n\n").replace("\n", newline)
+    (source["repo"] / "apps/games/counter.html").write_bytes(original.encode())
+    source["candidate"].write_bytes(improved.encode())
+    run_git(source["repo"], "add", "apps/games/counter.html")
+    run_git(source["repo"], "commit", "-qm", "legacy exact-byte whitespace")
+    source["base"] = run_git(source["repo"], "rev-parse", "HEAD")
+
+    def mutate(result, stage, request):
+        result["changes"]["apps/archive/counter/v1.html"] = original
+
+    result = prepare(source, Fixture(mutate))
+    assert result["status"] == "fixture_prepared", result
+    assert (source["proposal"] / "changes/apps/archive/counter/v1.html").read_bytes() == original.encode()
+    assert (source["proposal"] / "changes/apps/games/counter.html").read_bytes() == improved.encode()
+
+
 @pytest.mark.parametrize("generation,fault", [
     (0, None), (2, None), (0, "wrong_date"), (0, "unrelated_metadata"), (0, "wrong_archive"),
 ])

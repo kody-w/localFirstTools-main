@@ -645,7 +645,7 @@ def _make_patch(proposal, request, bodies, records):
     git(source, "add", "--sparse", "--", *sorted(bodies))
     changed = git(source, "diff", "--cached", "--name-only", "-z", request["base_commit"]).decode().split("\0")
     require(sorted(name for name in changed if name) == sorted(bodies), "staged patch has undeclared changes")
-    git(source, "diff", "--cached", "--check")
+    # Archives and reviewed candidates preserve exact bytes, including legacy whitespace.
     git(source, "commit", "--quiet", "-m", "Molter review candidate: " + request["target"])
     commit = git(source, "rev-parse", "HEAD").decode().strip()
     require(git(source, "rev-parse", "HEAD^").decode().strip() == request["base_commit"], "candidate parent differs")
