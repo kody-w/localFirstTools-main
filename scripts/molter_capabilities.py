@@ -485,8 +485,9 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
             and request["app_path"] in changes, "candidate is empty or metadata-only")
     stem = Path(request["target"]).stem
     archive = "apps/archive/" + stem + "/"
+    original_archive = archive + "v" + str(app.get("generation", 0)) + ".html"
     allowed = {request["app_path"], "apps/manifest.json",
-               archive + "v" + str(app.get("generation", 0)) + ".html", archive + "molt-log.json"}
+               original_archive, archive + "molt-log.json"}
     require(set(changes) <= allowed, "candidate contains undeclared paths")
     bodies = {}
     for name, text in changes.items():
@@ -509,6 +510,8 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
             and model.get("timeout_seconds") == request["timeout_seconds"], "candidate model bounds differ")
     require(request["allow_model"] or not model["invoked"], "model invocation was not authorized")
     require(isinstance(result.get("evidence"), dict) and result["evidence"], "candidate has no validation evidence")
+    if "base_unchanged" in result["evidence"]:
+        require(result["evidence"]["base_unchanged"] is True, "candidate base snapshot was not stable")
     if "apps/manifest.json" in bodies:
         _manifest_delta(manifest, _json(bodies["apps/manifest.json"]), category_key, request["target"], len(updated))
     records = []
@@ -525,8 +528,14 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
         records.append({"path": name, "input_sha256": digest(previous) if previous is not None else None,
                         "output_sha256": digest(body), "bytes": len(body), "mode": mode or "100644"})
     if "base_sha256" in result["evidence"]:
+        observed = result["evidence"]["base_sha256"]
+        require(isinstance(observed, dict), "candidate base expectations differ from committed destinations")
         expected = {item["path"]: item["input_sha256"] for item in records}
-        require(result["evidence"]["base_sha256"] == expected,
+        if original_archive in observed and original_archive not in expected:
+            archived, _ = blob(repo, request["base_commit"], original_archive, optional=True)
+            require(archived == original, "unchanged archive evidence must preserve the exact original app")
+            expected[original_archive] = digest(archived)
+        require(observed == expected,
                 "candidate base expectations differ from committed destinations")
     return bodies, records
 

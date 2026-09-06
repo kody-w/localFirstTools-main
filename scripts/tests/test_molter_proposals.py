@@ -506,6 +506,42 @@ def test_candidate_base_evidence_must_match_exact_committed_destinations(source,
     assert fixture.qualifications == 0
 
 
+@pytest.mark.parametrize("archive_body", [ORIGINAL, "<html>Conflicting archive</html>", None])
+def test_base_evidence_can_include_only_an_identical_unchanged_original_archive(source, archive_body):
+    archive = "apps/archive/counter/v0.html"
+    if archive_body is not None:
+        (source["repo"] / archive).parent.mkdir(parents=True)
+        (source["repo"] / archive).write_text(archive_body)
+        run_git(source["repo"], "add", archive)
+        run_git(source["repo"], "commit", "-qm", "legacy rollback archive residue")
+        source["base"] = run_git(source["repo"], "rev-parse", "HEAD")
+
+    def mutate(result, stage, request):
+        result["evidence"].update(base_unchanged=True, base_sha256={
+            request["app_path"]: result["input_sha256"],
+            archive: proposals.digest(archive_body.encode()) if archive_body is not None else None,
+        })
+
+    fixture = Fixture(mutate)
+    result = prepare(source, fixture)
+    if archive_body == ORIGINAL:
+        assert result["status"] == "fixture_prepared", result
+        receipt = json.loads((source["proposal"] / "receipt.json").read_text())
+        assert archive not in {item["path"] for item in receipt["changes"]}
+        assert verify(source, fixture)["status"] == "fixture_prepared"
+    else:
+        assert result["status"] == "rejected"
+        assert "unchanged archive evidence" in result["reason"]
+        assert fixture.qualifications == 0
+
+
+def test_explicitly_unstable_candidate_base_cannot_qualify(source):
+    fixture = Fixture(lambda result, stage, request: result["evidence"].update(base_unchanged=False))
+    result = prepare(source, fixture)
+    assert result["status"] == "rejected" and fixture.qualifications == 0
+    assert "base snapshot was not stable" in result["reason"]
+
+
 def test_preparation_cannot_replace_an_operator_reviewed_candidate(source):
     def mutate(result, stage, request):
         altered = IMPROVED.replace("Add", "Subtract")
