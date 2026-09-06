@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import copilot_utils as copilot
 
 
-@pytest.mark.parametrize("prompt", ["small prompt", "x" * 150000, "\U0001f3af" * 40000])
+@pytest.mark.parametrize("prompt", ["small prompt", "x" * 150000, "\U0001f3af" * 40000],
+                         ids=["small", "large-ascii", "multibyte"])
 def test_prompt_size_never_grants_tools_or_exposes_the_caller_workspace(tmp_path, monkeypatch, prompt):
     subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
     canonical_git = tmp_path / ".git"
