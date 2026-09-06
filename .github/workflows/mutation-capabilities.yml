@@ -91,6 +91,22 @@ jobs:
             echo "::error::An installed Chromium browser is required."
             exit 1
           fi
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import subprocess
+
+          root = Path("docs/molter-capabilities/pilot")
+          history = json.loads((root / "history.json").read_text(encoding="utf-8"))
+          bundle = root / history["bundle"]
+          if hashlib.sha256(bundle.read_bytes()).hexdigest() != history["sha256"]:
+              raise SystemExit("Pilot history bundle differs from its committed pin.")
+          subprocess.run(["git", "bundle", "verify", str(bundle)], check=True)
+          subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags",
+                          str(bundle), history["ref"] + ":refs/remotes/mutation-pilot/verified"],
+                         check=True)
+          PY
           python3 -B scripts/mutation_handoff.py unpack \
             docs/molter-capabilities/pilot/proposal.tar "$RUNNER_TEMP/mutation-browser-pilot" \
             --repo "$GITHUB_WORKSPACE" \

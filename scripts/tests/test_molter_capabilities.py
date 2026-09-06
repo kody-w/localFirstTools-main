@@ -28,6 +28,13 @@ def clone_base(parent, name):
     directory = parent / name
     proposals.git(parent, "clone", "--quiet", "--no-local", "--single-branch", "--no-checkout",
                   str(ROOT), str(directory))
+    history = proposals._json((ARCHIVE.parent / "history.json").read_bytes())
+    bundle = ARCHIVE.parent / history["bundle"]
+    assert proposals.digest(bundle.read_bytes()) == history["sha256"]
+    proposals.git(directory, "bundle", "verify", str(bundle))
+    proposals.git(directory, "fetch", "--quiet", "--no-tags", str(bundle),
+                  history["ref"] + ":refs/remotes/mutation-pilot/verified")
+    assert proposals.git(directory, "rev-parse", "refs/remotes/mutation-pilot/verified").decode().strip() == history["candidate_commit"]
     proposals.git(directory, "checkout", "--quiet", "--detach", BASE)
     return directory
 

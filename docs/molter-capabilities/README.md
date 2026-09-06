@@ -186,6 +186,23 @@ The pipeline consumed supplied source; it did not invoke a model to produce
 that candidate. Its single real registry use is `proven`, not invented
 cross-repository adoption.
 
+The accompanying [history bundle](pilot/history.bundle) preserves the exact
+recorded commits across squash merges and feature-branch deletion. Its
+[metadata](pilot/history.json) pins the bytes and the already-published
+`0a6b9843f86e95587c31af0095f4bd440cd3042e` anchor. If a fresh checkout lacks
+the pilot base, verify that pin and restore the history **into an isolated
+review checkout**, without changing its working files:
+
+```sh
+git -C /absolute/clean-review-worktree bundle verify /absolute/pilot/history.bundle
+git -C /absolute/clean-review-worktree fetch /absolute/pilot/history.bundle \
+  refs/heads/review/cyber-timer-mutation:refs/remotes/mutation-pilot/verified
+```
+
+Do not silently fetch a missing anchor from a remote. Restore it through an
+explicit trusted repository checkout first. Historical object availability
+does not make an old patch ready to apply to today's HEAD.
+
 ```sh
 python3 -B scripts/capabilities/source_capsule/check_port.py
 python3 -B scripts/check_molter_capabilities.py

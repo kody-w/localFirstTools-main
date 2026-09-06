@@ -11,12 +11,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import molter_capabilities as proposals
 import mutation_handoff as handoff
+from scripts.tests.test_molter_capabilities import clone_base
 
 
 ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE = ROOT / "docs/molter-capabilities/pilot/proposal.tar"
-BINDING = {"repo": ROOT, "base": "27f08a6a0ea928ae678288becada60569d85a2b8",
-           "repository": "kody-w/localFirstTools-main"}
+@pytest.fixture(scope="module")
+def binding(tmp_path_factory):
+    directory = tmp_path_factory.mktemp("archived-mutation-source").resolve()
+    return {"repo": clone_base(directory, "source"),
+            "base": "27f08a6a0ea928ae678288becada60569d85a2b8",
+            "repository": "kody-w/localFirstTools-main"}
 
 
 def archive(tmp_path, members):
@@ -68,7 +73,7 @@ def test_unsafe_permissions_are_rejected(tmp_path, mode):
         handoff._archive_files(archive(tmp_path, [(member, b"x")]))
 
 
-def test_resealed_execution_support_is_rejected_before_writes(tmp_path, monkeypatch):
+def test_resealed_execution_support_is_rejected_before_writes(tmp_path, monkeypatch, binding):
     files, modes = handoff._archive_files(ARCHIVE)
     name = "capability/tests/__init__.py"
     files[name] = b"raise RuntimeError('untrusted execution support')\n"
@@ -87,21 +92,50 @@ def test_resealed_execution_support_is_rejected_before_writes(tmp_path, monkeypa
     destination = tmp_path / "untrusted"
     monkeypatch.setattr(proposals, "verify_proposal", lambda *args, **kwargs: pytest.fail("imported before code pin check"))
     with pytest.raises(proposals.ProposalError, match="execution support"):
-        handoff.unpack_proposal(target, destination, **BINDING)
+        handoff.unpack_proposal(target, destination, **binding)
     assert not destination.exists()
 
 
-def test_unpack_never_overwrites_an_existing_destination(tmp_path):
+def test_unpack_never_overwrites_an_existing_destination(tmp_path, binding):
     destination = tmp_path / "existing"
     destination.mkdir()
     marker = destination / "keep"
     marker.write_text("original")
     with pytest.raises(proposals.ProposalError, match="already exists"):
-        handoff.unpack_proposal(ARCHIVE, destination, **BINDING)
+        handoff.unpack_proposal(ARCHIVE, destination, **binding)
     assert marker.read_text() == "original"
 
 
 def test_replay_without_authority_fails_before_reading_or_execution(monkeypatch):
     monkeypatch.setattr(handoff, "_prepared", lambda *args: pytest.fail("replay began without permission"))
     with pytest.raises(proposals.ProposalError, match="allow-checks"):
-        handoff.replay_proposal("unused", **BINDING)
+        handoff.replay_proposal("unused", repo=ROOT, base="unused", repository="fixture/repository")
+
+
+def test_pilot_history_survives_squash_or_feature_branch_deletion(tmp_path):
+    history = proposals._json((ARCHIVE.parent / "history.json").read_bytes())
+    bundle = ARCHIVE.parent / history["bundle"]
+    assert proposals.digest(bundle.read_bytes()) == history["sha256"]
+    relay, fresh = tmp_path / "anchor.git", tmp_path / "fresh"
+    proposals.git(tmp_path, "init", "--bare", "--quiet", str(relay))
+    common = Path(proposals.git(ROOT, "rev-parse", "--git-common-dir").decode().strip())
+    common = common if common.is_absolute() else ROOT / common
+    (relay / "objects/info/alternates").write_text(str((common / "objects").resolve()) + "\n")
+    proposals.git(relay, "update-ref", "refs/heads/main", history["published_anchor"])
+    proposals.git(tmp_path, "clone", "--quiet", "--no-local", "--depth", "1",
+                  "--branch", "main", str(relay), str(fresh))
+    absent = proposals.subprocess.run(
+        ["git", "-C", str(fresh), "cat-file", "-e", history["base_commit"] + "^{commit}"],
+        env=proposals.environment(), capture_output=True,
+    )
+    assert absent.returncode != 0, "The control must genuinely lack the feature history."
+    proposals.git(fresh, "bundle", "verify", str(bundle))
+    proposals.git(fresh, "fetch", "--quiet", "--no-tags", str(bundle), history["ref"])
+    result = handoff.unpack_proposal(ARCHIVE, tmp_path / "restored",
+                                    repo=fresh, base=history["base_commit"],
+                                    repository="kody-w/localFirstTools-main")
+    assert result["qualified"] is True
+    assert result["candidate_commit"] == history["candidate_commit"]
+    with pytest.raises(proposals.ProposalError, match="stale base"):
+        proposals.verify_proposal(tmp_path / "restored", repo=fresh, base=history["base_commit"],
+                                  repository="kody-w/localFirstTools-main", require_current_base=True)
