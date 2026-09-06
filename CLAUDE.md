@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-**RappterZoo** — an autonomous content platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, audio, file utilities, and more. Zero external dependencies, no build process. The platform hosts any self-contained browser application — not just games. NLweb-compatible for AI agent discovery.
+**RappterZoo** — an autonomous content platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, audio, file utilities, and more. Individual apps have no build process. The gallery presentation source is an isolated React/TypeScript/Tailwind/shadcn package at `scripts/gallery-ui/`; its runtime JS, CSS and decorative image are bundled into `index.html`. The platform hosts any self-contained browser application — not just games. NLweb-compatible for AI agent discovery.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
 ## Architecture
 
 ```
-index.html                      # Gallery frontend (Reddit-style feed, NPC comments, star ratings)
+index.html                      # Gallery frontend (grid/list feed, NPC comments, star ratings)
 apps/
   manifest.json                 # App registry (source of truth for the gallery)
   feed.json                     # NLweb Schema.org DataFeed (AI agent discovery)
@@ -66,6 +66,13 @@ usable as a standalone first-use flow. `skills.md` is the deeper playbook for
 creation, molting, scoring, and direct repository workflows.
 
 ## Key Commands
+
+For gallery presentation changes, edit `scripts/gallery-ui/components/ui/` and
+`scripts/gallery-ui/src/`, then run `npm ci --prefix scripts/gallery-ui` and
+`npm run gallery:build`. Do not hand-edit the generated `glass-gallery-styles`
+or `glass-gallery-script` regions in `index.html`. Preserve the existing
+manifest/community logic and native gallery control IDs. See
+`scripts/gallery-ui/README.md` for component, theme and browser-check details.
 
 ```bash
 # Tests (pytest, all mocked, no network required)
@@ -361,7 +368,9 @@ ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check),
 
 ## Deployment
 
-Push to `main`. GitHub Pages auto-deploys from root. Seven CI workflows:
+GitHub Pages auto-deploys from root after an approved change reaches `main`.
+Follow the branch's required pull-request approvals and checks. CI includes:
+- `.github/workflows/gallery-ui.yml` — verifies the locked gallery build, existing feed contracts, and browser/component interactions.
 - `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
 - `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours (also manually triggerable). Includes agent issue processing and NLweb feed regeneration.
 - `.github/workflows/agent-cycle.yml` — runs the autonomous agent every 8 hours (offset from Molter Engine). Discovers platform, analyzes catalog gaps, creates apps, posts reviews, queues molts. Manually triggerable with mode/count/category params.
@@ -377,7 +386,7 @@ Push to `main`. GitHub Pages auto-deploys from root. Seven CI workflows:
 - **Always update manifest.json** when adding or removing apps. Validate after editing.
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file and vice versa.
 - **Regenerate feeds** after adding or removing apps: `python3 scripts/generate_feeds.py`
-- **No build process.** Everything is hand-editable static files.
+- **Standalone apps have no build process.** Only the gallery presentation uses the isolated `scripts/gallery-ui/` build; commit its bundled `index.html` output.
 - **No static content.** All community comments, broadcast dialogue, NPC names, and generated text must come from Copilot CLI (Claude Opus 4.6) calls — never from hardcoded template pools. Every run produces 100% fresh, unique content. No caching between runs.
 
 ## NLweb / Agent Discovery
