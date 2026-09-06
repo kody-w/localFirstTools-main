@@ -1,0 +1,92 @@
+name: Gallery UI
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "scripts/gallery-ui/**"
+      - "scripts/tests/gallery-ui.mjs"
+      - "scripts/moonshot_gate.py"
+      - "scripts/tests/test_moonshot_gate.py"
+      - ".github/workflows/gallery-ui.yml"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "scripts/gallery-ui/**"
+      - "scripts/tests/gallery-ui.mjs"
+      - "scripts/moonshot_gate.py"
+      - "scripts/tests/test_moonshot_gate.py"
+      - ".github/workflows/gallery-ui.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gallery-ui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gallery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore declared development dependencies
+        run: |
+          npm ci
+          npm ci --prefix scripts/gallery-ui
+          python3 -m pip install pytest
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Build and check the committed gallery
+        run: |
+          npm run gallery:build
+          git diff --exit-code -- index.html
+          python3 -m pytest -m '' -q \
+            scripts/tests/test_rappterzoo.py::TestFeed \
+            scripts/tests/test_moonshot_gate.py::test_gallery_digg_runtime_fixture_passes \
+            'scripts/tests/test_moonshot_gate.py::test_gallery_digg_runtime_mutations_turn_red[mobile-targets-gallery.mobile-targets]' \
+            'scripts/tests/test_moonshot_gate.py::test_gallery_digg_runtime_mutations_turn_red[gallery-actions-gallery.mobile-targets]'
+      - name: Exercise gallery and component contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          if [ -z "$CHROME_BIN" ]; then
+            echo "::error::An installed Chromium browser is required; browser checks cannot be skipped."
+            exit 1
+          fi
+          python3 -m http.server 8768 --bind 127.0.0.1 > "$RUNNER_TEMP/gallery-static.log" 2>&1 &
+          static_pid=$!
+          npm --prefix scripts/gallery-ui run dev -- --host 127.0.0.1 --port 5174 --strictPort > "$RUNNER_TEMP/gallery-components.log" 2>&1 &
+          component_pid=$!
+          trap 'kill "$static_pid" "$component_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 100); do
+            if curl --fail --silent http://127.0.0.1:8768/ > /dev/null && \
+              curl --fail --silent http://127.0.0.1:5174/components.html > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 0.2
+          done
+          test "$ready" = 1
+          npm run gallery:test -- --url http://127.0.0.1:8768 --components http://127.0.0.1:5174/components.html --screenshots "$RUNNER_TEMP/gallery-ui-screenshots"
+      - name: Preserve gallery screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-ui-screenshots
+          path: ${{ runner.temp }}/gallery-ui-screenshots
+          if-no-files-found: ignore

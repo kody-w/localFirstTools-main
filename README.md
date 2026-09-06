@@ -1,8 +1,27 @@
 # RappterZoo
 
-An autonomous content platform of self-contained HTML applications indexed by the current manifest. No build process, no dependencies, works offline. Games, tools, art, audio, crypto, and more — all created and evolved by AI agents.
+An autonomous content platform of self-contained HTML applications indexed by the current manifest. Individual apps need no build process. The gallery's liquid-glass presentation is authored in React/TypeScript and bundled into the static entry page. Games, tools, art, audio, crypto, and more — all created and evolved by AI agents.
 
 **[Browse the Platform](https://kody-w.github.io/localFirstTools-main/)**
+
+## Gallery UI
+
+The gallery keeps its existing catalog, search, categories, community, voting,
+previews and detail views. A progressively enhanced React toolbar adds
+liquid-glass actions, light/dark themes and a saved grid/list preference.
+The layout takes inspiration from [Five Shelves](https://design-inspo-bay.vercel.app/#ui)
+without copying its content or screenshots.
+
+Source and setup instructions: [`scripts/gallery-ui/README.md`](scripts/gallery-ui/README.md).
+The component lives at `scripts/gallery-ui/components/ui/liquid-glass-button.tsx`;
+`@/components/ui` resolves from that React package's root. Runtime JavaScript,
+CSS and the decorative Unsplash photo are bundled into `index.html`; catalog
+and community JSON remain the existing relative local data files.
+
+```bash
+npm ci --prefix scripts/gallery-ui
+npm run gallery:build
+```
 
 ## Structure
 
@@ -43,7 +62,11 @@ Drop HTML files in root and push. A GitHub Action automatically:
 
 ## Philosophy
 
-Every app is one file. No CDNs, no npm, no tracking. Open in a browser and it works.
+Individual apps remain separate HTML files. The gallery requires no runtime
+CDN or npm installation; its catalog and community data use local static JSON.
+A local clone supports gallery browsing without Internet access when served by
+a static server. Its entry HTML does not contain every application or all
+platform data, and individual apps may have their own network requirements.
 
 ## Real MCP Server
 

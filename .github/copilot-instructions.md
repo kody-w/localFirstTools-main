@@ -2,7 +2,7 @@
 
 ## What This Repo Is
 
-**RappterZoo** — a local-first application platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, file utilities, and more. Zero external dependencies, no build process.
+**RappterZoo** — a local-first application platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, file utilities, and more. Individual apps need no build process. The gallery presentation is authored in an isolated React/TypeScript/Tailwind/shadcn package and bundled into the static entry page.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
@@ -10,7 +10,8 @@ The platform hosts any self-contained browser application — not just games. Cu
 
 ## Architecture
 
-- `index.html` — Gallery frontend (Reddit-style feed). Fetches `apps/manifest.json` on load, renders searchable/filterable cards linking to `apps/<category>/<file>.html`.
+- `index.html` — Gallery frontend (grid/list feed). Fetches `apps/manifest.json` on load, renders searchable/filterable cards linking to `apps/<category>/<file>.html`.
+- `scripts/gallery-ui/` — Gallery presentation source. Components live in `components/ui/`, styles in `src/`, and `@/*` resolves from this package's root. See its README for setup.
 - `apps/manifest.json` — **Source of truth** for the gallery. Every app must have a matching entry here with correct `count` in its category.
 - `apps/rankings.json` — 6-dimension quality scores for all apps (100-point scale).
 - `apps/community.json` — current NPC player, comment, rating, and activity data (~3MB — regenerate with scripts, don't edit by hand).
@@ -35,6 +36,11 @@ The platform hosts any self-contained browser application — not just games. Cu
 ## Key Commands
 
 ```bash
+# Gallery presentation (from the repository root)
+npm ci --prefix scripts/gallery-ui
+npm run gallery:build
+# Do not hand-edit the generated glass-gallery-styles/script regions in index.html.
+
 # Tests (pytest, all mocked, no network required)
 python3 -m pytest scripts/tests/ -v                         # all tests
 python3 -m pytest scripts/tests/test_molt.py -v             # single file
@@ -198,17 +204,19 @@ Cross-browser sync via manual chain export/import (longest valid chain wins).
 ## Rules
 
 - **Never put HTML apps in root.** Always `apps/<category>/`.
-- **Never add external dependencies.** Every app is self-contained.
+- **Keep individual apps standalone.** Gallery-only build dependencies stay isolated in `scripts/gallery-ui/`; visitors load its bundled JS, CSS and image from `index.html`.
 - **Always update manifest.json** when adding or removing apps. Validate after editing.
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file and vice versa.
 - **Preserve the public-data boundary.** Digg and the Organism Observatory are views over `structural-unverified` public metadata, not an authenticated RAPP/1 Section 13 registry. Exclude GODD media, raw camera frames, landmarks, identity templates, and biometric or pulse values.
 - **Keep sync user-initiated and local-first.** Check the local replica before networking; use conditional HTTP, accept 304 as a no-op, and never overwrite local overlays.
 - **Keep frame control in public-soak mode.** Shard work requires an assembler-issued bounded lease; self-assignment and direct main-ledger writes are forbidden. Proof-of-fold is disabled.
-- **No build process.** Everything is hand-editable static files.
+- **Standalone apps have no build process.** Only the gallery presentation uses the isolated `scripts/gallery-ui/` build; commit its bundled `index.html` output and preserve native gallery controls/data logic.
 - **No static content.** All community comments, broadcast dialogue, NPC names, and generated text must come from Copilot CLI (Claude Opus 4.6) calls — never from hardcoded template pools. Every run produces 100% fresh, unique content.
 
 ## Deployment
 
-Push to `main`. GitHub Pages auto-deploys from root. Two CI workflows:
+GitHub Pages auto-deploys from root after an approved change reaches `main`.
+Follow the branch's required pull-request approvals and checks. CI includes:
+- `.github/workflows/gallery-ui.yml` — verifies the locked gallery build, existing feed contracts, and browser/component interactions.
 - `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
 - `.github/workflows/autonomous-frame.yml` — runs an autonomous Molter Engine frame every 6 hours
