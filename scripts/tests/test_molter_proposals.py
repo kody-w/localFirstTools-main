@@ -951,7 +951,7 @@ def test_worker_timeout_preserves_bounded_failure_observation(source, monkeypatc
     def timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired("fixture-worker", 1, output=b"partial result", stderr=b"failure evidence")
 
-    monkeypatch.setattr(proposals.subprocess, "run", timeout)
+    monkeypatch.setattr(proposals, "run_isolated", timeout)
     with pytest.raises(proposals.ProposalError, match="timed out"):
         proposals._worker("candidate", source["proposal"], source["proposal"] / "request.json", timeout=1)
     observation = json.loads((source["proposal"] / "diagnostics/candidate.json").read_text())
@@ -970,7 +970,7 @@ def test_capability_worker_uses_implementation_local_scratch(source, monkeypatch
         assert Path(expected).is_dir()
         return SimpleNamespace(returncode=0, stdout=b'{"test_fixture":true}', stderr=b"")
 
-    monkeypatch.setattr(proposals.subprocess, "run", run)
+    monkeypatch.setattr(proposals, "run_isolated", run)
     assert proposals._worker(action, source["proposal"], source["proposal"] / "context.json") == {"test_fixture": True}
     assert not Path(expected).exists()
 

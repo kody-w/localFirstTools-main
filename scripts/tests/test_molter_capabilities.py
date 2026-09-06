@@ -14,6 +14,7 @@ import molter_capabilities as proposals
 import mutation_handoff as handoff
 from scripts.tests import test_copilot_boundary as executor_cases
 from scripts.tests import test_molter_proposals as fault_cases
+from scripts.tests import test_mutation_worker_lifecycle as worker_cases
 from scripts.capabilities.source_capsule import capability_package
 
 
@@ -214,7 +215,7 @@ def test_concurrent_request_single_result(source):
     fault_cases.test_concurrent_identical_preparation_admits_only_one_generator(source)
 
 
-def test_interrupted_attempt_recovery(source):
+def test_interrupted_attempt_recovery(source, tmp_path):
     class Interrupted(fault_cases.Fixture):
         def prepare(self, stage, request, supplied):
             raise KeyboardInterrupt
@@ -227,6 +228,7 @@ def test_interrupted_attempt_recovery(source):
     assert failed.value.recovery["automatic_retry"] is False
     assert failed.value.recovery["evidence_preserved"] is True
     assert retry.preparations == retry.qualifications == 0
+    worker_cases.test_outer_worker_timeout_stops_inference_descendants(tmp_path / "managed-worker")
 
 
 def test_portable_archived_replay(real_handoff, tmp_path):

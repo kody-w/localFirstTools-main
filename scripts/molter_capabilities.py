@@ -19,6 +19,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -185,7 +186,8 @@ def _attempt_active(proposal):
     no_symlinks(path)
     if not path.exists():
         return False
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                         | getattr(os, "O_NONBLOCK", 0))
     try:
         require(stat.S_ISREG(os.fstat(descriptor).st_mode), "unsafe preparation lock")
         try:
@@ -463,6 +465,46 @@ def verify_implementation_inputs(root):
             "undeclared implementation modules or bytecode cache")
 
 
+def _signal_owned_group(process, value):
+    try:
+        os.killpg(process.pid, value)
+    except ProcessLookupError:
+        pass
+
+
+def _cancel_worker(process):
+    # Python workers must unwind their own nested inference/check supervisors.
+    _signal_owned_group(process, signal.SIGINT)
+    try:
+        return process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        _signal_owned_group(process, signal.SIGKILL)
+        return process.communicate(timeout=5)
+
+
+def run_isolated(command, *, cwd, env, timeout):
+    process = subprocess.Popen(
+        command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+    )
+    try:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr = _cancel_worker(process)
+            raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from exc
+        except BaseException:
+            _cancel_worker(process)
+            raise
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    finally:
+        _signal_owned_group(process, signal.SIGKILL)
+        process.stdout.close()
+        process.stderr.close()
+        if process.poll() is None:
+            process.wait(timeout=5)
+
+
 def _worker(action, proposal, context, timeout=TIMEOUT + 30):
     work = (proposal if action == "candidate" else proposal / "capability") / "check-work"
     work.mkdir(mode=0o700)
@@ -470,11 +512,10 @@ def _worker(action, proposal, context, timeout=TIMEOUT + 30):
     env.update(TMPDIR=str(work), TMP=str(work), TEMP=str(work))
     try:
         try:
-            completed = subprocess.run(
+            completed = run_isolated(
                 [sys.executable, "-B", str(Path(__file__).with_name("molter_capability_worker.py")),
                  action, "--proposal", str(proposal), "--context", str(context)],
-                cwd=proposal, env=env, stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False,
+                cwd=proposal, env=env, timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
             _worker_observation(proposal, action, exc.stdout or b"", exc.stderr or b"", None, timeout)
@@ -762,11 +803,10 @@ def verify_proposal(proposal_dir, *, repo, base, repository, require_current_bas
 
 
 def _verify_worker(proposal):
-    completed = subprocess.run(
+    completed = run_isolated(
         [sys.executable, "-B", str(Path(__file__).with_name("molter_capability_worker.py")),
          "verify", "--proposal", str(proposal), "--context", str(proposal / "qualification-context.json")],
-        cwd=proposal, env=environment(), stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False,
+        cwd=proposal, env=environment(), timeout=60,
     )
     require(completed.returncode == 0, "retained RAPP/registry verification failed: "
             + completed.stderr.decode("utf-8", errors="replace")[:400], "failed")

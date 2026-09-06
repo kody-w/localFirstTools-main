@@ -154,6 +154,13 @@ retry. A terminal result can be verified and reused without regenerating work.
 Do not delete an interrupted directory just to make the same operation run
 again.
 
+Managed worker timeouts first interrupt the worker so nested inference/check
+supervisors unwind before scratch removal; a bounded grace period precedes
+forced group termination. This is not a promise that an uncatchable OS kill
+can run cleanup. Recovery still reports retained staging as non-exportable.
+Lock inspection opens nonblocking and rejects FIFOs or other non-regular
+objects before attempting an advisory lock.
+
 The scheduled workflow binds to its exact committed input and keeps a verified
 cache. Cache loss is not proof of a new task: known completed work blocks
 automatic regeneration and points the operator toward the preserved artifact.

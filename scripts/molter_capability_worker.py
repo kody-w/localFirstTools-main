@@ -5,7 +5,8 @@ import argparse
 from contextlib import redirect_stdout
 import json
 from pathlib import Path
-import subprocess
+import os
+import signal
 import sys
 
 
@@ -70,11 +71,9 @@ def capability(proposal, request, action):
         report = contracts.load_json(root / REPORT)
         argv = report["replay_argv"]
         contracts.validate_source_replay(argv, package.ENTRYPOINT)
-        completed = subprocess.run(
-            argv, cwd=root, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=300, check=False,
-        )
+        from molter_capabilities import run_isolated
+
+        completed = run_isolated(argv, cwd=root, env=os.environ.copy(), timeout=300)
         contracts.require(completed.returncode == 0, "archived source transport replay failed")
         contracts.require((root / REPORT).read_bytes() == raw_report,
                           "replay modified the historical qualification report")
@@ -144,10 +143,18 @@ def main(argv=None):
                       else capability(proposal, request, args.action))
         print(json.dumps(result, sort_keys=True, ensure_ascii=False, allow_nan=False))
         return 0
+    except KeyboardInterrupt:
+        print("mutation worker: cancelled", file=sys.stderr)
+        return 130
     except Exception as exc:
         print("mutation worker: " + str(exc), file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
+    def cancelled(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, cancelled)
+    signal.signal(signal.SIGTERM, cancelled)
     raise SystemExit(main())
