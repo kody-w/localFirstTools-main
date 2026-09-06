@@ -467,13 +467,13 @@ def test_precise_manifest_and_archive_deltas_are_preserved(source):
                    moltHistory=[{"gen": 1, "date": "2026-09-06", "size": len(IMPROVED.encode())}])
         result["changes"].update({
             "apps/manifest.json": json.dumps(manifest),
-            "apps/archive/counter/v0.html": ORIGINAL,
+            "apps/archive/counter/v1.html": ORIGINAL,
             "apps/archive/counter/molt-log.json": '[{"status":"prepared"}]',
         })
         result["evidence"]["base_sha256"] = {
             request["app_path"]: result["input_sha256"],
             "apps/manifest.json": proposals.digest(manifest_before),
-            "apps/archive/counter/v0.html": None,
+            "apps/archive/counter/v1.html": None,
             "apps/archive/counter/molt-log.json": None,
         }
 
@@ -481,6 +481,57 @@ def test_precise_manifest_and_archive_deltas_are_preserved(source):
     assert result["status"] == "fixture_prepared", result
     receipt = json.loads((source["proposal"] / "receipt.json").read_text())
     assert len(receipt["changes"]) == 4
+
+
+@pytest.mark.parametrize("generation,fault", [
+    (0, None), (2, None), (0, "wrong_date"), (0, "unrelated_metadata"), (0, "wrong_archive"),
+])
+def test_legacy_candidate_generation_size_and_manifest_refresh_conventions(source, generation, fault):
+    manifest_path = source["repo"] / "apps/manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["categories"]["games"]["apps"][0]["generation"] = generation
+    manifest["meta"] = {"lastUpdated": "2020-01-01", "preserved": "value"}
+    manifest_path.write_text(json.dumps(manifest))
+    run_git(source["repo"], "add", "apps/manifest.json")
+    run_git(source["repo"], "commit", "-qm", "legacy generation fixture")
+    source["base"] = run_git(source["repo"], "rev-parse", "HEAD")
+    html = IMPROVED.replace("Add one", "Add one ✓")
+    source["candidate"].write_text(html, encoding="utf-8")
+    next_generation = generation + 1
+    archive = f"apps/archive/counter/v{generation if fault == 'wrong_archive' else next_generation}.html"
+
+    def mutate(result, stage, request):
+        manifest_bytes = (stage / "apps/manifest.json").read_bytes()
+        updated = json.loads(manifest_bytes)
+        app = updated["categories"]["games"]["apps"][0]
+        app.update(generation=next_generation, lastMolted="2026-09-06", moltHistory=[
+            {"gen": next_generation, "date": "2026-09-06", "size": len(html)},
+        ])
+        updated["meta"]["lastUpdated"] = "2026-09-06" if fault != "wrong_date" else "2020-02-02"
+        if fault == "unrelated_metadata":
+            updated["meta"]["preserved"] = "unrelated mutation"
+        result["changes"].update({
+            "apps/manifest.json": json.dumps(updated),
+            archive: ORIGINAL,
+            "apps/archive/counter/molt-log.json": json.dumps([{"generation": next_generation}]),
+        })
+        result["evidence"].update(base_unchanged=True, base_sha256={
+            request["app_path"]: result["input_sha256"], "apps/manifest.json": proposals.digest(manifest_bytes),
+            archive: None, "apps/archive/counter/molt-log.json": None,
+        })
+
+    fixture = Fixture(mutate)
+    result = prepare(source, fixture, target="counter.html")
+    if fault is not None:
+        assert result["status"] == "rejected", result
+        assert fixture.qualifications == 0
+    else:
+        assert result["status"] == "fixture_prepared", result
+        staged_manifest = json.loads((source["proposal"] / "changes/apps/manifest.json").read_text())
+        history = staged_manifest["categories"]["games"]["apps"][0]["moltHistory"]
+        assert history[-1]["size"] == len(html) != len(html.encode("utf-8"))
+        assert (source["proposal"] / "changes" / archive).read_text() == ORIGINAL
+        assert verify(source, fixture)["status"] == "fixture_prepared"
 
 
 @pytest.mark.parametrize("mismatch", ["missing_path", "wrong_hash", "wrong_absence", "extra_path", "wrong_type"])
@@ -508,7 +559,7 @@ def test_candidate_base_evidence_must_match_exact_committed_destinations(source,
 
 @pytest.mark.parametrize("archive_body", [ORIGINAL, "<html>Conflicting archive</html>", None])
 def test_base_evidence_can_include_only_an_identical_unchanged_original_archive(source, archive_body):
-    archive = "apps/archive/counter/v0.html"
+    archive = "apps/archive/counter/v1.html"
     if archive_body is not None:
         (source["repo"] / archive).parent.mkdir(parents=True)
         (source["repo"] / archive).write_text(archive_body)

@@ -470,7 +470,9 @@ def _manifest_delta(before, after, category_key, target, new_size):
     restored = _json(json_bytes(after))
     apps = restored["categories"][category_key]["apps"]
     apps[apps.index(updated)] = previous
-    require(restored == before, "unrelated manifest modifications")
+    refreshed = _json(json_bytes(before))
+    refreshed.setdefault("meta", {})["lastUpdated"] = updated["lastMolted"]
+    require(restored == before or restored == refreshed, "unrelated manifest modifications")
 
 
 def validate_candidate(result, repo, request, manifest, category_key, app, original):
@@ -485,7 +487,7 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
             and request["app_path"] in changes, "candidate is empty or metadata-only")
     stem = Path(request["target"]).stem
     archive = "apps/archive/" + stem + "/"
-    original_archive = archive + "v" + str(app.get("generation", 0)) + ".html"
+    original_archive = archive + "v" + str(app.get("generation", 0) + 1) + ".html"
     allowed = {request["app_path"], "apps/manifest.json",
                original_archive, archive + "molt-log.json"}
     require(set(changes) <= allowed, "candidate contains undeclared paths")
@@ -513,7 +515,8 @@ def validate_candidate(result, repo, request, manifest, category_key, app, origi
     if "base_unchanged" in result["evidence"]:
         require(result["evidence"]["base_unchanged"] is True, "candidate base snapshot was not stable")
     if "apps/manifest.json" in bodies:
-        _manifest_delta(manifest, _json(bodies["apps/manifest.json"]), category_key, request["target"], len(updated))
+        _manifest_delta(manifest, _json(bodies["apps/manifest.json"]), category_key,
+                        request["target"], len(changes[request["app_path"]]))
     records = []
     for name, body in sorted(bodies.items()):
         previous, mode = blob(repo, request["base_commit"], name, optional=True)
