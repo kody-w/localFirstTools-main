@@ -18,7 +18,7 @@ const browser = await chromium.launch({ executablePath, headless: true, chromium
 let checks = 0
 
 try {
-  const context = await browser.newContext({ offline: true, serviceWorkers: "block", viewport: { width: 1280, height: 900 } })
+  const context = await browser.newContext({ offline: true, serviceWorkers: "block", reducedMotion: "reduce", viewport: { width: 1280, height: 900 } })
   await context.route("**/*", route => route.request().url() === "https://timer.test/"
     ? route.fulfill({ status: 200, contentType: "text/html", body: source })
     : route.abort())
@@ -33,6 +33,26 @@ try {
   const reset = page.getByRole("button", { name: "REBOOT", exact: true })
   const work = page.getByRole("button", { name: "WORK_CYCLE", exact: true })
   const rest = page.getByRole("button", { name: "COOLDOWN", exact: true })
+
+  for (const viewport of [{ width: 320, height: 700 }, { width: 390, height: 844 }, { width: 844, height: 360 }]) {
+    await page.setViewportSize(viewport)
+    const container = await page.locator(".container").boundingBox()
+    assert(container && container.x >= 0 && container.x + container.width <= viewport.width, `Timer must fit ${viewport.width}px: ${JSON.stringify(container)}`)
+    for (const button of await page.getByRole("button").all()) {
+      await button.scrollIntoViewIfNeeded()
+      const box = await button.boundingBox()
+      assert(box && box.x >= 0 && box.x + box.width <= viewport.width && box.y >= 0 && box.y + box.height <= viewport.height, `Control must be reachable: ${JSON.stringify(box)}`)
+      assert(box.width >= 44 && box.height >= 44, "Timer controls must retain 44px touch targets.")
+    }
+    await page.evaluate(() => scrollTo(0, 0))
+    if (screenshot && viewport.width === 320) {
+      const parsed = path.parse(path.resolve(screenshot))
+      await page.screenshot({ path: path.join(parsed.dir, parsed.name + "-mobile" + parsed.ext) })
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.evaluate(() => scrollTo(0, 0))
+  checks++
 
   assert.equal(await display.textContent(), "25:00")
   await start.click()
@@ -105,7 +125,7 @@ try {
   console.log(JSON.stringify({
     status: "passed", checks,
     source_sha256: createHash("sha256").update(source).digest("hex"),
-    scope: "Actual Cyber Timer HTML in an offline isolated browser; throttled callbacks, pause/resume, modes, completion, restart and visibility reconciliation.",
+    scope: "Actual Cyber Timer HTML in an offline isolated browser; reachable narrow/short-screen controls, throttled callbacks, pause/resume, modes, completion, restart and visibility reconciliation.",
   }))
 } finally {
   await browser.close()
