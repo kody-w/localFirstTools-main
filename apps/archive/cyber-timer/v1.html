@@ -176,43 +176,6 @@
             color: var(--neon-blue);
             opacity: 0.8;
         }
-
-        @media (max-width: 520px), (max-height: 600px) {
-            body {
-                height: auto;
-                min-height: 100vh;
-                min-height: 100dvh;
-                box-sizing: border-box;
-                padding: 1rem;
-                overflow-y: auto;
-            }
-        }
-
-        @media (max-width: 520px) {
-            .container {
-                width: 100%;
-                max-width: 28rem;
-                box-sizing: border-box;
-                padding: 1.5rem 1rem;
-            }
-
-            h1 {
-                font-size: clamp(1.1rem, 5vw, 1.5rem);
-                letter-spacing: 2px;
-            }
-
-            .timer-display { font-size: clamp(3rem, 18vw, 5rem); }
-            .controls { flex-wrap: wrap; gap: 0.75rem; }
-            button { min-height: 44px; padding: 10px 14px; font-size: 1rem; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            .glitch::before, .glitch::after, .scanline {
-                animation: none;
-                display: none;
-            }
-            button { transition: none; }
-        }
     </style>
 <meta name="rappterzoo:author" content="agent">
 <meta name="rappterzoo:author-type" content="agent">
@@ -249,8 +212,7 @@
 
     <script>
         // Timer Logic
-        let remainingMs = 25 * 60 * 1000;
-        let deadline = null;
+        let timeLeft = 25 * 60;
         let timerId = null;
         let isWorkMode = true;
         let isRunning = false;
@@ -264,7 +226,6 @@
         const statusText = document.getElementById('status');
 
         function updateDisplay() {
-            const timeLeft = Math.ceil(remainingMs / 1000);
             const minutes = Math.floor(timeLeft / 60);
             const seconds = timeLeft % 60;
             const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
@@ -273,68 +234,53 @@
             document.title = `[${timeString}] CYBER_TIMER`;
         }
 
-        function stopTimer() {
-            clearInterval(timerId);
-            timerId = null;
-            isRunning = false;
-            deadline = null;
-        }
-
-        function synchronizeTimer() {
-            if (!isRunning) return;
-            // Callbacks may be throttled while the tab or computer is inactive.
-            remainingMs = Math.max(0, deadline - Date.now());
-            updateDisplay();
-            if (remainingMs === 0) {
-                stopTimer();
-                playAlarm();
-                statusText.textContent = "SEQUENCE COMPLETE.";
-            }
-        }
-
         function startTimer() {
             if (isRunning) return;
-            if (remainingMs === 0) {
-                remainingMs = (isWorkMode ? 25 : 5) * 60 * 1000;
-            }
             
             // Initialize Audio Context on first user interaction
             initAudio();
             
-            deadline = Date.now() + remainingMs;
             isRunning = true;
             statusText.textContent = "PROCESS RUNNING...";
-            updateDisplay();
-            timerId = setInterval(synchronizeTimer, 250);
+            timerId = setInterval(() => {
+                timeLeft--;
+                updateDisplay();
+                
+                if (timeLeft === 0) {
+                    clearInterval(timerId);
+                    isRunning = false;
+                    playAlarm();
+                    statusText.textContent = "SEQUENCE COMPLETE.";
+                }
+            }, 1000);
         }
 
         function pauseTimer() {
-            if (isRunning) synchronizeTimer();
-            if (remainingMs === 0) return;
-            stopTimer();
+            clearInterval(timerId);
+            isRunning = false;
             statusText.textContent = "PROCESS PAUSED.";
         }
 
         function resetTimer() {
-            stopTimer();
-            remainingMs = (isWorkMode ? 25 : 5) * 60 * 1000;
+            pauseTimer();
+            timeLeft = isWorkMode ? 25 * 60 : 5 * 60;
             updateDisplay();
             statusText.textContent = "SYSTEM REBOOTED.";
         }
 
         function setMode(mode) {
-            stopTimer();
             isWorkMode = mode === 'work';
             if (isWorkMode) {
                 workModeBtn.classList.add('active');
                 breakModeBtn.classList.remove('active');
+                timeLeft = 25 * 60;
             } else {
                 workModeBtn.classList.remove('active');
                 breakModeBtn.classList.add('active');
+                timeLeft = 5 * 60;
             }
-            remainingMs = (isWorkMode ? 25 : 5) * 60 * 1000;
+            pauseTimer();
             updateDisplay();
-            statusText.textContent = "PROCESS PAUSED.";
         }
 
         startBtn.addEventListener('click', startTimer);
@@ -343,7 +289,6 @@
         
         workModeBtn.addEventListener('click', () => setMode('work'));
         breakModeBtn.addEventListener('click', () => setMode('break'));
-        document.addEventListener('visibilitychange', synchronizeTimer);
 
         // Audio Logic (Synthwave Alarm)
         let audioCtx;
@@ -412,10 +357,10 @@
 
             // Repeat for a few pulses
             setTimeout(() => {
-                if(!isRunning && remainingMs === 0) playAlarmPulse(1.1); // Slightly higher pitch
+                if(!isRunning) playAlarmPulse(1.1); // Slightly higher pitch
             }, 500);
              setTimeout(() => {
-                if(!isRunning && remainingMs === 0) playAlarmPulse(0.9); // Slightly lower pitch
+                if(!isRunning) playAlarmPulse(0.9); // Slightly lower pitch
             }, 1000);
         }
 

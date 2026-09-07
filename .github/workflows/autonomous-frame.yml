@@ -1,4 +1,4 @@
-name: Autonomous Frame
+name: Mutating Apps
 on:
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours
@@ -34,6 +34,7 @@ jobs:
       - name: Refresh main after lock
         run: |
           git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
           git checkout -B main origin/main
 
       - name: Configure git
@@ -44,10 +45,168 @@ jobs:
       - name: Verify append-only organism ledger
         run: python3 scripts/organism_ledger.py verify --git-base HEAD^
 
-      - name: Run autonomous frame
-        run: python3 scripts/autonomous_frame.py --verbose --skip-create
+      - name: Bind proposal cache to the committed input
+        id: input
+        run: echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore a previously prepared candidate
+        id: proposal_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/mutation-proposal.tar
+          key: mutation-proposal-v1-${{ steps.input.outputs.base_sha }}
+
+      - name: Do not regenerate completed work after cache loss
+        if: steps.proposal_cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_COMMIT: ${{ steps.input.outputs.base_sha }}
+        run: |
+          gh api --method GET --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/autonomous-frame.yml/runs" \
+            -f head_sha="$BASE_COMMIT" -f per_page=100 \
+            > "$RUNNER_TEMP/mutation-run-history.json"
+          python3 - "$RUNNER_TEMP/mutation-run-history.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          pages = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not pages or any("workflow_runs" not in page for page in pages):
+              raise SystemExit("Cannot establish prior mutation history; refusing automatic regeneration.")
+          runs = [run for page in pages for run in page["workflow_runs"]]
+          if any(page["total_count"] > len(runs) for page in pages):
+              raise SystemExit("Mutation history is incomplete; inspect retained artifacts before retrying.")
+          previous = [
+              run for run in runs
+              if str(run["id"]) != os.environ["GITHUB_RUN_ID"]
+              and run["head_sha"] == os.environ["BASE_COMMIT"]
+              and run["head_branch"] == "main"
+              and run["conclusion"] == "success"
+          ]
+          if previous:
+              raise SystemExit(
+                  "This committed input already completed but its cache is unavailable. "
+                  "Restore the preserved review artifact rather than regenerating it: "
+                  + previous[0]["html_url"]
+              )
+          PY
+
+      - name: Restore the exact cached artifact
+        if: steps.proposal_cache.outputs.cache-hit == 'true'
+        env:
+          BASE_COMMIT: ${{ steps.input.outputs.base_sha }}
+        run: |
+          python3 -B scripts/mutation_handoff.py unpack \
+            "$RUNNER_TEMP/mutation-proposal.tar" "$RUNNER_TEMP/molter-proposal" \
+            --repo "$GITHUB_WORKSPACE" --base "$BASE_COMMIT" \
+            --repository "$GITHUB_REPOSITORY"
+
+      - name: Prepare one qualified review candidate
+        id: prepare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_COMMIT: ${{ steps.input.outputs.base_sha }}
+          MOLTER_OBJECTIVE: Improve a concrete correctness or usability problem in the selected app while preserving its purpose and existing features.
+        run: |
+          if python3 scripts/autonomous_frame.py \
+            --prepare-proposal "$RUNNER_TEMP/molter-proposal" \
+            --base "$BASE_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --allow-model \
+            --objective "$MOLTER_OBJECTIVE" \
+            > "$RUNNER_TEMP/molter-proposal-result.json"; then
+            result_code=0
+          else
+            result_code=$?
+          fi
+          python3 - "$RUNNER_TEMP/molter-proposal-result.json" "$result_code" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          code = int(sys.argv[2])
+          try:
+              result = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, json.JSONDecodeError):
+              result = {"status": "failed", "qualified": False}
+              code = code or 1
+          status = result.get("status") if isinstance(result, dict) else "failed"
+          qualified = (
+              code == 0 and status == "prepared"
+              and result.get("qualified") is True
+              and result.get("deployment_verified") is False
+          )
+          if status not in {"prepared", "failed", "rejected", "blocked", "dry_run"}:
+              status = "failed"
+          safe = {
+              "schema": "molter-workflow-outcome/v1",
+              "status": status,
+              "qualified": qualified,
+              "base_commit": os.environ["BASE_COMMIT"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "deployment_verified": False,
+              "scope": "Workflow outcome only; raw prompts, diagnostics and interrupted staging are not exported.",
+          }
+          diagnostics = Path(os.environ["RUNNER_TEMP"]) / "molter-outcome.json"
+          diagnostics.write_text(json.dumps(safe, sort_keys=True) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("qualified=" + str(qualified).lower() + "\n")
+          print(json.dumps(safe, sort_keys=True))
+          raise SystemExit(0 if qualified else code or 1)
+          PY
+
+      - name: Package the complete verified candidate
+        id: package
+        if: steps.prepare.outputs.qualified == 'true' && steps.proposal_cache.outputs.cache-hit != 'true'
+        env:
+          BASE_COMMIT: ${{ steps.input.outputs.base_sha }}
+        run: |
+          python3 -B scripts/mutation_handoff.py pack \
+            "$RUNNER_TEMP/molter-proposal" "$RUNNER_TEMP/mutation-proposal.tar" \
+            --repo "$GITHUB_WORKSPACE" --base "$BASE_COMMIT" \
+            --repository "$GITHUB_REPOSITORY"
+
+      - name: Retain the verified candidate for identical future requests
+        if: steps.prepare.outputs.qualified == 'true' && steps.proposal_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/mutation-proposal.tar
+          key: mutation-proposal-v1-${{ steps.input.outputs.base_sha }}
+
+      - name: Preserve the complete qualified candidate
+        id: artifact
+        if: steps.prepare.outputs.qualified == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-proposal-${{ steps.input.outputs.base_sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/mutation-proposal.tar
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Preserve safe outcome metadata
+        if: always() && steps.prepare.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-outcome-${{ github.run_id }}
+          path: ${{ runner.temp }}/molter-outcome.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Report the actual delivery boundary
+        if: always() && steps.artifact.outcome == 'success'
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          QUALIFIED: ${{ steps.prepare.outputs.qualified }}
+        run: |
+          if [ "$QUALIFIED" = "true" ]; then
+            printf '## Prepared review candidate\n\n[Preserved artifact](%s)\n\nNo application changes were pushed to main. Verify and inspect the candidate in an isolated worktree, then submit it through normal review. Preparation is not approval or deployment.\n' "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '## No qualified candidate\n\n[Preserved diagnostics](%s)\n\nNo application changes were pushed to main. Failed or unchanged work is not an improvement and does not close agent issues.\n' "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Release repository writer lock
         if: always()

@@ -9,13 +9,23 @@ Consolidates common functions used by autosort.py, app.py, and molt.py:
 """
 
 import json
+import logging
+import math
+import os
 import re
 import shutil
+import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 MODEL = "claude-opus-4.6"
+MAX_PROMPT_BYTES = 8 * 1024 * 1024
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_ERROR_BYTES = 64 * 1024
+POSIX = os.name == "posix"
+LOGGER = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 APPS_DIR = ROOT / "apps"
@@ -49,60 +59,136 @@ def detect_backend():
     return "unavailable"
 
 
-def copilot_call(prompt, timeout=120):
-    """Send a prompt to Copilot CLI with Claude Opus and return the raw response.
-    
-    For large prompts (>100KB), writes to a temp file to avoid OS ARG_MAX limits.
-    """
-    import tempfile
-    # For prompts under 100KB, pass as -p argument (fast path)
-    if len(prompt) < 100_000:
-        cmd = [
-            "gh", "copilot",
-            "--model", MODEL,
-            "-p", prompt,
-            "--no-ask-user",
-        ]
+def _stop_inference(process):
+    if POSIX:
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout,
-            )
-            if result.returncode != 0:
-                return None
-            return result.stdout.strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return None
-    else:
-        # Large prompts: write to temp file and reference it in prompt
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, prefix="molt_prompt_"
-        ) as f:
-            f.write(prompt)
-            tmp_path = f.name
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    elif process.poll() is None:
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=5, check=True,
+        )
+    process.wait(timeout=5)
+
+
+def _run_inference(command, *, cwd, env, timeout, scratch):
+    """Capture privately on disk; never retain oversized output in memory."""
+    with tempfile.TemporaryFile(dir=scratch) as output, tempfile.TemporaryFile(dir=scratch) as errors:
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=errors,
+            start_new_session=POSIX,
+        )
+        deadline = time.monotonic() + timeout
         try:
-            meta_prompt = (
-                f"Read the file at {tmp_path} and follow the instructions inside it exactly. "
-                f"Return ONLY the improved HTML as instructed in that file."
-            )
-            cmd = [
-                "gh", "copilot",
-                "--model", MODEL,
-                "-p", meta_prompt,
-                "--allow-all",
-            ]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout,
-            )
-            if result.returncode != 0:
+            while True:
+                if os.fstat(output.fileno()).st_size > MAX_RESPONSE_BYTES:
+                    LOGGER.warning("Copilot response exceeded the byte limit.")
+                    return None
+                if os.fstat(errors.fileno()).st_size > MAX_ERROR_BYTES:
+                    LOGGER.warning("Copilot diagnostics exceeded the byte limit.")
+                    return None
+                result = process.poll()
+                if result is not None:
+                    if result != 0:
+                        LOGGER.warning("Copilot inference failed with exit code %s; output is not logged.", result)
+                        return None
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    LOGGER.warning("Copilot inference exceeded its timeout.")
+                    return None
+                try:
+                    process.wait(timeout=min(0.1, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
+            if os.fstat(errors.fileno()).st_size > MAX_ERROR_BYTES:
+                LOGGER.warning("Copilot diagnostics exceeded the byte limit.")
                 return None
-            return result.stdout.strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return None
-        finally:
+            output.seek(0)
+            data = output.read(MAX_RESPONSE_BYTES + 1)
+            if len(data) > MAX_RESPONSE_BYTES:
+                LOGGER.warning("Copilot response exceeded the byte limit.")
+                return None
             try:
-                Path(tmp_path).unlink()
-            except OSError:
-                pass
+                response = data.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                LOGGER.warning("Copilot returned invalid UTF-8.")
+                return None
+            if not response:
+                LOGGER.warning("Copilot returned an empty response.")
+                return None
+            return response
+        finally:
+            _stop_inference(process)
+
+
+def copilot_call(prompt, timeout=120):
+    """Return model text with only a reader for the private input repository.
+
+    Callers must include required context. Command, write, network and MCP tools
+    are unavailable; prompt length never grants more authority. CLI path/tool
+    restrictions are not an operating-system sandbox.
+    """
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("Copilot requires a nonempty text prompt")
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("Copilot requires a finite positive timeout")
+    data = prompt.encode("utf-8")
+    if len(data) > MAX_PROMPT_BYTES:
+        LOGGER.warning("Copilot prompt exceeded the byte limit.")
+        return None
+    try:
+        with tempfile.TemporaryDirectory(prefix="molter-inference-") as temporary:
+            scratch = Path(temporary)
+            work = scratch / "input"
+            work.mkdir()
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env.pop("COPILOT_CUSTOM_INSTRUCTIONS_DIRS", None)
+            env.pop("COPILOT_ASSISTED_APPROVAL", None)
+            env["COPILOT_ALLOW_ALL"] = "false"
+            env["COPILOT_AUTO_UPDATE"] = "false"
+            env["COPILOT_HOME"] = str(scratch / "home")
+            env["GIT_CONFIG_GLOBAL"] = os.devnull
+            env["GIT_CONFIG_NOSYSTEM"] = "1"
+            # A caller's TMPDIR may itself be inside a repository with hooks.
+            initialized = subprocess.run(
+                ["git", "init", "--quiet", "--template=", str(work)],
+                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=15, check=False,
+            )
+            if initialized.returncode != 0:
+                LOGGER.warning("Copilot could not isolate its inference repository.")
+                return None
+            (work / "prompt.txt").write_bytes(data)
+            command = [
+                "gh", "copilot", "--", "-C", str(work),
+                "--model", MODEL,
+                "--available-tools=view", "--add-dir", str(work),
+                "--deny-tool=shell", "--deny-tool=write", "--deny-tool=url",
+                "--disable-builtin-mcps", "--disallow-temp-dir",
+                "--no-custom-instructions", "--no-bash-env",
+                "--no-remote-export", "--no-auto-update",
+                "--no-ask-user", "--no-color", "--log-level", "none", "--silent",
+                "-p", (
+                    "Read only the supplied prompt file at " + str(work / "prompt.txt") + ". "
+                    "Follow its instructions and return only the requested response. "
+                    "Do not read other files."
+                ),
+            ]
+            return _run_inference(
+                command, cwd=work, env=env, timeout=timeout, scratch=scratch,
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        LOGGER.warning("Copilot could not start or use its private inference workspace.")
+        return None
 
 
 def adaptive_timeout(prompt):

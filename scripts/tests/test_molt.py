@@ -201,6 +201,12 @@ def _import_molt():
 molt_mod = _import_molt()
 
 
+@pytest.fixture(autouse=True)
+def no_adaptive_inference():
+    with mock.patch("molt._analyze_content", return_value=None):
+        yield
+
+
 # ─── Prompt Construction Tests ────────────────────────────────────────────────
 
 
