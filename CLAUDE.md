@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-**RappterZoo** — an autonomous content platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, audio, file utilities, and more. Zero external dependencies, no build process. The platform hosts any self-contained browser application — not just games. NLweb-compatible for AI agent discovery.
+**RappterZoo** — an autonomous content platform served as a GitHub Pages static site. The current manifest indexes self-contained HTML apps spanning games, cryptocurrency, creative tools, audio, file utilities, and more. Individual apps have no build process. The gallery presentation source is an isolated React/TypeScript/Tailwind/shadcn package at `scripts/gallery-ui/`; its runtime JS, CSS and decorative image are bundled into `index.html`. The platform hosts any self-contained browser application — not just games. NLweb-compatible for AI agent discovery.
 
 **Live site:** https://kody-w.github.io/localFirstTools-main/
 
@@ -15,7 +15,7 @@ and historical records compatible; terminology changes do not rewrite evidence.
 ## Architecture
 
 ```
-index.html                      # Gallery frontend (Reddit-style feed, NPC comments, star ratings)
+index.html                      # Gallery frontend (grid/list feed, NPC comments, star ratings)
 apps/
   manifest.json                 # App registry (source of truth for the gallery)
   feed.json                     # NLweb Schema.org DataFeed (AI agent discovery)
@@ -76,6 +76,13 @@ rather than a new scheduler or a direct-main publisher.
 See `docs/molter-capabilities/README.md`. Preserve the pinned source-capsule
 bytes under `scripts/capabilities/source_capsule/`; never relabel fixtures or
 archived evidence as a fresh model run, approval or deployment.
+
+For gallery presentation changes, edit `scripts/gallery-ui/components/ui/` and
+`scripts/gallery-ui/src/`, then run `npm ci --prefix scripts/gallery-ui` and
+`npm run gallery:build`. Do not hand-edit the generated `glass-gallery-styles`
+or `glass-gallery-script` regions in `index.html`. Preserve the existing
+manifest/community logic and native gallery control IDs. See
+`scripts/gallery-ui/README.md` for component, theme and browser-check details.
 
 ```bash
 # Mutation acceptance and preserved-capability contracts
@@ -375,7 +382,13 @@ ECS console API: `mode` (init/update/draw), `G` (game state), `K()` (key check),
 
 ## Deployment
 
-Push to `main`. GitHub Pages auto-deploys from root. Seven CI workflows:
+GitHub Pages auto-deploys from root after an approved change reaches `main`.
+The solo-owner policy requires pull requests, current required checks and
+resolved conversations, but no approval from another reviewer. The owner
+authorizes merges; admin enforcement and force-push/deletion restrictions remain
+enabled. Do not change these settings without explicit owner authorization.
+CI includes:
+- `.github/workflows/gallery-ui.yml` — verifies the locked gallery build, existing feed contracts, and browser/component interactions.
 - `.github/workflows/autosort.yml` — auto-sorts any HTML files accidentally committed to root
 - `.github/workflows/autonomous-frame.yml` — prepares a bounded mutation review candidate every 6 hours (also manually triggerable); it does not publish application changes directly to main.
 - `.github/workflows/agent-cycle.yml` — runs the autonomous agent every 8 hours (offset from the mutation frame). Discovers platform, analyzes catalog gaps, creates apps, posts reviews, and queues mutations. Manually triggerable with mode/count/category params.
@@ -391,7 +404,7 @@ Push to `main`. GitHub Pages auto-deploys from root. Seven CI workflows:
 - **Always update manifest.json** when adding or removing apps. Validate after editing.
 - **Keep manifest.json and file system in sync.** Every manifest entry must have a matching file and vice versa.
 - **Regenerate feeds** after adding or removing apps: `python3 scripts/generate_feeds.py`
-- **No build process.** Everything is hand-editable static files.
+- **Standalone apps have no build process.** Only the gallery presentation uses the isolated `scripts/gallery-ui/` build; commit its bundled `index.html` output.
 - **No static content.** All community comments, broadcast dialogue, NPC names, and generated text must come from Copilot CLI (Claude Opus 4.6) calls — never from hardcoded template pools. Every run produces 100% fresh, unique content. No caching between runs.
 
 ## NLweb / Agent Discovery

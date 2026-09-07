@@ -144,7 +144,11 @@ git -C /absolute/clean-review-worktree switch review-mutation
 This is an explicit local application, not merge approval. Submit the reviewed
 branch through the repository's ordinary process. The adapter cannot attest
 that a PR exists, has been approved, has merged, or is served by GitHub Pages.
-Branch protection and independent review remain required.
+The solo-owner branch policy still requires pull requests, current required
+checks and resolved conversations, and applies to administrators. The owner
+authorizes merges without a second reviewer's approval. Force pushes and branch
+deletion remain disabled. The earlier failure record retains the protection
+settings that were observed at that time; it is not the current policy.
 
 ## Failure and retention
 
